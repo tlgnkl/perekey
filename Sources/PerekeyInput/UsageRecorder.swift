@@ -19,9 +19,18 @@ public struct UsageStatsFile: Sendable {
         self.url = url
     }
 
+    public var backupURL: URL { url.appendingPathExtension("bak") }
+
+    /// The stored counters; empty if there is no file. A file that cannot be
+    /// decoded (damaged, or from a newer Perekey) is kept as `statistics.json.bak`
+    /// once, so the next save does not overwrite it.
     public func load() -> UsageStats {
-        guard let data = try? Data(contentsOf: url), let stats = try? JSONDecoder().decode(UsageStats.self, from: data)
-        else { return UsageStats() }
+        guard let data = try? Data(contentsOf: url) else { return UsageStats() }
+        guard let stats = try? JSONDecoder().decode(UsageStats.self, from: data) else {
+            let manager = FileManager.default
+            if !manager.fileExists(atPath: backupURL.path) { try? manager.moveItem(at: url, to: backupURL) }
+            return UsageStats()
+        }
         return stats
     }
 
@@ -64,6 +73,14 @@ public final class UsageRecorder {
         self.isEnabled = isEnabled
         // The old file is read only if statistics are on: with them off nothing of it is used.
         stats = isEnabled() ? file.load() : UsageStats()
+        // After midnight "today" is another day with no event to say so.
+        NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.stats.prune(now: self.now())
+                self.revision += 1
+            }
+        }
     }
 
     public func recordCorrection(_ kind: Correction.Kind) { record { $0.recordCorrection(kind, at: $1) } }
@@ -72,7 +89,8 @@ public final class UsageRecorder {
 
     /// Statistics were just switched on: bring the stored days in.
     public func enabled() {
-        stats = file.load()
+        // Counters not on disk yet are newer than the file: keep them.
+        if !dirty { stats = file.load() }
         revision += 1
     }
 
@@ -101,7 +119,9 @@ public final class UsageRecorder {
         change(&stats, now())
         revision += 1
         dirty = true
-        let wait = interval - now().timeIntervalSince(lastWrite)
+        let elapsed = now().timeIntervalSince(lastWrite)
+        // A clock that went back puts the last write in the future: write now.
+        let wait = elapsed < 0 ? 0 : interval - elapsed
         if wait <= 0 {
             flush()
         } else if pendingWrite == nil {

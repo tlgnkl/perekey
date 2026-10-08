@@ -269,6 +269,8 @@ struct PKExampleChip: View {
         .fixedSize()
         .padding(.horizontal, 12)
         .frame(minWidth: 158, minHeight: 30, maxHeight: 30)
+        // After the frame: a long sample widens the chip instead of spilling out of it.
+        .fixedSize()
         .background(Color.pkPlate, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.pkRule, lineWidth: 0.5))
         .accessibilityElement(children: .ignore)

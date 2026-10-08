@@ -54,13 +54,25 @@ public struct UsageStats: Equatable, Sendable {
         prune(now: date, calendar: calendar)
     }
 
-    /// Drops days before the retention window that ends today.
+    /// Drops days before the retention window that ends today, then keeps at most
+    /// `retentionDays` days.
+    ///
+    /// A normal day change drops one old day. A wrong clock (a jump to 2030) would
+    /// drop them all, so a call that would drop more than `maxDroppedByDate` days by
+    /// date drops none that way; the count limit alone then costs one day per new day.
     public mutating func prune(now: Date, calendar: Calendar = .current) {
-        guard let first = calendar.date(byAdding: .day, value: -(Self.retentionDays - 1), to: calendar.startOfDay(for: now))
-        else { return }
-        let cutoff = Self.key(for: first, calendar: calendar)
-        days = days.filter { $0.key >= cutoff }
+        if let first = calendar.date(byAdding: .day, value: -(Self.retentionDays - 1), to: calendar.startOfDay(for: now)) {
+            let cutoff = Self.key(for: first, calendar: calendar)
+            let old = days.keys.filter { $0 < cutoff }
+            if old.count <= Self.maxDroppedByDate { old.forEach { days[$0] = nil } }
+        }
+        if days.count > Self.retentionDays {
+            for key in days.keys.sorted().prefix(days.count - Self.retentionDays) { days[key] = nil }
+        }
     }
+
+    /// The most days one call may drop for being too old.
+    static let maxDroppedByDate = 2
 
     public mutating func erase() { days = [:] }
 

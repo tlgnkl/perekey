@@ -104,7 +104,8 @@ struct GeneralPane: View {
 
     /// Opt-in counters. The week shows only while they are on.
     private func statisticsSection(_ usage: UsageRecorder) -> some View {
-        PKGroup(header: Text("Statistics")) {
+        _ = usage.revision
+        return PKGroup(header: Text("Statistics")) {
             PKRow(Text("Count corrections"),
                   detail: Text("Perekey keeps a count per day on this Mac: how many corrections, of which kind, how many you undid. No words, no apps. It keeps 8 weeks.")) {
                 Toggle(isOn: Binding(get: { store.settings.statistics }, set: { on in

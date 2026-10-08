@@ -83,3 +83,42 @@ import Testing
         #expect(!UsageRecorder(file: file) { true }.stats.isEmpty)
     }
 }
+
+@MainActor
+extension UsageRecorderTests {
+    @Test func aClockThatWentBackWritesAtOnce() {
+        let file = UsageStatsFile(url: FileManager.default.temporaryDirectory
+            .appending(path: "perekey-usage-\(UUID().uuidString)").appending(path: "statistics.json"))
+        defer { file.erase() }
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let recorder = UsageRecorder(file: file, interval: 5, now: { clock }) { true }
+        recorder.recordCorrection(.layout)
+        clock -= 86_400
+        recorder.recordCorrection(.layout)
+        #expect(file.load().days.values.map(\.correctionTotal).reduce(0, +) == 2)
+    }
+
+    @Test func anUnreadableFileIsKeptAside() throws {
+        let file = UsageStatsFile(url: FileManager.default.temporaryDirectory
+            .appending(path: "perekey-usage-\(UUID().uuidString)").appending(path: "statistics.json"))
+        defer { file.erase(); try? FileManager.default.removeItem(at: file.backupURL) }
+        try FileManager.default.createDirectory(at: file.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"version":99,"days":{}}"#.utf8).write(to: file.url)
+        #expect(file.load().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: file.backupURL.path))
+        #expect(!FileManager.default.fileExists(atPath: file.url.path))
+    }
+
+    @Test func switchingOnAgainKeepsUnsavedCounters() {
+        let file = UsageStatsFile(url: FileManager.default.temporaryDirectory
+            .appending(path: "perekey-usage-\(UUID().uuidString)").appending(path: "statistics.json"))
+        defer { file.erase() }
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let recorder = UsageRecorder(file: file, interval: 3600, now: { clock }) { true }
+        recorder.recordCorrection(.layout)   // written
+        clock += 1
+        recorder.recordCorrection(.layout)   // waits in memory
+        recorder.enabled()
+        #expect(recorder.stats.day(at: clock).correctionTotal == 2)
+    }
+}

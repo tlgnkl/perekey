@@ -5,13 +5,13 @@ import Testing
 @testable import PerekeyCore
 
 @Suite struct UsageStatsTests {
-    private var calendar: Calendar {
+    var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         return calendar
     }
 
-    private func date(_ day: Int, month: Int = 10, hour: Int = 12) -> Date {
+    func date(_ day: Int, month: Int = 10, hour: Int = 12) -> Date {
         calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour))!
     }
 
@@ -107,5 +107,27 @@ import Testing
     @Test func newerFormatIsRefused() {
         let json = Data(#"{"version":99,"days":{}}"#.utf8)
         #expect(throws: DecodingError.self) { try JSONDecoder().decode(UsageStats.self, from: json) }
+    }
+}
+
+extension UsageStatsTests {
+    @Test func aClockInTheFutureKeepsTheHistory() {
+        var stats = UsageStats()
+        for day in 1...10 { stats.recordCorrection(.layout, at: date(day), calendar: calendar) }
+        let future = calendar.date(from: DateComponents(year: 2030, month: 1, day: 1, hour: 12))!
+        stats.recordCorrection(.layout, at: future, calendar: calendar)
+        stats.recordCorrection(.layout, at: future, calendar: calendar)
+        stats.recordCorrection(.layout, at: future.addingTimeInterval(86_400), calendar: calendar)
+        #expect(stats.days.count == 12)
+        #expect(stats.day(at: date(1), calendar: calendar).correctionTotal == 1)
+    }
+
+    @Test func neverMoreThanFiftySixDaysStored() {
+        var stats = UsageStats()
+        let start = date(1, month: 1)
+        for offset in 0..<100 {
+            stats.recordCorrection(.layout, at: calendar.date(byAdding: .day, value: offset, to: start)!, calendar: calendar)
+        }
+        #expect(stats.days.count == UsageStats.retentionDays)
     }
 }

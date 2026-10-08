@@ -23,6 +23,11 @@ if [[ "$(xcode-select -p)" == "$clt" ]]; then
     if [[ -n "$framework" ]]; then
         dir="$(dirname "$framework")"
         extra+=(-Xswiftc -F -Xswiftc "$dir" -Xlinker -rpath -Xlinker "$dir")
+        # Testing.framework links @rpath/lib_TestingInterop.dylib.
+        interop="$(find "$clt" -maxdepth 6 -name lib_TestingInterop.dylib 2>/dev/null | head -n 1)"
+        if [[ -n "$interop" ]]; then
+            extra+=(-Xlinker -rpath -Xlinker "$(dirname "$interop")")
+        fi
     else
         echo "Swift Testing is not part of these Command Line Tools ($clt)." >&2
         echo "Install a newer Command Line Tools or Xcode to run the tests." >&2

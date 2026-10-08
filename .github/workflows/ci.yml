@@ -10,7 +10,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the benchmark builds the base commit too
       - run: swift --version
       - run: swift build
       - run: scripts/test.sh
       - run: scripts/bundle.sh
+      - name: Benchmark InputMachine against the base commit
+        run: scripts/bench.sh
+        env:
+          BENCH_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

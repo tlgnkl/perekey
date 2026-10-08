@@ -7,3 +7,4 @@ DerivedData/
 .impeccable/review/
 .impeccable/build/
 .impeccable/*.local.json
+.claude/worktrees/

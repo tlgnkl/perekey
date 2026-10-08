@@ -13,6 +13,7 @@ Requires macOS 14+ and Swift 6 (Xcode or Command Line Tools).
 
 ```sh
 scripts/test.sh       # run unit tests
+scripts/bench.sh      # benchmark the input logic (BENCH_BASE=<ref> compares)
 scripts/dev-cert.sh   # once: create a local "Perekey Dev" signing identity
 scripts/bundle.sh     # build and sign .build/app/Perekey.app
 ```

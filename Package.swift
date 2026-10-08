@@ -26,5 +26,6 @@ let package = Package(
             dependencies: ["PerekeyCore"],
             resources: [.copy("Fixtures")]
         ),
+        .testTarget(name: "PerekeyInputTests", dependencies: ["PerekeyCore", "PerekeyInput"]),
     ]
 )

@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import PerekeyInput
 import SwiftUI
 
 @main
 struct PerekeyApp: App {
+    // A plain `let`: the App value is created once, and the `@State` macro plugin
+    // is missing from Command Line Tools.
+    private let inputSources = InputSources()
+
     init() {
         // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;
         // this keeps `swift run` behaving the same way.
@@ -12,13 +17,17 @@ struct PerekeyApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Perekey", systemImage: "keyboard") {
+        MenuBarExtra {
             Text("Perekey \(Bundle.main.shortVersion)")
+            Divider()
+            LayoutsMenu(sources: inputSources)
             Divider()
             SettingsLink { Text("Settings…") }
                 .keyboardShortcut(",")
             Button("Quit Perekey") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
+        } label: {
+            Text(inputSources.currentLayout.map(inputSources.indicator(of:)) ?? "⌨")
         }
 
         Settings {

@@ -104,8 +104,10 @@ final class InputController {
         observeSystem()
         observePause()
         observeAppMode()
-        observeLanguageContext()
         engine.start()
+        // After start: before it the tap thread has no run loop, and the
+        // context of the first app would be dropped.
+        observeLanguageContext()
         focus.start()
     }
 

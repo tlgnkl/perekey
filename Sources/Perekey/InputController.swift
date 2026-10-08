@@ -209,6 +209,8 @@ final class InputController {
     /// Puts an undone word on the learned list and says so at the caret, with
     /// «Forget» to take it back.
     private func learn(_ word: String) {
+        // The onboarding demo undoes «ghbdtn» on purpose: that teaches nothing.
+        guard !appModes.onboardingDemo else { return }
         var added = false
         store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970) }
         guard added else { return }

@@ -27,9 +27,14 @@ final class AppModeController {
     /// The autoswitch decision reads this: `.auto` fixes by itself, `.manualOnly`
     /// only on the user's command, `.off` never (the pause card is shown then).
     var mode: AppMode {
+        if onboardingDemo { return .auto }
         guard let frontmost else { return .auto }
         return store.settings.effectiveMode(bundleID: frontmost.bundleID, isGame: frontmost.isGame)
     }
+
+    /// The onboarding demo is on screen: Perekey's own window acts as an app in
+    /// «Auto» mode, whatever app the user came from (a terminal, a game).
+    var onboardingDemo = false
 
     @ObservationIgnored private let sources: InputSources
     @ObservationIgnored private let store: SettingsStore

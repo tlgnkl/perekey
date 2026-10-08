@@ -8,12 +8,13 @@
 # Usage: scripts/fetch-data.sh [group...]
 #
 # Groups:
-#   lexicon   word lists and frequencies for the model (~12 MB)
-#   text      Wikipedia text for character n-grams (~360 MB)
+#   lexicon   word lists and frequencies for the model (~15 MB)
+#   text      Wikipedia text for character n-grams (~540 MB)
 #   model     lexicon + text (default)
-#   heldout   held-out corpus sources, used only for evaluation (~130 MB)
+#   heldout   held-out corpus sources, used only for evaluation (~140 MB)
 #   heavy     large optional held-out source: ru.stackoverflow.com (~1 GB)
-#   fallback  needs a legal decision before use: OpenCorpora dictionary
+#   fallback  needs a legal decision before use: OpenCorpora (ru), Wiktionary
+#             forms (uk, ~300 MB)
 #   all       model + heldout
 #
 # Environment:
@@ -47,6 +48,7 @@ IA_SE=https://archive.org/download/stackexchange
 SOURCES="
 lexicon|wordfreq/large_ru.msgpack.gz|$GH_RAW/rspeer/wordfreq/$WORDFREQ_REV/wordfreq/data/large_ru.msgpack.gz|0440613cc765c14a20fb9483225f2fec4d85e66672809076bcec9b29119f9b43
 lexicon|wordfreq/large_en.msgpack.gz|$GH_RAW/rspeer/wordfreq/$WORDFREQ_REV/wordfreq/data/large_en.msgpack.gz|dffae8066b78dce0a6667cf5f58e567054f902674667090a7ac8a8a44628b05c
+lexicon|wordfreq/large_uk.msgpack.gz|$GH_RAW/rspeer/wordfreq/$WORDFREQ_REV/wordfreq/data/large_uk.msgpack.gz|0a7d525ef5b9d2c84cd3ccd1064b02eb6a07232e5d1e465df40cc00168fdaac2
 lexicon|wordfreq/LICENSE.txt|$GH_RAW/rspeer/wordfreq/$WORDFREQ_REV/LICENSE.txt|8990c551671a51765c4dfe9428f3e1d58dc327f49aca346a32d28cc0fcc7aa88
 lexicon|wordfreq/README.md|$GH_RAW/rspeer/wordfreq/$WORDFREQ_REV/README.md|0f1db058e1df2e6bda2db5d0ea851a7111d2390ec16a9939d971ef53ea24f684
 lexicon|hunspell-ru/ru_RU.dic|$GH_RAW/LibreOffice/dictionaries/$LO_DICT_REV/ru_RU/ru_RU.dic|f6047416a0204adbecf3a451b874ec8a97ee37e2cbc714466ef04d8dbcc0d6fc
@@ -55,15 +57,19 @@ lexicon|hunspell-ru/README_ru_RU.txt|$GH_RAW/LibreOffice/dictionaries/$LO_DICT_R
 lexicon|esdb/hunspell-en_US-large-$ESDB_VER.zip|https://github.com/en-wl/wordlist/releases/download/$ESDB_REL/hunspell-en_US-large-$ESDB_VER.zip|06ab5a2a12c29033f100988d3b0a5e53dcad40bf2473ccb78270619d1da99321
 text|wikipedia/ru/train-00007-of-00021.parquet|$HF_WIKI.ru/train-00007-of-00021.parquet|39b59952cd92a148b301f4d2b3ae1fb71e4caab987c6abe278f0dbdf0b01bb88
 text|wikipedia/en/train-00028-of-00041.parquet|$HF_WIKI.en/train-00028-of-00041.parquet|10589a39188af404fa458da252df7dcf22c6f6395a1501d9243ef56ce4c3c148
+text|wikipedia/uk/train-00002-of-00010.parquet|$HF_WIKI.uk/train-00002-of-00010.parquet|11f25bf916b71e9030626104542acbe298b0ee1bfc394444928253d91a4095a2
 heldout|tatoeba/sentences_CC0.tar.bz2|https://downloads.tatoeba.org/exports/sentences_CC0.tar.bz2|-
 heldout|tatoeba/rus_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/rus/rus_sentences.tsv.bz2|-
 heldout|tatoeba/eng_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2|-
+heldout|tatoeba/ukr_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/ukr/ukr_sentences.tsv.bz2|-
 heldout|stackexchange/russian.stackexchange.com.7z|$IA_SE/russian.stackexchange.com.7z|5508d4cb5978e216482225aef6f193dec31b7d67f16d0fa5ad0367931103348d
 heldout|stackexchange/rus.stackexchange.com.7z|$IA_SE/rus.stackexchange.com.7z|f7ce56e7027f55ebc735c6206e712c75f47b9b508a0f851580f32a086590b930
+heldout|stackexchange/ukrainian.stackexchange.com.7z|$IA_SE/ukrainian.stackexchange.com.7z|8cf51f9d9e69ed9e05870002a440628cccc99074ebc842aeec7439b7ec21636c
 heldout|stackexchange/license.txt|$IA_SE/license.txt|d36393108ad6b64f97a7b17dd873fe670ace6aa948975ef546a744481678e545
 heldout|geonames/cities15000.zip|https://download.geonames.org/export/dump/cities15000.zip|-
 heavy|stackexchange/ru.stackoverflow.com.7z|$IA_SE/ru.stackoverflow.com.7z|sha1:32a8897c021e9c943b93f8fd70dfafb180925451
 fallback|opencorpora/dict.opcorpora.xml.bz2|https://opencorpora.org/files/export/dict/dict.opcorpora.xml.bz2|-
+fallback|wiktionary/kaikki-uk.jsonl|https://kaikki.org/dictionary/Ukrainian/kaikki.org-dictionary-Ukrainian.jsonl|-
 "
 
 die() { echo "fetch-data: $*" >&2; exit 1; }
@@ -144,7 +150,7 @@ for arg in "$@"; do
         lexicon|text|heldout|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
         model) GROUPS_WANTED+=(lexicon text) ;;
         all) GROUPS_WANTED+=(lexicon text heldout) ;;
-        -h|--help) sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown group: $arg (lexicon, text, model, heldout, heavy, fallback, all)" ;;
     esac
 done

@@ -152,3 +152,10 @@
 "Forget" = "Forget";
 "Forget all" = "Forget all";
 "Learned" = "Learned";
+"Auto" = "Auto";
+"Manual only" = "Manual only";
+"Off" = "Off";
+"Built-in default" = "Built-in default";
+"Your rule" = "Your rule";
+"The file is not a Perekey settings file." = "The file is not a Perekey settings file.";
+"The file comes from a newer Perekey (format %@). Update Perekey and try again." = "The file comes from a newer Perekey (format %@). Update Perekey and try again.";

@@ -8,7 +8,7 @@ import sys
 LANGS = ["en", "ru"]
 SKIP = {"DebugSnapshot.swift"}  # debug-only fixtures, never shown to users
 OPENERS = re.compile(
-    r'(?:String\(localized:\s*|\b(?:Text|Label|Button|Section|Picker|TextField|Toggle)\(\s*'
+    r'(?:String\(localized:\s*|LocalizedStringResource\(\s*|\b(?:Text|Label|Button|Section|Picker|TextField|Toggle)\(\s*'
     r'|\.(?:help|accessibilityLabel)\(\s*|\b(?:title|lead|text):\s*)"')
 
 
@@ -36,7 +36,8 @@ def read_literal(src, i):
 
 def source_keys():
     keys = {}
-    for path in sorted(glob.glob("Sources/Perekey/*.swift")):
+    paths = glob.glob("Sources/Perekey/**/*.swift", recursive=True) + glob.glob("Sources/PerekeyInput/*.swift")
+    for path in sorted(paths):
         if path.split("/")[-1] in SKIP:
             continue
         src = open(path, encoding="utf-8").read()

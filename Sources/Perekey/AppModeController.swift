@@ -141,9 +141,9 @@ extension SettingsStore {
 extension AppMode {
     var title: LocalizedStringResource {
         switch self {
-        case .auto: "Auto"
-        case .manualOnly: "Manual only"
-        case .off: "Off"
+        case .auto: LocalizedStringResource("Auto")
+        case .manualOnly: LocalizedStringResource("Manual only")
+        case .off: LocalizedStringResource("Off")
         }
     }
 }

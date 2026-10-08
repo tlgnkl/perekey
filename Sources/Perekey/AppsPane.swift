@@ -170,7 +170,7 @@ private struct AppRow: View {
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.name).font(PK.Font.body).foregroundStyle(Color.pkInk).lineLimit(1)
-                Text(entry.rule == nil ? "Built-in default" : "Your rule")
+                Text(entry.rule == nil ? String(localized: "Built-in default") : String(localized: "Your rule"))
                     .font(PK.Font.caption)
                     .foregroundStyle(Color.pkInk2)
             }

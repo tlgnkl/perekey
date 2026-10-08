@@ -152,3 +152,10 @@
 "Forget" = "Забыть";
 "Forget all" = "Забыть все";
 "Learned" = "Выученные";
+"Auto" = "Авто";
+"Manual only" = "Вручную";
+"Off" = "Выкл.";
+"Built-in default" = "По умолчанию";
+"Your rule" = "Ваше правило";
+"The file is not a Perekey settings file." = "Это не файл настроек Perekey.";
+"The file comes from a newer Perekey (format %@). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %@). Обновите Perekey и попробуйте снова.";

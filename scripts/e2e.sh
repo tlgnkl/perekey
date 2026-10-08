@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Local end-to-end check: types wrong-layout words into real apps, presses the
-# retype shortcut (Option) and compares the text with the expected one.
+# retype shortcut (Option) and compares the text with the expected one; then
+# does the same with automatic switching on, Backspace undo included.
+# It edits Perekey's settings file for that and restores it at exit.
 # Not for CI: it needs Accessibility for the terminal and a logged-in session.
 #
 # Usage: scripts/e2e.sh [--dry-run] [--no-build] [--apps "TextEdit Safari ..."]
@@ -51,14 +53,26 @@ say() { echo "$*" | tee -a "$RESULTS"; }
 run() { if [[ $DRY -eq 1 ]]; then echo "  [dry] $*"; else "$@"; fi; }
 h() { if [[ $DRY -eq 1 ]]; then echo "  [dry] perekey-e2e $*"; else "$HELPER" "$@"; fi; }
 
-# Scenarios: name | typed text | Option presses | typed right after | expected.
-# "Right after" is typed with no pause, to catch letters lost to the old layout.
+# Scenarios: phase | name | typed text | Option presses | typed right after | expected.
+# "Right after" is typed with no pause, to catch letters lost to the old
+# layout; "{delete}" presses Backspace instead. "Auto fast" types the whole
+# "ghbdtn vbh " at 5 ms a key: the plan's check that letters after an
+# automatic switch do not go to the old layout.
+# Phase "manual" runs with automatic switching off (the settings file is
+# edited before launch and restored at exit), "auto" with it on, and only in
+# apps whose built-in mode is "auto": Terminal and VS Code are "manual only".
 SCENARIOS=(
-    "Option|ghbdtn|1||привет"
-    "Option twice|ghbdtn|2||ghbdtn"
-    "Option comma|,eltn|1||будет"
-    "Fast typing|ghbdtn|1| vbh|привет мир"
+    "manual|Option|ghbdtn|1||привет"
+    "manual|Option twice|ghbdtn|2||ghbdtn"
+    "manual|Option comma|,eltn|1||будет"
+    "manual|Fast typing|ghbdtn|1| vbh|привет мир"
+    "auto|Autoswitch|ghbdtn |0||привет"
+    "auto|Auto fast||0|ghbdtn vbh |привет мир"
+    "auto|Auto undo|ghbdtn |0|{delete}|ghbdtn"
 )
+AUTO_APPS="TextEdit Safari Chrome Telegram"
+SETTINGS="$HOME/Library/Application Support/Perekey/settings.json"
+SETTINGS_BACKUP="$OUT_DIR/settings-backup-$STAMP.json"
 
 # --- build and start --------------------------------------------------------
 if [[ $BUILD -eq 1 ]]; then
@@ -83,13 +97,47 @@ MSG
 fi
 
 # `open`, never the binary: macOS ties permissions to the bundle.
-run pkill -x Perekey 2>/dev/null || true
-run open "$APP"
-run sleep 2
-if [[ $DRY -eq 0 ]] && ! pgrep -x Perekey >/dev/null; then
-    echo "Perekey did not start." >&2
-    exit 1
-fi
+launch() {
+    run pkill -x Perekey 2>/dev/null || true
+    run sleep 0.5
+    run open "$APP"
+    run sleep 2
+    if [[ $DRY -eq 0 ]] && ! pgrep -x Perekey >/dev/null; then
+        echo "Perekey did not start." >&2
+        exit 1
+    fi
+}
+
+# Perekey reads its settings at launch: set automatic switching in the file
+# (learning from undos off), then (re)launch. The user's file is put back at exit.
+restore_settings() {
+    [[ $DRY -eq 1 ]] && return 0
+    pkill -x Perekey 2>/dev/null || true
+    if [[ -f "$SETTINGS_BACKUP" ]]; then cp "$SETTINGS_BACKUP" "$SETTINGS"; else rm -f "$SETTINGS"; fi
+}
+set_autoswitch() {
+    if [[ $DRY -eq 1 ]]; then echo "  [dry] autoswitch = $1"; return 0; fi
+    pkill -x Perekey 2>/dev/null || true
+    sleep 0.5
+    python3 - "$SETTINGS" "$1" <<'PY'
+import json, os, sys
+path, on = sys.argv[1], sys.argv[2] == "true"
+settings = {}
+if os.path.exists(path):
+    with open(path) as f:
+        settings = json.load(f)
+settings["autoswitch"] = on
+# An undone switch must not teach "ghbdtn" to the next scenario.
+words = settings.get("words") or {}
+words["learnFromUndos"] = False
+settings["words"] = words
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(settings, f, ensure_ascii=False, indent=2)
+PY
+}
+if [[ $DRY -eq 0 && -f "$SETTINGS" ]]; then cp "$SETTINGS" "$SETTINGS_BACKUP"; fi
+trap restore_settings EXIT
 
 # --- per-app drivers ---------------------------------------------------------
 # For each app NAME: installed_NAME, setup_NAME, clear_NAME, read_NAME,
@@ -182,18 +230,25 @@ ensure_abc() {
 }
 
 run_scenario() {
-    local app="$1" spec="$2" name typed presses after expected got status i
-    IFS='|' read -r name typed presses after expected <<<"$spec"
+    local app="$1" spec="$2" phase name typed presses after expected got status i
+    IFS='|' read -r phase name typed presses after expected <<<"$spec"
     "clear_$app"
     ensure_abc
-    h type "$typed"
-    h sleep-ms 400
+    if [[ -n "$typed" ]]; then
+        h type "$typed"
+        h sleep-ms 400
+    fi
     for ((i = 0; i < presses; i++)); do
         h option
         # Between two presses wait for the retype to finish; before typing, do not.
         if ((i + 1 < presses)); then h sleep-ms 500; fi
     done
-    if [[ -n "$after" ]]; then h type --delay-ms 5 "$after"; fi
+    if [[ "$after" == "{delete}" ]]; then
+        h sleep-ms 400
+        h key delete
+    elif [[ -n "$after" ]]; then
+        h type --delay-ms 5 "$after"
+    fi
     h sleep-ms 700
     if [[ $DRY -eq 1 ]]; then
         got="(dry run)"; status="DRY"
@@ -205,17 +260,26 @@ run_scenario() {
 }
 
 say "Perekey e2e $STAMP, macOS $(sw_vers -productVersion 2>/dev/null || echo '?')"
-for app in $APPS; do
-    if ! "installed_$app"; then
-        say "$(printf '%-10s | SKIP | not installed' "$app")"
-        continue
-    fi
-    say "== $app"
-    "setup_$app"
-    for spec in "${SCENARIOS[@]}"; do
-        run_scenario "$app" "$spec"
+for phase in manual auto; do
+    say "### $phase"
+    if [[ $phase == manual ]]; then set_autoswitch false; else set_autoswitch true; fi
+    launch
+    for app in $APPS; do
+        if ! "installed_$app"; then
+            say "$(printf '%-10s | SKIP | not installed' "$app")"
+            continue
+        fi
+        if [[ $phase == auto && " $AUTO_APPS " != *" $app "* ]]; then
+            say "$(printf '%-10s | SKIP | manual only by default' "$app")"
+            continue
+        fi
+        say "== $app"
+        "setup_$app"
+        for spec in "${SCENARIOS[@]}"; do
+            if [[ "$spec" == "$phase|"* ]]; then run_scenario "$app" "$spec"; fi
+        done
+        "teardown_$app"
     done
-    "teardown_$app"
 done
 
 if [[ $DRY -eq 1 ]]; then

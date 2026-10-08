@@ -32,3 +32,16 @@ jobs:
         run: scripts/bench.sh
         env:
           BENCH_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+
+  # The no-Xcode path: Command Line Tools only, as in docs/PLAN.md and the
+  # local setup. A pinned image keeps the toolchain from changing under us.
+  clt-only:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Command Line Tools
+        run: sudo xcode-select -s /Library/Developer/CommandLineTools
+      - run: xcode-select -p
+      - run: swift --version
+      - run: swift build
+      - run: scripts/test.sh

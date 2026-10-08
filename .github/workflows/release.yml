@@ -1,0 +1,117 @@
+# Release: on a v* tag, build a universal app, pack a DMG, optionally sign and
+# notarize it, sign the Sparkle update, and attach everything to the GitHub
+# release.
+#
+# Secrets (all optional; a missing secret skips its step, and the release is
+# then an unsigned preview build):
+#   DEVELOPER_ID_CERT_P12      base64 of the Developer ID Application .p12
+#   DEVELOPER_ID_CERT_PASSWORD password of that .p12
+#   DEVELOPER_ID_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
+#   NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD
+#                              Apple ID, team ID and app-specific password for notarytool
+#   SPARKLE_ED_PRIVATE_KEY     Sparkle EdDSA private key (docs/release.md has the exact command)
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  # Keep in step with the Sparkle version in Package.swift.
+  SPARKLE_VERSION: '2.7.1'
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Command Line Tools
+        run: sudo xcode-select -s /Library/Developer/CommandLineTools
+      - name: Read the version from the tag
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "BUILD=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+      - name: Cache the model data
+        uses: actions/cache@v4
+        with:
+          path: .build/data-cache
+          key: data-cache-${{ hashFiles('scripts/fetch-data.sh') }}
+      - run: scripts/fetch-data.sh lexicon
+
+      - name: Import the Developer ID certificate
+        id: cert
+        env:
+          CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+        run: |
+          if [[ -z "$CERT_P12" || -z "$IDENTITY" ]]; then
+            echo "No Developer ID secrets: the build stays ad hoc signed."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          kc="$RUNNER_TEMP/release.keychain-db"
+          pw="$(uuidgen)"
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc"
+          security list-keychains -d user -s "$kc" login.keychain-db
+          rm "$RUNNER_TEMP/cert.p12"
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Universal build
+        run: scripts/build-universal.sh
+      - name: DMG
+        run: scripts/dmg.sh
+
+      - name: Notarize and staple
+        if: steps.cert.outputs.signed == 'true'
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          if [[ -z "$NOTARY_APPLE_ID" || -z "$NOTARY_PASSWORD" ]]; then
+            echo "No notarization secrets: skipping."
+            exit 0
+          fi
+          dmg=".build/dmg/Perekey-$VERSION.dmg"
+          xcrun notarytool submit "$dmg" --wait \
+            --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD"
+          xcrun stapler staple "$dmg"
+          # The stapled DMG changed, so its checksum did too.
+          (cd .build/dmg && shasum -a 256 "Perekey-$VERSION.dmg" > "Perekey-$VERSION.dmg.sha256")
+
+      - name: Sign the update for Sparkle
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$SPARKLE_ED_PRIVATE_KEY" ]]; then
+            echo "No SPARKLE_ED_PRIVATE_KEY: no appcast entry for this release."
+            exit 0
+          fi
+          # The exact appcast steps are documented in docs/release.md.
+          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          mkdir "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" \
+            --ed-key-file - ".build/dmg/Perekey-$VERSION.dmg" | tee .build/dmg/sparkle-signature.txt
+
+      - name: Upload to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=(".build/dmg/Perekey-$VERSION.dmg" ".build/dmg/Perekey-$VERSION.dmg.sha256")
+          [[ -f .build/dmg/sparkle-signature.txt ]] && files+=(.build/dmg/sparkle-signature.txt)
+          [[ -f .build/appcast/appcast.xml ]] && files+=(.build/appcast/appcast.xml)
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "Perekey $VERSION" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber

@@ -59,6 +59,7 @@ for lproj in Support/*.lproj; do
     cp -R "$lproj" "$APP/Contents/Resources/"
 done
 cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp Support/Perekey.sdef "$APP/Contents/Resources/Perekey.sdef" # AppleScript dictionary (Info.plist: OSAScriptingDefinition)
 
 # The language model: PEREKEY_MODEL, or the build of scripts/build-model.sh,
 # made here if missing (needs the data cache of scripts/fetch-data.sh lexicon).

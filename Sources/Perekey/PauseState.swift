@@ -51,6 +51,12 @@ final class PauseState {
         refresh()
     }
 
+    /// A timed pause of any length; the menu uses one hour, `perekey://pause` any.
+    func pause(minutes: Int) {
+        pauses.pause(until: Date().addingTimeInterval(TimeInterval(minutes) * 60))
+        refresh()
+    }
+
     func resumeTimed() {
         pauses.resumeTimed()
         refresh()

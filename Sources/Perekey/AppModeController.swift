@@ -83,6 +83,12 @@ final class AppModeController {
         store.setMode(off ? .off : .auto, for: frontmost.bundleID)
     }
 
+    /// Sets the mode of the frontmost app (`perekey://mode`, AppleScript).
+    func setMode(_ mode: AppMode) {
+        guard let frontmost else { return }
+        store.setMode(mode, for: frontmost.bundleID)
+    }
+
     private func turnOnHere() {
         guard let frontmost else { return }
         store.setMode(.auto, for: frontmost.bundleID)

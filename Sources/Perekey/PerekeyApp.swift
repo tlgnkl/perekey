@@ -33,6 +33,7 @@ struct PerekeyApp: App {
                                               demoActive: { input.appModes.onboardingDemo = $0 })
         self.onboarding = onboarding
         Task { @MainActor in onboarding.showIfFirstLaunch() }
+        ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
         // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;
         // this keeps `swift run` behaving the same way.
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -58,6 +59,11 @@ struct PerekeyApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         CapsLockRemapper.apply(.untouched)
+    }
+
+    /// `perekey://` links (see `ControlCommand`).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated { ExternalControl.shared?.open(urls) }
     }
 }
 

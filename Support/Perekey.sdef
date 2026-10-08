@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- AppleScript dictionary of Perekey. Same harmless actions as perekey:// (ControlCommand.swift). -->
+<dictionary title="Perekey Terminology">
+	<suite name="Standard Suite" code="core" description="Common classes and commands for all applications.">
+		<command name="quit" code="aevtquit" description="Quit the application.">
+			<cocoa class="NSQuitCommand"/>
+		</command>
+
+		<class name="application" code="capp" description="Perekey.">
+			<cocoa class="NSApplication"/>
+			<property name="name" code="pnam" type="text" access="r" description="The name of the application."/>
+			<property name="version" code="vers" type="text" access="r" description="The version of the application."/>
+		</class>
+	</suite>
+
+	<suite name="Perekey Suite" code="PrKy" description="Pause Perekey and change its settings.">
+		<command name="pause" code="PrKyPaus" description="Pause Perekey for a while. One hour if no length is given.">
+			<cocoa class="PerekeyPauseCommand"/>
+			<parameter name="for" code="PkMn" type="integer" optional="yes" description="Minutes, from 1 to 1440.">
+				<cocoa key="minutes"/>
+			</parameter>
+		</command>
+
+		<command name="resume" code="PrKyResu" description="End a pause that was started with the menu, a link or a script.">
+			<cocoa class="PerekeyResumeCommand"/>
+		</command>
+
+		<class-extension extends="application" description="Perekey itself.">
+			<property name="current layout name" code="PkLn" type="text" access="r"
+				description="The name of the selected keyboard layout, for example Russian.">
+				<cocoa key="perekeyLayoutName"/>
+			</property>
+			<property name="paused" code="PkPz" type="boolean" access="r"
+				description="True while Perekey does nothing: a pause, Secure Input, a password field, or an app set to Off.">
+				<cocoa key="perekeyPaused"/>
+			</property>
+			<property name="autoswitch" code="PkAs" type="boolean"
+				description="Whether Perekey switches the layout by itself.">
+				<cocoa key="perekeyAutoswitch"/>
+			</property>
+			<property name="app mode" code="PkAm" type="text"
+				description="The mode for the app in front: auto, manual or off.">
+				<cocoa key="perekeyAppMode"/>
+			</property>
+		</class-extension>
+	</suite>
+</dictionary>

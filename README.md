@@ -49,6 +49,33 @@ Perekey talks to one address, and only to check for updates:
 
 To verify, allow only this host in Little Snitch or LuLu.
 
+## Automation
+
+Perekey answers to a few harmless commands, by link or by AppleScript. Nothing
+here reads or changes your word lists, and a link that is not exactly one of
+these does nothing.
+
+| Link | Effect |
+|---|---|
+| `perekey://pause?minutes=30` | Pause for 1–1440 minutes (60 without `minutes`) |
+| `perekey://resume` | End the pause |
+| `perekey://autoswitch?on=0` | Turn automatic switching off (`1` on; without `on`, toggle) |
+| `perekey://mode?value=manual` | Mode of the app in front: `auto`, `manual` or `off` |
+
+- **Raycast, Alfred, Terminal:** `open perekey://pause?minutes=30`. In Raycast
+  or Alfred, add a Quicklink or a "Run script" with that command.
+- **Shortcuts:** add the action "Open URLs" with the link.
+- **AppleScript:**
+
+      osascript -e 'tell application "Perekey" to pause for 30'
+      osascript -e 'tell application "Perekey" to resume'
+      osascript -e 'tell application "Perekey" to set autoswitch to false'
+      osascript -e 'tell application "Perekey" to set app mode to "manual"'
+      osascript -e 'tell application "Perekey" to get current layout name'
+      osascript -e 'tell application "Perekey" to get paused'
+
+  Starting Perekey this way launches it if it is not running.
+
 ## Build
 
 Runs on macOS 14+. Building needs the macOS 26 SDK and Swift 6.2+ (Xcode 26 or

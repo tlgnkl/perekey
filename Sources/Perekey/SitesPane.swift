@@ -34,6 +34,7 @@ struct SitesPane: View {
     let sources: InputSources
     private let draft: State<String>
     private let draftChoice = State(initialValue: SiteLayoutChoice.remember)
+    private let found = State(initialValue: FoundTracker())
 
     init(store: SettingsStore, sources: InputSources, initialDraft: String = "") {
         self.store = store
@@ -81,17 +82,24 @@ struct SitesPane: View {
                     PKDivider()
                     PKNote(Text("No sites yet. Subdomains follow their parent site."))
                 }
-                ForEach(sites, id: \.host) { site in
-                    PKDivider()
-                    PKRow(Text(verbatim: site.host)) {
-                        HStack(spacing: 12) {
-                            layoutPicker(selection: binding(for: site.host))
-                            Button("Remove") { store.removeSite(site.host) }
-                                .buttonStyle(.pkLink)
-                                .fixedSize()
+                VStack(spacing: 0) {
+                    ForEach(sites, id: \.host) { site in
+                        VStack(spacing: 0) {
+                            PKDivider()
+                            PKRow(Text(verbatim: site.host)) {
+                                HStack(spacing: 12) {
+                                    layoutPicker(selection: binding(for: site.host))
+                                    Button("Remove") { store.removeSite(site.host) }
+                                        .buttonStyle(.pkLink)
+                                        .fixedSize()
+                                }
+                            }
+                            .pkFound(site.host, tracker: found.wrappedValue)
                         }
+                        .pkRowTransition()
                     }
                 }
+                .pkListChanges(sites.map(\.host))
             }
         }
     }
@@ -121,6 +129,7 @@ struct SitesPane: View {
     private func add() {
         guard validation == .ok, let host = SiteHost.normalized(draft.wrappedValue) else { return }
         let choice = draftChoice.wrappedValue
+        found.wrappedValue.mark(host)
         store.updateSite(host) { choice.apply(to: &$0) }
         draft.wrappedValue = ""
     }

@@ -29,7 +29,8 @@ struct PerekeyApp: App {
         let input = InputController(sources: inputSources, store: store, pause: pause)
         self.input = input
         let onboarding = OnboardingController(store: store, sources: inputSources,
-                                              engineIsRunning: { input.tapState == .running })
+                                              engineIsRunning: { input.tapState == .running },
+                                              demoActive: { input.appModes.onboardingDemo = $0 })
         self.onboarding = onboarding
         Task { @MainActor in onboarding.showIfFirstLaunch() }
         // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;

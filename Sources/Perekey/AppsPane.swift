@@ -16,6 +16,8 @@ final class AppsPaneModel {
     var showPicker = false
     /// A fresh picker for each time the popover opens.
     var picker: AppPickerModel?
+    /// Rows that flash after they are added.
+    let found = FoundTracker()
     /// Apps with a built-in default that are installed or running, found once.
     let builtIns: [AppCandidate]
 
@@ -87,11 +89,27 @@ struct AppsPane: View {
                     .foregroundStyle(Color.pkInk2)
                     .frame(maxWidth: .infinity, minHeight: 120)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(shown.enumerated()), id: \.element.id) { index, entry in
-                            if index > 0 { PKDivider(leading: 54) }
-                            AppRow(entry: entry, store: store, sources: sources)
+                VStack(spacing: 0) {
+                    columnHeaders
+                    PKDivider()
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(shown.enumerated()), id: \.element.id) { index, entry in
+                                    VStack(spacing: 0) {
+                                        if index > 0 { PKDivider(leading: 54) }
+                                        AppRow(entry: entry, store: store, sources: sources)
+                                            .pkFound(entry.bundleID, tracker: pane.found)
+                                    }
+                                    .pkRowTransition()
+                                }
+                            }
+                            .pkListChanges(all.map(\.bundleID))
+                        }
+                        // A new row may sort out of view: bring it in.
+                        .onChange(of: pane.found.ids) { old, new in
+                            guard let added = new.subtracting(old).first else { return }
+                            withAnimation(PK.Motion.easeOut(0.4)) { proxy.scrollTo(added, anchor: .center) }
                         }
                     }
                 }
@@ -144,7 +162,23 @@ struct AppsPane: View {
         }
     }
 
+    /// Names the two pickers of a row. The widths follow `AppRow`.
+    private var columnHeaders: some View {
+        HStack(spacing: 10) {
+            Spacer(minLength: 0)
+            Text("Layout on entry").frame(width: AppRow.layoutWidth, alignment: .leading)
+            Text("Mode").frame(width: AppRow.modeWidth, alignment: .leading)
+            Color.clear.frame(width: AppRow.resetWidth, height: 1)
+        }
+        .font(PK.Font.captionStrong)
+        .foregroundStyle(Color.pkInk2)
+        .padding(.horizontal, PK.Space.md)
+        .padding(.vertical, 7)
+        .accessibilityHidden(true)
+    }
+
     private func add(_ app: AppCandidate) {
+        pane.found.mark(app.bundleID)
         store.updateRule(for: app.bundleID, base: app.defaultMode) { _ in }
         pane.search = ""
         pane.modeFilter = nil
@@ -159,6 +193,10 @@ private enum LayoutChoice: Hashable {
 }
 
 private struct AppRow: View {
+    static let layoutWidth: CGFloat = 150
+    static let modeWidth: CGFloat = 124
+    static let resetWidth: CGFloat = 18
+
     let entry: AppEntry
     let store: SettingsStore
     let sources: InputSources
@@ -184,14 +222,15 @@ private struct AppRow: View {
                 }
             }
             .labelsHidden()
-            .frame(width: 150)
+            .frame(width: Self.layoutWidth)
             Picker("Mode", selection: modeBinding) {
                 ForEach(AppMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }
             .labelsHidden()
-            .frame(width: 124)
+            .frame(width: Self.modeWidth)
             Button { store.resetRule(for: entry.bundleID) } label: {
                 Image(systemName: "arrow.uturn.backward")
+                    .frame(width: Self.resetWidth)
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.pkIndigoInk)

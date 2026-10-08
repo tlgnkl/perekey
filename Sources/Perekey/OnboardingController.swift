@@ -15,9 +15,12 @@ final class OnboardingController: NSObject, NSWindowDelegate {
     private var model: OnboardingModel?
 
     private let engineIsRunning: @MainActor () -> Bool
+    private let demoActive: @MainActor (Bool) -> Void
 
-    init(store: SettingsStore, sources: InputSources, engineIsRunning: @escaping @MainActor () -> Bool = { false }) {
+    init(store: SettingsStore, sources: InputSources, engineIsRunning: @escaping @MainActor () -> Bool = { false },
+         demoActive: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.engineIsRunning = engineIsRunning
+        self.demoActive = demoActive
         self.store = store
         self.sources = sources
     }
@@ -35,6 +38,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         }
         let model = OnboardingModel(store: store, sources: sources)
         model.engineIsRunning = engineIsRunning
+        model.demoActive = demoActive
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 580),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = String(localized: "Welcome to Perekey")

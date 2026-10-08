@@ -156,6 +156,8 @@ struct PKKeycap: View {
     var body: some View {
         let isWord = text.count > 1 && text != "fn"
         Text(text)
+            .lineLimit(1)
+            .fixedSize()
             .font(isWord ? .system(size: 11.5, weight: .semibold) : PK.Font.keycap)
             .foregroundStyle(isWord ? Color.pkInk2 : Color.pkInk)
             .padding(.horizontal, 7)
@@ -206,6 +208,7 @@ struct PKStatusPill: View {
         .padding(.horizontal, 10)
         .frame(height: 24)
         .background(Capsule().fill(background))
+        .overlay { if kind == .waiting, !reduceMotion { PillShimmer() } }
     }
 
     private var foreground: Color {
@@ -222,6 +225,24 @@ struct PKStatusPill: View {
         case .denied: .pkWarnSoft
         case .granted: .pkOKSoft
         }
+    }
+}
+
+/// A soft band that sweeps across a waiting pill. It exists only while the
+/// pill waits, so nothing animates once access is granted.
+private struct PillShimmer: View {
+    private let sweep = State(initialValue: false)
+
+    var body: some View {
+        GeometryReader { proxy in
+            LinearGradient(colors: [.clear, .white.opacity(0.45), .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: proxy.size.width * 0.5)
+                .offset(x: sweep.wrappedValue ? proxy.size.width : -proxy.size.width * 0.5)
+        }
+        .clipShape(Capsule())
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear { withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) { sweep.wrappedValue = true } }
     }
 }
 

@@ -11,6 +11,7 @@ struct WordsPane: View {
     var isFrequent: (String) -> Bool = { _ in false }
 
     private let draft: State<String>
+    private let found = State(initialValue: FoundTracker())
 
     init(store: SettingsStore, isFrequent: @escaping (String) -> Bool = { _ in false }, initialDraft: String = "") {
         self.store = store
@@ -51,12 +52,22 @@ struct WordsPane: View {
                 PKDivider()
                 PKNote(Text("No words yet."))
             }
-            ForEach(words.mine, id: \.self) { word in
-                PKDivider()
-                PKRow(Text(word)) {
-                    Button("Remove") { store.update { $0.words.remove(word) } }
-                        .buttonStyle(.pkLink)
+            VStack(spacing: 0) {
+                ForEach(words.mine, id: \.self) { word in
+                    VStack(spacing: 0) {
+                        PKDivider()
+                        PKRow(Text(word)) {
+                            Button("Remove") { store.update { $0.words.remove(word) } }
+                                .buttonStyle(.pkLink)
+                        }
+                        .pkFound("mine:" + word, tracker: found.wrappedValue)
+                    }
+                    .pkRowTransition()
                 }
+            }
+            .pkListChanges(words.mine)
+            .onChange(of: words.mine) { old, new in
+                for word in new where !old.contains(word) { found.wrappedValue.mark("mine:" + word) }
             }
         }
     }
@@ -72,17 +83,27 @@ struct WordsPane: View {
                 PKDivider()
                 PKNote(Text("Words you undo after a correction appear here."))
             }
-            ForEach(words.learned, id: \.word) { item in
-                PKDivider()
-                PKRow(Text(item.word)) {
-                    HStack(spacing: 12) {
-                        Text(Date(timeIntervalSince1970: item.learnedAt).formatted(date: .abbreviated, time: .omitted))
-                            .font(PK.Font.caption)
-                            .foregroundStyle(Color.pkInk2)
-                        Button("Forget") { store.update { $0.words.forget(item.word) } }
-                            .buttonStyle(.pkLink)
+            VStack(spacing: 0) {
+                ForEach(words.learned, id: \.word) { item in
+                    VStack(spacing: 0) {
+                        PKDivider()
+                        PKRow(Text(item.word)) {
+                            HStack(spacing: 12) {
+                                Text(Date(timeIntervalSince1970: item.learnedAt).formatted(date: .abbreviated, time: .omitted))
+                                    .font(PK.Font.caption)
+                                    .foregroundStyle(Color.pkInk2)
+                                Button("Forget") { store.update { $0.words.forget(item.word) } }
+                                    .buttonStyle(.pkLink)
+                            }
+                        }
+                        .pkFound("learned:" + item.word, tracker: found.wrappedValue)
                     }
+                    .pkRowTransition()
                 }
+            }
+            .pkListChanges(words.learned.map(\.word))
+            .onChange(of: words.learned.map(\.word)) { old, new in
+                for word in new where !old.contains(word) { found.wrappedValue.mark("learned:" + word) }
             }
             if !words.learned.isEmpty {
                 PKDivider()

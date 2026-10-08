@@ -201,7 +201,7 @@ enum DebugSnapshot {
             render(view, dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
         let general = SettingsStore(file: SettingsFile(url: directory.appending(path: "general.json")))
-        let generalSize = CGSize(width: size.width, height: 720)
+        let generalSize = CGSize(width: size.width, height: 1000)
         let updateStates: [(name: String, managed: ManagedSettings, configured: Bool, lastCheck: Date?, dark: Bool)] = [
             ("general-light", ManagedSettings(), true, Date().addingTimeInterval(-3_600 * 5), false),
             ("general-managed-light", ManagedSettings(updatesDisabled: true), true, nil, false),
@@ -269,6 +269,20 @@ enum DebugSnapshot {
             let model = OnboardingModel(store: store, sources: sources, step: step, live: false)
             render(OnboardingView(model: model, heroPhase: 4.5), dark: false, size: size,
                    to: directory.appending(path: "onboarding-\(step.rawValue + 1)-\(step).png"))
+        }
+        for (name, status) in [("denied", OnboardingModel.AccessStatus.denied), ("granted", .granted)] {
+            let model = OnboardingModel(store: store, sources: sources, step: .access, live: false)
+            model.fakeAccess(status)
+            render(OnboardingView(model: model), dark: false, size: size,
+                   to: directory.appending(path: "onboarding-2-access-\(name).png"))
+        }
+        render(OnboardingView(model: OnboardingModel(store: store, sources: sources, step: .preset, live: false)),
+               dark: true, size: size, to: directory.appending(path: "onboarding-3-preset-dark.png"))
+        for (name, undone) in [("auto", false), ("auto-undone", true)] {
+            let model = OnboardingModel(store: store, sources: sources, step: .demo, live: false)
+            model.fakeAutoDemo(undone: undone)
+            render(OnboardingView(model: model), dark: false, size: size,
+                   to: directory.appending(path: "onboarding-4-demo-\(name).png"))
         }
         let solved = OnboardingModel(store: store, sources: sources, step: .demo, live: false)
         solved.fakeSolvedDemo()

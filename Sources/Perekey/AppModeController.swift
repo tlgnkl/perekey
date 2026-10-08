@@ -27,9 +27,24 @@ final class AppModeController {
     /// The autoswitch decision reads this: `.auto` fixes by itself, `.manualOnly`
     /// only on the user's command, `.off` never (the pause card is shown then).
     var mode: AppMode {
+        if isDemoFront { return .auto }
         guard let frontmost else { return .auto }
         return store.settings.effectiveMode(bundleID: frontmost.bundleID, isGame: frontmost.isGame)
     }
+
+    /// The onboarding demo is on screen: Perekey's own window acts as an app in
+    /// «Auto» mode, whatever app the user came from (a terminal, a game).
+    var onboardingDemo = false {
+        didSet { if onboardingDemo != oldValue { perekeyIsFront = onboardingDemo && NSApp.isActive } }
+    }
+    /// Perekey itself is the active app (tracked only while the demo shows).
+    private(set) var perekeyIsFront = false
+
+    /// The demo window is in front: only then it acts as an app in «Auto» mode.
+    var isDemoFront: Bool { onboardingDemo && perekeyIsFront }
+
+    /// The demo's own words: the only ones whose undo is not learned.
+    static func isDemoWord(_ word: String) -> Bool { word == "ghbdtn" || word == "привет" }
 
     @ObservationIgnored private let sources: InputSources
     @ObservationIgnored private let store: SettingsStore
@@ -74,6 +89,7 @@ final class AppModeController {
     }
 
     private func activated(_ app: NSRunningApplication?, selectLayout: Bool = true) {
+        if onboardingDemo, let app { perekeyIsFront = app.processIdentifier == getpid() }
         guard let app, app.processIdentifier != getpid(), let bundleID = app.bundleIdentifier else { return }
         guard bundleID != frontmost?.bundleID else { return }
         if let left = frontmost, let layout = sources.currentLayout { lastLayouts[left.bundleID] = layout }

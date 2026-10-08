@@ -210,7 +210,7 @@ private enum LayoutChoice: Hashable {
 }
 
 private struct AppRow: View {
-    static let layoutWidth: CGFloat = 150
+    static let layoutWidth: CGFloat = 196
     static let modeWidth: CGFloat = 124
     static let resetWidth: CGFloat = 18
 

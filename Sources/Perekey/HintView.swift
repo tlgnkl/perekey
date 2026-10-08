@@ -123,6 +123,9 @@ struct HintBubbleContent: View {
                     chip(Text("Forget"), keycap: nil)
                 }
             }
+            // One line, however long the translation: the bubble takes its width.
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             if model.expanded, case let .retyped(_, _, _, why?, _) = model.content {
                 explanation(why)
             }

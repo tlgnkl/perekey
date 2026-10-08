@@ -123,6 +123,8 @@ struct MenuContent: View {
     var actions = MenuActions()
     /// `nil` hides "Check for Updates…" (snapshots).
     var updates: Updates?
+    /// The row whose «Why?» starts open (snapshots).
+    var explainedEntry: Int?
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -304,7 +306,8 @@ struct MenuContent: View {
                     let latest = recents.log.latestStanding?.id
                     ForEach(recents.log.entries) { entry in
                         CorrectionRow(entry: entry, isLatest: entry.id == latest, store: store, nav: nav,
-                                      onReport: { word, reason in actions.report(word, reason) })
+                                      onReport: { word, reason in actions.report(word, reason) },
+                                      explained: entry.id == explainedEntry)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                     }
                 }

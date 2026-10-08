@@ -159,7 +159,7 @@
 "In terminals and code editors Perekey fixes only on your command. In games it is off." = "В терминалах и редакторах кода Perekey исправляет только по вашей команде, в играх выключен.";
 "Search the list" = "Найти в списке";
 "Mode" = "Режим";
-"All %@" = "Все %@";
+"All %lld" = "Все %lld";
 "%@ %@" = "%@ %@";
 "Add app" = "Добавить программу";
 "Layout" = "Раскладка";
@@ -174,7 +174,7 @@
 "Cannot export settings" = "Не удалось экспортировать настройки";
 "Cannot import settings" = "Не удалось импортировать настройки";
 "Replace your settings?" = "Заменить ваши настройки?";
-"The file has %@ shortcuts, %@ apps and %@ words." = "В файле: сочетаний — %@, программ — %@, слов — %@.";
+"The file has %lld shortcuts, %lld apps and %lld words." = "В файле: сочетаний — %lld, программ — %lld, слов — %lld.";
 "They replace all your current settings." = "Они заменят все текущие настройки.";
 "Apps" = "Программы";
 "Words" = "Слова";
@@ -207,7 +207,7 @@
 "Reset" = "Сбросить";
 "Forget the languages typed in this app" = "Забыть, на каких языках здесь писали";
 "The file is not a Perekey settings file." = "Это не файл настроек Perekey.";
-"The file comes from a newer Perekey (format %@). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %@). Обновите Perekey и попробуйте снова.";
+"The file comes from a newer Perekey (format %lld). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %lld). Обновите Perekey и попробуйте снова.";
 
 /* Sites (stage 4) */
 "Sites" = "Сайты";

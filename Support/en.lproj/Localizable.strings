@@ -159,7 +159,7 @@
 "In terminals and code editors Perekey fixes only on your command. In games it is off." = "In terminals and code editors Perekey fixes only on your command. In games it is off.";
 "Search the list" = "Search the list";
 "Mode" = "Mode";
-"All %@" = "All %@";
+"All %lld" = "All %lld";
 "%@ %@" = "%@ %@";
 "Add app" = "Add app";
 "Layout" = "Layout";
@@ -174,7 +174,7 @@
 "Cannot export settings" = "Cannot export settings";
 "Cannot import settings" = "Cannot import settings";
 "Replace your settings?" = "Replace your settings?";
-"The file has %@ shortcuts, %@ apps and %@ words." = "The file has %@ shortcuts, %@ apps and %@ words.";
+"The file has %lld shortcuts, %lld apps and %lld words." = "The file has %lld shortcuts, %lld apps and %lld words.";
 "They replace all your current settings." = "They replace all your current settings.";
 "Apps" = "Apps";
 "Words" = "Words";
@@ -207,7 +207,7 @@
 "Reset" = "Reset";
 "Forget the languages typed in this app" = "Forget the languages typed in this app";
 "The file is not a Perekey settings file." = "The file is not a Perekey settings file.";
-"The file comes from a newer Perekey (format %@). Update Perekey and try again." = "The file comes from a newer Perekey (format %@). Update Perekey and try again.";
+"The file comes from a newer Perekey (format %lld). Update Perekey and try again." = "The file comes from a newer Perekey (format %lld). Update Perekey and try again.";
 
 /* Sites (stage 4) */
 "Sites" = "Sites";

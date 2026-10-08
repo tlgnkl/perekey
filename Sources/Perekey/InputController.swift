@@ -172,7 +172,7 @@ final class InputController {
         case let .retyped(original, text, origin, decision):
             SystemSounds.play(store.settings.correctionSound)
             // An automatic switch has its own hint, from `corrected`; an undo hides it.
-            if case let .manual(action) = origin, store.settings.caretHint.shows(automatic: false),
+            if let manual = manualAction(of: origin), store.settings.caretHint.shows(automatic: false),
                original != text
             {
                 var why: HintWhy?
@@ -181,7 +181,8 @@ final class InputController {
                     why = HintWhy(title: ExplanationText.title(switched: explanation.switched),
                                   lines: ExplanationText.lines(explanation))
                 }
-                hint.showRetyped(original: original, word: text, shortcut: shortcut(of: action), why: why)
+                hint.showRetyped(original: original, word: text,
+                                 shortcut: manual.onSelection ? nil : shortcut(of: manual.action), why: why)
                 shownCorrection = nil
             }
         case let .corrected(correction):
@@ -237,11 +238,19 @@ final class InputController {
         }
     }
 
-    /// The user's own shortcut of the action that just ran, as keycaps, to
-    /// press again and put the text back. Nil when the action has none, or
-    /// pressing it again does something else (the next case).
+    private func manualAction(of origin: Retype.Origin) -> (action: HotkeyAction, onSelection: Bool)? {
+        switch origin {
+        case let .manual(action): (action, false)
+        case let .manualSelection(action): (action, true)
+        case .automatic, .undo: nil
+        }
+    }
+
+    /// The user's own shortcut, as keycaps, to press again and put the word
+    /// back. Only the retype of a word does that: the next press of the case
+    /// shortcut changes the case again, and a selection is gone once typed over.
     private func shortcut(of action: HotkeyAction) -> String? {
-        guard action != .changeCase, let trigger = store.settings.trigger(for: action) else { return nil }
+        guard action == .convertLastWord, let trigger = store.settings.trigger(for: action) else { return nil }
         return TriggerText.keycaps(of: trigger).joined(separator: " ")
     }
 

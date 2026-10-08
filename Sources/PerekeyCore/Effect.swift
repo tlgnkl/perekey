@@ -69,9 +69,13 @@ public struct Retype: Hashable, Sendable {
         case automatic(Correction.Kind)
         /// The undo of an automatic correction.
         case undo
-        /// The user's shortcut: `convertLastWord` (word, phrase or selection),
-        /// `changeCase` or `transliterate`.
+        /// The user's shortcut on the word or phrase before the caret:
+        /// `convertLastWord` or `changeCase`.
         case manual(HotkeyAction)
+        /// The user's shortcut on the selection: `convertLastWord`,
+        /// `changeCase` or `transliterate`. The text is no longer selected
+        /// afterwards, so pressing again does not put it back.
+        case manualSelection(HotkeyAction)
 
         public var isAutomatic: Bool {
             if case .automatic = self { true } else { false }
@@ -79,8 +83,7 @@ public struct Retype: Hashable, Sendable {
     }
 
     public init(deleteCount: Int, keys: [Key], target: LayoutID, expected: String, seq: UInt32,
-                viaAccessibility: Bool = false, origin: Origin = .manual(.convertLastWord),
-                decision: Classifier.Decision? = nil)
+                viaAccessibility: Bool = false, origin: Origin, decision: Classifier.Decision? = nil)
     {
         self.origin = origin
         decisionBox = decision.map(DecisionBox.init)
@@ -182,7 +185,7 @@ public enum Effect: Hashable, Sendable {
     case selectLayout(LayoutID)
     /// Retype a word, or the selection after `.selectionRead`. Usually comes
     /// right after the `.selectLayout` of its target: select first, then post.
-    case retype(Retype)
+    indirect case retype(Retype)
     /// Nothing is buffered: read the selected text, off the tap thread, and
     /// answer with `.selectionRead(seq:text:)`, an empty text if nothing is
     /// selected. The fence holds user input from now on, until the machine
@@ -201,7 +204,7 @@ public enum Effect: Hashable, Sendable {
     case refused(Refusal)
     /// An automatic switch was posted: show the hint at the caret. Comes with
     /// the `.retypePosted` of its `seq`, so a cancelled switch never shows.
-    case corrected(Correction)
+    indirect case corrected(Correction)
     /// The correction with this `seq` was undone: Backspace right after it,
     /// `HotkeyAction.undoLastCorrection` or `InputEvent.undoLastCorrection`.
     /// Comes with the `.retypePosted` of the undo. Hide its hint.

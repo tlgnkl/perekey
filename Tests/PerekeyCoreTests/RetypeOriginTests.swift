@@ -89,6 +89,20 @@ private func keyboard(_ action: HotkeyAction, autoswitch: Bool = true) -> Keyboa
         #expect(try #require(kb.tapOption().retype).decision == nil)
     }
 
+    @Test func puttingAnAutomaticFixBackIsNoLeftAloneWord() throws {
+        var desk = Desk(settings(.convertLastWord))
+        // The classifier switches this word at the space.
+        desk.type("[jhjij ")
+        #expect(desk.text == "хорошо ")
+        desk.tapOption()
+        desk.settle()
+        let back = try #require(desk.history.last)
+        #expect(desk.history.count == 2)
+        #expect(back.origin == .manual(.convertLastWord))
+        // Nothing was left alone: there is nothing to explain.
+        #expect(back.decision == nil)
+    }
+
     @Test func changeCaseNamesItsAction() throws {
         var kb = keyboard(.changeCase)
         kb.type("hello", in: Fixture.abc)
@@ -110,7 +124,7 @@ private func keyboard(_ action: HotkeyAction, autoswitch: Bool = true) -> Keyboa
             }()
             let text = action == .transliterate ? "privet" : action == .changeCase ? "hello" : "ghbdtn"
             let retype = try #require(kb.send(.selectionRead(seq: seq, text: text, viaAccessibility: false)).retype)
-            #expect(retype.origin == .manual(expected))
+            #expect(retype.origin == .manualSelection(expected))
         }
     }
 

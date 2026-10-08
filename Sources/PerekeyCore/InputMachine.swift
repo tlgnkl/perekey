@@ -354,6 +354,9 @@ public struct InputMachine: Sendable {
     private mutating func perform(_ action: HotkeyAction, at time: Double, effects: inout [Effect]) {
         // A shortcut may change the text or the layout (a plain paste, a
         // retype): Backspace after it must not undo a switch from before.
+        // The word the last switch fixed is no word automatic switching
+        // "left alone", whatever the retype does with it.
+        let fixedByAutoswitch = undo.last != nil
         if case .undoLastCorrection = action {} else { undo.forget() }
         if action != .convertLastWord { manual.endPhrase() }
         let isSecureField = focus?.isSecureField == true
@@ -371,7 +374,7 @@ public struct InputMachine: Sendable {
         case .convertLastWord:
             let plan = manual.retypeWord(buffer: buffer, layouts: layouts,
                                          phrases: settings.corrections.phraseRetype, isSecureField: isSecureField)
-            run(plan, as: action, at: time, effects: &effects)
+            run(plan, as: action, fixedByAutoswitch: fixedByAutoswitch, at: time, effects: &effects)
 
         case .changeCase:
             run(ManualActions.changeCase(buffer: buffer, layouts: layouts, isSecureField: isSecureField),
@@ -389,8 +392,8 @@ public struct InputMachine: Sendable {
         }
     }
 
-    private mutating func run(_ plan: ManualActions.Plan, as action: HotkeyAction, at time: Double,
-                              effects: inout [Effect])
+    private mutating func run(_ plan: ManualActions.Plan, as action: HotkeyAction, fixedByAutoswitch: Bool = false,
+                              at time: Double, effects: inout [Effect])
     {
         switch plan {
         case let .refuse(refusal):
@@ -405,7 +408,7 @@ public struct InputMachine: Sendable {
                         purpose: .readingSelection(action), effects: &effects)
         case let .retype(retype):
             // The first press on a word: what automatic switching made of it.
-            let decision = retype.explainable
+            let decision = retype.explainable && !fixedByAutoswitch
                 ? judge.decisionForManualRetype(buffer: buffer, layouts: layouts, settings: settings, focus: focus,
                                                 secureInput: secureInput)
                 : nil
@@ -434,7 +437,7 @@ public struct InputMachine: Sendable {
             let layoutBefore = target == layouts.current ? nil : layouts.current
             select(target, effects: &effects)
             effects.append(.retype(Retype(deleteCount: 0, keys: keys, target: target, expected: text, seq: seq,
-                                          viaAccessibility: viaAccessibility, origin: .manual(action.hotkeyAction))))
+                                          viaAccessibility: viaAccessibility, origin: .manualSelection(action.hotkeyAction))))
             fence.retypesSelection(into: target, layoutBefore: layoutBefore, viaAccessibility: viaAccessibility)
         }
     }

@@ -125,7 +125,9 @@ struct WordJudge: Sendable {
     }
 
     /// The user said which layout the word is in, or a correction of it was
-    /// cancelled: leave the rest of it alone.
+    /// cancelled: leave the rest of it alone. This also drops a pending
+    /// `.learnAtEnd`: a retype by hand after an undo inside the word
+    /// contradicts the undo, so there is nothing to learn.
     mutating func leaveWordAlone() {
         switching = .suppressed
     }

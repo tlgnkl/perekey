@@ -271,6 +271,20 @@ private let ru = Fixture.russian.id
         #expect(desk.learned == ["ghbdtn"])
     }
 
+    @Test func aManualRetypeAfterAnUndoInsideTheWordLearnsNothing() {
+        var desk = Desk()
+        desk.type("ghb")
+        desk.press(KeyCode.delete)
+        desk.type("dtn")
+        // The user retypes the word themselves: they want it switched after
+        // all, so "do not switch" is no lesson to learn.
+        desk.tapOption()
+        #expect(desk.text == "привет")
+        desk.type(" ")
+        #expect(desk.text == "привет ")
+        #expect(desk.learned.isEmpty)
+    }
+
     @Test func backspaceInsideTheWordFixesATypo() {
         var desk = Desk()
         desk.type("ghbdtnn")

@@ -10,6 +10,17 @@ public enum HotkeyAction: Hashable, Sendable, Codable {
     case convertLastWord
     /// Turn automatic switching on or off.
     case toggleAutoswitch
+    /// Cycle the case of the last word, or of the selection: lower, Title, UPPER.
+    case changeCase
+    /// Write the selection in the other script (Cyrillic ↔ Latin).
+    case transliterate
+    /// Paste the pasteboard's text without formatting. Off by default and
+    /// only for a key trigger: ⌘⇧V is taken in VS Code, Slack and Chrome.
+    case pastePlain
+
+    /// Whether a shortcut of modifiers alone may run the action. Paste needs
+    /// a key: a lone modifier would fire on every Shift tap or Option press.
+    public var acceptsModifierOnlyTrigger: Bool { self != .pastePlain }
 }
 
 /// A ready-made set of shortcuts. Onboarding asks which one fits the user.

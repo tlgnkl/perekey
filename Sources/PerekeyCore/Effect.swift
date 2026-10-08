@@ -90,6 +90,8 @@ public enum Effect: Hashable, Sendable {
     /// Send `.deadline` once this time has passed. A new deadline replaces the old one.
     case scheduleDeadline(at: Double)
     case autoswitchChanged(Bool)
+    /// Paste the pasteboard as plain text, on the main thread (`PlainPaste`).
+    case pastePlain
     case refused(Refusal)
 }
 

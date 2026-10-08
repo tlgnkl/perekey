@@ -73,6 +73,13 @@ public struct WordBuffer: Hashable, Sendable {
         overflowed = false
     }
 
+    /// After a case change the word's keys are other strokes in the same layout.
+    /// `strokes` must have one stroke per entry.
+    public mutating func replaceStrokes(_ strokes: [KeyStroke]) {
+        guard strokes.count == entries.count else { return }
+        for index in entries.indices { entries[index].stroke = strokes[index] }
+    }
+
     /// After a retype the same keys stand for the word in the new layout, so a
     /// second retype brings the word back.
     public mutating func relabel(to layout: LayoutID) {

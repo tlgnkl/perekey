@@ -12,6 +12,21 @@ public enum CapsLockMode: String, CaseIterable, Hashable, Sendable, Codable {
     case instant
 }
 
+/// A sound for one event: on or off, and the name of a system sound
+/// (a file in /System/Library/Sounds, without the extension).
+public struct SoundSetting: Hashable, Sendable, Codable {
+    public var isOn: Bool
+    public var name: String
+
+    public init(isOn: Bool = false, name: String) {
+        self.isOn = isOn
+        self.name = name
+    }
+
+    public static let layoutSwitch = SoundSetting(name: "Tink")
+    public static let correction = SoundSetting(name: "Glass")
+}
+
 /// The user's settings as stored on disk.
 ///
 /// Decoding tolerates missing keys, so settings written by an older version
@@ -26,11 +41,18 @@ public struct AppSettings: Hashable, Sendable {
     public var apps: [String: AppRule]
     /// Words never corrected: the user's own and the learned ones.
     public var words: WordExceptions
+    /// Played on the main thread when a shortcut selects a layout. Off by default.
+    public var layoutSound: SoundSetting
+    /// Played after a successful retype. Off by default.
+    public var correctionSound: SoundSetting
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
-                words: WordExceptions = WordExceptions())
+                words: WordExceptions = WordExceptions(), layoutSound: SoundSetting = .layoutSwitch,
+                correctionSound: SoundSetting = .correction)
     {
+        self.layoutSound = layoutSound
+        self.correctionSound = correctionSound
         self.apps = apps
         self.words = words
         self.hotkeys = hotkeys
@@ -74,7 +96,7 @@ public struct AppSettings: Hashable, Sendable {
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkeys, capsLock, autoswitch, onboardingDone, apps, words
+        case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, layoutSound, correctionSound
     }
 
     public init(from decoder: any Decoder) throws {
@@ -86,5 +108,8 @@ extension AppSettings: Codable {
         onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
         apps = (try? container.decodeIfPresent([String: AppRule].self, forKey: .apps)) ?? defaults.apps
         words = (try? container.decodeIfPresent(WordExceptions.self, forKey: .words)) ?? defaults.words
+        layoutSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .layoutSound)) ?? defaults.layoutSound
+        correctionSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .correctionSound))
+            ?? defaults.correctionSound
     }
 }

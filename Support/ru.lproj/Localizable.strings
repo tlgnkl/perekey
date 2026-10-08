@@ -52,6 +52,7 @@
 "Like Alt+Shift on Windows" = "Как Alt+Shift в Windows";
 "Neither reading is a word: it looks like code, a link or a path" = "Ни одно прочтение не слово: похоже на код, ссылку или путь";
 "Neither reading is likely: it looks like a random string" = "Ни одно прочтение не вероятно: похоже на случайный набор букв";
+"No longer always fixing “%@”" = "Больше не исправляю «%@» всегда";
 "One letter too many, and the fixed word is a known one" = "Лишняя буква, а исправленное слово есть в словаре";
 "One letter was missing, and the fixed word is a known one" = "Не хватало буквы, а исправленное слово есть в словаре";
 "One letter was wrong, and the fixed word is a known one" = "Одна буква не та, а исправленное слово есть в словаре";
@@ -126,6 +127,7 @@
 "Welcome to Perekey" = "Добро пожаловать в Perekey";
 "Why didn't Perekey fix it?" = "Почему не исправил?";
 "Why?" = "Почему?";
+"Will always fix “%@”" = "Буду исправлять «%@» всегда";
 "Works in the installed app only." = "Работает только в установленной программе.";
 "and press" = "и нажмите";
 "fn twice starts Dictation in macOS." = "Двойное fn запускает диктовку в macOS.";

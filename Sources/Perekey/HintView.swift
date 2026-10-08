@@ -9,11 +9,20 @@ enum HintContent: Equatable {
     /// The user's own retype: «привет · ⌥ — вернуть». `shortcut` is the key of
     /// the action that ran, nil if it has none. A small «Почему?» when `why`
     /// is there; otherwise no button.
-    case retyped(original: String, word: String, shortcut: String?, why: HintWhy?)
+    /// `offersAlways`: the small «Always fix» next to it.
+    case retyped(original: String, word: String, shortcut: String?, why: HintWhy?, offersAlways: Bool)
     case learned(word: String)
+    /// «Will always fix “word” · Undo»: the word went on «Всегда исправлять».
+    case alwaysFixed(word: String)
+    /// «No longer always fixing “word»: an undo took it off the list. No button.
+    case alwaysFixWithdrawn(word: String)
 
     var hasButton: Bool {
-        if case let .retyped(_, _, _, why) = self { why != nil } else { true }
+        switch self {
+        case let .retyped(_, _, _, why, offersAlways): why != nil || offersAlways
+        case .alwaysFixWithdrawn: false
+        case .corrected, .learned, .alwaysFixed: true
+        }
     }
 }
 
@@ -85,6 +94,7 @@ struct HintBubbleContent: View {
     let model: HintModel
     let action: () -> Void
     var explain: () -> Void = {}
+    var alwaysFix: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -93,9 +103,19 @@ struct HintBubbleContent: View {
                 case let .corrected(original, replacement):
                     correction(original: original, replacement: replacement)
                     chip(Text("Undo"), keycap: "⌫")
-                case let .retyped(original, word, shortcut, why):
+                case let .retyped(original, word, shortcut, why, offersAlways):
                     retyped(original: original, word: word, shortcut: shortcut)
-                    if why != nil, !model.expanded { whyChip }
+                    if offersAlways, !model.expanded { smallChip(Text("Always fix"), run: alwaysFix) }
+                    if why != nil, !model.expanded { smallChip(Text("Why?"), run: explain) }
+                case let .alwaysFixed(word):
+                    Text("Will always fix “\(word)”")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.pkInk)
+                    chip(Text("Undo"), keycap: nil)
+                case let .alwaysFixWithdrawn(word):
+                    Text("No longer always fixing “\(word)”")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.pkInk)
                 case let .learned(word):
                     Text("Remembered “\(word)”")
                         .font(.system(size: 12.5))
@@ -103,7 +123,7 @@ struct HintBubbleContent: View {
                     chip(Text("Forget"), keycap: nil)
                 }
             }
-            if model.expanded, case let .retyped(_, _, _, why?) = model.content {
+            if model.expanded, case let .retyped(_, _, _, why?, _) = model.content {
                 explanation(why)
             }
         }
@@ -127,10 +147,11 @@ struct HintBubbleContent: View {
         .padding(.bottom, 2)
     }
 
-    /// A small «Why?»: it opens the explanation, and keeps the hint open.
-    private var whyChip: some View {
-        Button(action: explain) {
-            Text("Why?")
+    /// A small chip next to the manual retype's line: «Why?» opens the
+    /// explanation and «Always fix» lists the word. Both keep the hint open.
+    private func smallChip(_ label: Text, run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            label
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color.pkIndigoInk)
                 .padding(.horizontal, 7)
@@ -216,6 +237,7 @@ struct HintView: View {
     let model: HintModel
     let action: () -> Void
     var explain: () -> Void = {}
+    var alwaysFix: () -> Void = {}
     @Environment(\.colorScheme) private var scheme
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 13, style: .continuous) }
@@ -240,7 +262,7 @@ struct HintView: View {
 
     private func bubble(size: CGSize?) -> some View {
         let dark = scheme == .dark
-        return HintBubbleContent(model: model, action: action, explain: explain)
+        return HintBubbleContent(model: model, action: action, explain: explain, alwaysFix: alwaysFix)
             .frame(width: size?.width, height: size?.height, alignment: .leading)
             .clipShape(shape)
             .pkGlass(in: shape)

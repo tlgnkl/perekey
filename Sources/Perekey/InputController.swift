@@ -206,8 +206,13 @@ final class InputController {
                     why = HintWhy(title: ExplanationText.title(switched: explanation.switched),
                                   lines: ExplanationText.lines(explanation))
                 }
+                var onAlwaysFix: (() -> Void)?
+                if let decision, offersAlwaysFix(decision, original: original, text: text) {
+                    onAlwaysFix = { [weak self] in self?.confirmAlwaysFix(text, typed: original) }
+                }
                 hint.showRetyped(original: original, word: text,
-                                 shortcut: manual.onSelection ? nil : shortcut(of: manual.action), why: why)
+                                 shortcut: manual.onSelection ? nil : shortcut(of: manual.action), why: why,
+                                 onAlwaysFix: onAlwaysFix)
                 shownCorrection = nil
             }
         case let .corrected(correction):
@@ -245,6 +250,8 @@ final class InputController {
         case let .alwaysFixWithdrawn(word):
             store.update { $0.words.stopFixing(word) }
             onAlwaysFixWithdrawn?(word)
+            // After the `correctionUndone` of the same undo, which hid the old hint.
+            if store.settings.caretHint != .off { hint.showAlwaysFixWithdrawn(word: word) }
         case .capsLockOff:
             CapsLockState.turnOff()
         }
@@ -279,6 +286,28 @@ final class InputController {
         let readings = WordRules.readings(of: word, in: sources.layouts)
         store.update { added = $0.words.alwaysFix(word, typed: typed, readings: readings) }
         return added
+    }
+
+    /// Whether the hint after this manual retype offers «Always fix»
+    /// (`WordRules.offerAlwaysFix`): the word is on no list, in either reading.
+    private func offersAlwaysFix(_ decision: Classifier.Decision, original: String, text: String) -> Bool {
+        let words = store.settings.words
+        let listed = words.section(of: original) != nil || words.section(of: text) != nil
+        return WordRules.offerAlwaysFix(
+            decision: decision,
+            context: WordRules.OfferContext(autoswitch: store.settings.autoswitch, appMode: appModes.mode, listed: listed)
+        )
+    }
+
+    /// «Always fix» was pressed: list the word and say so, with «Undo».
+    private func confirmAlwaysFix(_ word: String, typed: String) {
+        guard alwaysFix(word, typed: typed) else {
+            hint.hide()
+            return
+        }
+        hint.showAlwaysFixed(word: word) { [weak self] in
+            self?.store.update { $0.words.stopFixing(word) }
+        }
     }
 
     private func manualAction(of origin: Retype.Origin) -> (action: HotkeyAction, onSelection: Bool)? {

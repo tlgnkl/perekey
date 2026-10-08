@@ -336,8 +336,10 @@ enum DebugSnapshot {
     private static func renderHint(in directory: URL) {
         let states: [(String, HintContent)] = [
             ("corrected", .corrected(original: "ghbdtn", replacement: "привет")),
-            ("retyped", .retyped(original: "ghbdtn", word: "привет", shortcut: "⌥", why: nil)),
-            ("retyped-why", .retyped(original: "Fyz", word: "Аня", shortcut: "⌥", why: Self.sampleWhy)),
+            ("retyped", .retyped(original: "ghbdtn", word: "привет", shortcut: "⌥", why: nil, offersAlways: false)),
+            ("retyped-why", .retyped(original: "Fyz", word: "Аня", shortcut: "⌥", why: Self.sampleWhy, offersAlways: true)),
+            ("always-fixed", .alwaysFixed(word: "аня")),
+            ("always-withdrawn", .alwaysFixWithdrawn(word: "аня")),
             ("learned", .learned(word: "дедлайн")),
         ]
         for (name, content) in states {
@@ -348,7 +350,8 @@ enum DebugSnapshot {
             }
         }
         for dark in [false, true] {
-            let model = HintModel(content: .retyped(original: "Fyz", word: "Аня", shortcut: "⌥", why: Self.sampleWhy),
+            let model = HintModel(content: .retyped(original: "Fyz", word: "Аня", shortcut: "⌥", why: Self.sampleWhy,
+                                                    offersAlways: true),
                                   visible: true, expanded: true)
             render(HintView(model: model) {}, dark: dark, size: CGSize(width: 360, height: 190),
                    to: directory.appending(path: "hint-retyped-why-open-\(dark ? "dark" : "light").png"))

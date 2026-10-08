@@ -49,9 +49,25 @@ final class HintController {
     }
 
     /// After the user's own retype: «word · ⌥ — revert». No button.
-    func showRetyped(original: String, word: String, shortcut: String?, why: HintWhy?) {
+    /// `onAlwaysFix` offers «Always fix»; it runs when the user presses it.
+    func showRetyped(original: String, word: String, shortcut: String?, why: HintWhy?,
+                     onAlwaysFix: (() -> Void)? = nil)
+    {
+        alwaysFixAction = onAlwaysFix
         present(.retyped(original: HintMetrics.shortened(original), word: HintMetrics.shortened(word),
-                         shortcut: shortcut, why: why), action: nil)
+                         shortcut: shortcut, why: why, offersAlways: onAlwaysFix != nil), action: nil)
+    }
+
+    /// After «Always fix»: «Will always fix “word” · Undo».
+    func showAlwaysFixed(word: String, onUndo: @escaping () -> Void) {
+        alwaysFixAction = nil
+        present(.alwaysFixed(word: HintMetrics.shortened(word)), action: onUndo)
+    }
+
+    /// After an undo that took a word off the list. No button.
+    func showAlwaysFixWithdrawn(word: String) {
+        alwaysFixAction = nil
+        present(.alwaysFixWithdrawn(word: HintMetrics.shortened(word)), action: nil)
     }
 
     /// After an undo with learning: «Remembered “word” · Forget».
@@ -83,7 +99,7 @@ final class HintController {
     /// «Why?» was pressed: the explanation opens under the line, and the hint
     /// stays a while longer.
     private func explain() {
-        guard model.visible, !model.expanded, model.content.hasButton, case .retyped = model.content else { return }
+        guard model.visible, !model.expanded, case let .retyped(_, _, _, why, _) = model.content, why != nil else { return }
         lifetime.hold(for: Self.explanationSeconds, at: Self.now)
         place(model.content, caret: lastCaret, expanded: true)
     }
@@ -169,6 +185,7 @@ final class HintController {
 
     private var remainingGlide = 0
     private var lastCaret: CGRect?
+    private var alwaysFixAction: (() -> Void)?
     /// The hint is showing and its buttons take clicks.
     private var buttonActive = false
     /// The bubble is moving: its button has no stable place, so it takes no clicks.
@@ -299,7 +316,7 @@ final class HintController {
             let action = self.currentAction
             self.hide()
             action?()
-        }, explain: { [weak self] in self?.explain() })
+        }, explain: { [weak self] in self?.explain() }, alwaysFix: { [weak self] in self?.alwaysFixAction?() })
         return HintPanel(rootView: view, model: model)
     }
 }

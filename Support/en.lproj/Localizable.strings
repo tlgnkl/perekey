@@ -52,6 +52,7 @@
 "Like Alt+Shift on Windows" = "Like Alt+Shift on Windows";
 "Neither reading is a word: it looks like code, a link or a path" = "Neither reading is a word: it looks like code, a link or a path";
 "Neither reading is likely: it looks like a random string" = "Neither reading is likely: it looks like a random string";
+"No longer always fixing “%@”" = "No longer always fixing “%@”";
 "One letter too many, and the fixed word is a known one" = "One letter too many, and the fixed word is a known one";
 "One letter was missing, and the fixed word is a known one" = "One letter was missing, and the fixed word is a known one";
 "One letter was wrong, and the fixed word is a known one" = "One letter was wrong, and the fixed word is a known one";
@@ -126,6 +127,7 @@
 "Welcome to Perekey" = "Welcome to Perekey";
 "Why didn't Perekey fix it?" = "Why didn't Perekey fix it?";
 "Why?" = "Why?";
+"Will always fix “%@”" = "Will always fix “%@”";
 "Works in the installed app only." = "Works in the installed app only.";
 "and press" = "and press";
 "fn twice starts Dictation in macOS." = "fn twice starts Dictation in macOS.";

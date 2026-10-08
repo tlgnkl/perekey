@@ -36,6 +36,9 @@ public enum EngineMessage: Sendable {
     case correctionUndoFailed(seq: UInt32)
     /// The user undid an automatic switch: learn the word, as typed.
     case learned(String)
+    /// The user undid a switch the "Всегда исправлять" list forced: take the
+    /// word off the list.
+    case alwaysFixWithdrawn(String)
     /// A word typed with Caps Lock on by mistake was corrected: turn it off
     /// (`CapsLockState.turnOff`).
     case capsLockOff
@@ -571,6 +574,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.correctionUndoFailed(seq: seq))
             case let .learned(word):
                 toMain(.learned(word))
+            case let .alwaysFixWithdrawn(word):
+                toMain(.alwaysFixWithdrawn(word))
             case .capsLockOff:
                 toMain(.capsLockOff)
             case let .refused(refusal):

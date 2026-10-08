@@ -45,6 +45,9 @@ final class InputController {
     @ObservationIgnored var onManualRetype: (() -> Void)?
     /// An undo taught Perekey this word; it is in `AppSettings.words` already.
     @ObservationIgnored var onLearned: ((String) -> Void)?
+    /// An undo took this word off "Всегда исправлять"; it is gone from
+    /// `AppSettings.words` already. For the hint to say so.
+    @ObservationIgnored var onAlwaysFixWithdrawn: ((String) -> Void)?
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState) {
         self.sources = sources
@@ -211,6 +214,9 @@ final class InputController {
             }
         case let .learned(word):
             learn(word)
+        case let .alwaysFixWithdrawn(word):
+            store.update { $0.words.stopFixing(word) }
+            onAlwaysFixWithdrawn?(word)
         case .capsLockOff:
             CapsLockState.turnOff()
         }
@@ -222,7 +228,8 @@ final class InputController {
         // The onboarding demo undoes «ghbdtn» on purpose: that teaches nothing.
         guard !(appModes.isDemoFront && AppModeController.isDemoWord(word)) else { return }
         var added = false
-        store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970) }
+        let readings = WordRules.readings(of: word, in: sources.layouts)
+        store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970, readings: readings) }
         guard added else { return }
         onLearned?(word)
         guard store.settings.caretHint != .off else { return }
@@ -230,6 +237,20 @@ final class InputController {
             self?.store.update { $0.words.forget(word) }
             self?.hint.hide()
         }
+    }
+
+    /// Puts a word on "Всегда исправлять": from now on it switches at the
+    /// word end whatever the score, unless a guard keeps it. `word` is the
+    /// form it should come out in, `typed` what the user typed (a learned
+    /// copy of it, or of another reading in the installed layouts, is forgotten). For the hint after a manual retype, when
+    /// `WordRules.offerAlwaysFix` says so. Returns false when the word is
+    /// invalid, already there, or on "Не трогать: мои".
+    @discardableResult
+    func alwaysFix(_ word: String, typed: String? = nil) -> Bool {
+        var added = false
+        let readings = WordRules.readings(of: word, in: sources.layouts)
+        store.update { added = $0.words.alwaysFix(word, typed: typed, readings: readings) }
+        return added
     }
 
     /// The user's own shortcut for retyping the last word, as keycaps, or nil.

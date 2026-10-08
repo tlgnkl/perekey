@@ -42,5 +42,25 @@
 			<string>Сегодня: %lld правки</string>
 		</dict>
 	</dict>
+	<key>undone %lld times</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@times@</string>
+		<key>times</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>few</key>
+			<string>отменяли %lld раза</string>
+			<key>many</key>
+			<string>отменяли %lld раз</string>
+			<key>one</key>
+			<string>отменяли %lld раз</string>
+			<key>other</key>
+			<string>отменяли %lld раза</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

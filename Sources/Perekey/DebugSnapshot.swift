@@ -114,7 +114,7 @@ enum DebugSnapshot {
     private static func renderSettingsWindow(in directory: URL) {
         let sources = InputSources()
         var settings = AppSettings(words: {
-            var words = WordExceptions(mine: ["перекей", "kubectl"])
+            var words = WordRules(mine: ["перекей", "kubectl"])
             words.learned = [LearnedWord(word: "дедлайн", learnedAt: Date().addingTimeInterval(-86_400 * 2).timeIntervalSince1970)]
             return words
         }())
@@ -245,13 +245,14 @@ enum DebugSnapshot {
 
     /// The Words pane with sample words (and a frequent-word warning), and the General pane.
     private static func renderWordsAndGeneral(in directory: URL) {
-        var words = WordExceptions(mine: ["перекей", "kubectl", "ё-моё"])
+        var words = WordRules(mine: ["перекей", "kubectl", "ё-моё"], always: ["аня", "гошан"])
         words.learned = [
             LearnedWord(word: "дедлайн", learnedAt: Date().addingTimeInterval(-86_400 * 2).timeIntervalSince1970),
-            LearnedWord(word: "ghbdtn", learnedAt: Date().addingTimeInterval(-86_400 * 20).timeIntervalSince1970),
+            LearnedWord(word: "ghbdtn", learnedAt: Date().addingTimeInterval(-86_400 * 20).timeIntervalSince1970,
+                        undoCount: 3, lastUndoneAt: Date().addingTimeInterval(-86_400 * 4).timeIntervalSince1970),
         ]
-        let size = CGSize(width: 560, height: 560)
-        for (name, sample, dark) in [("words-light", words, false), ("words-empty-dark", WordExceptions(), true)] {
+        let size = CGSize(width: 560, height: 800)
+        for (name, sample, dark) in [("words-light", words, false), ("words-empty-dark", WordRules(), true)] {
             let file = SettingsFile(url: directory.appending(path: "\(name).json"))
             try? file.save(AppSettings(words: sample))
             let view = WordsPane(store: SettingsStore(file: file)).frame(width: size.width, height: size.height)

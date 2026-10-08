@@ -81,7 +81,6 @@
 "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them." = "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them.";
 "Shift twice retypes" = "Shift twice retypes";
 "Shortcuts" = "Shortcuts";
-"Show Onboarding…" = "Show Onboarding…";
 "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal." = "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal.";
 "Step %lld of %lld" = "Step %1$lld of %2$lld";
 "Switch layout" = "Switch layout";
@@ -137,7 +136,6 @@
 "Replace your settings?" = "Replace your settings?";
 "The file has %@ shortcuts, %@ apps and %@ words." = "The file has %@ shortcuts, %@ apps and %@ words.";
 "They replace all your current settings." = "They replace all your current settings.";
-"Don't switch in %@" = "Don't switch in %@";
 "Apps" = "Apps";
 "Words" = "Words";
 "Perekey never corrects these words, in any layout." = "Perekey never corrects these words, in any layout.";
@@ -219,3 +217,18 @@
 "Abbreviations" = "Abbreviations";
 "Letter ё" = "Letter ё";
 "Russian only, where the word with «е» is no other word" = "Russian only, where the word with «е» is no other word";
+"Recent corrections" = "Recent corrections";
+"memory only" = "memory only";
+"Nothing yet. Corrections appear here as you type." = "Nothing yet. Corrections appear here as you type.";
+"Don't touch this word" = "Don't touch this word";
+"Already on the list" = "Already on the list";
+"Wrong layout" = "Wrong layout";
+"Typo" = "Typo";
+"Double capital" = "Double capital";
+"Abbreviation" = "Abbreviation";
+"How to Use Perekey" = "How to Use Perekey";
+"About Perekey" = "About Perekey";
+"%@ — switch layout" = "%@ — switch layout";
+"%@ — retype word" = "%@ — retype word";
+"Turn on or off: %@" = "Turn on or off: %@";
+"Opens the Perekey menu" = "Opens the Perekey menu";

@@ -81,7 +81,6 @@
 "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them." = "Двойной Shift открывает «Search Everywhere» в IDE от JetBrains. Если вы ими пользуетесь, выберите другое сочетание.";
 "Shift twice retypes" = "Двойной Shift перенабирает";
 "Shortcuts" = "Сочетания";
-"Show Onboarding…" = "Как пользоваться…";
 "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal." = "Запускайте Perekey командой «open Perekey.app», а не самим файлом. Иначе macOS выдаст доступ Терминалу.";
 "Step %lld of %lld" = "Шаг %1$lld из %2$lld";
 "Switch layout" = "Сменить раскладку";
@@ -137,7 +136,6 @@
 "Replace your settings?" = "Заменить ваши настройки?";
 "The file has %@ shortcuts, %@ apps and %@ words." = "В файле: сочетаний — %@, программ — %@, слов — %@.";
 "They replace all your current settings." = "Они заменят все текущие настройки.";
-"Don't switch in %@" = "Не переключать в %@";
 "Apps" = "Программы";
 "Words" = "Слова";
 "Perekey never corrects these words, in any layout." = "Эти слова Perekey не исправляет ни в какой раскладке.";
@@ -219,3 +217,18 @@
 "Abbreviations" = "Аббревиатуры";
 "Letter ё" = "Буква ё";
 "Russian only, where the word with «е» is no other word" = "Только там, где слово с «е» — не другое слово";
+"Recent corrections" = "Последние правки";
+"memory only" = "только в памяти";
+"Nothing yet. Corrections appear here as you type." = "Пока ничего. Правки появятся здесь, когда вы наберёте текст.";
+"Don't touch this word" = "Не трогать это слово";
+"Already on the list" = "Слово уже в списке";
+"Wrong layout" = "Не та раскладка";
+"Typo" = "Опечатка";
+"Double capital" = "Две заглавные";
+"Abbreviation" = "Аббревиатура";
+"How to Use Perekey" = "Как пользоваться";
+"About Perekey" = "О Perekey";
+"%@ — switch layout" = "%@ — сменить раскладку";
+"%@ — retype word" = "%@ — перенабрать слово";
+"Turn on or off: %@" = "Вкл. и выкл.: %@";
+"Opens the Perekey menu" = "Открывает меню Perekey";

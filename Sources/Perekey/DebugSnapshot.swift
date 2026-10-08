@@ -72,8 +72,7 @@ enum DebugSnapshot {
             let bar = dark ? Color(white: 0.16) : Color(white: 0.92)
             for state in states {
                 let model = CapsuleModel(code: code, struck: state.struck, reason: state.pause.top(at: now), now: now)
-                let image = CapsuleImage.make(model, dark: dark)
-                let view = Image(nsImage: image).padding(.horizontal, 16).frame(height: 28).background(bar)
+                let view = CapsuleView(model: model, dark: dark).padding(.horizontal, 16).frame(height: 28).background(bar)
                 render(view.fixedSize(), dark: dark, size: CGSize(width: 220, height: 28),
                        to: directory.appending(path: "capsule-\(state.name)-\(suffix).png"))
             }
@@ -92,10 +91,18 @@ enum DebugSnapshot {
                 appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", isGame: false))
                 let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil,
                                       pendingVersion: menu.name == "normal" ? "1.2" : nil)
+                var log = CorrectionLog()
+                if menu.name != "appoff" {
+                    let en = sources.layouts.first?.id ?? "en", ru = sources.layouts.last?.id ?? "ru"
+                    log.record(Correction(seq: 1, original: "ghbdtn", replacement: "привет", source: en, target: ru), at: now)
+                    log.record(Correction(seq: 2, original: "мвд", replacement: "МВД", source: ru, target: ru, kind: .abbreviation), at: now)
+                    log.record(Correction(seq: 3, original: "еще", replacement: "ещё", source: ru, target: ru, kind: .yo), at: now)
+                    log.markUndone(seq: 2)
+                }
                 let view = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch, appModes: appModes,
-                                       updates: updates)
+                                       recents: RecentCorrections(log), updates: updates)
                     .background(Color(nsColor: .windowBackgroundColor))
-                render(view, dark: dark, size: CGSize(width: 318, height: 520),
+                render(view, dark: dark, size: CGSize(width: 318, height: 640),
                        to: directory.appending(path: "menu-\(menu.name)-\(suffix).png"))
             }
         }

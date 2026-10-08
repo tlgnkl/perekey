@@ -17,6 +17,10 @@ public enum HotkeyAction: Hashable, Sendable, Codable {
     /// Paste the pasteboard's text without formatting. Off by default and
     /// only for a key trigger: ⌘⇧V is taken in VS Code, Slack and Chrome.
     case pastePlain
+    /// Put back the word the last automatic switch changed, in its layout,
+    /// while that switch is still the last thing typed. No default shortcut:
+    /// Backspace right after the switch does the same.
+    case undoLastCorrection
 
     /// Whether a shortcut of modifiers alone may run the action. Paste needs
     /// a key: a lone modifier would fire on every Shift tap or Option press.

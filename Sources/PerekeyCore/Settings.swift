@@ -15,16 +15,27 @@ public struct Settings: Hashable, Sendable, Codable {
     /// posted (the layout is selected on the main thread first). The
     /// `fenceTimeout` counts from the posting, not from the shortcut.
     public var postTimeout: Double
+    /// Words automatic switching never touches: the user's own and the learned
+    /// ones, normalized like `WordExceptions.normalize` (trimmed, lowercased).
+    /// A word matches in either layout reading.
+    public var exceptions: Set<String>
+    /// Whether undoing an automatic switch asks the app to learn the word
+    /// (`Effect.learned`).
+    public var learnFromUndos: Bool
 
     public init(
         hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys,
         autoswitch: Bool = true,
         fenceTimeout: Double = 0.3,
-        postTimeout: Double = 2
+        postTimeout: Double = 2,
+        exceptions: Set<String> = [],
+        learnFromUndos: Bool = true
     ) {
         self.hotkeys = hotkeys
         self.autoswitch = autoswitch
         self.fenceTimeout = fenceTimeout
         self.postTimeout = postTimeout
+        self.exceptions = exceptions
+        self.learnFromUndos = learnFromUndos
     }
 }

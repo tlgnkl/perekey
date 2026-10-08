@@ -203,3 +203,6 @@
 "Never" = "Ни разу";
 "Install Update %@…" = "Установить обновление %@…";
 "Check for Updates…" = "Проверить обновления…";
+/* Stage 2: automatic switching */
+"Undo last correction" = "Отменить последнее исправление";
+"Backspace right after a correction does the same." = "Backspace сразу после исправления делает то же.";

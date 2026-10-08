@@ -11,8 +11,8 @@ struct ShortcutsPane: View {
     let recording: ShortcutRecording
 
     private static let actions: [HotkeyAction] = [
-        .switchLayout, .convertLastWord, .toggleAutoswitch, .selectLanguage("en"), .selectLanguage("ru"),
-        .changeCase, .transliterate, .pastePlain,
+        .switchLayout, .convertLastWord, .toggleAutoswitch, .undoLastCorrection, .selectLanguage("en"),
+        .selectLanguage("ru"), .changeCase, .transliterate, .pastePlain,
     ]
 
     var body: some View {
@@ -60,6 +60,7 @@ struct ShortcutsPane: View {
         case .changeCase: Text("Press again to go lower, Title, UPPER.")
         case .transliterate: Text("Selection only: Cyrillic to Latin and back.")
         case .pastePlain: Text("Off until you record a key with modifiers, such as ⌃⌥V.")
+        case .undoLastCorrection: Text("Backspace right after a correction does the same.")
         default: nil
         }
     }

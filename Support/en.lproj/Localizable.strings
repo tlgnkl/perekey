@@ -203,3 +203,6 @@
 "Never" = "Never";
 "Install Update %@…" = "Install Update %@…";
 "Check for Updates…" = "Check for Updates…";
+/* Stage 2: automatic switching */
+"Undo last correction" = "Undo last correction";
+"Backspace right after a correction does the same." = "Backspace right after a correction does the same.";

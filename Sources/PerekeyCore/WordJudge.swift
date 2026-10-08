@@ -94,9 +94,10 @@ struct WordJudge: Sendable {
     /// `switching`: a suppressed word is still judged once, to learn it and
     /// to pass its language on.
     private(set) var judged = false
-    /// What the classifier decided about the word judged last, while `judged`
-    /// holds: «why did it (not) switch?». Nil when it did not run.
-    private(set) var lastDecision: Classifier.Decision?
+    /// The language of the word before the one judged last: the context the
+    /// judgement had, so «why?» can ask again with the same one. Only read
+    /// while `judged`.
+    private var contextAtJudge: String?
     private(set) var switching = Switching.allowed
 
     init(classifier: Classifier?) {
@@ -116,13 +117,11 @@ struct WordJudge: Sendable {
     mutating func typed(startsWord: Bool) {
         if startsWord { switching = .allowed }
         judged = false
-        lastDecision = nil
     }
 
     /// Backspace changed the word: judge it again at its end.
     mutating func deleted() {
         judged = false
-        lastDecision = nil
     }
 
     /// The key held by a correction at the word's end came back: the word it
@@ -200,6 +199,7 @@ struct WordJudge: Sendable {
             return .keep
         }
         judged = true
+        contextAtJudge = previousLanguage
         // The word after this key starts a sentence after `. ! ?` or a line
         // end. The space after "hello." judges the word again: the period is
         // in the buffer then.
@@ -233,12 +233,8 @@ struct WordJudge: Sendable {
                 context: Classifier.Context(previousLanguage: previousLanguage)
             )
             decision = found
-            lastDecision = found
             if found.verdict == .switch(to: auto.other.id) {
                 if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings) {
-                    // The user's list kept it.
-                    lastDecision?.verdict = .keep
-                    lastDecision?.reason = .kept
                     previousLanguage = auto.typed.language
                     return .keep
                 }
@@ -246,7 +242,11 @@ struct WordJudge: Sendable {
                                               midWord: false, undoable: !endsLine, layouts: layouts,
                                               settings: settings)
                 else { return .keep }
-                retype.decision = found
+                // The facts behind «why?», only for the rare word that switches.
+                retype.decision = auto.classifier.classify(
+                    buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
+                    context: Classifier.Context(previousLanguage: contextAtJudge), explaining: true
+                )
                 previousLanguage = auto.other.language
                 return .retype(retype)
             }
@@ -264,10 +264,11 @@ struct WordJudge: Sendable {
     }
 
     /// What automatic switching decides about the word in the buffer, for the
-    /// user who retyped it by hand: «why did it leave this alone?». The
-    /// decision made at the word's end when there was one, else a fresh one.
-    /// Nil when automatic switching was not allowed to act here (off, the
-    /// app's mode, a password field, a word the user undid or retyped).
+    /// user who retyped it by hand: «why did it leave this alone?». Asked
+    /// again with the context the word had at its end, or the current one
+    /// when it was not judged yet. Nil when automatic switching was not
+    /// allowed to act here (off, the app's mode, a password field, a word the
+    /// user undid or retyped).
     func decisionForManualRetype(buffer: WordBuffer, layouts: LayoutState, settings: Settings, focus: Focus?,
                                  secureInput: Bool) -> Classifier.Decision?
     {
@@ -275,9 +276,19 @@ struct WordJudge: Sendable {
               let auto = autoContext(layouts: layouts, settings: settings, focus: focus, secureInput: secureInput),
               wordIsPlain(buffer, layouts: layouts)
         else { return nil }
-        if judged { return lastDecision }
-        return auto.classifier.classify(buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
-                                        context: Classifier.Context(previousLanguage: previousLanguage))
+        var decision = auto.classifier.classify(
+            buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
+            context: Classifier.Context(previousLanguage: judged ? contextAtJudge : previousLanguage),
+            explaining: true
+        )
+        if decision.verdict == .switch(to: auto.other.id),
+           isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
+        {
+            // The user's list kept it.
+            decision.verdict = .keep
+            decision.reason = .kept
+        }
+        return decision
     }
 
     /// Whether `insideWord` may act: the cheap checks, as `mayJudge`.
@@ -394,7 +405,11 @@ struct WordJudge: Sendable {
             capsLockOff: fix?.capsLockOff ?? false
         )
         pending.correction.insideWord = midWord
-        pending.correction.sourceLanguage = context.typed.language
+        if midWord {
+            // No classifier ran; the decision only names the language.
+            pending.correction.decision = Classifier.Decision(verdict: .keep, score: 0, reason: .compared,
+                                                              language: nil, typedLanguage: context.typed.language)
+        }
         pending.correction.typoChange = fix?.typoChange
         CorrectionUndo.describe(&pending, layouts: layouts)
         return WordRetype(keys: keys, expected: word.expected, deleteCount: word.keys.count,

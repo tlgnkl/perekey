@@ -1,5 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+/// A `Classifier.Decision` behind one pointer. Effects are copied on the
+/// per-key path; a decision inline would make every `Effect` as big as it is.
+final class DecisionBox: Hashable, Sendable {
+    let value: Classifier.Decision
+
+    init(_ value: Classifier.Decision) {
+        self.value = value
+    }
+
+    static func == (lhs: DecisionBox, rhs: DecisionBox) -> Bool { lhs.value == rhs.value }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(value) }
+}
+
 /// Text to retype in place of what the user typed.
 public struct Retype: Hashable, Sendable {
     /// One synthetic key: the original key code, so apps that read key codes
@@ -42,7 +56,12 @@ public struct Retype: Hashable, Sendable {
     /// What automatic switching decided about the word, for «Why?». Set for a
     /// word retyped by hand while automatic switching was on, and for an
     /// automatic switch; nil when it did not judge the word.
-    public var decision: Classifier.Decision?
+    public var decision: Classifier.Decision? {
+        get { decisionBox?.value }
+        set { decisionBox = newValue.map(DecisionBox.init) }
+    }
+
+    private var decisionBox: DecisionBox?
 
     /// Who asked for a retype.
     public enum Origin: Hashable, Sendable {
@@ -64,7 +83,7 @@ public struct Retype: Hashable, Sendable {
                 decision: Classifier.Decision? = nil)
     {
         self.origin = origin
-        self.decision = decision
+        decisionBox = decision.map(DecisionBox.init)
         self.deleteCount = deleteCount
         self.keys = keys
         self.target = target
@@ -98,13 +117,17 @@ public struct Correction: Hashable, Sendable {
     /// What the classifier decided, when it switched the layout at the end of
     /// the word. Nil for a switch inside the word and for corrections that
     /// stay in their layout.
-    public var decision: Classifier.Decision?
-    /// The switch happened inside the word, at an impossible start ("ghb").
+    public var decision: Classifier.Decision? {
+        get { decisionBox?.value }
+        set { decisionBox = newValue.map(DecisionBox.init) }
+    }
+
+    private var decisionBox: DecisionBox?
+    /// The switch happened inside the word, at an impossible start ("ghb");
+    /// `decision` then only names the languages.
     public var insideWord = false
     /// What a typo correction changed.
     public var typoChange: TypoCorrector.Change?
-    /// The language of the layout the word was typed in, e.g. "en".
-    public var sourceLanguage: String?
 
     /// The corrections of the word-boundary pipeline (docs/PLAN.md, «Этап 4»).
     public enum Kind: Hashable, Sendable {

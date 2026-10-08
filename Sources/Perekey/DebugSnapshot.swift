@@ -261,7 +261,8 @@ enum DebugSnapshot {
         typo.typoChange = .delete
         var inside = Correction(seq: 3, original: "ghb", replacement: "при", source: en, target: ru)
         inside.insideWord = true
-        inside.sourceLanguage = "en"
+        inside.decision = Classifier.Decision(verdict: .keep, score: 0, reason: .compared, language: nil,
+                                              typedLanguage: "en")
         for correction in [inside, typo, layout] { log.record(correction) }
         let file = SettingsFile(url: directory.appending(path: "reasons.json"))
         try? file.save(AppSettings())

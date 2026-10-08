@@ -45,7 +45,7 @@ private func keyboard(_ action: HotkeyAction, autoswitch: Bool = true) -> Keyboa
         desk.type("dtn ")
         let correction = try #require(desk.corrections.first)
         #expect(correction.insideWord)
-        #expect(correction.sourceLanguage == "en")
+        #expect(correction.decision?.typedLanguage == "en")
     }
 
     @Test func theUndoOfACorrectionIsNoManualRetype() throws {

@@ -36,7 +36,7 @@ public struct Explanation: Equatable, Sendable {
     public init(correction: Correction) {
         var statements: [Statement] = []
         if correction.insideWord {
-            statements.append(.impossibleStart(text: correction.original, language: correction.sourceLanguage))
+            statements.append(.impossibleStart(text: correction.original, language: correction.decision?.typedLanguage))
         } else if let decision = correction.decision, decision.verdict != .keep, decision.verdict != .unsure {
             statements = Self.facts(of: decision, typed: correction.original, other: correction.replacement)
         }

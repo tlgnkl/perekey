@@ -162,8 +162,11 @@ public struct Classifier: Sendable {
     /// - Parameters:
     ///   - typed: the layout that was active while typing.
     ///   - other: the layout the word may have been meant for.
+    /// - Parameter explaining: also fill in `margin`, the forms and the
+    ///   languages of the decision, for «why?». Costs a little, so the
+    ///   per-word path leaves it off and asks again when it needs the facts.
     public func classify(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap,
-                         context: Context = Context()) -> Decision
+                         context: Context = Context(), explaining: Bool = false) -> Decision
     {
         let count = Self.wordLength(strokes)
         guard count > 0 else { return Decision(verdict: .keep, score: 0, reason: .empty, language: nil) }
@@ -179,7 +182,8 @@ public struct Classifier: Sendable {
                       let otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
                                                  scalars: scalars[half...], symbols: symbols[half...])
                 else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
-                return decide(typedReading, otherReading, typed: typed, other: other, context: context)
+                return decide(typedReading, otherReading, typed: typed, other: other, context: context,
+                              explaining: explaining)
             }
         }
     }
@@ -224,9 +228,10 @@ public struct Classifier: Sendable {
     }
 
     private func decide(_ typed: Reading, _ other: Reading, typed typedLayout: LayoutMap, other otherLayout: LayoutMap,
-                        context: Context) -> Decision
+                        context: Context, explaining: Bool) -> Decision
     {
         var decision = compare(typed, other, typed: typedLayout, other: otherLayout, context: context)
+        guard explaining else { return decision }
         decision.margin = isKnown(other) ? options.threshold : options.threshold + options.unknownWordExtra
         decision.typedForm = form(of: typed)
         decision.otherForm = form(of: other)

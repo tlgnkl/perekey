@@ -272,7 +272,7 @@ public struct InputMachine: Sendable {
         let seq = fence.takeSeq()
         var pending = retype.pending
         pending.correction.seq = seq
-        pending.correction.decision = retype.decision
+        if let decision = retype.decision { pending.correction.decision = decision }
         startRetype((retype.keys, retype.expected), deleteCount: retype.deleteCount, target: retype.target, seq: seq,
                     purpose: .correction(pending), origin: .automatic(pending.correction.kind),
                     decision: retype.decision, at: time, effects: &effects)

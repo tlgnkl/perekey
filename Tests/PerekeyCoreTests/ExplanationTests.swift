@@ -63,7 +63,8 @@ import Testing
 
         var inside = correction(.layout)
         inside.insideWord = true
-        inside.sourceLanguage = "en"
+        inside.decision = Classifier.Decision(verdict: .keep, score: 0, reason: .compared, language: nil,
+                                              typedLanguage: "en")
         #expect(Explanation(correction: inside).statements == [.impossibleStart(text: "ghbdtn", language: "en")])
 
         for change in TypoCorrector.Change.allCases {

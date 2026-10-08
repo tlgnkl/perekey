@@ -270,3 +270,13 @@
 "%@ — retype" = "%@ — retype";
 "Turn on or off: %@" = "Turn on or off: %@";
 "Opens the Perekey menu" = "Opens the Perekey menu";
+"Statistics" = "Statistics";
+"Count corrections" = "Count corrections";
+"Perekey keeps a count per day on this Mac: how many corrections, of which kind, how many you undid. No words, no apps. It keeps 8 weeks." = "Perekey keeps a count per day on this Mac: how many corrections, of which kind, how many you undid. No words, no apps. It keeps 8 weeks.";
+"Erase the counts" = "Erase the counts";
+"Deletes the file with the counts." = "Deletes the file with the counts.";
+"Erase" = "Erase";
+"Last 7 days" = "Last 7 days";
+"Undone" = "Undone";
+"Undone share" = "Undone share";
+"Today: no corrections" = "Today: no corrections";

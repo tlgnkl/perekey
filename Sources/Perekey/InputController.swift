@@ -41,6 +41,8 @@ final class InputController {
     @ObservationIgnored var onCorrection: ((Correction) -> Void)?
     /// The correction with this `seq` was undone.
     @ObservationIgnored var onCorrectionUndone: ((UInt32) -> Void)?
+    /// The user retyped by hand (a shortcut or a selection). Carries no text.
+    @ObservationIgnored var onManualRetype: (() -> Void)?
     /// An undo taught Perekey this word; it is in `AppSettings.words` already.
     @ObservationIgnored var onLearned: ((String) -> Void)?
 
@@ -171,6 +173,7 @@ final class InputController {
             plainPaste.paste()
         case let .retyped(original, text, manual):
             SystemSounds.play(store.settings.correctionSound)
+            if manual { onManualRetype?() }
             // An automatic switch has its own hint, from `corrected`.
             if manual, store.settings.caretHint.shows(automatic: false), original != text {
                 hint.showRetyped(original: original, word: text, shortcut: retypeShortcut())

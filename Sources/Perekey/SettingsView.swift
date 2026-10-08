@@ -50,13 +50,15 @@ struct SettingsView: View {
     let recording: ShortcutRecording
     let sources: InputSources
     let updates: Updates
+    let usage: UsageRecorder?
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
     /// Material behind the whole window; off for offscreen snapshots.
     private let windowBackground: Bool
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
-         initial: SettingsSection = .general, windowBackground: Bool = true) {
+         usage: UsageRecorder? = nil, initial: SettingsSection = .general, windowBackground: Bool = true) {
+        self.usage = usage
         self.windowBackground = windowBackground
         self.updates = updates
         self.store = store
@@ -116,7 +118,7 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch current {
-        case .general: GeneralPane(store: store, updates: updates, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
+        case .general: GeneralPane(store: store, updates: updates, usage: usage, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
         case .shortcuts: ShortcutsPane(store: store, recording: recording)
         case .apps: AppsPane(store: store, sources: sources)
         case .sites: SitesPane(store: store, sources: sources)

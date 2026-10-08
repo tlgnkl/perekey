@@ -201,6 +201,11 @@
 "Off" = "Выкл.";
 "Built-in default" = "По умолчанию";
 "Your rule" = "Ваше правило";
+"Mostly Russian" = "В основном русский";
+"Mostly English" = "В основном английский";
+"Mostly %@" = "В основном %@";
+"Reset" = "Сбросить";
+"Forget the languages typed in this app" = "Забыть, на каких языках здесь писали";
 "The file is not a Perekey settings file." = "Это не файл настроек Perekey.";
 "The file comes from a newer Perekey (format %@). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %@). Обновите Perekey и попробуйте снова.";
 
@@ -325,4 +330,7 @@
 "Undone share" = "Доля отмен";
 "Today: no corrections" = "Сегодня правок нет";
 "Privacy" = "Приватность";
-"What you type stays in memory and never leaves this Mac. Settings, your words and the counts you allow are files on this Mac. The only network request is the update check." = "Набранное остаётся в памяти и не покидает этот Mac. Настройки, ваши слова и разрешённые счётчики лежат файлами на этом Mac. Сеть нужна только для проверки обновлений.";
+"What you type stays in memory and never leaves this Mac. Settings, your words, the languages of apps and the counts you allow are files on this Mac. The only network request is the update check." = "Набранное остаётся в памяти и не покидает этот Mac. Настройки, ваши слова, языки программ и разрешённые счётчики лежат файлами на этом Mac. Сеть нужна только для проверки обновлений.";
+"Languages of apps" = "Языки программ";
+"Forget the languages of apps" = "Забыть языки программ";
+"To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "Чтобы угадать язык следующего слова, Perekey считает, сколько слов на каком языке вы набираете в программе. Без слов, только числа. Сайты считаются только до выхода из Perekey.";

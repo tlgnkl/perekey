@@ -89,25 +89,117 @@ struct WordJudge: Sendable {
         var candidates: [LayoutMap]
     }
 
-    private(set) var classifier: Classifier?
+    /// What the checks on every key press read: plain values only, so
+    /// asking them copies nothing (`mayJudge`, `mayActInsideWord`). The
+    /// rest of the judge holds strings and tables, and a call on all of it
+    /// could cost the copy of each.
+    struct Gate: Sendable {
+        var hasClassifier = false
+        var hasTypoCorrector = false
+        var appMode = AppMode.auto
+        /// The word in the buffer was judged at a boundary and nothing was
+        /// added since: "hello!" and then a space is not judged twice.
+        /// Independent of `switching`: a suppressed word is still judged
+        /// once, to learn it and to pass its language on.
+        var judged = false
+        var switching = Switching.allowed
+
+        /// The flags that let automatic switching act, without any lookup.
+        func autoswitchMayAct(_ settings: Settings) -> Bool {
+            settings.autoswitch && appMode == .auto && hasClassifier
+        }
+
+        /// The flags that let some word correction act, without any lookup.
+        func wordFixMayAct(_ settings: Settings) -> Bool {
+            appMode == .auto && hasClassifier
+                && (settings.typoCorrection && hasTypoCorrector || settings.corrections.correctsWords)
+        }
+
+        /// Whether `key` may end a word `judge` acts on: the cheap checks,
+        /// without any lookup in the model. Ask it before `judge`, whose
+        /// arguments the caller may have to copy.
+        func mayJudge(endedBy key: KeyEvent, held: UInt8, buffer: WordBuffer, layouts: LayoutState,
+                      settings: Settings) -> Bool
+        {
+            guard autoswitchMayAct(settings) || wordFixMayAct(settings), !judged, let last = buffer.entries.last,
+                  !last.isSpace,
+                  held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit)
+                  == 0
+            else { return false }
+            let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
+            guard let typed = layouts.currentMap else { return false }
+            return WordJudge.endsLine(key) || stroke.keyCode == KeyCode.space
+                || WordJudge.isPunctuation(stroke, in: typed)
+        }
+
+        /// Whether `insideWord` may act: the cheap checks, as `mayJudge`.
+        func mayActInsideWord(buffer: WordBuffer, settings: Settings) -> Bool {
+            let count = buffer.entries.count
+            return (count == 3 || count == 4) && autoswitchMayAct(settings) && switching == .allowed
+                && buffer.entries.last?.isSpace == false
+        }
+    }
+
+    private(set) var gate = Gate()
+    private(set) var classifier: Classifier? {
+        didSet { gate.hasClassifier = classifier != nil }
+    }
     /// Typo correction over the model of `classifier`; nil without a model.
-    private var typoCorrector: TypoCorrector?
-    var appMode: AppMode = .auto
-    /// The language of the last judged word: context for the next one.
-    private(set) var previousLanguage: String?
+    private var typoCorrector: TypoCorrector? {
+        didSet { gate.hasTypoCorrector = typoCorrector != nil }
+    }
+    var appMode: AppMode {
+        get { gate.appMode }
+        set { gate.appMode = newValue }
+    }
+    /// The languages of the last judged words: context for the next one.
+    private(set) var recent = RecentLanguages()
+    /// The word being typed has its place in `recent` already: judging it
+    /// again ("hello." and then a space) or undoing it replaces its language.
+    private var languageRecorded = false
+    /// The word being typed counts in `tally`: it was judged in the app of
+    /// `languageContext`.
+    private var languageCounted = false
+    /// Words judged now count in `tally` (`inContextApp`, as of the last judgement).
+    private var counting = false
+    /// The app and site typing goes to, and the prior they give.
+    private(set) var languageContext = LanguageContext()
+    /// Words judged in `languageContext` since the last `takeTally()`.
+    private var tally: [String: Int] = [:]
+    /// How many words `tally` counts.
+    private(set) var tallied = 0
+    /// A tally goes out after this many words, or when the context changes.
+    static let tallySize = 64
+
+    /// The language of the last judged word.
+    var previousLanguage: String? { recent.latest }
+
+    /// What the classifier is told about the next word. The app's prior
+    /// only where the focus is in that app: not in Perekey's own windows,
+    /// not in the moment the focus has moved and the context not yet.
+    private func context(focus: Focus?) -> Classifier.Context {
+        Classifier.Context(recent: recent, prior: inContextApp(focus) ? languageContext.prior : LanguagePrior())
+    }
+
+    private func inContextApp(_ focus: Focus?) -> Bool {
+        languageContext.app != nil && focus?.bundleID == languageContext.app
+    }
     /// The next word starts a sentence (after `. ! ?`, a line end or a focus
     /// change): a capital there is no name. Independent of the word itself.
     private(set) var sentenceStart = true
-    /// The word in the buffer was judged at a boundary and nothing was added
-    /// since: "hello!" and then a space is not judged twice. Independent of
-    /// `switching`: a suppressed word is still judged once, to learn it and
-    /// to pass its language on.
-    private(set) var judged = false
-    /// The language of the word before the one judged last: the context the
-    /// judgement had, so «why?» can ask again with the same one. Only read
-    /// while `judged`.
-    private var contextAtJudge: String?
-    private(set) var switching = Switching.allowed
+    /// See `Gate.judged`.
+    private(set) var judged: Bool {
+        get { gate.judged }
+        set { gate.judged = newValue }
+    }
+    /// The context the last judgement had (the words before it, the app's
+    /// prior), so «why?» can ask again with the same one. Only read while
+    /// `judged`.
+    private var contextAtJudge = Classifier.Context()
+    private(set) var switching: Switching {
+        get { gate.switching }
+        set { gate.switching = newValue }
+    }
 
     init(classifier: Classifier?) {
         setClassifier(classifier)
@@ -116,7 +208,7 @@ struct WordJudge: Sendable {
     mutating func setClassifier(_ newClassifier: Classifier?) {
         classifier = newClassifier
         typoCorrector = newClassifier.map { TypoCorrector(model: $0.model) }
-        previousLanguage = nil
+        recent.removeAll()
     }
 
     // MARK: - What happened to the word
@@ -124,7 +216,10 @@ struct WordJudge: Sendable {
     /// A key that types a character went into the buffer. `startsWord`: it
     /// began a new word, and whatever was decided about the last one is over.
     mutating func typed(startsWord: Bool) {
-        if startsWord { switching = .allowed }
+        if startsWord {
+            switching = .allowed
+            languageRecorded = false
+        }
         judged = false
     }
 
@@ -151,7 +246,7 @@ struct WordJudge: Sendable {
     mutating func wordUndone(language: String?) {
         switching = .suppressed
         judged = true
-        previousLanguage = language
+        record(language)
     }
 
     /// The undo of a switch inside the word was posted: learn the word once
@@ -162,32 +257,57 @@ struct WordJudge: Sendable {
 
     /// The text before the caret is unknown now.
     mutating func forgetContext(newField: Bool) {
-        previousLanguage = nil
+        recent.removeAll()
+        languageRecorded = false
         if newField { sentenceStart = true }
     }
 
-    // MARK: - At the word's end
+    // MARK: - Languages of the words
 
-    /// Whether `key` may end a word `judge` acts on: the cheap checks,
-    /// without any lookup in the model. This runs on every key press; ask it
-    /// before `judge`, whose arguments the caller may have to copy.
-    func mayJudge(endedBy key: KeyEvent, held: UInt8, buffer: WordBuffer, layouts: LayoutState,
-                  settings: Settings) -> Bool
-    {
-        guard autoswitchMayAct(settings) || wordFixMayAct(settings), !judged, let last = buffer.entries.last,
-              !last.isSpace,
-              held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit) == 0
-        else { return false }
-        let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
-        guard let typed = layouts.currentMap else { return false }
-        return Self.endsLine(key) || stroke.keyCode == KeyCode.space || Self.isPunctuation(stroke, in: typed)
+    /// The word being typed is in `language`, as far as Perekey can tell.
+    private mutating func record(_ language: String?) {
+        if languageRecorded {
+            let old = recent.latest
+            recent.replaceLatest(language)
+            guard languageCounted, old != language else { return }
+            if let old { tally[old, default: 0] -= 1 }
+            if let language { tally[language, default: 0] += 1 }
+        } else {
+            recent.push(language)
+            languageRecorded = true
+            languageCounted = counting
+            guard counting, let language else { return }
+            tally[language, default: 0] += 1
+            tallied += 1
+        }
     }
+
+    /// Typing goes to another app or site. Returns the tally of the one
+    /// before, if it counted anything.
+    mutating func languageContextChanged(_ context: LanguageContext) -> LanguageTally? {
+        let last = takeTally()
+        languageContext = context
+        return last
+    }
+
+    /// The words counted since the last tally, or nil when there are none.
+    mutating func takeTally() -> LanguageTally? {
+        defer {
+            tally = [:]
+            tallied = 0
+        }
+        guard tally.contains(where: { $0.value != 0 }) else { return nil }
+        return LanguageTally(app: languageContext.app, site: languageContext.site, words: tally,
+                             generation: languageContext.generation)
+    }
+
+    // MARK: - At the word's end
 
     /// At a key that ends the word: whether to retype the word and hold the key.
     mutating func judge(endedBy key: KeyEvent, held: UInt8, buffer: WordBuffer, layouts: LayoutState,
                         settings: Settings, focus: Focus?, secureInput: Bool) -> Ruling
     {
-        guard mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings),
+        guard gate.mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings),
               let last = buffer.entries.last, let typed = layouts.currentMap
         else { return .keep }
         let endsLine = Self.endsLine(key)
@@ -208,13 +328,17 @@ struct WordJudge: Sendable {
             return .keep
         }
         judged = true
-        contextAtJudge = previousLanguage
+        counting = inContextApp(focus)
+        contextAtJudge = context(focus: focus)
         // The word after this key starts a sentence after `. ! ?` or a line
         // end. The space after "hello." judges the word again: the period is
         // in the buffer then.
         let startsSentence = endsLine || Self.endsSentence(stroke, in: typed)
             || (stroke.keyCode == KeyCode.space && Self.endsSentence(last.stroke, in: typed))
-        defer { sentenceStart = startsSentence }
+        defer {
+            sentenceStart = startsSentence
+            if startsSentence { recent.keepLatest() }
+        }
 
         if switching != .allowed {
             var ruling = Ruling.keep
@@ -230,7 +354,7 @@ struct WordJudge: Sendable {
                     ruling = .learn(word)
                 }
             }
-            previousLanguage = typed.language
+            record(typed.language)
             return ruling
         }
         guard wordIsPlain(buffer, layouts: layouts) else { return .keep }
@@ -241,12 +365,12 @@ struct WordJudge: Sendable {
         var decision: Classifier.Decision?
         if var auto {
             let strokes = buffer.entries.lazy.map(\.stroke)
-            let context = Classifier.Context(previousLanguage: previousLanguage)
             // The candidates passed the rule of automatic switching in
             // `LayoutState`: one of them is the plain pair.
             let found = auto.candidates.count == 1
-                ? auto.classifier.classify(strokes, typed: auto.typed, other: auto.other, context: context)
-                : auto.classifier.classify(strokes, typed: auto.typed, candidates: auto.candidates, context: context)
+                ? auto.classifier.classify(strokes, typed: auto.typed, other: auto.other, context: contextAtJudge)
+                : auto.classifier.classify(strokes, typed: auto.typed, candidates: auto.candidates,
+                                           context: contextAtJudge)
             decision = found
             // The reading the classifier picked, or one on "Всегда исправлять".
             if case let .switch(to: id) = found.verdict, let map = layouts[id] {
@@ -265,7 +389,7 @@ struct WordJudge: Sendable {
                 if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
                     || alwaysFixSpelling(buffer, in: auto.typed, settings) != nil
                 {
-                    previousLanguage = auto.typed.language
+                    record(auto.typed.language)
                     return .keep
                 }
                 // The listed form is what the user wants, spelt as listed
@@ -279,17 +403,17 @@ struct WordJudge: Sendable {
                 // The facts behind «why?», only for the rare word that switches.
                 retype.decision = auto.classifier.classify(
                     buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
-                    context: Classifier.Context(previousLanguage: contextAtJudge), explaining: true
+                    context: contextAtJudge, explaining: true
                 )
                 // An undo of a switch to a listed word withdraws it from the
                 // list instead of learning, whoever decided the switch.
                 retype.pending.alwaysFix = listed
-                previousLanguage = auto.other.language
+                record(auto.other.language)
                 return .retype(retype)
             }
-            previousLanguage = found.language
+            record(found.language)
         } else {
-            previousLanguage = typed.language
+            record(typed.language)
         }
         // The word stays in its layout: fix it there.
         guard let typo, !isException(buffer, in: typo, settings), alwaysFixSpelling(buffer, in: typo, settings) == nil,
@@ -319,7 +443,7 @@ struct WordJudge: Sendable {
         auto.other = chosen
         var decision = auto.classifier.classify(
             buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
-            context: Classifier.Context(previousLanguage: judged ? contextAtJudge : previousLanguage),
+            context: judged ? contextAtJudge : context(focus: focus),
             explaining: true
         )
         if decision.verdict == .switch(to: auto.other.id),
@@ -332,13 +456,6 @@ struct WordJudge: Sendable {
         return decision
     }
 
-    /// Whether `insideWord` may act: the cheap checks, as `mayJudge`.
-    func mayActInsideWord(buffer: WordBuffer, settings: Settings) -> Bool {
-        let count = buffer.entries.count
-        return (count == 3 || count == 4) && autoswitchMayAct(settings) && switching == .allowed
-            && buffer.entries.last?.isSpace == false
-    }
-
     /// After a letter: switch at once if the word so far cannot start a word
     /// of this layout's language but can of the other's ("ghb"). The letter
     /// is held and comes back in the new layout.
@@ -346,7 +463,7 @@ struct WordJudge: Sendable {
                              secureInput: Bool) -> WordRetype?
     {
         let count = buffer.entries.count
-        guard mayActInsideWord(buffer: buffer, settings: settings),
+        guard gate.mayActInsideWord(buffer: buffer, settings: settings),
               var context = autoContext(layouts: layouts, settings: settings, focus: focus, secureInput: secureInput),
               wordIsPlain(buffer, layouts: layouts),
               let other = Self.onlyPossibleStart(buffer, context)
@@ -365,18 +482,6 @@ struct WordJudge: Sendable {
     }
 
     // MARK: - Gates
-
-    /// The flags that let automatic switching act, without any lookup: the
-    /// per-key path checks this first.
-    private func autoswitchMayAct(_ settings: Settings) -> Bool {
-        settings.autoswitch && appMode == .auto && classifier != nil
-    }
-
-    /// The flags that let some word correction act, without any lookup.
-    private func wordFixMayAct(_ settings: Settings) -> Bool {
-        appMode == .auto && classifier != nil
-            && (settings.typoCorrection && typoCorrector != nil || settings.corrections.correctsWords)
-    }
 
     /// Automatic switching may act now, between this layout and its counterpart.
     private func autoContext(layouts: LayoutState, settings: Settings, focus: Focus?,

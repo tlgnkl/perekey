@@ -81,7 +81,12 @@ public struct InputMachine: Sendable {
             buffer.clear()
             manual.endPhrase()
             undo.clicked(onHint: onHint)
-            if !onHint { fence.clickedDuringCorrection() }
+            if !onHint {
+                fence.clickedDuringCorrection()
+                // The caret may be in another paragraph: the words before
+                // it are no longer the ones judged last.
+                judge.forgetContext(newField: false)
+            }
 
         case let .scroll(time):
             shortcuts.otherInput(at: time)
@@ -140,6 +145,9 @@ public struct InputMachine: Sendable {
         case let .classifierChanged(newClassifier):
             judge.setClassifier(newClassifier)
 
+        case let .languageContextChanged(context):
+            if let tally = judge.languageContextChanged(context) { effects.append(.languagesCounted(tally)) }
+
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
             guard undo.isLast(seq: seq) else { break }
@@ -195,7 +203,7 @@ public struct InputMachine: Sendable {
             case .ends:
                 break
             }
-            if judge.mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings) {
+            if judge.gate.mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings) {
                 switch judge.judge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings,
                                    focus: focus, secureInput: secureInput)
                 {
@@ -207,8 +215,10 @@ public struct InputMachine: Sendable {
                     effects.append(.alwaysFixWithdrawn(word))
                 case let .retype(retype):
                     startCorrection(retype, at: time, effects: &effects)
+                    tallyIfFull(effects: &effects)
                     return .hold
                 }
+                tallyIfFull(effects: &effects)
             }
         }
         updateBuffer(with: key, held: held)
@@ -218,7 +228,7 @@ public struct InputMachine: Sendable {
         if isHeldBoundary {
             // The word it ended was judged already; a held letter continues it.
             if boundary?.endsWord == true { judge.boundaryReplayed() }
-        } else if judge.mayActInsideWord(buffer: buffer, settings: settings),
+        } else if judge.gate.mayActInsideWord(buffer: buffer, settings: settings),
                   let retype = judge.insideWord(buffer: buffer, layouts: layouts, settings: settings, focus: focus,
                                                 secureInput: secureInput)
         {
@@ -241,7 +251,9 @@ public struct InputMachine: Sendable {
             || KeyCode.navigation.contains(key.keyCode)
             || focus?.isSecureField == true
         {
+            // The caret may have moved: the word and the words before it go.
             buffer.clear()
+            judge.forgetContext(newField: false)
             return
         }
         if key.keyCode == KeyCode.delete {
@@ -269,6 +281,12 @@ public struct InputMachine: Sendable {
     }
 
     // MARK: - Corrections
+
+    /// Hands the language counts to the app layer every `WordJudge.tallySize` words.
+    private mutating func tallyIfFull(effects: inout [Effect]) {
+        guard judge.tallied >= WordJudge.tallySize, let tally = judge.takeTally() else { return }
+        effects.append(.languagesCounted(tally))
+    }
 
     /// Retypes the word as the judge decided, behind the fence, with the
     /// correction to report once posted.

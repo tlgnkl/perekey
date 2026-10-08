@@ -261,3 +261,37 @@ extension ModelFixture {
         #expect(retype.decision == nil, "automatic switching never weighs ru against uk")
     }
 }
+
+/// The three-word context and the app's language prior with N candidates.
+@Suite struct ThreeLayoutsContextTests {
+    let classifier = UkrainianFixture.classifier
+
+    @Test func eachReadingGetsTheLeanOfItsOwnLanguage() {
+        let ukrainian = LanguagePrior(counts: ["uk": 100_000, "en": 10, "ru": 10])
+        let context = Classifier.Context(recent: RecentLanguages(["uk"]), prior: ukrainian)
+        for word in ["ghbdsn", "ghbdtn", "hello"] {
+            let strokes = Fixture.abc.strokes(word)
+            let best = classifier.classify(strokes, typed: Fixture.abc,
+                                           candidates: [Fixture.russian, Fixture.ukrainianPC], context: context)
+            // The winner is the pair of its own reading, with that reading's lean.
+            let pairs = [Fixture.russian, Fixture.ukrainianPC].map {
+                classifier.classify(strokes, typed: Fixture.abc, other: $0, context: context)
+            }
+            #expect(pairs.contains(best), "\(word)")
+        }
+        let toUkrainian = classifier.classify(Fixture.abc.strokes("ghbdsn"), typed: Fixture.abc,
+                                              candidates: [Fixture.russian, Fixture.ukrainianPC], context: context)
+        let alone = classifier.classify(Fixture.abc.strokes("ghbdsn"), typed: Fixture.abc, other: Fixture.ukrainianPC)
+        #expect(toUkrainian.score > alone.score, "a Ukrainian app and Ukrainian words before lean toward uk")
+    }
+
+    @Test func noPriorMakesRuToUkAutomatic() {
+        let ukrainian = LanguagePrior(counts: ["uk": 1_000_000, "ru": 1])
+        let context = Classifier.Context(recent: RecentLanguages(["uk", "uk", "uk"]), prior: ukrainian)
+        let strokes = Fixture.russian.strokes("привыт")
+        for candidates in [[Fixture.ukrainianPC], [Fixture.ukrainianPC, Fixture.abc]] {
+            let decision = classifier.classify(strokes, typed: Fixture.russian, candidates: candidates, context: context)
+            #expect(decision.verdict != .switch(to: uk))
+        }
+    }
+}

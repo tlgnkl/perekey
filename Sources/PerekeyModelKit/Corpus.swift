@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import PerekeyCore
 
-/// The held-out corpus: words with the language they are in and the language
-/// of the word before them, by category. docs/classifier.md, "Метрика".
+/// The held-out corpus: words with the language they are in and the languages
+/// of the words before them in the sentence, by category. docs/classifier.md,
+/// "Метрика".
 ///
 /// Sources (data/SOURCES.md): Tatoeba sentences, GeoNames cities, Perekey's
 /// own sources for code, and seeded synthetic URLs, passwords and captchas.
@@ -12,32 +14,49 @@ public struct CorpusItem: Hashable, Sendable {
     public var category: String
     /// "ru" or "en": the language the text is in, so the layout it is typed with.
     public var language: String
-    public var previous: String?
+    /// The languages of the words before it in its sentence, the latest
+    /// first, up to `RecentLanguages.capacity`; nil for a word of no language.
+    public var recent: [String?]
     public var text: String
     /// For the typos category: the word the user meant.
     public var expected: String?
+    /// For the apps category: the words counted per language in the app the
+    /// word is typed in (`LanguageStats`), so its prior.
+    public var app: [String: Double]?
+
+    /// The language of the word before it.
+    public var previous: String? { recent.first ?? nil }
 
     public init(category: String, language: String, previous: String?, text: String, expected: String? = nil) {
+        self.init(category: category, language: language, recent: previous.map { [$0] } ?? [], text: text,
+                  expected: expected)
+    }
+
+    public init(category: String, language: String, recent: [String?], text: String, expected: String? = nil,
+                app: [String: Double]? = nil)
+    {
         self.category = category
         self.language = language
-        self.previous = previous
+        self.recent = recent
         self.text = text
         self.expected = expected
+        self.app = app
     }
 }
 
 public enum Corpus {
     /// Categories whose words should switch when typed in the wrong layout.
-    public static let switchable: Set<String> = ["prose", "chat", "names", "mixed"]
+    public static let switchable: Set<String> = ["prose", "chat", "names", "mixed", "apps"]
     /// Categories whose strings are typed in the English layout only.
     public static let englishOnly: Set<String> = ["code", "url", "password"]
-    public static let categories = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos"]
+    public static let categories = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos",
+                                    "apps"]
 
-    /// Share of each category in a sample. Typos come on top of the
-    /// classifier's categories: the sample of `words` grows by a tenth.
+    /// Share of each category in a sample. Typos and apps come on top of
+    /// the classifier's categories: each grows the sample of `words` by a tenth.
     static let shares: [String: Double] = [
         "prose": 0.30, "chat": 0.25, "mixed": 0.10, "names": 0.10, "code": 0.10, "url": 0.05,
-        "password": 0.05, "captcha": 0.05, "typos": 0.10,
+        "password": 0.05, "captcha": 0.05, "typos": 0.10, "apps": 0.10,
     ]
 
     public struct Failure: Error, CustomStringConvertible {
@@ -69,9 +88,7 @@ public enum Corpus {
         // Chat: short sentences, lower case, no punctuation.
         count = 0
         while count < quota("chat"), let sentence = random.bool() ? ru.next() : en.next() {
-            let tokens = sentence.lowercased().split(separator: " ").map { token in
-                String(token.filter { $0.isLetter || $0 == "-" || $0 == "'" })
-            }.filter { !$0.isEmpty }
+            let tokens = chatTokens(sentence)
             guard tokens.count >= 1, tokens.count <= 6 else { continue }
             count += add(tokens, category: "chat", to: &items)
         }
@@ -112,7 +129,7 @@ public enum Corpus {
         // Code follows code: the previous token was typed in the English layout
         // and read as English, the way the integration will track it.
         for token in tokens.shuffled(using: &random).prefix(quota("code")) {
-            items.append(CorpusItem(category: "code", language: "en", previous: "en", text: token))
+            items.append(CorpusItem(category: "code", language: "en", recent: ["en"], text: token))
         }
 
         // Synthetic strings with a fixed seed.
@@ -145,26 +162,52 @@ public enum Corpus {
             let word = tokens[index]
             guard let lang = language(of: word), let typo = Synthetic.typo(of: word, language: lang, random: &random)
             else { continue }
-            let previous = index > 0 ? language(of: tokens[index - 1]) : nil
-            items.append(CorpusItem(category: "typos", language: lang, previous: previous, text: typo, expected: word))
+            let recent = tokens[max(0, index - RecentLanguages.capacity)..<index].reversed().map { language(of: $0) }
+            items.append(CorpusItem(category: "typos", language: lang, recent: recent, text: typo, expected: word))
             count += 1
+        }
+
+        // Apps: chat in an app whose counts favour a language, the one of
+        // the text four times in five, the other one else ("ok" in a Russian
+        // chat). Last, so the categories before keep their words.
+        count = 0
+        while count < quota("apps"), let sentence = random.bool() ? ru.next() : en.next() {
+            let tokens = chatTokens(sentence)
+            guard tokens.count >= 1, tokens.count <= 6, let lang = tokens.lazy.compactMap(language(of:)).first
+            else { continue }
+            let favoured = random.next() % 5 == 0 ? (lang == "ru" ? "en" : "ru") : lang
+            let other = favoured == "ru" ? "en" : "ru"
+            let share = 0.75 + Double(random.next() % 23) / 100 // 0.75 ... 0.97
+            let words = Double(100 + random.next() % 2900)
+            let app = [favoured: (share * words).rounded(), other: ((1 - share) * words).rounded()]
+            count += add(tokens, category: "apps", app: app, to: &items)
         }
         return items
     }
 
+    /// Chat tokens of a sentence: lower case, letters, hyphens and apostrophes.
+    private static func chatTokens(_ sentence: String) -> [String] {
+        sentence.lowercased().split(separator: " ").map { token in
+            String(token.filter { $0.isLetter || $0 == "-" || $0 == "'" })
+        }.filter { !$0.isEmpty }
+    }
+
     /// Adds the words of a sentence; each word's language is its script.
     /// Returns how many words were added.
-    private static func add(_ tokens: [String], category: String, to items: inout [CorpusItem]) -> Int {
-        var previous: String?
+    private static func add(_ tokens: [String], category: String, app: [String: Double]? = nil,
+                            to items: inout [CorpusItem]) -> Int
+    {
+        var recent: [String?] = []
         var added = 0
         for token in tokens {
-            guard let language = language(of: token) else {
-                previous = nil
-                continue
+            let language = language(of: token)
+            if let language {
+                items.append(CorpusItem(category: category, language: language, recent: recent, text: token,
+                                        app: app))
+                added += 1
             }
-            items.append(CorpusItem(category: category, language: language, previous: previous, text: token))
-            previous = language
-            added += 1
+            recent.insert(language, at: 0)
+            if recent.count > RecentLanguages.capacity { recent.removeLast() }
         }
         return added
     }
@@ -212,12 +255,18 @@ public enum Corpus {
         return names.sorted()
     }
 
+    /// One word per line: category, language, the languages before it
+    /// ("ru,-,en", latest first, "-" for none), the text, the word meant
+    /// ("-" for none) and the app's counts ("ru:120,en:30", "-" for none).
+    /// Files of four or five fields, from before the context, still read.
     public static func write(_ items: [CorpusItem], to path: String) throws {
-        var text = "# category\tlanguage\tprevious\ttext\texpected\n"
+        var text = "# category\tlanguage\trecent\ttext\texpected\tapp\n"
         for item in items {
-            text += "\(item.category)\t\(item.language)\t\(item.previous ?? "-")\t\(item.text)"
-            text += item.expected.map { "\t\($0)" } ?? ""
-            text += "\n"
+            let recent = item.recent.isEmpty ? "-" : item.recent.map { $0 ?? "-" }.joined(separator: ",")
+            let app = item.app.map { counts in
+                counts.sorted { $0.key < $1.key }.map { "\($0.key):\(Int($0.value))" }.joined(separator: ",")
+            } ?? "-"
+            text += "\(item.category)\t\(item.language)\t\(recent)\t\(item.text)\t\(item.expected ?? "-")\t\(app)\n"
         }
         try text.write(toFile: path, atomically: true, encoding: .utf8)
     }
@@ -227,10 +276,23 @@ public enum Corpus {
         var items: [CorpusItem] = []
         for line in text.split(separator: "\n") where !line.hasPrefix("#") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard fields.count == 4 || fields.count == 5 else { throw Failure(description: "bad corpus line: \(line)") }
-            items.append(CorpusItem(category: String(fields[0]), language: String(fields[1]),
-                                    previous: fields[2] == "-" ? nil : String(fields[2]), text: String(fields[3]),
-                                    expected: fields.count == 5 ? String(fields[4]) : nil))
+            guard (4...6).contains(fields.count) else { throw Failure(description: "bad corpus line: \(line)") }
+            let recent: [String?] = fields[2] == "-" ? [] : fields[2].split(separator: ",").map { $0 == "-" ? nil : String($0) }
+            let expected = fields.count >= 5 && fields[4] != "-" ? String(fields[4]) : nil
+            var app: [String: Double]?
+            if fields.count == 6, fields[5] != "-" {
+                var counts: [String: Double] = [:]
+                for pair in fields[5].split(separator: ",") {
+                    let parts = pair.split(separator: ":")
+                    guard parts.count == 2, let count = Double(parts[1]) else {
+                        throw Failure(description: "bad app counts: \(line)")
+                    }
+                    counts[String(parts[0])] = count
+                }
+                app = counts
+            }
+            items.append(CorpusItem(category: String(fields[0]), language: String(fields[1]), recent: recent,
+                                    text: String(fields[3]), expected: expected, app: app))
         }
         return items
     }

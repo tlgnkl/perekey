@@ -5,11 +5,14 @@
 # uk.pklm), from the data cache (scripts/fetch-data.sh lexicon) and checks
 # each file's hash against data/model.sha256.
 #
-# Usage: scripts/build-model.sh [--write] [--out <dir>]
+# Usage: scripts/build-model.sh [--write] [--out <dir>] [--languages ru,en,uk]
 #
 #   --write   record the hashes of this build in data/model.sha256 instead of
 #             checking them (after a deliberate change of the builder or data)
 #   --out     the directory for the files (default: .build/model)
+#   --languages  the languages to build (default: ru,en,uk). be and kk need
+#             scripts/fetch-data.sh lexicon text and scripts/wiki-freq.py be kk;
+#             the hashes are checked and recorded for the built languages only
 #
 # Environment:
 #   PEREKEY_DATA_CACHE   the data cache (default: .build/data-cache)
@@ -25,11 +28,13 @@ cd "$(dirname "$0")/.."
 CACHE="${PEREKEY_DATA_CACHE:-$PWD/.build/data-cache}"
 OUT="$PWD/.build/model"
 WRITE=0
+LANGUAGES=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --write) WRITE=1 ;;
         --out) OUT="$2"; shift ;;
-        -h|--help) sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --languages) LANGUAGES="$2"; shift ;;
+        -h|--help) sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "build-model: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -45,14 +50,24 @@ bin="$(swift build -c release --show-bin-path)/perekey-model"
 mkdir -p "$OUT"
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
-"$bin" --cache "$CACHE" --data "$PWD/data" --out "$OUT" | tee "$log"
+args=(--cache "$CACHE" --data "$PWD/data" --out "$OUT")
+[[ -n "$LANGUAGES" ]] && args+=(--languages "$LANGUAGES")
+"$bin" "${args[@]}" | tee "$log"
 hashes="$(sed -n 's/^sha256 //p' "$log" | LC_ALL=C sort -k2)"
+# The recorded lines of the languages built now; the others stay as they are.
+built="$(awk '{ print $2 }' <<< "$hashes" | paste -sd, -)"
+recorded() { # keep|drop
+    [[ -f data/model.sha256 ]] || return 0
+    awk -v mode="$1" -v built="$built" 'BEGIN { n = split(built, a, ","); for (i = 1; i <= n; i++) b[a[i]] = 1 }
+        { if ((mode == "keep") == ($2 in b)) print }' data/model.sha256
+}
 
 if [[ "$WRITE" == 1 ]]; then
-    echo "$hashes" > data/model.sha256
+    { recorded drop; echo "$hashes"; } | LC_ALL=C sort -k2 > data/model.sha256.new
+    mv data/model.sha256.new data/model.sha256
     echo "recorded the hashes in data/model.sha256"
 elif [[ -f data/model.sha256 ]]; then
-    if ! diff <(cat data/model.sha256) <(echo "$hashes") >&2; then
+    if ! diff <(recorded keep) <(echo "$hashes") >&2; then
         echo "FAIL: model hashes differ from data/model.sha256 (< recorded, > this build)." >&2
         echo "      Builder or data changed? Run scripts/build-model.sh --write and commit." >&2
         exit 1

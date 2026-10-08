@@ -55,6 +55,7 @@ public struct Evaluation {
 
     public struct Results: Sendable {
         public var threshold: Double
+        public var options = Classifier.Options()
         public var typoOptions: TypoCorrector.Options
         public var categories: [Category]
         public var untypeable = 0
@@ -113,6 +114,7 @@ public struct Evaluation {
         let corrector = TypoCorrector(model: model, options: typoOptions)
         var categories: [String: Category] = [:]
         var results = Results(threshold: options.threshold, typoOptions: typoOptions, categories: [], errors: [])
+        results.options = options
         var errorCounts: [String: Int] = [:]
         func record(_ item: CorpusItem, typed: LayoutID, expectSwitch: Bool, decision: Classifier.Decision,
                     correction: String? = nil)
@@ -140,7 +142,8 @@ public struct Evaluation {
                 continue
             }
             var category = categories[item.category, default: Category(name: item.category)]
-            let context = Classifier.Context(previousLanguage: item.previous)
+            let context = Classifier.Context(recent: RecentLanguages(item.recent),
+                                             prior: item.app.map { LanguagePrior(counts: $0) } ?? LanguagePrior())
             // Without a word before it the word starts the text: a capital is allowed.
             let sentenceStart = item.previous == nil
 
@@ -224,6 +227,35 @@ public struct Evaluation {
         }
     }
 
+    /// Runs the corpus at every pair of context options: the points to pick
+    /// `contextBonus` and `contextDecay` from.
+    public func contextSweep(_ items: [CorpusItem], bonuses: [Double], decays: [Double]) -> [Results] {
+        var points: [Results] = []
+        for bonus in bonuses {
+            for decay in decays {
+                var evaluation = self
+                evaluation.options.contextBonus = bonus
+                evaluation.options.contextDecay = decay
+                points.append(evaluation.run(items, maxErrors: 0))
+            }
+        }
+        return points
+    }
+
+    /// Runs the corpus at every pair of prior options: `priorScale` and `priorLimit`.
+    public func priorSweep(_ items: [CorpusItem], scales: [Double], limits: [Double]) -> [Results] {
+        var points: [Results] = []
+        for scale in scales {
+            for limit in limits {
+                var evaluation = self
+                evaluation.options.priorScale = scale
+                evaluation.options.priorLimit = limit
+                points.append(evaluation.run(items, maxErrors: 0))
+            }
+        }
+        return points
+    }
+
     /// Runs the corpus at every pair of typo options: the points to pick
     /// `minScore` and `margin` from.
     public func typoSweep(_ items: [CorpusItem], scores: [Int], margins: [Int]) -> [Results] {
@@ -240,8 +272,10 @@ public struct Evaluation {
     }
 
     public static func report(_ results: Results) -> String {
-        var text = String(format: "threshold %.1f bits; %d words skipped (not typeable)\n", results.threshold,
-                          results.untypeable)
+        var text = String(format: "threshold %.1f bits, context %.1f bits decaying by %.2f, "
+                          + "prior ×%.2f up to %.1f bits; %d words skipped (not typeable)\n", results.threshold,
+                          results.options.contextBonus, results.options.contextDecay,
+                          results.options.priorScale, results.options.priorLimit, results.untypeable)
         text += "category    words   false switches     rate   wrong layout  switched   recall\n"
         for category in results.categories + [results.total] {
             text += String(format: "%-9@ %7d %16d %7.3f%% %14d %9d %7.2f%%\n", category.name as NSString,

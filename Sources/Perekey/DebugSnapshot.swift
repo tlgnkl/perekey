@@ -35,6 +35,7 @@ enum DebugSnapshot {
                 .frame(width: 560, height: 640)
             render(view, dark: item.dark, size: CGSize(width: 560, height: 640), to: directory.appending(path: "\(item.name).png"))
         }
+        renderWordsAndGeneral(in: directory)
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
         exit(0)
@@ -85,6 +86,29 @@ enum DebugSnapshot {
                        to: directory.appending(path: "menu-\(menu.name)-\(suffix).png"))
             }
         }
+    }
+
+    /// The Words pane with sample words (and a frequent-word warning), and the General pane.
+    private static func renderWordsAndGeneral(in directory: URL) {
+        var words = WordExceptions(mine: ["перекей", "kubectl", "ё-моё"])
+        words.learned = [
+            LearnedWord(word: "дедлайн", learnedAt: Date().addingTimeInterval(-86_400 * 2).timeIntervalSince1970),
+            LearnedWord(word: "ghbdtn", learnedAt: Date().addingTimeInterval(-86_400 * 20).timeIntervalSince1970),
+        ]
+        let size = CGSize(width: 560, height: 560)
+        for (name, sample, dark) in [("words-light", words, false), ("words-empty-dark", WordExceptions(), true)] {
+            let file = SettingsFile(url: directory.appending(path: "\(name).json"))
+            try? file.save(AppSettings(words: sample))
+            let view = WordsPane(store: SettingsStore(file: file)).frame(width: size.width, height: size.height)
+            render(view, dark: dark, size: size, to: directory.appending(path: "\(name).png"))
+        }
+        let general = SettingsStore(file: SettingsFile(url: directory.appending(path: "general.json")))
+        render(GeneralPane(store: general).frame(width: size.width, height: 300), dark: false,
+               size: CGSize(width: size.width, height: 300), to: directory.appending(path: "general-light.png"))
+        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "words-warn.json")))
+        let warn = WordsPane(store: store, isFrequent: { _ in true }, initialDraft: "привет")
+        render(warn.frame(width: size.width, height: size.height), dark: false, size: size,
+               to: directory.appending(path: "words-warning-light.png"))
     }
 
     /// Each onboarding step, plus the demo as solved in dark mode.

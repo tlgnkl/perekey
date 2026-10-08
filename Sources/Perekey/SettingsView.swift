@@ -9,15 +9,14 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            Form {
-                Text("General settings are coming soon.")
-                    .foregroundStyle(.secondary)
-            }
-            .formStyle(.grouped)
-            .tabItem { Label("General", systemImage: "gearshape") }
+            GeneralPane(store: store)
+                .tabItem { Label("General", systemImage: "gearshape") }
 
             ShortcutsPane(store: store, recording: recording)
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+
+            WordsPane(store: store)
+                .tabItem { Label("Words", systemImage: "text.badge.xmark") }
         }
         .frame(width: 560, height: 560)
         .onDisappear { recording.stop() }

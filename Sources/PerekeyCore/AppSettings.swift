@@ -22,10 +22,13 @@ public struct AppSettings: Hashable, Sendable {
     public var autoswitch: Bool
     /// Whether the user has been through the onboarding window. It opens once, on first launch.
     public var onboardingDone: Bool
+    /// Words never corrected: the user's own and the learned ones.
+    public var words: WordExceptions
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
-                autoswitch: Bool = true, onboardingDone: Bool = false)
+                autoswitch: Bool = true, onboardingDone: Bool = false, words: WordExceptions = WordExceptions())
     {
+        self.words = words
         self.hotkeys = hotkeys
         self.capsLock = capsLock
         self.autoswitch = autoswitch
@@ -62,7 +65,7 @@ public struct AppSettings: Hashable, Sendable {
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkeys, capsLock, autoswitch, onboardingDone
+        case hotkeys, capsLock, autoswitch, onboardingDone, words
     }
 
     public init(from decoder: any Decoder) throws {
@@ -72,5 +75,6 @@ extension AppSettings: Codable {
         capsLock = (try? container.decodeIfPresent(CapsLockMode.self, forKey: .capsLock)) ?? defaults.capsLock
         autoswitch = try container.decodeIfPresent(Bool.self, forKey: .autoswitch) ?? defaults.autoswitch
         onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
+        words = (try? container.decodeIfPresent(WordExceptions.self, forKey: .words)) ?? defaults.words
     }
 }

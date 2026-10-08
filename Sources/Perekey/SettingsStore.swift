@@ -58,4 +58,17 @@ final class SettingsStore {
         guard !capsLockFailed else { return }
         update { $0.capsLock = mode }
     }
+
+    /// Replaces every setting with imported ones. The Caps Lock mode goes
+    /// through the system first and stays as it was if the system refuses.
+    /// `onboardingDone` stays: it describes this Mac, not the file.
+    func replaceAll(with imported: AppSettings) {
+        var new = imported
+        new.onboardingDone = settings.onboardingDone
+        if new.capsLock != settings.capsLock {
+            capsLockFailed = !CapsLockRemapper.apply(new.capsLock)
+            if capsLockFailed { new.capsLock = settings.capsLock }
+        }
+        update { $0 = new }
+    }
 }

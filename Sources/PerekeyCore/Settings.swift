@@ -24,6 +24,9 @@ public struct Settings: Hashable, Sendable, Codable {
     public var learnFromUndos: Bool
     /// The stage 4 corrections: phrase retype, case, Caps Lock, abbreviations, "ё".
     public var corrections: TextCorrections
+    /// Typo correction at the end of a word (`TypoCorrector`). Off until it
+    /// meets the plan's metric (docs/classifier.md, «Опечатки»).
+    public var typoCorrection: Bool
 
     public init(
         hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys,
@@ -32,7 +35,8 @@ public struct Settings: Hashable, Sendable, Codable {
         postTimeout: Double = 2,
         exceptions: Set<String> = [],
         learnFromUndos: Bool = true,
-        corrections: TextCorrections = TextCorrections()
+        corrections: TextCorrections = TextCorrections(),
+        typoCorrection: Bool = true
     ) {
         self.hotkeys = hotkeys
         self.autoswitch = autoswitch
@@ -41,5 +45,6 @@ public struct Settings: Hashable, Sendable, Codable {
         self.exceptions = exceptions
         self.learnFromUndos = learnFromUndos
         self.corrections = corrections
+        self.typoCorrection = typoCorrection
     }
 }

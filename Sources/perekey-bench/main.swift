@@ -117,7 +117,8 @@ if let path = ProcessInfo.processInfo.environment["PEREKEY_MODEL"] {
     var builder = ModelBuilder()
     builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
     builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
-    for word in ["привет", "мир", "будет", "хорошо", "это", "выбор", "код", "а", "и", "не", "что", "как"] {
+    for word in ["привет", "мир", "будет", "хорошо", "это", "выбор", "код", "а", "и", "не", "что", "как", "спасибо",
+                 "клавиатура"] {
         builder.addForm(word, language: "ru", rank: 200, weight: 100)
     }
     for word in ["hello", "world", "code", "the", "a", "i", "and", "is", "to", "of", "keyboard", "layout"] {
@@ -169,22 +170,32 @@ struct AutoswitchRun {
     var corrections = 0
 }
 
-func autoswitchSession(rounds: Int) -> AutoswitchRun {
+/// Physical keys of each word in the layout it is meant for: when the
+/// other layout is selected, the word comes out wrong and gets switched.
+let autoswitchWords: [(String, LayoutMap)] = [
+    ("привет", russian), ("мир", russian), ("hello", abc), ("world", abc), ("хорошо", russian),
+    ("будет", russian), ("code", abc), ("выбор", russian), ("это", russian), ("keyboard", abc),
+    ("layout", abc), ("спасибо", russian), ("https://example.com", abc), ("the", abc), ("и", russian),
+]
+
+/// Words with one key off among clean ones, each in its own layout: the
+/// typo session corrects them at the space and takes some back.
+let typoWords: [(String, LayoutMap)] = [
+    ("прривет", russian), ("мир", russian), ("hlelo", abc), ("world", abc), ("хорошо", russian),
+    ("keybaord", abc), ("wrold", abc), ("спасибо", russian), ("сапсибо", russian), ("layout", abc),
+    ("будте", russian), ("code", abc), ("https://example.com", abc), ("клавиатура", russian), ("the", abc),
+]
+
+func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutMap)]) -> AutoswitchRun {
     var run = AutoswitchRun()
     run.samples.reserveCapacity(rounds * 80)
-    var machine = InputMachine(layouts: [abc, russian], currentLayout: abc.id, classifier: classifier)
+    var machine = InputMachine(settings: settings, layouts: [abc, russian], currentLayout: abc.id,
+                               classifier: classifier)
     _ = machine.handle(.focusChanged(Focus(bundleID: "app.perekey.bench")))
     var time = 0.0
     var held: [KeyEvent] = []
     var retypes: [Retype] = []
     var selected: LayoutID?
-    // Physical keys of each word in the layout it is meant for: when the
-    // other layout is selected, the word comes out wrong and gets switched.
-    let words: [(String, LayoutMap)] = [
-        ("привет", russian), ("мир", russian), ("hello", abc), ("world", abc), ("хорошо", russian),
-        ("будет", russian), ("code", abc), ("выбор", russian), ("это", russian), ("keyboard", abc),
-        ("layout", abc), ("спасибо", russian), ("https://example.com", abc), ("the", abc), ("и", russian),
-    ]
 
     func handle(_ event: InputEvent) -> Output {
         let start = clock.now
@@ -241,15 +252,19 @@ func autoswitchSession(rounds: Int) -> AutoswitchRun {
 
     for round in 0..<rounds {
         let (word, layout) = words[round % words.count]
+        if layout.id != machine.currentLayout, settings.autoswitch == false {
+            // The user switches by hand: the typo session types every word in its own layout.
+            _ = handle(.layoutChanged(layout.id))
+        }
         for stroke in layout.strokes(word) { press(stroke) }
         press(KeyStroke(KeyCode.space))
-        // Now and then the user takes a switch back.
+        // Now and then the user takes a correction back.
         if round % 11 == 5 { press(KeyStroke(KeyCode.delete)) }
     }
     return run
 }
 
-var autoswitch = autoswitchSession(rounds: 6000)
+var autoswitch = correctionSession(rounds: 6000, settings: Settings(), words: autoswitchWords)
 autoswitch.samples.sort()
 let autoswitchMean = autoswitch.samples.reduce(0, +) / Double(autoswitch.samples.count)
 let autoswitchP99 = autoswitch.samples[autoswitch.samples.count * 99 / 100]
@@ -264,9 +279,47 @@ if autoswitch.corrections == 0 {
     failed = true
 }
 
+// Typo correction: the corrector alone on words with one key off, then the
+// machine with the setting on, typing typos among clean words in their own
+// layouts (autoswitch off, so the session measures the typo path by itself).
+let corrector = TypoCorrector(model: model)
+let typoStrokes = typoWords.map { ($0.1.strokes($0.0) + [KeyStroke(KeyCode.space)], $0.1) }
+var correctorSamples: [Double] = []
+var fixed = 0
+for _ in 0..<200 {
+    for (strokes, layout) in typoStrokes {
+        let start = clock.now
+        fixed += corrector.correct(strokes, in: layout, sentenceStart: false) == nil ? 0 : 1
+        correctorSamples.append(nanoseconds(clock.now - start))
+    }
+}
+correctorSamples.sort()
+let correctorMean = correctorSamples.reduce(0, +) / Double(correctorSamples.count)
+let correctorP99 = correctorSamples[correctorSamples.count * 99 / 100]
+print(String(format: "corrector: mean %.0f ns per word, p99 %.0f ns, max %.0f ns (%d of %d words corrected)",
+             correctorMean, correctorP99, correctorSamples.last!, fixed / 200, typoStrokes.count))
+
+var typos = correctionSession(rounds: 6000, settings: Settings(autoswitch: false, typoCorrection: true),
+                              words: typoWords)
+typos.samples.sort()
+let typosMean = typos.samples.reduce(0, +) / Double(typos.samples.count)
+let typosP99 = typos.samples[typos.samples.count * 99 / 100]
+print(String(format: "typos: %d events, %d corrections: mean %.0f ns, p99 %.0f ns, max %.0f ns",
+             typos.events, typos.corrections, typosMean, typosP99, typos.samples.last!))
+if typosP99 > 1_000_000 {
+    print("FAIL: typo session p99 exceeds the 1 ms tap callback budget")
+    failed = true
+}
+if typos.corrections == 0 {
+    print("FAIL: the typo session corrected nothing")
+    failed = true
+}
+
 if arguments.count >= 3 {
     try JSONEncoder().encode(["mean": mean, "p99": p99, "classifier": classifierMean, "classifierP99": classifierP99,
-                              "autoswitch": autoswitchMean, "autoswitchP99": autoswitchP99])
+                              "autoswitch": autoswitchMean, "autoswitchP99": autoswitchP99,
+                              "corrector": correctorMean, "correctorP99": correctorP99,
+                              "typos": typosMean, "typosP99": typosP99])
         .write(to: URL(fileURLWithPath: arguments[2]))
 }
 exit(failed ? 1 : 0)

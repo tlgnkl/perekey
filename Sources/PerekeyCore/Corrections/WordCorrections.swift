@@ -1,24 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/// The corrections of a finished word, after its layout is decided
-/// (docs/corrections.md).
+/// The dictionary corrections of a finished word, after its layout is
+/// decided and its typos fixed (docs/corrections.md).
 ///
 /// At the key that ends a word `InputMachine` decides the layout first
-/// (automatic switching), then hands the word, as it reads in that layout,
-/// to these steps in order. Each step may change the letters; the next one
-/// sees the result. If the word changed, it goes out as one retype with the
-/// switch, if any: one `Correction`, one hint, one Backspace to undo it.
+/// (automatic switching), fixes a typo (`TypoCorrector`), then hands the
+/// word, as it reads in that layout, to these steps in order
+/// (`InputMachine.correctWord`). Each step may change the letters; the next
+/// one sees the result. If the word changed, it goes out as one retype with
+/// the switch, if any: one `Correction`, one hint, one Backspace to undo it.
 ///
 /// Steps work on the letters and digits of the word (`BoundaryWord.core`);
 /// punctuation around them stays as typed: "(ПРивет" → "(Привет".
 public enum WordCorrections {
-    /// The steps in order. Case first, so later steps see a plain word;
-    /// spelling (typos, stage 4a) after case and before the dictionary
-    /// lookups of fixed spellings, which want the word spelt right.
+    /// The steps in order: case first, so the lookups after it see a plain
+    /// word; then the fixed spellings. Typos come before all of them.
     public static let steps: [any WordCorrectionStep] = [
         CapsLockStep(),
         DoubleCapitalsStep(),
-        // Stage 4a: typo correction goes here.
         AbbreviationStep(),
         YoStep(),
     ]
@@ -33,7 +32,9 @@ public enum WordCorrections {
     public static func run(_ word: inout BoundaryWord, settings: Settings, model: LanguageModel) -> Bool {
         let before = word.characters
         for step in steps where step.isOn(settings) {
+            let input = word.characters
             step.apply(to: &word, model: model)
+            if word.kind == nil, word.characters != input { word.kind = step.kind }
         }
         return word.characters != before
     }
@@ -41,6 +42,8 @@ public enum WordCorrections {
 
 /// One step of the word-boundary corrections.
 public protocol WordCorrectionStep: Sendable {
+    /// What the hint and `Correction.kind` call it.
+    var kind: Correction.Kind { get }
     /// Its switch in the settings.
     func isOn(_ settings: Settings) -> Bool
     /// Changes `word.characters` when it corrects the word, else leaves it.
@@ -59,6 +62,8 @@ public struct BoundaryWord: Hashable, Sendable {
     public let language: String?
     /// Turn Caps Lock off once the correction is posted.
     public var capsLockOff = false
+    /// The first step that changed the word.
+    public var kind: Correction.Kind?
 
     public init(characters: [Character], modifiers: [LayoutModifiers], language: String?) {
         self.characters = characters
@@ -128,6 +133,8 @@ public struct BoundaryWord: Hashable, Sendable {
 public struct CapsLockStep: WordCorrectionStep {
     public init() {}
 
+    public var kind: Correction.Kind { .capsLock }
+
     public func isOn(_ settings: Settings) -> Bool { settings.corrections.capsLock }
 
     public func apply(to word: inout BoundaryWord, model: LanguageModel) {
@@ -152,6 +159,8 @@ public struct CapsLockStep: WordCorrectionStep {
 public struct DoubleCapitalsStep: WordCorrectionStep {
     public init() {}
 
+    public var kind: Correction.Kind { .doubleCapitals }
+
     public func isOn(_ settings: Settings) -> Bool { settings.corrections.doubleCapitals }
 
     public func apply(to word: inout BoundaryWord, model: LanguageModel) {
@@ -172,6 +181,8 @@ public struct DoubleCapitalsStep: WordCorrectionStep {
 public struct AbbreviationStep: WordCorrectionStep {
     public init() {}
 
+    public var kind: Correction.Kind { .abbreviation }
+
     public func isOn(_ settings: Settings) -> Bool { settings.corrections.abbreviations }
 
     public func apply(to word: inout BoundaryWord, model: LanguageModel) {
@@ -187,6 +198,8 @@ public struct AbbreviationStep: WordCorrectionStep {
 /// the model's table, derived from the dictionary when it is built.
 public struct YoStep: WordCorrectionStep {
     public init() {}
+
+    public var kind: Correction.Kind { .yo }
 
     public func isOn(_ settings: Settings) -> Bool { settings.corrections.yo }
 

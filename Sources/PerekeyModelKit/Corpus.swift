@@ -14,12 +14,15 @@ public struct CorpusItem: Hashable, Sendable {
     public var language: String
     public var previous: String?
     public var text: String
+    /// For the typos category: the word the user meant.
+    public var expected: String?
 
-    public init(category: String, language: String, previous: String?, text: String) {
+    public init(category: String, language: String, previous: String?, text: String, expected: String? = nil) {
         self.category = category
         self.language = language
         self.previous = previous
         self.text = text
+        self.expected = expected
     }
 }
 
@@ -28,12 +31,13 @@ public enum Corpus {
     public static let switchable: Set<String> = ["prose", "chat", "names", "mixed"]
     /// Categories whose strings are typed in the English layout only.
     public static let englishOnly: Set<String> = ["code", "url", "password"]
-    public static let categories = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha"]
+    public static let categories = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos"]
 
-    /// Share of each category in a sample.
+    /// Share of each category in a sample. Typos come on top of the
+    /// classifier's categories: the sample of `words` grows by a tenth.
     static let shares: [String: Double] = [
         "prose": 0.30, "chat": 0.25, "mixed": 0.10, "names": 0.10, "code": 0.10, "url": 0.05,
-        "password": 0.05, "captcha": 0.05,
+        "password": 0.05, "captcha": 0.05, "typos": 0.10,
     ]
 
     public struct Failure: Error, CustomStringConvertible {
@@ -127,6 +131,24 @@ public enum Corpus {
             items.append(CorpusItem(category: "captcha", language: language, previous: nil,
                                     text: Synthetic.captcha(language: language, random: &random)))
         }
+
+        // Typos: one word of a sentence with one key off, lower case, with
+        // the word meant and the language of the word before it.
+        count = 0
+        while count < quota("typos"), let sentence = random.bool() ? ru.next() : en.next() {
+            let tokens = sentence.lowercased().split(separator: " ").map { token in
+                String(token.filter { $0.isLetter })
+            }
+            let candidates = tokens.indices.filter { tokens[$0].count >= 4 && language(of: tokens[$0]) != nil }
+            guard !candidates.isEmpty else { continue }
+            let index = candidates[Int(random.next() % UInt64(candidates.count))]
+            let word = tokens[index]
+            guard let lang = language(of: word), let typo = Synthetic.typo(of: word, language: lang, random: &random)
+            else { continue }
+            let previous = index > 0 ? language(of: tokens[index - 1]) : nil
+            items.append(CorpusItem(category: "typos", language: lang, previous: previous, text: typo, expected: word))
+            count += 1
+        }
         return items
     }
 
@@ -191,9 +213,11 @@ public enum Corpus {
     }
 
     public static func write(_ items: [CorpusItem], to path: String) throws {
-        var text = "# category\tlanguage\tprevious\ttext\n"
+        var text = "# category\tlanguage\tprevious\ttext\texpected\n"
         for item in items {
-            text += "\(item.category)\t\(item.language)\t\(item.previous ?? "-")\t\(item.text)\n"
+            text += "\(item.category)\t\(item.language)\t\(item.previous ?? "-")\t\(item.text)"
+            text += item.expected.map { "\t\($0)" } ?? ""
+            text += "\n"
         }
         try text.write(toFile: path, atomically: true, encoding: .utf8)
     }
@@ -203,9 +227,10 @@ public enum Corpus {
         var items: [CorpusItem] = []
         for line in text.split(separator: "\n") where !line.hasPrefix("#") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard fields.count == 4 else { throw Failure(description: "bad corpus line: \(line)") }
+            guard fields.count == 4 || fields.count == 5 else { throw Failure(description: "bad corpus line: \(line)") }
             items.append(CorpusItem(category: String(fields[0]), language: String(fields[1]),
-                                    previous: fields[2] == "-" ? nil : String(fields[2]), text: String(fields[3])))
+                                    previous: fields[2] == "-" ? nil : String(fields[2]), text: String(fields[3]),
+                                    expected: fields.count == 5 ? String(fields[4]) : nil))
         }
         return items
     }
@@ -259,6 +284,65 @@ enum Synthetic {
             let second = pick(vocabulary, &random)
             return first + second.prefix(1).uppercased() + second.dropFirst() + String(pick(symbols, &random))
         }
+    }
+
+    /// The letter rows of the two layouts, for the keys next to a letter.
+    /// Written out here on purpose: the evaluation must not borrow the
+    /// geometry it measures (`KeyboardGeometry`).
+    static let letterRows: [String: [(offset: Double, letters: String)]] = [
+        "en": [(0, "qwertyuiop"), (0.25, "asdfghjkl"), (0.75, "zxcvbnm")],
+        "ru": [(0, "йцукенгшщзхъ"), (0.25, "фывапролджэ"), (0.75, "ячсмитьбю")],
+    ]
+
+    /// Letters on the keys around this one: next to it in its row, and the
+    /// two keys of each adjacent row that overlap it.
+    static func neighbours(of letter: Character, language: String) -> [Character] {
+        guard let rows = letterRows[language] else { return [] }
+        var position: (row: Int, x: Double)?
+        for (row, line) in rows.enumerated() {
+            if let index = line.letters.firstIndex(of: letter) {
+                position = (row, line.offset + Double(line.letters.distance(from: line.letters.startIndex, to: index)))
+            }
+        }
+        guard let position else { return [] }
+        var result: [Character] = []
+        for (row, line) in rows.enumerated() {
+            for (index, other) in line.letters.enumerated() where other != letter {
+                let distance = abs(line.offset + Double(index) - position.x)
+                let rowGap = abs(row - position.row)
+                if (rowGap == 0 && distance < 1.5) || (rowGap == 1 && distance < 1) { result.append(other) }
+            }
+        }
+        return result
+    }
+
+    /// One key off in `word`, the way people miss keys: a neighbouring key
+    /// (40 %), two letters swapped (20 %), a letter dropped (20 %), a letter
+    /// doubled (10 %), a stray letter (10 %). Nil when the word has no
+    /// letter the keyboard rows know at the chosen place.
+    static func typo(of word: String, language: String, random: inout SplitMix64) -> String? {
+        var letters = Array(word)
+        guard letters.count >= 4, let rows = letterRows[language] else { return nil }
+        let alphabet = Array(rows.map(\.letters).joined())
+        let index = Int(random.next() % UInt64(letters.count))
+        switch random.next() % 10 {
+        case 0...3:
+            let around = neighbours(of: letters[index], language: language)
+            guard !around.isEmpty else { return nil }
+            letters[index] = pick(around, &random)
+        case 4...5:
+            let at = min(index, letters.count - 2)
+            guard letters[at] != letters[at + 1] else { return nil }
+            letters.swapAt(at, at + 1)
+        case 6...7:
+            letters.remove(at: index)
+        case 8:
+            letters.insert(letters[index], at: index)
+        default:
+            letters.insert(pick(alphabet, &random), at: index)
+        }
+        let typo = String(letters)
+        return typo == word ? nil : typo
     }
 
     static func captcha(language: String, random: inout SplitMix64) -> String {

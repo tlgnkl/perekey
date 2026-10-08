@@ -206,8 +206,11 @@
 /* Stage 2: automatic switching */
 "Undo last correction" = "Undo last correction";
 "Backspace right after a correction does the same." = "Backspace right after a correction does the same.";
-/* Stage 4: corrections */
+/* Stage 4a: typo correction */
 "Corrections" = "Corrections";
+"Correct typos" = "Correct typos";
+"Russian and English, one key off. Backspace right after a correction puts the word back." = "Russian and English, one key off. Backspace right after a correction puts the word back.";
+/* Stage 4: corrections */
 "Retype a phrase" = "Retype a phrase";
 "Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on." = "Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on.";
 "Double capitals" = "Double capitals";

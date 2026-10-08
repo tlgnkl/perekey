@@ -45,12 +45,23 @@ struct GeneralPane: View {
         }
     }
 
-    /// The stage 4 corrections, each with its switch and an example of what it does.
+    /// What Perekey corrects by itself besides the layout, each with its
+    /// switch and the mock's example chip. Typos: docs/classifier.md,
+    /// «Опечатки»; the rest: docs/corrections.md.
     private var correctionsSection: some View {
         PKGroup(header: Text("Corrections")) {
-            correctionRow(Text("Retype a phrase"),
-                          detail: Text("Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on."),
-                          example: ("ghbdtn vbh", "привет мир"), \.phraseRetype)
+            PKRow(Text("Correct typos"),
+                  detail: Text("Russian and English, one key off. Backspace right after a correction puts the word back.")) {
+                HStack(spacing: 12) {
+                    PKExampleChip(from: "прривет", to: "привет", isOn: store.settings.typoCorrection)
+                    Toggle(isOn: Binding(get: { store.settings.typoCorrection },
+                                         set: { on in store.update { $0.typoCorrection = on } })) {
+                        Text("Correct typos")
+                    }
+                    .labelsHidden()
+                    .toggleStyle(.pkSwitch)
+                }
+            }
             PKDivider()
             correctionRow(Text("Double capitals"), example: ("ПРивет", "Привет"), \.doubleCapitals)
             PKDivider()
@@ -61,6 +72,10 @@ struct GeneralPane: View {
             PKDivider()
             correctionRow(Text("Letter ё"), detail: Text("Russian only, where the word with «е» is no other word"),
                           example: ("еще", "ещё"), \.yo)
+            PKDivider()
+            correctionRow(Text("Retype a phrase"),
+                          detail: Text("Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on."),
+                          example: ("ghbdtn vbh", "привет мир"), \.phraseRetype)
         }
     }
 

@@ -61,9 +61,12 @@ import Testing
     }
 
     @Test func historyKeepsTheLastWords() {
-        let buffer = typed((1...12).map { String(repeating: "x", count: $0 % 3 + 1) }.joined(separator: " "))
-        #expect(buffer.historyCount == WordBuffer.historyWords)
-        #expect(text(buffer.phrase(words: WordBuffer.historyWords + 1)) == "xxx x xx xxx x xx xxx x")
+        for count in [12, 30] {
+            // The last word has count % 3 + 1 letters: 12 ends on "x", 30 too.
+            let buffer = typed((1...count).map { String(repeating: "x", count: $0 % 3 + 1) }.joined(separator: " "))
+            #expect(text(buffer.phrase(words: WordBuffer.historyWords + 1)) == "xxx x xx xxx x xx xxx x")
+            #expect(buffer.phrase(words: WordBuffer.historyWords + 2) == nil)
+        }
     }
 
     @Test func historyEndsWhereTheBufferLosesTrack() {

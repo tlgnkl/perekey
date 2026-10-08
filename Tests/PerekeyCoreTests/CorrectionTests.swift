@@ -14,7 +14,7 @@ private func only(_ change: (inout TextCorrections) -> Void, autoswitch: Bool = 
 {
     var corrections = TextCorrections(phraseRetype: false, doubleCapitals: false)
     change(&corrections)
-    return Settings(autoswitch: autoswitch, exceptions: exceptions, corrections: corrections)
+    return Settings(autoswitch: autoswitch, exceptions: exceptions, corrections: corrections, typoCorrection: false)
 }
 
 extension Desk {
@@ -99,6 +99,26 @@ extension Desk {
         desk.press(KeyCode.delete)
         #expect(desk.text == "GHbdtn ")
         #expect(desk.appLayout == en)
+    }
+
+    @Test func afterATypo() throws {
+        // Typos first, then the dictionary steps on the fixed word: one retype.
+        var settings = only { $0.yo = true }
+        settings.typoCorrection = true
+        var desk = Desk(settings, current: ru)
+        desk.type("еллка ", on: Fixture.russian)
+        #expect(desk.text == "ёлка ")
+        let correction = try #require(desk.corrections.first)
+        #expect(correction.kind == .typo)
+        #expect(desk.corrections.count == 1)
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "еллка ")
+    }
+
+    @Test func kindNamesTheStep() throws {
+        var desk = Desk(only { $0.doubleCapitals = true }, current: ru)
+        desk.type("ПРивет ", on: Fixture.russian)
+        #expect(try #require(desk.corrections.first).kind == .doubleCapitals)
     }
 
     @Test func fastTypingKeepsOrder() {
@@ -282,7 +302,7 @@ extension Desk {
 }
 
 @Suite struct PhraseRetypeTests {
-    private static let settings = Settings(autoswitch: false)
+    private static let settings = Settings(autoswitch: false, typoCorrection: false)
 
     @Test func everyOtherPressTakesOneWordMore() {
         var desk = Desk(Self.settings)

@@ -5,18 +5,26 @@
 //   perekey-eval corpus --cache <dir> --code <dir> --out <file> [--words N] [--seed S]
 //   perekey-eval run --model <file> --corpus <file> --layouts <dir>
 //                    [--threshold T] [--sweep] [--errors N per category] [--json <file>]
+//                    [--typo-score S] [--typo-margin M] [--typo-sweep]
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
 //                     [--previous ru|en]
 //
 // `word` explains one decision: both readings, their costs and ranks, typed
-// in the word's own layout and in the other one.
-// `corpus` writes a TSV of words by category (about N words, default 50 000).
+// in the word's own layout and in the other one, and what the typo corrector
+// makes of the word in its own layout.
+// `corpus` writes a TSV of words by category (about N words, default 50 000,
+// plus a tenth of typos).
 // `run` types every word in its own layout and in the other one and prints
 // false switches and recall per category; `--sweep` repeats it over a range
 // of thresholds (the ROC points) and names the lowest threshold that meets the
 // plan's targets. Exit status 1 when the targets are missed at the threshold
 // in use: false switches ≥ 0.1 % of all words, or recall < 95 % on prose and
 // chat (names and mixed text are reported but not gated).
+// Typo correction is measured on the same run: wrong corrections of right
+// words and the share of typos fixed, with `--typo-score` and `--typo-margin`
+// as `TypoCorrector.Options`; `--typo-sweep` prints the points over both.
+// Its targets (wrong < 0.1 % of words, fixed ≥ 60 %) are reported, not gated:
+// the feature ships off until they are met.
 
 import Foundation
 import PerekeyCore
@@ -34,7 +42,7 @@ guard let command = arguments.next(), ["corpus", "run", "word"].contains(command
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
-    if argument == "--sweep" {
+    if argument == "--sweep" || argument == "--typo-sweep" {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -73,9 +81,12 @@ do {
         let items = try Corpus.read(corpusPath)
         var options = Classifier.Options()
         if let threshold = flags["--threshold"].flatMap(Double.init) { options.threshold = threshold }
+        var typoOptions = TypoCorrector.Options()
+        if let score = flags["--typo-score"].flatMap(Int.init) { typoOptions.minScore = score }
+        if let margin = flags["--typo-margin"].flatMap(Int.init) { typoOptions.margin = margin }
         let evaluation = Evaluation(model: model, layouts: [
             "ru": layout("Russian", in: layouts), "en": layout("ABC", in: layouts),
-        ], options: options)
+        ], options: options, typoOptions: typoOptions)
 
         let results = evaluation.run(items, maxErrors: Int(flags["--errors"] ?? "12") ?? 12)
         print(Evaluation.report(results))
@@ -83,9 +94,14 @@ do {
             print("examples of errors:")
             for error in results.errors {
                 let expected = error.expectSwitch ? "switch" : "keep"
-                print("  \(error.item.category) \(error.item.language) \"\(error.item.text)\" typed in \(error.typed): "
-                    + "expected \(expected), got \(error.decision.verdict) \(error.decision.reason) "
-                    + String(format: "%.1f", error.decision.score))
+                var line = "  \(error.item.category) \(error.item.language) \"\(error.item.text)\" typed in \(error.typed): "
+                if let correction = error.correction {
+                    line += "corrected to \(correction)" + (error.item.expected.map { ", meant \($0)" } ?? "")
+                } else {
+                    line += "expected \(expected), got \(error.decision.verdict) \(error.decision.reason) "
+                        + String(format: "%.1f", error.decision.score)
+                }
+                print(line)
             }
         }
 
@@ -94,11 +110,40 @@ do {
             "falseRate": results.total.falseRate,
             "recall": results.total.recall,
             "textRecall": results.textRecall,
+            "typoScore": results.typoOptions.minScore,
+            "typoMargin": results.typoOptions.margin,
+            "wrongCorrectionRate": results.total.wrongCorrectionRate,
+            "typosFixed": results.total.fixedShare,
             "categories": results.categories.map { category -> [String: Any] in
                 ["name": category.name, "keepWords": category.keepWords, "falseSwitches": category.falseSwitches,
-                 "switchWords": category.switchWords, "switches": category.switches]
+                 "switchWords": category.switchWords, "switches": category.switches,
+                 "checkedWords": category.checkedWords, "wrongCorrections": category.wrongCorrections,
+                 "typoWords": category.typoWords, "typosFixed": category.typosFixed]
             },
         ]
+        if flags["--typo-sweep"] != nil {
+            let scores = [48, 56, 64, 72, 80, 96, 112, 128]
+            let margins = [16, 32, 40, 48, 56, 64]
+            let points = evaluation.typoSweep(items, scores: scores, margins: margins)
+            print("\ntypo sweep: minScore, margin, wrong corrections, typos fixed")
+            var best: Evaluation.Results?
+            for point in points {
+                let total = point.total
+                print(String(format: "  %3d  %3d  %7.3f%%  %6.2f%%", point.typoOptions.minScore, point.typoOptions.margin,
+                             total.wrongCorrectionRate * 100, total.fixedShare * 100))
+                if point.typoTargetsMet, best.map({ total.fixedShare > $0.total.fixedShare }) ?? true { best = point }
+            }
+            if let best {
+                print(String(format: "most typos fixed within the targets: minScore %d, margin %d",
+                             best.typoOptions.minScore, best.typoOptions.margin))
+            } else {
+                print("no point meets both typo targets (wrong corrections < 0.1 %, fixed ≥ 60 %)")
+            }
+            json["typoSweep"] = points.map {
+                ["minScore": $0.typoOptions.minScore, "margin": $0.typoOptions.margin,
+                 "wrongCorrectionRate": $0.total.wrongCorrectionRate, "typosFixed": $0.total.fixedShare]
+            }
+        }
         if flags["--sweep"] != nil {
             let thresholds = stride(from: 0.0, through: 30.0, by: 1.0).map { $0 }
             let points = evaluation.sweep(items, thresholds: thresholds)
@@ -122,6 +167,9 @@ do {
                 .write(to: URL(fileURLWithPath: path))
         }
         let total = results.total
+        print(String(format: "typo correction: wrong corrections %.3f%% of words, %.2f%% of typos fixed: targets %@",
+                     total.wrongCorrectionRate * 100, total.fixedShare * 100,
+                     (results.typoTargetsMet ? "met" : "missed (wrong < 0.1 %, fixed ≥ 60 %)") as NSString))
         print(String(format: "false switches %.3f%% of all words, recall %.2f%% on prose and chat",
                      total.falseRate * 100, results.textRecall * 100))
         if total.falseRate >= 0.001 || results.textRecall < 0.95 {
@@ -158,6 +206,9 @@ do {
                              rank.map(String.init) ?? "-"))
             }
         }
+        let corrector = TypoCorrector(model: model)
+        let fix = corrector.correct(strokes, in: own, sentenceStart: flags["--previous"] == nil)
+        print("typo correction in \(own.id): " + (fix.map { "\($0.text) (rank \($0.rank))" } ?? "-"))
 
     default:
         fail("unknown command \(command)")

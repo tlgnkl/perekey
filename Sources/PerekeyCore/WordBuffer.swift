@@ -98,26 +98,27 @@ public struct WordBuffer: Hashable, Sendable {
         historyCount = 0
     }
 
-    /// The finished word goes to `history`; the oldest word drops out.
+    /// The finished word goes to `history`. Old words drop out in batches,
+    /// once twice `historyWords` are kept, so a word costs no shift of the
+    /// whole history on the tap thread.
     private mutating func pushHistory() {
         history.append(contentsOf: entries)
         historyCount += 1
-        if historyCount > Self.historyWords, let end = Self.endOfFirstWord(in: history) {
-            history.removeSubrange(..<end)
-            historyCount -= 1
+        guard historyCount > 2 * Self.historyWords else { return }
+        var end = history.startIndex
+        for _ in 0..<(historyCount - Self.historyWords) {
+            while end < history.endIndex, !history[end].isSpace { end += 1 }
+            while end < history.endIndex, history[end].isSpace { end += 1 }
         }
-    }
-
-    /// The index after the first word of `entries` and its spaces.
-    private static func endOfFirstWord(in entries: [Entry]) -> Int? {
-        guard let space = entries.firstIndex(where: \.isSpace) else { return nil }
-        return entries[space...].firstIndex { !$0.isSpace } ?? entries.endIndex
+        history.removeSubrange(..<end)
+        historyCount = Self.historyWords
     }
 
     /// The last `words` words, the current one included, each with the
-    /// spaces after it; `nil` when fewer are known.
+    /// spaces after it; `nil` when fewer are known or more than
+    /// `historyWords` before the current one are asked for.
     public func phrase(words: Int) -> [Entry]? {
-        guard words >= 1, !entries.isEmpty, words - 1 <= historyCount else { return nil }
+        guard words >= 1, !entries.isEmpty, words - 1 <= min(historyCount, Self.historyWords) else { return nil }
         var start = history.endIndex
         for _ in 0..<(words - 1) {
             // Back over the spaces after the word, then over the word.

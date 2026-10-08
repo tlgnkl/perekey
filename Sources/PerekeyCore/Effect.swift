@@ -69,9 +69,27 @@ public struct Correction: Hashable, Sendable {
     /// False when Return or Tab ended the word: the line is gone (a chat may
     /// have sent it), so Backspace and the undo action leave it alone.
     public var undoable: Bool
+    /// What was corrected. A typo fixed together with the layout is `.typo`.
+    public var kind: Kind
+
+    /// The corrections of the word-boundary pipeline (docs/PLAN.md, «Этап 4»).
+    public enum Kind: Hashable, Sendable {
+        /// The word was typed in the wrong layout.
+        case layout
+        /// One key off: "прривет" → "привет" (`TypoCorrector`).
+        case typo
+        /// Typed with Caps Lock on by mistake: "ПРИВЕТ" → "Привет" (`CapsLockStep`).
+        case capsLock
+        /// Shift held a key too long: "ПРивет" → "Привет" (`DoubleCapitalsStep`).
+        case doubleCapitals
+        /// An abbreviation in its case: "мвд" → "МВД" (`AbbreviationStep`).
+        case abbreviation
+        /// "ё" where the word has it: "еще" → "ещё" (`YoStep`).
+        case yo
+    }
 
     public init(seq: UInt32, original: String, replacement: String, source: LayoutID, target: LayoutID,
-                undoable: Bool = true)
+                undoable: Bool = true, kind: Kind = .layout)
     {
         self.seq = seq
         self.original = original
@@ -79,6 +97,7 @@ public struct Correction: Hashable, Sendable {
         self.source = source
         self.target = target
         self.undoable = undoable
+        self.kind = kind
     }
 }
 

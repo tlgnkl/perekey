@@ -21,6 +21,9 @@ public struct LanguageModel: @unchecked Sendable {
         let alphabetSize: Int
         /// Symbol of every scalar below `symbolTableSize`, `ModelBuilder.other` elsewhere.
         let symbols: [UInt8]
+        /// The small letters of the alphabet in scalar order, joiners left out:
+        /// what a dropped letter may have been.
+        public let letters: [UInt32]
         /// `-8·log₂P(c | h0 h1 h2)`, index `((h0·A + h1)·A + h2)·A + c`.
         let costs: UnsafePointer<UInt8>
         let bucketBits: Int
@@ -270,6 +273,11 @@ extension LanguageModel.Language {
             symbols[scalar] = UInt8(symbol)
         }
         self.symbols = symbols
+        var letters: [UInt32] = []
+        for scalar in 0..<symbols.count where symbols[scalar] >= 2 {
+            if Unicode.Scalar(UInt32(scalar))?.properties.isAlphabetic == true { letters.append(UInt32(scalar)) }
+        }
+        self.letters = letters
         costs = ngram.baseAddress!.advanced(by: 16 + mapCount * 8).assumingMemoryBound(to: UInt8.self)
 
         reader = ByteReader(dictionary)

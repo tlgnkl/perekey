@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import PerekeyCore
 import Testing
 @testable import PerekeyModelKit
 
@@ -195,10 +196,87 @@ import Testing
             CorpusItem(category: "prose", language: "ru", previous: nil, text: "Привет,"),
             CorpusItem(category: "prose", language: "en", previous: "ru", text: "world"),
             CorpusItem(category: "url", language: "en", previous: nil, text: "https://a.b/c?d=1"),
+            CorpusItem(category: "typos", language: "en", previous: "en", text: "wrold", expected: "world"),
         ]
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("perekey-corpus-\(UUID()).tsv").path
         defer { try? FileManager.default.removeItem(atPath: path) }
         try Corpus.write(items, to: path)
         #expect(try Corpus.read(path) == items)
+    }
+
+    @Test func syntheticTyposAreOneEditAway() {
+        var random = SplitMix64(seed: 3)
+        var kinds: Set<Int> = []
+        for word in ["keyboard", "привет", "hello", "спасибо", "world"] {
+            for _ in 0..<40 {
+                guard let typo = Synthetic.typo(of: word, language: Corpus.language(of: word)!, random: &random) else {
+                    continue
+                }
+                #expect(typo != word)
+                #expect(abs(typo.count - word.count) <= 1)
+                // Letters only, from the same keyboard.
+                #expect(Corpus.language(of: typo) == Corpus.language(of: word))
+                kinds.insert(typo.count - word.count)
+            }
+        }
+        #expect(kinds == [-1, 0, 1], "drops, substitutions and insertions all happen")
+        #expect(Synthetic.neighbours(of: "g", language: "en").sorted() == ["b", "f", "h", "t", "v", "y"])
+        #expect(Synthetic.typo(of: "abc", language: "en", random: &random) == nil)
+    }
+}
+
+@Suite struct TypoEvaluationTests {
+    /// The letter keys of the ANSI layout, enough for a layout map.
+    static func layout(_ id: String, language: String, rows: [String]) -> LayoutMap {
+        var table: [KeyStroke: String] = [KeyStroke(49): " "]
+        let keys: [[UInt16]] = [
+            [12, 13, 14, 15, 17, 16, 32, 34, 31, 35, 33, 30],
+            [0, 1, 2, 3, 5, 4, 38, 40, 37, 41, 39],
+            [6, 7, 8, 9, 11, 45, 46, 43, 47],
+        ]
+        for (letters, row) in zip(rows, keys) {
+            for (letter, key) in zip(letters, row) {
+                table[KeyStroke(key)] = String(letter)
+                table[KeyStroke(key, [.shift])] = letter.uppercased()
+            }
+        }
+        return LayoutMap(id: LayoutID(id), language: language, table: table)
+    }
+
+    static let abc = layout("test.abc", language: "en", rows: ["qwertyuiop[]", "asdfghjkl;'", "zxcvbnm,./"])
+    static let russian = layout("test.ru", language: "ru", rows: ["йцукенгшщзхъ", "фывапролджэ", "ячсмитьбю"])
+
+    static let model: LanguageModel = {
+        var builder = ModelBuilder()
+        builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        for (word, rank) in [("hello", 200), ("world", 200), ("word", 180), ("then", 200), ("them", 200)] {
+            builder.addForm(word, language: "en", rank: UInt8(rank), weight: 100)
+        }
+        builder.addForm("привет", language: "ru", rank: 200, weight: 100)
+        return try! LanguageModel(bytes: builder.build())
+    }()
+
+    @Test func countsFixedTyposAndWrongCorrections() {
+        let items = [
+            CorpusItem(category: "typos", language: "en", previous: "en", text: "wrold", expected: "world"),
+            CorpusItem(category: "typos", language: "en", previous: "en", text: "thenm", expected: "them"),
+            CorpusItem(category: "prose", language: "en", previous: "en", text: "hello"),
+            CorpusItem(category: "prose", language: "en", previous: "en", text: "hwllo"), // a right word the model lacks
+            CorpusItem(category: "captcha", language: "en", previous: nil, text: "xkqzp"),
+        ]
+        let evaluation = Evaluation(model: Self.model, layouts: ["en": Self.abc, "ru": Self.russian])
+        let results = evaluation.run(items)
+        let typos = results.categories.first { $0.name == "typos" }
+        #expect(typos?.typoWords == 2)
+        #expect(typos?.typosFixed == 1, "thenm is ambiguous")
+        #expect(typos?.wrongCorrections == 0)
+        let prose = results.categories.first { $0.name == "prose" }
+        #expect(prose?.checkedWords == 2)
+        #expect(prose?.wrongCorrections == 1)
+        #expect(results.errors.contains { $0.item.text == "hwllo" && $0.correction == "hello" })
+        #expect(results.total.fixedShare == 0.5)
+        #expect(!results.typoTargetsMet)
+        #expect(Evaluation.report(results).contains("typo correction"))
     }
 }

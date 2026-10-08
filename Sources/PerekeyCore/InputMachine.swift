@@ -883,8 +883,16 @@ public struct InputMachine: Sendable {
         wordSuppressed = true
         wordJudged = true
         previousLanguage = source.language
-        let learn = last.isOpen || !settings.learnFromUndos
-            ? nil : Self.learnable(correction.original, or: correction.replacement)
+        // Undoing a Caps Lock or double-capitals fix is a typing accident, not
+        // a word preference: "привет" on the exception list would also stop
+        // "ghbdtn" from ever switching. A typo undo learns the typed word only.
+        // Abbreviations and «ё» are about the word itself, so they learn.
+        let learn: String? = switch correction.kind {
+        case _ where last.isOpen || !settings.learnFromUndos: nil
+        case .layout, .abbreviation, .yo: Self.learnable(correction.original, or: correction.replacement)
+        case .typo: Self.learnable(correction.original, or: nil)
+        case .capsLock, .doubleCapitals: nil
+        }
         fence?.undo = UndoInFlight(seq: correction.seq, reported: last.reported, isOpen: last.isOpen, learn: learn,
                                    heldKey: heldKey)
         return true

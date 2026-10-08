@@ -75,14 +75,16 @@ extension Desk {
         #expect(desk.text == "ПРивет ")
     }
 
-    @Test func backspaceUndoesAndLearns() throws {
+    @Test func backspaceUndoesWithoutLearning() throws {
         var desk = Desk(only { $0.doubleCapitals = true }, current: ru)
         desk.type("ПРивет ", on: Fixture.russian)
         #expect(desk.text == "Привет ")
         desk.press(KeyCode.delete)
         #expect(desk.text == "ПРивет ")
         #expect(desk.undone == [try #require(desk.corrections.first).seq])
-        #expect(desk.learned == ["привет"])
+        // "привет" on the exception list would also stop "ghbdtn" from
+        // switching: undoing a case fix teaches nothing.
+        #expect(desk.learned.isEmpty)
     }
 
     @Test func togetherWithASwitch() throws {

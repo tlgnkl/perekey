@@ -14,6 +14,7 @@ struct PerekeyApp: App {
     private let onboarding: OnboardingController
     private let pause = PauseState()
     private let launchAtLogin = LaunchAtLogin()
+    private let pauseSources: PauseSources
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
@@ -23,6 +24,7 @@ struct PerekeyApp: App {
         let store = SettingsStore()
         self.store = store
         recording = ShortcutRecording(store: store)
+        pauseSources = PauseSources(pause: pause)
         let onboarding = OnboardingController(store: store, sources: inputSources)
         self.onboarding = onboarding
         Task { @MainActor in onboarding.showIfFirstLaunch() }

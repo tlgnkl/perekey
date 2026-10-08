@@ -357,6 +357,13 @@ private struct DemoStep: View {
     private var shortcutStrip: GlassStripPlayer { shortcutState.wrappedValue }
     private var autoStrip: GlassStripPlayer { autoState.wrappedValue }
 
+    /// The font `pkField(font: .system(size: 20))` sets, for measuring the word.
+    private static let fieldFont = NSFont.systemFont(ofSize: 20)
+
+    private func firstWord(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+    }
+
     /// Whether a demo field holds the fixed word, the typed one, or neither.
     private enum Word { case fixed, typed, other }
 
@@ -395,7 +402,10 @@ private struct DemoStep: View {
                     .focused(focus.projectedValue, equals: .shortcut)
                     .pkField(font: .system(size: 20), height: 40)
                     .overlay { solvedRing(model.demoSolved) }
-                    .overlay { GlassStripSweep(progress: shortcutStrip.progress, style: shortcutStrip.style) }
+                    .overlay {
+                        GlassStripSweep(progress: shortcutStrip.progress, style: shortcutStrip.style,
+                                        word: firstWord(model.demoText), font: Self.fieldFont)
+                    }
                     .onChange(of: model.demoText) { old, new in sweep(shortcutStrip, from: old, to: new) }
             } checks: {
                 Check(done: model.didRetype, text: "The shortcut turned ghbdtn into привет")
@@ -415,7 +425,10 @@ private struct DemoStep: View {
                     .focused(focus.projectedValue, equals: .auto)
                     .pkField(font: .system(size: 20), height: 40)
                     .overlay { solvedRing(model.didAutoSwitch && model.didAutoUndo) }
-                    .overlay { GlassStripSweep(progress: autoStrip.progress, style: autoStrip.style) }
+                    .overlay {
+                        GlassStripSweep(progress: autoStrip.progress, style: autoStrip.style,
+                                        word: firstWord(model.autoText), font: Self.fieldFont)
+                    }
                     .onChange(of: model.autoText) { old, new in sweep(autoStrip, from: old, to: new) }
                     .disabled(model.autoSwitchOff)
                     .opacity(model.autoSwitchOff ? 0.5 : 1)

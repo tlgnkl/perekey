@@ -110,14 +110,19 @@ struct GlassStripFrameWord: View {
     }
 }
 
-/// Only the strip: it wipes over whatever it is laid on and peels off. For a
-/// field whose text the system changes, such as the onboarding demo; the words
-/// are already swapped, so there is nothing to blur. Animatable like
-/// `GlassStripWord`.
+/// Only the strip, over one word of a field: it wipes over the word and peels
+/// off, as in the hint. For a field whose text the system changes, such as the
+/// onboarding demo; the words are already swapped, so there is nothing to blur.
+/// The strip is sized from `word` set in `font`, and starts `leading` points
+/// from the field's left edge. Animatable like `GlassStripWord`.
 struct GlassStripSweep: View, Animatable {
     var progress: Double
     var style: GlassStripStyle = .fix
-    var radius: CGFloat = PK.Radius.field
+    var word: String
+    var font: NSFont
+    /// The field's leading inset.
+    var leading: CGFloat = 10
+    var radius: CGFloat = 8
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     nonisolated var animatableData: Double {
@@ -126,9 +131,14 @@ struct GlassStripSweep: View, Animatable {
     }
 
     var body: some View {
+        let width = ceil((word as NSString).size(withAttributes: [.font: font]).width)
+        let height = ceil(font.ascender - font.descender)
         // Reduce Motion has no strip: the field's own text just changes.
         GlassStripBand(frame: GlassStripTimeline.frame(at: progress, reducedMotion: reduceMotion), style: style,
-                       radius: radius, inset: EdgeInsets())
+                       radius: radius, inset: EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
+            .frame(width: width, height: height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.leading, leading)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

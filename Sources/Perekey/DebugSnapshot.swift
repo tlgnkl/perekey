@@ -284,7 +284,10 @@ enum DebugSnapshot {
                     .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
                     .padding(.horizontal, 10)
                     .background(Color.pkPlate, in: RoundedRectangle(cornerRadius: PK.Radius.field, style: .continuous))
-                    .overlay { GlassStripSweep(progress: progress, style: style) }
+                    .overlay {
+                        GlassStripSweep(progress: progress, style: style,
+                                        word: tag.hasPrefix("undo") ? "ghbdtn" : "привет", font: .systemFont(ofSize: 20))
+                    }
                     .padding(16)
                 render(field, dark: dark, size: CGSize(width: 360, height: 72),
                        to: directory.appending(path: "strip-demo-\(tag)-\(suffix).png"))

@@ -159,7 +159,7 @@ public enum Effect: Hashable, Sendable {
     /// (with the undo's `.retypePosted`, never for a cancelled undo):
     /// add the word to the learned exceptions (`WordExceptions.learn`). It is
     /// normalized, and it is the typed reading where the list takes it
-    /// ("ghbdtn"), else the other one (`InputMachine.learnable`). The next
+    /// ("ghbdtn"), else the other one (`CorrectionUndo.learnable`). The next
     /// settings snapshot carries it in `Settings.exceptions`.
     case learned(String)
     /// A correction of a word typed with Caps Lock on by mistake was posted

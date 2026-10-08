@@ -355,10 +355,10 @@ private let ru = Fixture.russian.id
 
 @Suite struct LearnableWordTests {
     @Test func readingThatTheListTakes() {
-        #expect(InputMachine.learnable("Ghbdtn", or: "Привет") == "ghbdtn")
-        #expect(InputMachine.learnable("[jhjij", or: "хорошо") == "jhjij")
-        #expect(InputMachine.learnable("ds,jh", or: "выбор") == "выбор")
-        #expect(InputMachine.learnable("a/b", or: "ф.и") == nil)
+        #expect(CorrectionUndo.learnable("Ghbdtn", or: "Привет") == "ghbdtn")
+        #expect(CorrectionUndo.learnable("[jhjij", or: "хорошо") == "jhjij")
+        #expect(CorrectionUndo.learnable("ds,jh", or: "выбор") == "выбор")
+        #expect(CorrectionUndo.learnable("a/b", or: "ф.и") == nil)
     }
 
     @Test func learnedWordStopsTheSwitch() {

@@ -106,7 +106,60 @@ if p99 > 1_000_000 {
     print("FAIL: p99 exceeds the 1 ms tap callback budget")
     failed = true
 }
+
+// The classifier: two readings of every word of the session, in the budget
+// of a single key stroke. PEREKEY_MODEL names a real model; without it a
+// small model is built here, which exercises the same code paths.
+let model: LanguageModel
+if let path = ProcessInfo.processInfo.environment["PEREKEY_MODEL"] {
+    model = try ModelFile.load(path)
+} else {
+    var builder = ModelBuilder()
+    builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+    builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
+    for word in ["привет", "мир", "будет", "хорошо", "это", "выбор", "код", "а", "и", "не", "что", "как"] {
+        builder.addForm(word, language: "ru", rank: 200, weight: 100)
+    }
+    for word in ["hello", "world", "code", "the", "a", "i", "and", "is", "to", "of", "keyboard", "layout"] {
+        builder.addForm(word, language: "en", rank: 200, weight: 100)
+    }
+    model = try LanguageModel(bytes: builder.build())
+}
+let classifier = Classifier(model: model)
+let words = ["ghbdtn", "vbh", ",eltn", "hello", "world", "[jhjij", "'nj", "ds,jh", "code", "rjl",
+             "https://example.com/path", "Ghb1dtn!", "xkqzp", "f", "клавиатура", "руддщ"]
+let wordStrokes = words.map { abc.strokes($0) + [KeyStroke(KeyCode.space)] }
+var classifierMean = Double.infinity
+for _ in 0..<7 {
+    let elapsed = clock.measure {
+        for _ in 0..<2000 {
+            for strokes in wordStrokes {
+                sink &+= classifier.classify(strokes, typed: abc, other: russian).score > 0 ? 1 : 0
+                sink &+= classifier.impossiblePrefix(strokes, typed: abc, other: russian) ? 1 : 0
+            }
+        }
+    }
+    classifierMean = min(classifierMean, nanoseconds(elapsed) / Double(wordStrokes.count * 2000))
+}
+var classifierSamples: [Double] = []
+for _ in 0..<200 {
+    for strokes in wordStrokes {
+        let start = clock.now
+        sink &+= classifier.classify(strokes, typed: abc, other: russian).score > 0 ? 1 : 0
+        classifierSamples.append(nanoseconds(clock.now - start))
+    }
+}
+classifierSamples.sort()
+let classifierP99 = classifierSamples[classifierSamples.count * 99 / 100]
+print(String(format: "classifier: mean %.0f ns per word (with the prefix check), p99 %.0f ns (sink %d)",
+             classifierMean, classifierP99, sink))
+if classifierP99 > 100_000 {
+    print("FAIL: classifier p99 exceeds 100 µs")
+    failed = true
+}
+
 if arguments.count >= 3 {
-    try JSONEncoder().encode(["mean": mean, "p99": p99]).write(to: URL(fileURLWithPath: arguments[2]))
+    try JSONEncoder().encode(["mean": mean, "p99": p99, "classifier": classifierMean, "classifierP99": classifierP99])
+        .write(to: URL(fileURLWithPath: arguments[2]))
 }
 exit(failed ? 1 : 0)

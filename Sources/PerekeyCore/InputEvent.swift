@@ -48,10 +48,23 @@ public struct Focus: Hashable, Sendable {
     public var bundleID: String?
     /// A password field (`AXSecureTextField`). Perekey never retypes into it.
     public var isSecureField: Bool
+    /// False when the focused element is not known: right after an app switch,
+    /// before accessibility reports it, and whenever accessibility is
+    /// unavailable (no permission, the app does not answer). `isSecureField` is
+    /// then false only for lack of knowledge. Automatic switching must not act
+    /// on an unknown focus. A manual shortcut still may: the user asked for it,
+    /// and a password field normally turns Secure Input on anyway.
+    public var isKnown: Bool
 
-    public init(bundleID: String?, isSecureField: Bool = false) {
+    public init(bundleID: String?, isSecureField: Bool = false, isKnown: Bool = true) {
         self.bundleID = bundleID
         self.isSecureField = isSecureField
+        self.isKnown = isKnown
+    }
+
+    /// The app is known, its focused element is not.
+    public static func unknown(bundleID: String?) -> Focus {
+        Focus(bundleID: bundleID, isKnown: false)
     }
 }
 

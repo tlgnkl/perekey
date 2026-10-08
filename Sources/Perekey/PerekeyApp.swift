@@ -12,6 +12,8 @@ struct PerekeyApp: App {
     private let store: SettingsStore
     private let recording: ShortcutRecording
     private let onboarding: OnboardingController
+    private let pause = PauseState()
+    private let launchAtLogin = LaunchAtLogin()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
@@ -31,18 +33,12 @@ struct PerekeyApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            Text("Perekey \(Bundle.main.shortVersion)")
-            Divider()
-            LayoutsMenu(sources: inputSources)
-            Divider()
-            SettingsLink { Text("Settings…") }
-                .keyboardShortcut(",")
-            Button("Show Onboarding…") { onboarding.show() }
-            Button("Quit Perekey") { NSApplication.shared.terminate(nil) }
-                .keyboardShortcut("q")
+            MenuContent(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
+                        onShowOnboarding: { onboarding.show() })
         } label: {
-            Text(inputSources.currentLayout.map(inputSources.indicator(of:)) ?? "⌨")
+            MenuBarLabel(sources: inputSources, store: store, pause: pause)
         }
+        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView(store: store, recording: recording)

@@ -46,6 +46,10 @@ struct Desk {
         log.compactMap { if case let .learned(word) = $0 { word } else { nil } }
     }
 
+    var withdrawn: [String] {
+        log.compactMap { if case let .alwaysFixWithdrawn(word) = $0 { word } else { nil } }
+    }
+
     var undone: [UInt32] {
         log.compactMap { if case let .correctionUndone(seq) = $0 { seq } else { nil } }
     }

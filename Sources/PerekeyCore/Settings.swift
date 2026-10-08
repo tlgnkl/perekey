@@ -16,9 +16,15 @@ public struct Settings: Hashable, Sendable, Codable {
     /// `fenceTimeout` counts from the posting, not from the shortcut.
     public var postTimeout: Double
     /// Words automatic switching never touches: the user's own and the learned
-    /// ones, normalized like `WordExceptions.normalize` (trimmed, lowercased).
+    /// ones, normalized like `WordRules.normalize` (trimmed, lowercased).
     /// A word matches in either layout reading.
     public var exceptions: Set<String>
+    /// Words automatic switching switches to whatever the classifier's score,
+    /// unless a guard keeps the word (`Classifier.Reason.isGuard`): the
+    /// spelling to type, keyed by `WordRules.matchKey` ("артем" → "артём").
+    /// None of them is in `exceptions`. A word typed in the other layout
+    /// reads as a key: switch; typed as one: keep.
+    public var alwaysFix: [String: String]
     /// Whether undoing an automatic switch asks the app to learn the word
     /// (`Effect.learned`).
     public var learnFromUndos: Bool
@@ -34,6 +40,7 @@ public struct Settings: Hashable, Sendable, Codable {
         fenceTimeout: Double = 0.3,
         postTimeout: Double = 2,
         exceptions: Set<String> = [],
+        alwaysFix: [String: String] = [:],
         learnFromUndos: Bool = true,
         corrections: TextCorrections = TextCorrections(),
         typoCorrection: Bool = true
@@ -43,6 +50,7 @@ public struct Settings: Hashable, Sendable, Codable {
         self.fenceTimeout = fenceTimeout
         self.postTimeout = postTimeout
         self.exceptions = exceptions
+        self.alwaysFix = alwaysFix
         self.learnFromUndos = learnFromUndos
         self.corrections = corrections
         self.typoCorrection = typoCorrection

@@ -7,7 +7,7 @@ import SwiftUI
 
 /// The sidebar sections of the Settings window.
 enum SettingsSection: Int, CaseIterable, Identifiable {
-    case general, shortcuts, apps, sites, words
+    case general, shortcuts, apps, sites, words, privacy
 
     var id: Int { rawValue }
 
@@ -18,6 +18,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .apps: Text("Apps")
         case .sites: Text("Sites")
         case .words: Text("Words")
+        case .privacy: Text("Privacy")
         }
     }
 
@@ -28,6 +29,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .apps: "square.grid.2x2.fill"
         case .sites: "globe"
         case .words: "text.badge.xmark"
+        case .privacy: "lock.fill"
         }
     }
 
@@ -39,6 +41,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .apps: [Color(red: 0.30, green: 0.62, blue: 1), Color(red: 0.12, green: 0.40, blue: 0.85)]
         case .sites: [Color(red: 0.25, green: 0.78, blue: 0.72), Color(red: 0.08, green: 0.58, blue: 0.55)]
         case .words: [Color(red: 1, green: 0.62, blue: 0.30), Color(red: 0.90, green: 0.42, blue: 0.10)]
+        case .privacy: [Color(red: 0.30, green: 0.80, blue: 0.45), Color(red: 0.14, green: 0.54, blue: 0.24)]
         }
     }
 }
@@ -50,13 +53,15 @@ struct SettingsView: View {
     let recording: ShortcutRecording
     let sources: InputSources
     let updates: Updates
+    let usage: UsageRecorder?
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
     /// Material behind the whole window; off for offscreen snapshots.
     private let windowBackground: Bool
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
-         initial: SettingsSection = .general, windowBackground: Bool = true) {
+         usage: UsageRecorder? = nil, initial: SettingsSection = .general, windowBackground: Bool = true) {
+        self.usage = usage
         self.windowBackground = windowBackground
         self.updates = updates
         self.store = store
@@ -116,11 +121,12 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch current {
-        case .general: GeneralPane(store: store, updates: updates, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
+        case .general: GeneralPane(store: store, updates: updates)
         case .shortcuts: ShortcutsPane(store: store, recording: recording)
         case .apps: AppsPane(store: store, sources: sources)
         case .sites: SitesPane(store: store, sources: sources)
-        case .words: WordsPane(store: store)
+        case .words: WordsPane(store: store, layouts: sources.layouts)
+        case .privacy: PrivacyPane(store: store, usage: usage, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
         }
     }
 }

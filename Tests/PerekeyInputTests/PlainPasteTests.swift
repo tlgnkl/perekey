@@ -55,7 +55,9 @@ import Testing
         let paste = PlainPaste(pasteboard: pasteboard, restoreDelay: .milliseconds(50)) {}
         #expect(paste.paste())
         #expect(paste.isRestorePending)
-        try await Task.sleep(for: .milliseconds(400))
+        // Wait for the restore itself, not a fixed time: a loaded machine is slow.
+        for _ in 0..<100 where paste.isRestorePending { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(!paste.isRestorePending)
         #expect(PlainPaste.snapshot(of: pasteboard) == before)
     }
 

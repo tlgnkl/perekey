@@ -282,7 +282,7 @@ enum Synthetic {
             // Two words glued CamelCase with a symbol, no digits: "greenHouse#".
             let first = pick(vocabulary, &random)
             let second = pick(vocabulary, &random)
-            return first + second.prefix(1).uppercased() + second.dropFirst() + String(pick(symbols, &random))
+            return first + second.prefix(1).uppercased() + String(second.dropFirst()) + String(pick(symbols, &random))
         }
     }
 

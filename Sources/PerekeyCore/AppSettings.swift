@@ -76,6 +76,8 @@ public struct AppSettings: Hashable, Sendable {
     public var typoCorrection: Bool
     /// Which edits the hint at the caret reports (Settings → General).
     public var caretHint: CaretHintMode
+    /// Opt-in counters of corrections per day (`UsageStats`). Off by default.
+    public var statistics = false
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
@@ -139,7 +141,7 @@ public struct AppSettings: Hashable, Sendable {
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
-        case checkForUpdates, typoCorrection, corrections, caretHint
+        case checkForUpdates, typoCorrection, corrections, caretHint, statistics
     }
 
     public init(from decoder: any Decoder) throws {
@@ -160,5 +162,6 @@ extension AppSettings: Codable {
             ?? defaults.corrections
         typoCorrection = (try? container.decodeIfPresent(Bool.self, forKey: .typoCorrection)) ?? defaults.typoCorrection
         caretHint = (try? container.decodeIfPresent(CaretHintMode.self, forKey: .caretHint)) ?? defaults.caretHint
+        statistics = (try? container.decodeIfPresent(Bool.self, forKey: .statistics)) ?? defaults.statistics
     }
 }

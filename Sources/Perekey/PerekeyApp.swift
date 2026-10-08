@@ -18,6 +18,7 @@ struct PerekeyApp: App {
     private let updates: Updates
     private let input: InputController
     private let shell: MenuBarShell
+    private let usage: UsageRecorder
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
@@ -35,10 +36,17 @@ struct PerekeyApp: App {
                                               demoActive: { input.appModes.onboardingDemo = $0 })
         self.onboarding = onboarding
         let recents = RecentCorrections()
-        input.onCorrection = { recents.record($0) }
-        input.onCorrectionUndone = { recents.undone(seq: $0) }
+        let usage = UsageRecorder { [store] in store.settings.statistics }
+        self.usage = usage
+        input.onCorrection = { recents.record($0); usage.recordCorrection($0.kind) }
+        input.onCorrectionUndone = { recents.undone(seq: $0); usage.recordUndo() }
+        input.onManualRetype = { usage.recordManualRetype() }
+        // Counters reach the disk at most every few seconds, and here at quit.
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { usage.flush() }
+        }
         let shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
-                             input: input, recents: recents, onboarding: onboarding, updates: updates)
+                             input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates)
         self.shell = shell
         Task { @MainActor in
             onboarding.showIfFirstLaunch()
@@ -53,7 +61,7 @@ struct PerekeyApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(store: store, recording: recording, sources: inputSources, updates: updates)
+            SettingsView(store: store, recording: recording, sources: inputSources, updates: updates, usage: usage)
         }
     }
 }
@@ -72,7 +80,7 @@ final class MenuBarShell {
     private var statusItem: StatusItemController?
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
-         recents: RecentCorrections, onboarding: OnboardingController, updates: Updates)
+         recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates)
     {
         self.sources = sources
         self.store = store
@@ -82,7 +90,7 @@ final class MenuBarShell {
         let reportWindow = reportWindow
         menu = MenuPanelController(
             sources: sources, store: store, pause: pause, launch: launch, appModes: input.appModes,
-            recents: recents, updates: updates
+            recents: recents, usage: usage, updates: updates
         ) { menu in
             MenuActions(
                 openSettings: {

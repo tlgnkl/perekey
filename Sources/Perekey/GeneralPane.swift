@@ -12,10 +12,14 @@ struct GeneralPane: View {
     let updates: Updates
     /// Names of the enabled layouts, for the report.
     let layoutNames: [String]
+    /// `nil` hides the statistics section (it needs the recorder).
+    let usage: UsageRecorder?
 
     private let reporting: State<Bool>
 
-    init(store: SettingsStore, updates: Updates, layoutNames: [String] = [], isReporting: Bool = false) {
+    init(store: SettingsStore, updates: Updates, usage: UsageRecorder? = nil, layoutNames: [String] = [],
+         isReporting: Bool = false) {
+        self.usage = usage
         self.store = store
         self.updates = updates
         self.layoutNames = layoutNames
@@ -29,6 +33,7 @@ struct GeneralPane: View {
             soundsSection
             updatesSection
             guaranteesSection
+            if let usage { statisticsSection(usage) }
             PKGroup(header: Text("Feedback")) {
                 PKRow(Text("A wrong correction?"), detail: Text("You see the text before anything is sent.")) {
                     Button("Report a word…") { reporting.wrappedValue = true }
@@ -93,6 +98,34 @@ struct GeneralPane: View {
                 }
                 .labelsHidden()
                 .toggleStyle(.pkSwitch)
+            }
+        }
+    }
+
+    /// Opt-in counters. The week shows only while they are on.
+    private func statisticsSection(_ usage: UsageRecorder) -> some View {
+        _ = usage.revision
+        return PKGroup(header: Text("Statistics")) {
+            PKRow(Text("Count corrections"),
+                  detail: Text("Perekey keeps a count per day on this Mac: how many corrections, of which kind, how many you undid. No words, no apps. It keeps 8 weeks.")) {
+                Toggle(isOn: Binding(get: { store.settings.statistics }, set: { on in
+                    store.update { $0.statistics = on }
+                    if on { usage.enabled() }
+                })) {
+                    Text("Count corrections")
+                }
+                .labelsHidden()
+                .toggleStyle(.pkSwitch)
+            }
+            if store.settings.statistics {
+                PKDivider()
+                UsageWeekView(stats: usage.stats)
+                PKDivider()
+                PKRow(Text("Erase the counts"), detail: Text("Deletes the file with the counts.")) {
+                    Button("Erase") { usage.erase() }
+                        .buttonStyle(.pkSecondary)
+                        .disabled(usage.stats.isEmpty)
+                }
             }
         }
     }

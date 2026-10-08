@@ -18,11 +18,28 @@ public enum LayoutReader {
     /// Input methods and layouts without a `UCKeyTranslate` table (some virtual
     /// layouts, e.g. from Parallels) are skipped.
     public static func enabledLayouts() -> [LayoutMap] {
+        enabledSources().map(\.map)
+    }
+
+    /// The same list with the source behind each map, for `TISSelectInputSource`.
+    static func enabledSources() -> [(source: TISInputSource, map: LayoutMap)] {
         sources(includeAllInstalled: false).compactMap { source in
             guard bool(source, kTISPropertyInputSourceIsEnabled),
-                  bool(source, kTISPropertyInputSourceIsSelectCapable) else { return nil }
-            return layoutMap(of: source)
+                  bool(source, kTISPropertyInputSourceIsSelectCapable),
+                  let map = layoutMap(of: source) else { return nil }
+            return (source, map)
         }
+    }
+
+    /// Any input source of any type by ID, e.g. the selected input method.
+    static func anySource(_ id: LayoutID) -> TISInputSource? {
+        let list = TISCreateInputSourceList(nil, true)?.takeRetainedValue() as? [TISInputSource] ?? []
+        return list.first { string(of: $0, kTISPropertyInputSourceID) == id.rawValue }
+    }
+
+    static func languages(of source: TISInputSource) -> [String] {
+        TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages)
+            .map { Unmanaged<CFArray>.fromOpaque($0).takeUnretainedValue() as? [String] ?? [] } ?? []
     }
 
     /// Any installed layout by its ID, enabled or not. For tools and tests.
@@ -41,8 +58,7 @@ public enum LayoutReader {
         guard let id = string(of: source, kTISPropertyInputSourceID),
               let rawData = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
         let data = Unmanaged<CFData>.fromOpaque(rawData).takeUnretainedValue() as Data
-        let languages = TISGetInputSourceProperty(source, kTISPropertyInputSourceLanguages)
-            .map { Unmanaged<CFArray>.fromOpaque($0).takeUnretainedValue() as? [String] ?? [] } ?? []
+        let languages = languages(of: source)
 
         var table: [KeyStroke: String] = [:]
         var deadKeys: Set<KeyStroke> = []
@@ -92,11 +108,11 @@ public enum LayoutReader {
         return TISCreateInputSourceList(filter, includeAllInstalled)?.takeRetainedValue() as? [TISInputSource] ?? []
     }
 
-    private static func string(of source: TISInputSource, _ key: CFString) -> String? {
+    static func string(of source: TISInputSource, _ key: CFString) -> String? {
         TISGetInputSourceProperty(source, key).map { Unmanaged<CFString>.fromOpaque($0).takeUnretainedValue() as String }
     }
 
-    private static func bool(_ source: TISInputSource, _ key: CFString) -> Bool {
+    static func bool(_ source: TISInputSource, _ key: CFString) -> Bool {
         TISGetInputSourceProperty(source, key)
             .map { CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque($0).takeUnretainedValue()) } ?? false
     }

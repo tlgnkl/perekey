@@ -210,7 +210,7 @@ final class InputController {
     /// «Forget» to take it back.
     private func learn(_ word: String) {
         // The onboarding demo undoes «ghbdtn» on purpose: that teaches nothing.
-        guard !appModes.onboardingDemo else { return }
+        guard !(appModes.isDemoFront && AppModeController.isDemoWord(word)) else { return }
         var added = false
         store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970) }
         guard added else { return }

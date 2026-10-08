@@ -232,21 +232,17 @@ private struct AppRow: View {
                         Text(entry.rule == nil ? String(localized: "Built-in default") : String(localized: "Your rule"))
                     }
                     if let language = entry.language {
-                        HStack(spacing: 6) {
-                            Text(Self.mostly(language))
-                            Button("Reset") { languages?.reset(app: entry.bundleID) }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(Color.pkIndigoInk)
-                                .help("Forget the languages typed in this app")
+                        // "Reset" goes under the language when the row is narrow.
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 6) { languageCaption(language) }
+                            VStack(alignment: .leading, spacing: 1) { languageCaption(language) }
                         }
                     }
                 }
                 .font(PK.Font.caption)
                 .foregroundStyle(Color.pkInk2)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            // The captions take the room before the pickers do.
-            .layoutPriority(1)
             Spacer(minLength: 8)
             Picker("Layout", selection: layoutChoice) {
                 Text("Keep layout").tag(LayoutChoice.none)
@@ -276,6 +272,14 @@ private struct AppRow: View {
         }
         .padding(.horizontal, PK.Space.md)
         .padding(.vertical, 8)
+    }
+
+    @ViewBuilder private func languageCaption(_ language: String) -> some View {
+        Text(Self.mostly(language))
+        Button("Reset") { languages?.reset(app: entry.bundleID) }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.pkIndigoInk)
+            .help("Forget the languages typed in this app")
     }
 
     /// "Mostly Russian": the language most typed in the app.

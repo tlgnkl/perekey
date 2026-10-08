@@ -159,3 +159,11 @@
 "Your rule" = "Your rule";
 "The file is not a Perekey settings file." = "The file is not a Perekey settings file.";
 "The file comes from a newer Perekey (format %@). Update Perekey and try again." = "The file comes from a newer Perekey (format %@). Update Perekey and try again.";
+
+/* Sites (stage 4) */
+"Sites" = "Sites";
+"Site" = "Site";
+"In Safari, Chrome, Arc, Brave, Edge and Vivaldi Perekey switches the layout when the page changes. It reads the address through Accessibility." = "In Safari, Chrome, Arc, Brave, Edge and Vivaldi Perekey switches the layout when the page changes. It reads the address through Accessibility.";
+"No sites yet. Subdomains follow their parent site." = "No sites yet. Subdomains follow their parent site.";
+"Enter a site address like github.com." = "Enter a site address like github.com.";
+"This site already has a rule." = "This site already has a rule.";

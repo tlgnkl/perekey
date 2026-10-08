@@ -24,13 +24,17 @@ public struct AppSettings: Hashable, Sendable {
     public var onboardingDone: Bool
     /// The user's rules per app, keyed by bundle ID. Apps without a rule use `AppModes`.
     public var apps: [String: AppRule]
+    /// The user's rules per site in Safari and Chromium browsers, keyed by normalized host.
+    /// A site rule wins over the browser's app rule.
+    public var sites: [String: SiteRule]
     /// Words never corrected: the user's own and the learned ones.
     public var words: WordExceptions
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
-                words: WordExceptions = WordExceptions())
+                words: WordExceptions = WordExceptions(), sites: [String: SiteRule] = [:])
     {
+        self.sites = sites
         self.apps = apps
         self.words = words
         self.hotkeys = hotkeys
@@ -74,7 +78,7 @@ public struct AppSettings: Hashable, Sendable {
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkeys, capsLock, autoswitch, onboardingDone, apps, words
+        case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites
     }
 
     public init(from decoder: any Decoder) throws {
@@ -86,5 +90,6 @@ extension AppSettings: Codable {
         onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
         apps = (try? container.decodeIfPresent([String: AppRule].self, forKey: .apps)) ?? defaults.apps
         words = (try? container.decodeIfPresent(WordExceptions.self, forKey: .words)) ?? defaults.words
+        sites = (try? container.decodeIfPresent([String: SiteRule].self, forKey: .sites)) ?? defaults.sites
     }
 }

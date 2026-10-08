@@ -159,3 +159,11 @@
 "Your rule" = "Ваше правило";
 "The file is not a Perekey settings file." = "Это не файл настроек Perekey.";
 "The file comes from a newer Perekey (format %@). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %@). Обновите Perekey и попробуйте снова.";
+
+/* Sites (stage 4) */
+"Sites" = "Сайты";
+"Site" = "Сайт";
+"In Safari, Chrome, Arc, Brave, Edge and Vivaldi Perekey switches the layout when the page changes. It reads the address through Accessibility." = "В Safari, Chrome, Arc, Brave, Edge и Vivaldi Perekey переключает раскладку, когда меняется страница. Адрес он читает через «Универсальный доступ».";
+"No sites yet. Subdomains follow their parent site." = "Сайтов пока нет. Поддомены берут правило родительского сайта.";
+"Enter a site address like github.com." = "Введите адрес сайта, например github.com.";
+"This site already has a rule." = "У этого сайта уже есть правило.";

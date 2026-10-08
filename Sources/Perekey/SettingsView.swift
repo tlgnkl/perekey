@@ -6,7 +6,7 @@ import SwiftUI
 
 /// The sidebar sections of the Settings window.
 enum SettingsSection: Int, CaseIterable, Identifiable {
-    case general, shortcuts, apps, words
+    case general, shortcuts, apps, sites, words
 
     var id: Int { rawValue }
 
@@ -15,6 +15,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .general: Text("General")
         case .shortcuts: Text("Shortcuts")
         case .apps: Text("Apps")
+        case .sites: Text("Sites")
         case .words: Text("Words")
         }
     }
@@ -24,6 +25,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .general: "gearshape.fill"
         case .shortcuts: "keyboard.fill"
         case .apps: "square.grid.2x2.fill"
+        case .sites: "globe"
         case .words: "text.badge.xmark"
         }
     }
@@ -34,6 +36,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .general: [Color(white: 0.62), Color(white: 0.45)]
         case .shortcuts: [Color(red: 0.55, green: 0.53, blue: 1), Color(red: 0.36, green: 0.34, blue: 0.9)]
         case .apps: [Color(red: 0.30, green: 0.62, blue: 1), Color(red: 0.12, green: 0.40, blue: 0.85)]
+        case .sites: [Color(red: 0.25, green: 0.78, blue: 0.72), Color(red: 0.08, green: 0.58, blue: 0.55)]
         case .words: [Color(red: 1, green: 0.62, blue: 0.30), Color(red: 0.90, green: 0.42, blue: 0.10)]
         }
     }
@@ -102,6 +105,7 @@ struct SettingsView: View {
         case .general: GeneralPane(store: store)
         case .shortcuts: ShortcutsPane(store: store, recording: recording)
         case .apps: AppsPane(store: store, sources: sources)
+        case .sites: SitesPane(store: store, sources: sources)
         case .words: WordsPane(store: store)
         }
     }

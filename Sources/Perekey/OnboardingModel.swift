@@ -60,6 +60,10 @@ final class OnboardingModel {
     /// True when the system should be asked and polled. Snapshots turn it off.
     @ObservationIgnored private let isLive: Bool
     @ObservationIgnored private var didRequestAccess = false
+    /// The window closed: nothing may start again.
+    @ObservationIgnored private var stopped = false
+    /// The step a move is heading to during its short delay; clicks that follow count from it.
+    @ObservationIgnored private var pendingStep: Step?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var monitor: Any?
     @ObservationIgnored private var activeToken: (any NSObjectProtocol)?
@@ -83,6 +87,8 @@ final class OnboardingModel {
 
     /// Stops polling and the key monitor. Called when the window closes.
     func stop() {
+        stopped = true
+        pendingStep = nil
         pollTask?.cancel()
         pollTask = nil
         if let monitor { NSEvent.removeMonitor(monitor) }
@@ -97,21 +103,26 @@ final class OnboardingModel {
     var canGoForward: Bool { step != .access || trusted }
 
     func next() {
-        guard let following = Step(rawValue: step.rawValue + 1) else { return }
+        guard let following = Step(rawValue: (pendingStep ?? step).rawValue + 1) else { return }
         go(to: following)
     }
 
     func back() {
-        guard let previous = Step(rawValue: step.rawValue - 1) else { return }
+        guard let previous = Step(rawValue: (pendingStep ?? step).rawValue - 1) else { return }
         go(to: previous)
     }
 
     /// Sets the direction first and moves a moment later: the step that leaves
     /// must already know which way to slide when it is removed.
     private func go(to new: Step) {
-        direction = new.rawValue > step.rawValue ? 1 : -1
+        direction = new.rawValue > (pendingStep ?? step).rawValue ? 1 : -1
         guard isLive else { step = new; return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in self?.step = new }
+        pendingStep = new
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+            guard let self, !stopped else { return }
+            step = new
+            if pendingStep == new { pendingStep = nil }
+        }
     }
 
     /// What the status pill says.
@@ -123,7 +134,7 @@ final class OnboardingModel {
     enum AccessStatus { case waiting, denied, granted }
 
     private func stepChanged() {
-        guard isLive else { return }
+        guard isLive, !stopped else { return }
         // Poll only while a step needs it: no timer runs for nothing.
         pollTask?.cancel()
         pollTask = nil

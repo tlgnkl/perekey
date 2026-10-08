@@ -89,6 +89,8 @@ import Testing
         #expect(lists.remove == ["ошибка-словаря"])
         #expect(lists.rank == ["привет": 200, "ок": 180])
         #expect(lists.abbreviations == ["ГОСТ", "МФЦ"])
+        #expect(lists.correctedAbbreviations == ["ВрИО", "МВД"])
+        #expect(lists.noYo == ["все"])
         #expect(lists.keep == ["ок"])
     }
 
@@ -99,6 +101,67 @@ import Testing
 
     @Test func badRankFails() {
         #expect(throws: ModelBuild.Failure.self) { try DataLists(directory: "\(Self.directory)/bad") }
+    }
+}
+
+@Suite struct YoTableTests {
+    static let affix = """
+    SFX A Y 2
+    SFX A   0     а          .
+    SFX A   0     у          .
+    """
+
+    /// Expands the dictionary as `ModelBuild` does: every form of every stem.
+    static func table(_ dic: String, ranks: [String: UInt8], block: [String] = []) -> [String] {
+        let entries = Hunspell.entries(dic: dic)
+        let hunspell = Hunspell(affix: affix)
+        var table = YoTable(entries: entries)
+        for (index, entry) in entries.enumerated() {
+            hunspell.expand(entry.stem, flags: entry.flags) { table.add($0.lowercased(), entry: index) }
+        }
+        for word in block { table.block(word) }
+        return table.forms { ranks[$0] }
+    }
+
+    @Test func twinsGiveTheirFormsWithYo() {
+        let dic = "4\nмёд/A\nмед/A\nещё\nеще\n"
+        let ranks: [String: UInt8] = ["мёд": 100, "мед": 120, "мёда": 90, "мёду": 80, "ещё": 180, "еще": 200]
+        #expect(Self.table(dic, ranks: ranks) == ["ещё", "мёд", "мёда", "мёду"])
+    }
+
+    @Test func anotherStemKeepsTheSpellingWithE() {
+        // "шлем/A" is a noun of its own beside the verb form "шлём".
+        let dic = "4\nшлём\nшлем/A\nвёл\nвел\n"
+        let ranks: [String: UInt8] = ["шлём": 100, "шлем": 150, "вёл": 100]
+        #expect(Self.table(dic, ranks: ranks) == ["вёл"])
+    }
+
+    @Test func homographsFallOutByUsage() {
+        // "небо" is used far more than "нёбо": two words, not two spellings.
+        let dic = "4\nнёбо\nнебо\nчёрный\nчерный\n"
+        let ranks: [String: UInt8] = ["нёбо": 70, "небо": 147, "чёрный": 135, "черный": 147]
+        #expect(Self.table(dic, ranks: ranks) == ["чёрный"])
+        // A form with "ё" nobody uses is not taken.
+        #expect(Self.table("2\nрешёно\nрешено\n", ranks: ["решено": 139]).isEmpty)
+    }
+
+    @Test func listedWordsAndNamesStay() {
+        let dic = "4\nвсё\nвсе\nАлёна\nАлена\n"
+        let ranks: [String: UInt8] = ["всё": 183, "все": 210, "алёна": 100, "алена": 110]
+        #expect(Self.table(dic, ranks: ranks, block: ["все"]).isEmpty)
+        #expect(Self.table(dic, ranks: ranks) == ["всё"], "without the list the dictionary cannot tell")
+    }
+
+    @Test func twoFormsWithOneSpellingStay() {
+        let dic = "3\nвёсел\nвесёл\nвесел\n"
+        let ranks: [String: UInt8] = ["вёсел": 80, "весёл": 80, "весел": 90]
+        #expect(Self.table(dic, ranks: ranks).isEmpty)
+    }
+
+    @Test func orderOfTheDictionaryDoesNotMatter() {
+        let ranks: [String: UInt8] = ["мёд": 100, "мед": 120, "мёда": 90, "мёду": 80, "ещё": 180, "еще": 200]
+        #expect(Self.table("4\nмед/A\nеще\nмёд/A\nещё\n", ranks: ranks)
+            == Self.table("4\nещё\nмёд/A\nеще\nмед/A\n", ranks: ranks))
     }
 }
 

@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Abbreviations Perekey writes in their case: "nasa" → "NASA". Case matters.
+# The project's own list. No entry may be an ordinary lowercase word.
+API
+ATM
+BBC
+CEO
+CIA
+COVID-19
+CPU
+CSS
+DIY
+DNA
+DVD
+FAQ
+FBI
+GPS
+GPU
+HIV
+HTML
+HTTP
+HTTPS
+IBM
+JSON
+MP3
+NASA
+NATO
+NYC
+PDF
+PhD
+SQL
+UFO
+URL
+USA
+USB
+VIP
+VPN

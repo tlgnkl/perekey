@@ -65,10 +65,20 @@ public struct ModelBuild {
             let hunspell = Hunspell(affix: aff)
             var seen: Set<String> = []
             var expanded = 0
-            for entry in Hunspell.entries(dic: dic) {
+            let entries = Hunspell.entries(dic: dic)
+            // Words with "ё" are derived from the dictionary as it is expanded.
+            var yo = Self.alphabets[language]!.contains("ё") ? YoTable(entries: entries) : nil
+            // An abbreviation Perekey corrects must not be an ordinary word: "it" ≠ "IT".
+            let corrected = Set(lists.correctedAbbreviations.map { $0.lowercased() })
+            var ordinary: Set<String> = []
+            for (index, entry) in entries.enumerated() {
+                let lowercaseStem = entry.stem.first?.isLowercase == true
                 hunspell.expand(entry.stem, flags: entry.flags) { form in
                     let word = form.lowercased()
-                    guard seen.insert(word).inserted, !lists.remove.contains(word) else { return }
+                    if lists.remove.contains(word) { return }
+                    yo?.add(word, entry: index)
+                    if lowercaseStem, corrected.contains(word) { ordinary.insert(word) }
+                    guard seen.insert(word).inserted else { return }
                     expanded += 1
                     if ranks[word] != nil { return }
                     let rank = lists.rank[word] ?? 0
@@ -80,6 +90,10 @@ public struct ModelBuild {
                 }
             }
             sources.append("\(name): \(expanded) forms after affix expansion")
+            if !ordinary.isEmpty {
+                throw Failure(description: "data/\(language)/abbreviations.txt: ordinary words in \(name): "
+                    + ordinary.sorted().joined(separator: ", "))
+            }
 
             // 3. Hand-maintained lists.
             for word in lists.add where ranks[word] == nil {
@@ -90,11 +104,32 @@ public struct ModelBuild {
                                     prefixes: false)
                 builder.addKeep(word)
             }
+            for word in lists.correctedAbbreviations {
+                guard word.contains(where: \.isUppercase) else {
+                    throw Failure(description: "data/\(language)/abbreviations.txt: \(word) has no capital to restore")
+                }
+                // Words with digits ("MP3") are outside the alphabet: no form, still corrected.
+                _ = builder.addForm(word, language: language, rank: lists.rank[word.lowercased()] ?? 96, weight: 0,
+                                    prefixes: false)
+                builder.addKeep(word)
+                builder.addCasedForm(word, corrects: true)
+            }
+            for word in lists.abbreviations { builder.addCasedForm(word, corrects: false) }
             for word in lists.keep { builder.addKeep(word) }
+            if var table = yo {
+                for word in lists.add + lists.noYo { table.block(word) }
+                var added = 0
+                let yoForms = table.forms { ranks[$0] }
+                for form in yoForms where builder.addYo(form, language: language) { added += 1 }
+                report.notes.append("\(language): \(added) forms take \"ё\" unambiguously")
+            }
             report.notes.append("\(language): \(forms) forms, \(rejected) rejected (outside the alphabet)")
         }
         let mixed = try DataLists(directory: "\(data)/mixed")
-        for word in mixed.keep { builder.addKeep(word) }
+        for word in mixed.keep {
+            builder.addKeep(word)
+            builder.addCasedForm(word, corrects: false)
+        }
 
         let manifest = (try? String(contentsOfFile: "\(cache)/MANIFEST.sha256", encoding: .utf8)) ?? ""
         builder.meta = """
@@ -134,7 +169,14 @@ public struct DataLists {
     public var add: [String] = []
     public var remove: Set<String> = []
     public var rank: [String: UInt8] = [:]
+    /// `abbrev.txt`: abbreviations never switched, in their case.
     public var abbreviations: [String] = []
+    /// `abbreviations.txt`: abbreviations Perekey also writes in their case
+    /// when typed in another ("мвд" → "МВД"). None may be an ordinary word.
+    public var correctedAbbreviations: [String] = []
+    /// `noyo.txt`: "е" spellings that are words of their own though the
+    /// dictionary lists them as spellings of a form with "ё" ("все").
+    public var noYo: [String] = []
     public var keep: [String] = []
 
     public init() {}
@@ -149,6 +191,8 @@ public struct DataLists {
             rank[entry.word] = value
         }
         abbreviations = try Self.read("\(directory)/abbrev.txt").map(\.word)
+        correctedAbbreviations = try Self.read("\(directory)/abbreviations.txt").map(\.word)
+        noYo = try Self.read("\(directory)/noyo.txt").map(\.word)
         keep = try Self.read("\(directory)/keep.txt").map(\.word)
     }
 

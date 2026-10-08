@@ -3,10 +3,11 @@
 #
 # Measures the classifier on the held-out corpus (docs/classifier.md).
 #
-# Usage: scripts/eval.sh [--full] [--sweep] [--model <file>]
+# Usage: scripts/eval.sh [--full] [--sweep] [--typo-sweep] [--model <file>]
 #
 #   --full    the full corpus (about 1 M words) instead of the 50 k CI sample
 #   --sweep   print the ROC points over thresholds too
+#   --typo-sweep  print the typo correction points over minRank and margin too
 #   --model   a model file (default: builds one with scripts/build-model.sh)
 #
 # Needs the held-out sources: scripts/fetch-data.sh lexicon heldout. The corpus
@@ -23,7 +24,8 @@ MODEL=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --full) WORDS=1000000 ;;
-        --sweep) SWEEP=(--sweep) ;;
+        --sweep) SWEEP+=(--sweep) ;;
+        --typo-sweep) SWEEP+=(--typo-sweep) ;;
         --model) MODEL="$2"; shift ;;
         -h|--help) sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "eval: unknown argument $1" >&2; exit 2 ;;
@@ -44,7 +46,7 @@ fi
 swift build -c release --product perekey-eval >/dev/null
 bin="$(swift build -c release --show-bin-path)/perekey-eval"
 mkdir -p .build/eval
-corpus=".build/eval/corpus-$WORDS-seed1.tsv"
+corpus=".build/eval/corpus-$WORDS-seed1-typos.tsv"
 if [[ ! -f "$corpus" ]]; then
     "$bin" corpus --cache "$CACHE" --code "$PWD/Sources" --out "$corpus" --words "$WORDS" --seed 1
 fi

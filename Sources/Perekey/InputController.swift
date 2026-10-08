@@ -67,6 +67,7 @@ final class InputController {
         engine = InputEngine(machine: machine, textProbe: textProbe) { [weak self] message in self?.receive(message) }
 
         let engine = engine!
+        hint.onButtonFrame = { engine.setHintButtonFrame($0) }
         sources.onLayoutsChanged = { engine.send(.layoutsChanged($0)) }
         sources.onCurrentChanged = { engine.send(.layoutChanged($0)) }
         store.onChange = { [weak self] in self?.pushSettings() }
@@ -128,9 +129,10 @@ final class InputController {
         engine.send(.appModeChanged(mode))
     }
 
-    /// Undoes the last automatic switch, as the hint's Undo button does.
+    /// Undoes the automatic switch the hint shows, as its Undo button does.
     func undoLastCorrection() {
-        engine.undoLastCorrection()
+        guard let shownCorrection else { return }
+        engine.undoLastCorrection(seq: shownCorrection)
     }
 
     private func receive(_ message: EngineMessage) {
@@ -170,12 +172,18 @@ final class InputController {
         case .retyped:
             SystemSounds.play(store.settings.correctionSound)
         case let .corrected(correction):
-            shownCorrection = correction.seq
             if correction.undoable {
+                shownCorrection = correction.seq
                 let engine = engine!
+                let seq = correction.seq
+                // The button undoes this correction only, never a newer one.
                 hint.show(original: correction.original, replacement: correction.replacement) {
-                    engine.undoLastCorrection()
+                    engine.undoLastCorrection(seq: seq)
                 }
+            } else if shownCorrection != nil {
+                // An older hint's Undo would do nothing now: take it away.
+                shownCorrection = nil
+                hint.hide()
             }
             onCorrection?(correction)
         case let .correctionUndone(seq):
@@ -184,6 +192,13 @@ final class InputController {
                 hint.hide()
             }
             onCorrectionUndone?(seq)
+        case let .correctionUndoFailed(seq):
+            // The caret moved away from the word; the text stays as it is.
+            log.info("Undo of correction \(seq, privacy: .public) cancelled by the caret check")
+            if shownCorrection == seq {
+                shownCorrection = nil
+                hint.hide()
+            }
         case let .learned(word):
             learn(word)
         }

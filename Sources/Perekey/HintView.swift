@@ -18,6 +18,8 @@ final class HintModel {
     /// Frame of the button in the hosting view, top-left origin; the panel
     /// takes mouse events only there.
     var buttonFrame: CGRect = .zero
+    /// Called after `buttonFrame` changed.
+    @ObservationIgnored var onButtonFrameChange: (() -> Void)?
 
     init(content: HintContent, visible: Bool = false) {
         self.content = content
@@ -71,7 +73,10 @@ struct HintView: View {
         .shadow(color: .black.opacity(0.08), radius: 2, x: 0, y: 1)
         .padding(HintMetrics.shadowInset)
         .coordinateSpace(name: "hint")
-        .onPreferenceChange(ButtonFrameKey.self) { model.buttonFrame = $0 }
+        .onPreferenceChange(ButtonFrameKey.self) {
+            model.buttonFrame = $0
+            model.onButtonFrameChange?()
+        }
         // translateY(4) scale(.96) -> rest; the origin sits at the left edge, bottom.
         .opacity(model.visible ? 1 : 0)
         .scaleEffect(model.visible ? 1 : 0.96, anchor: UnitPoint(x: 0.1, y: 0.9))

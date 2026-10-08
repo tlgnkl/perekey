@@ -76,8 +76,11 @@ public enum InputEvent: Sendable {
     case key(KeyEvent, time: Double)
     /// A modifier changed. Carries the raw flags and the key that changed.
     case flagsChanged(keyCode: UInt16, flags: UInt64, origin: EventOrigin, time: Double)
-    /// A mouse click. Moves the caret, so the remembered word is gone.
-    case click(time: Double)
+    /// A mouse click. Moves the caret, so the remembered word is gone, and so
+    /// is the chance to undo the last automatic switch. `onHint`: the click
+    /// landed on the hint's button, which takes it without moving the caret;
+    /// the hint's Undo still works then (`undoLastCorrection(seq:time:)`).
+    case click(time: Double, onHint: Bool = false)
     /// A scroll or trackpad gesture. Breaks a chord but keeps the word.
     case scroll(time: Double)
     case focusChanged(Focus)
@@ -112,8 +115,9 @@ public enum InputEvent: Sendable {
     /// The language model was loaded, replaced or dropped. Without a
     /// classifier there is no automatic switching.
     case classifierChanged(Classifier?)
-    /// Undo the last automatic switch, as the hint's Undo button asks. Works
-    /// while the switch is the last thing typed; a click (on the hint) does not
-    /// count as typing. The pre-Backspace check guards a caret that moved.
-    case undoLastCorrection(time: Double)
+    /// Undo the automatic switch with this `Correction.seq`, as the hint's
+    /// Undo button asks. Works while that switch is the last thing typed; a
+    /// click on the hint's button does not count, any other click does. An
+    /// older hint still on screen names an older `seq` and does nothing.
+    case undoLastCorrection(seq: UInt32, time: Double)
 }

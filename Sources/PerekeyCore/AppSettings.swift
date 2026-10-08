@@ -24,11 +24,15 @@ public struct AppSettings: Hashable, Sendable {
     public var onboardingDone: Bool
     /// The user's rules per app, keyed by bundle ID. Apps without a rule use `AppModes`.
     public var apps: [String: AppRule]
+    /// Words never corrected: the user's own and the learned ones.
+    public var words: WordExceptions
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
-                autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:])
+                autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
+                words: WordExceptions = WordExceptions())
     {
         self.apps = apps
+        self.words = words
         self.hotkeys = hotkeys
         self.capsLock = capsLock
         self.autoswitch = autoswitch
@@ -70,7 +74,7 @@ public struct AppSettings: Hashable, Sendable {
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkeys, capsLock, autoswitch, onboardingDone, apps
+        case hotkeys, capsLock, autoswitch, onboardingDone, apps, words
     }
 
     public init(from decoder: any Decoder) throws {
@@ -81,5 +85,6 @@ extension AppSettings: Codable {
         autoswitch = try container.decodeIfPresent(Bool.self, forKey: .autoswitch) ?? defaults.autoswitch
         onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
         apps = (try? container.decodeIfPresent([String: AppRule].self, forKey: .apps)) ?? defaults.apps
+        words = (try? container.decodeIfPresent(WordExceptions.self, forKey: .words)) ?? defaults.words
     }
 }

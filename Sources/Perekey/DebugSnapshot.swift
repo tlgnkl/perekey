@@ -128,12 +128,14 @@ enum DebugSnapshot {
         try? file.save(settings)
         let store = SettingsStore(file: file)
         let recording = ShortcutRecording(store: store)
+        let languages = LanguageStatsStore(file: nil)
+        languages.record(LanguageTally(app: "com.apple.Safari", site: nil, words: ["ru": 240, "en": 40]))
         for dark in [false, true] {
             for section in SettingsSection.allCases {
                 let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
                                       lastCheck: Date().addingTimeInterval(-3_600 * 5))
                 let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
-                                        initial: section, windowBackground: false)
+                                        languages: languages, initial: section, windowBackground: false)
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
             }
@@ -158,9 +160,14 @@ enum DebugSnapshot {
                 AppCandidate(bundleID: $0.key, name: $0.value, url: AppInfo.url(bundleID: $0.key) ?? url, isRunning: false)
             })
         }
+        // Safari has a rule and is mostly Russian; Mail has no rule, only counts.
+        let languages = LanguageStatsStore(file: nil)
+        languages.record(LanguageTally(app: "com.apple.Safari", site: nil, words: ["ru": 240, "en": 40]))
+        languages.record(LanguageTally(app: "com.apple.mail", site: nil, words: ["en": 300, "ru": 10]))
         let size = CGSize(width: 560, height: 560)
         for dark in [false, true] {
-            render(AppsPane(store: store, sources: sources, model: model()).background(Color(nsColor: .windowBackgroundColor)),
+            render(AppsPane(store: store, sources: sources, languages: languages, model: model())
+                .background(Color(nsColor: .windowBackgroundColor)),
                    dark: dark, size: size, to: directory.appending(path: "apps-\(dark ? "dark" : "light").png"))
         }
         let filtered = model()
@@ -227,7 +234,7 @@ enum DebugSnapshot {
             let store = SettingsStore(file: file)
             let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil)
             let usage = on ? sampleUsage(in: directory, name: name) : UsageRecorder(file: UsageStatsFile(url: directory.appending(path: "\(name).stats.json"))) { false }
-            render(PrivacyPane(store: store, usage: usage).frame(width: size.width, height: size.height),
+            render(PrivacyPane(store: store, usage: usage, languages: LanguageStatsStore(file: nil)).frame(width: size.width, height: size.height),
                    dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
         let sources = InputSources()

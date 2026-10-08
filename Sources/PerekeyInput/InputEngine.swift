@@ -42,6 +42,9 @@ public enum EngineMessage: Sendable {
     /// A word typed with Caps Lock on by mistake was corrected: turn it off
     /// (`CapsLockState.turnOff`).
     case capsLockOff
+    /// Languages of judged words, counts only (`Effect.languagesCounted`):
+    /// add them to the language statistics.
+    case languagesCounted(LanguageTally)
 }
 
 public enum TapState: Hashable, Sendable {
@@ -562,6 +565,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.alwaysFixWithdrawn(word))
             case .capsLockOff:
                 toMain(.capsLockOff)
+            case let .languagesCounted(tally):
+                toMain(.languagesCounted(tally))
             case let .refused(refusal):
                 toMain(.refused(refusal))
             case let .convertSelection(seq):

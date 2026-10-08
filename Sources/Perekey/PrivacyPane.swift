@@ -14,25 +14,31 @@ struct PrivacyPane: View {
     let layoutNames: [String]
     /// `nil` hides the statistics section (it needs the recorder).
     let usage: UsageRecorder?
+    /// `nil` hides the row about the languages of apps.
+    let languages: LanguageStatsStore?
 
     private let reporting: State<Bool>
 
-    init(store: SettingsStore, usage: UsageRecorder? = nil, layoutNames: [String] = [], isReporting: Bool = false) {
+    init(store: SettingsStore, usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil,
+         layoutNames: [String] = [], isReporting: Bool = false)
+    {
         self.store = store
         self.usage = usage
+        self.languages = languages
         self.layoutNames = layoutNames
         reporting = State(initialValue: isReporting)
     }
 
     var body: some View {
         PKPane(title: Text("Privacy")) {
-            Text("What you type stays in memory and never leaves this Mac. Settings, your words and the counts you allow are files on this Mac. The only network request is the update check.")
+            Text("What you type stays in memory and never leaves this Mac. Settings, your words, the languages of apps and the counts you allow are files on this Mac. The only network request is the update check.")
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 4)
             guaranteesSection
             if let usage { statisticsSection(usage) }
+            if let languages { languagesSection(languages) }
             PKGroup(header: Text("Settings file")) {
                 PKRow(Text("Back up or move settings"), detail: Text("Shortcuts, apps and words as a JSON file.")) {
                     HStack(spacing: 8) {
@@ -81,6 +87,19 @@ struct PrivacyPane: View {
                         .buttonStyle(.pkSecondary)
                         .disabled(usage.stats.isEmpty)
                 }
+            }
+        }
+    }
+
+    /// The language counts per app (`LanguageStats`): always on, so they
+    /// are named here with a way to erase them.
+    private func languagesSection(_ languages: LanguageStatsStore) -> some View {
+        PKGroup(header: Text("Languages of apps")) {
+            PKRow(Text("Forget the languages of apps"),
+                  detail: Text("To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit.")) {
+                Button("Erase") { languages.resetAll() }
+                    .buttonStyle(.pkSecondary)
+                    .disabled(languages.stats.apps.isEmpty && languages.stats.sites.isEmpty)
             }
         }
     }

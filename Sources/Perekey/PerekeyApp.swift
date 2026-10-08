@@ -61,7 +61,8 @@ struct PerekeyApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(store: store, recording: recording, sources: inputSources, updates: updates, usage: usage)
+            SettingsView(store: store, recording: recording, sources: inputSources, updates: updates, usage: usage,
+                         languages: input.languages)
         }
     }
 }

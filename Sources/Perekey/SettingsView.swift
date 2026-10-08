@@ -53,6 +53,7 @@ struct SettingsView: View {
     let recording: ShortcutRecording
     let sources: InputSources
     let updates: Updates
+    let languages: LanguageStatsStore?
     let usage: UsageRecorder?
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
@@ -60,9 +61,11 @@ struct SettingsView: View {
     private let windowBackground: Bool
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
-         usage: UsageRecorder? = nil, initial: SettingsSection = .general, windowBackground: Bool = true) {
+         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general,
+         windowBackground: Bool = true) {
         self.usage = usage
         self.windowBackground = windowBackground
+        self.languages = languages
         self.updates = updates
         self.store = store
         self.recording = recording
@@ -123,10 +126,10 @@ struct SettingsView: View {
         switch current {
         case .general: GeneralPane(store: store, updates: updates)
         case .shortcuts: ShortcutsPane(store: store, recording: recording)
-        case .apps: AppsPane(store: store, sources: sources)
+        case .apps: AppsPane(store: store, sources: sources, languages: languages)
         case .sites: SitesPane(store: store, sources: sources)
         case .words: WordsPane(store: store, layouts: sources.layouts)
-        case .privacy: PrivacyPane(store: store, usage: usage, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
+        case .privacy: PrivacyPane(store: store, usage: usage, languages: languages, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
         }
     }
 }

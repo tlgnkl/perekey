@@ -120,4 +120,8 @@ public enum InputEvent: Sendable {
     /// click on the hint's button does not count, any other click does. An
     /// older hint still on screen names an older `seq` and does nothing.
     case undoLastCorrection(seq: UInt32, time: Double)
+    /// Typing goes to another app or site, with the language prior its
+    /// counts give (`LanguageStats`). The words counted so far go out first
+    /// (`Effect.languagesCounted`), under the context they were typed in.
+    case languageContextChanged(LanguageContext)
 }

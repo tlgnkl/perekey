@@ -20,6 +20,8 @@ final class InputController {
     /// `appModes.mode`: `.auto` fixes by itself, `.manualOnly` only on command,
     /// `.off` never (shortcuts are already off then, see `effectiveSettings`).
     let appModes: AppModeController
+    /// Language counts per app and site; the prior of the one in front goes to the tap.
+    let languages: LanguageStatsStore
 
     @ObservationIgnored private let sources: InputSources
     @ObservationIgnored private let store: SettingsStore
@@ -52,10 +54,13 @@ final class InputController {
     /// `AppSettings.words` already. For the hint to say so.
     @ObservationIgnored var onAlwaysFixWithdrawn: ((String) -> Void)?
 
-    init(sources: InputSources, store: SettingsStore, pause: PauseState) {
+    init(sources: InputSources, store: SettingsStore, pause: PauseState,
+         languages: LanguageStatsStore = LanguageStatsStore())
+    {
         self.sources = sources
         self.store = store
         self.pause = pause
+        self.languages = languages
         appModes = AppModeController(sources: sources, store: store, pause: pause)
         lastSettings = store.snapshot
         lastSettings = effectiveSettings
@@ -100,6 +105,9 @@ final class InputController {
         observePause()
         observeAppMode()
         engine.start()
+        // After start: before it the tap thread has no run loop, and the
+        // context of the first app would be dropped.
+        observeLanguageContext()
         focus.start()
     }
 
@@ -151,6 +159,26 @@ final class InputController {
             Task { @MainActor in self?.observeAppMode() }
         }
         engine.send(.appModeChanged(mode))
+    }
+
+    /// The app and site in front go to the tap with the prior of their
+    /// counts; again whenever the counts change.
+    private func observeLanguageContext() {
+        let context = withObservationTracking {
+            languageContext
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeLanguageContext() }
+        }
+        engine.send(.languageContextChanged(context))
+    }
+
+    private var languageContext: LanguageContext {
+        // The onboarding demo types its own words: they count for no app.
+        guard !appModes.isDemoFront, let app = appModes.frontmost?.bundleID else {
+            return LanguageContext(generation: languages.stats.generation)
+        }
+        let site = SiteObserver.browserBundleIDs.contains(app) ? appModes.frontHost : nil
+        return languages.context(app: app, site: site)
     }
 
     /// Undoes the automatic switch the hint shows, as its Undo button does.
@@ -254,6 +282,8 @@ final class InputController {
             if store.settings.caretHint != .off { hint.showAlwaysFixWithdrawn(word: word) }
         case .capsLockOff:
             CapsLockState.turnOff()
+        case let .languagesCounted(tally):
+            languages.record(tally)
         }
     }
 

@@ -252,13 +252,16 @@ struct LanguageBuilder: Sendable {
 
     func dictionarySection() -> [UInt8] {
         let bits = ModelBuilder.bucketBits
-        let sorted = ranks.sorted { $0.key < $1.key }
+        // Grouped by bucket (the top bits of the hash), ordered by the 32-bit
+        // fingerprint (the low bits) within a bucket: the reader's search order.
+        func order(_ hash: UInt64) -> (Int, UInt32) {
+            (Int(hash >> UInt64(64 - bits)), UInt32(truncatingIfNeeded: hash))
+        }
+        let sorted = ranks.sorted { order($0.key) < order($1.key) }
         var writer = ByteWriter()
         writer.u32(UInt32(bits))
         writer.u32(UInt32(sorted.count))
         writer.u64(0)
-        // Sorted by the full hash, the forms are already grouped by bucket
-        // (the top bits) and ordered by fingerprint within it.
         var bucket = 0
         writer.u32(0)
         for (index, entry) in sorted.enumerated() {

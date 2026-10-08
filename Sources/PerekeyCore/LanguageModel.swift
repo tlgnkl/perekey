@@ -197,7 +197,7 @@ extension LanguageModel.Language {
 
     /// The symbol of a scalar: its letter, or `other`.
     @inline(__always)
-    func symbol(_ scalar: UInt32) -> UInt8 {
+    public func symbol(_ scalar: UInt32) -> UInt8 {
         let folded = ModelFormat.fold(scalar)
         return folded < UInt32(symbols.count) ? symbols[Int(folded)] : ModelBuilder.other
     }
@@ -209,7 +209,7 @@ extension LanguageModel.Language {
 
     /// The cost in bits of a word given as symbols, boundaries included:
     /// `-log₂ P(word)` under the 4-gram model.
-    func cost(_ word: UnsafeBufferPointer<UInt8>) -> Double {
+    public func cost(_ word: UnsafeBufferPointer<UInt8>) -> Double {
         let a = alphabetSize
         var h0 = 0, h1 = 0, h2 = 0
         var total = 0

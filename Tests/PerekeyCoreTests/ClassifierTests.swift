@@ -202,6 +202,29 @@ import Testing
         #expect(!model.isKept(ModelFormat.Fingerprint.of("iphone".unicodeScalars, folded: false)))
     }
 
+    @Test func everyFormIsFoundWhenBucketsFill() throws {
+        // 20 000 forms in 65 536 buckets: many buckets hold several forms, so
+        // the order inside a bucket matters.
+        var builder = ModelBuilder()
+        builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz")
+        var words: [String] = []
+        for index in 0..<20000 {
+            var word = ""
+            var value = index
+            for _ in 0..<4 {
+                word.append(Character(UnicodeScalar(UInt8(97 + value % 26))))
+                value /= 26
+            }
+            words.append(word)
+            builder.addForm(word, language: "en", rank: UInt8(index % 256), weight: 1)
+        }
+        let language = try #require(try LanguageModel(bytes: builder.build()).language("en"))
+        for (index, word) in words.enumerated() {
+            #expect(language.rank(of: ModelFormat.Fingerprint.of(word.unicodeScalars, folded: true)) == UInt8(index % 256))
+        }
+        #expect(language.rank(of: ModelFormat.Fingerprint.of("zzzzz".unicodeScalars, folded: true)) == nil)
+    }
+
     @Test func formsOutsideTheAlphabetAreRejected() {
         var builder = ModelBuilder()
         builder.addLanguage("en", alphabet: "abc")

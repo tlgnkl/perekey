@@ -5,7 +5,11 @@
 //   perekey-eval corpus --cache <dir> --code <dir> --out <file> [--words N] [--seed S]
 //   perekey-eval run --model <file> --corpus <file> --layouts <dir>
 //                    [--threshold T] [--sweep] [--errors N] [--json <file>]
+//   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
+//                     [--previous ru|en]
 //
+// `word` explains one decision: both readings, their costs and ranks, typed
+// in the word's own layout and in the other one.
 // `corpus` writes a TSV of words by category (about N words, default 50 000).
 // `run` types every word in its own layout and in the other one and prints
 // false switches and recall per category; `--sweep` repeats it over a range
@@ -23,8 +27,8 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), command == "corpus" || command == "run" else {
-    fail("usage: perekey-eval corpus|run ... (see the source header)")
+guard let command = arguments.next(), ["corpus", "run", "word"].contains(command) else {
+    fail("usage: perekey-eval corpus|run|word ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
@@ -118,6 +122,36 @@ do {
         if total.falseRate >= 0.001 || total.recall < 0.95 {
             print("FAIL: targets are false switches < 0.1 % and recall ≥ 95 %")
             exit(1)
+        }
+
+    case "word":
+        guard let modelPath = flags["--model"], let layouts = flags["--layouts"], let text = flags["--text"],
+              let language = flags["--language"], language == "ru" || language == "en"
+        else { fail("--model, --layouts, --text and --language are required") }
+        let model = try ModelFile.load(modelPath)
+        let maps = ["ru": layout("Russian", in: layouts), "en": layout("ABC", in: layouts)]
+        let own = maps[language]!
+        let other = maps[language == "ru" ? "en" : "ru"]!
+        let strokes = text.map { character -> KeyStroke in
+            guard let stroke = own.stroke(for: character) else { fail("\(own.id) cannot type \(character)") }
+            return stroke
+        }
+        let classifier = Classifier(model: model)
+        let context = Classifier.Context(previousLanguage: flags["--previous"])
+        for (typed, alternative) in [(own, other), (other, own)] {
+            let reading = strokes.map { typed.text(for: $0) ?? "?" }.joined()
+            let decision = classifier.classify(strokes, typed: typed, other: alternative, context: context)
+            print("typed in \(typed.id): \"\(reading)\" -> \(decision.verdict) \(decision.reason) "
+                + String(format: "score %.1f", decision.score) + " language \(decision.language ?? "-")")
+            for (map, code) in [(typed, typed.language!), (alternative, alternative.language!)] {
+                let word = strokes.map { map.text(for: $0) ?? "?" }.joined()
+                guard let table = model.language(code) else { continue }
+                let letters = word.unicodeScalars.filter { table.isLetter($0.value) }.map { table.symbol($0.value) }
+                let cost = letters.withUnsafeBufferPointer { table.cost($0) }
+                let rank = table.rank(of: ModelFormat.Fingerprint.of(word.unicodeScalars, folded: true))
+                print(String(format: "  %@ \"%@\": cost %.1f bits, rank %@", code as NSString, word as NSString, cost,
+                             rank.map(String.init) ?? "-"))
+            }
         }
 
     default:

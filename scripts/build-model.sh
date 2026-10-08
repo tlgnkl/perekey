@@ -38,6 +38,7 @@ done
 
 swift build -c release --product perekey-model >/dev/null
 bin="$(swift build -c release --show-bin-path)/perekey-model"
+mkdir -p "$(dirname "$OUT")"
 "$bin" --cache "$CACHE" --data "$PWD/data" --out "$OUT" | tee "$OUT.log"
 hash="$(sed -n 's/^sha256 //p' "$OUT.log")"
 rm -f "$OUT.log"

@@ -140,6 +140,9 @@ public struct InputMachine: Sendable {
         case let .classifierChanged(newClassifier):
             judge.setClassifier(newClassifier)
 
+        case let .languageContextChanged(context):
+            if let tally = judge.languageContextChanged(context) { effects.append(.languagesCounted(tally)) }
+
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
             guard undo.isLast(seq: seq) else { break }
@@ -205,8 +208,10 @@ public struct InputMachine: Sendable {
                     effects.append(.learned(word))
                 case let .retype(retype):
                     startCorrection(retype, at: time, effects: &effects)
+                    tallyIfFull(effects: &effects)
                     return .hold
                 }
+                tallyIfFull(effects: &effects)
             }
         }
         updateBuffer(with: key, held: held)
@@ -265,6 +270,12 @@ public struct InputMachine: Sendable {
     }
 
     // MARK: - Corrections
+
+    /// Hands the language counts to the app layer every `WordJudge.tallySize` words.
+    private mutating func tallyIfFull(effects: inout [Effect]) {
+        guard judge.tallied >= WordJudge.tallySize, let tally = judge.takeTally() else { return }
+        effects.append(.languagesCounted(tally))
+    }
 
     /// Retypes the word as the judge decided, behind the fence, with the
     /// correction to report once posted.

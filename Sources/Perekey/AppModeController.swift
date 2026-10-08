@@ -22,6 +22,8 @@ struct FrontApp: Equatable {
 final class AppModeController {
     /// The frontmost app other than Perekey.
     private(set) var frontmost: FrontApp?
+    /// The host of the page in front, in a supported browser; `nil` elsewhere.
+    private(set) var frontHost: String?
 
     /// The mode in force in `frontmost`; `.auto` when there is none.
     /// The autoswitch decision reads this: `.auto` fixes by itself, `.manualOnly`
@@ -61,6 +63,7 @@ final class AppModeController {
         self.pause = pause
         guard live else { return }
         sites = SiteLayoutController(sources: sources, store: store)
+        sites?.onHost = { [weak self] in self?.frontHost = $0 }
         pause.onTurnOnHere = { [weak self] in self?.turnOnHere() }
         tokens.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main

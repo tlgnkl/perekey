@@ -21,6 +21,8 @@ final class SiteLayoutController {
     /// The rule key of the page in front, `nil` outside a supported browser or without a rule.
     private var currentKey: String?
     private var lastLayouts: [String: LayoutID] = [:]
+    /// Every host reported, `nil` outside a supported browser.
+    var onHost: ((String?) -> Void)?
 
     init(sources: InputSources, store: SettingsStore) {
         self.sources = sources
@@ -44,6 +46,7 @@ final class SiteLayoutController {
     }
 
     func hostChanged(_ host: String?) {
+        onHost?(host)
         let match = host.flatMap { store.settings.siteRule(forHost: $0) }
         if match?.key == currentKey { return }
         if let currentKey, let layout = sources.currentLayout { lastLayouts[currentKey] = layout }

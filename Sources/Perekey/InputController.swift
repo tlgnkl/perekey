@@ -20,6 +20,8 @@ final class InputController {
     /// `appModes.mode`: `.auto` fixes by itself, `.manualOnly` only on command,
     /// `.off` never (shortcuts are already off then, see `effectiveSettings`).
     let appModes: AppModeController
+    /// Language counts per app and site; the prior of the one in front goes to the tap.
+    let languages: LanguageStatsStore
 
     @ObservationIgnored private let sources: InputSources
     @ObservationIgnored private let store: SettingsStore
@@ -44,10 +46,13 @@ final class InputController {
     /// An undo taught Perekey this word; it is in `AppSettings.words` already.
     @ObservationIgnored var onLearned: ((String) -> Void)?
 
-    init(sources: InputSources, store: SettingsStore, pause: PauseState) {
+    init(sources: InputSources, store: SettingsStore, pause: PauseState,
+         languages: LanguageStatsStore = LanguageStatsStore())
+    {
         self.sources = sources
         self.store = store
         self.pause = pause
+        self.languages = languages
         appModes = AppModeController(sources: sources, store: store, pause: pause)
         lastSettings = store.snapshot
         lastSettings = effectiveSettings
@@ -85,6 +90,7 @@ final class InputController {
         observeSystem()
         observePause()
         observeAppMode()
+        observeLanguageContext()
         engine.start()
         focus.start()
     }
@@ -127,6 +133,24 @@ final class InputController {
             Task { @MainActor in self?.observeAppMode() }
         }
         engine.send(.appModeChanged(mode))
+    }
+
+    /// The app and site in front go to the tap with the prior of their
+    /// counts; again whenever the counts change.
+    private func observeLanguageContext() {
+        let context = withObservationTracking {
+            languageContext
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeLanguageContext() }
+        }
+        engine.send(.languageContextChanged(context))
+    }
+
+    private var languageContext: LanguageContext {
+        // The onboarding demo types its own words: they count for no app.
+        guard !appModes.isDemoFront, let app = appModes.frontmost?.bundleID else { return LanguageContext() }
+        let site = SiteObserver.browserBundleIDs.contains(app) ? appModes.frontHost : nil
+        return LanguageContext(app: app, site: site, prior: languages.prior(app: app, site: site))
     }
 
     /// Undoes the automatic switch the hint shows, as its Undo button does.
@@ -210,6 +234,8 @@ final class InputController {
             learn(word)
         case .capsLockOff:
             CapsLockState.turnOff()
+        case let .languagesCounted(tally):
+            languages.record(tally)
         }
     }
 

@@ -7,6 +7,7 @@
 //                    [--threshold T] [--sweep] [--errors N per category] [--json <file>]
 //                    [--typo-score S] [--typo-margin M] [--typo-sweep]
 //                    [--context-bonus B] [--context-decay D] [--context-sweep [--bonuses 3,4] [--decays 0,1]]
+//                    [--prior-scale S] [--prior-limit L] [--prior-sweep]
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
 //                     [--previous ru,en,...]
 //
@@ -28,8 +29,8 @@
 // the feature ships off until they are met.
 // `--context-sweep` runs the corpus over the weight of the previous word and
 // how much each word before it counts (`Classifier.Options.contextBonus` and
-// `contextDecay`), and prints false switches and the recall of prose and
-// chat and of mixed text.
+// `contextDecay`); `--prior-sweep` over the app prior's scale and limit. Both
+// print false switches, recall of prose and chat, mixed, and apps.
 
 import Foundation
 import PerekeyCore
@@ -47,7 +48,7 @@ guard let command = arguments.next(), ["corpus", "run", "word"].contains(command
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
-    if ["--sweep", "--typo-sweep", "--context-sweep"].contains(argument) {
+    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -88,6 +89,8 @@ do {
         if let threshold = flags["--threshold"].flatMap(Double.init) { options.threshold = threshold }
         if let bonus = flags["--context-bonus"].flatMap(Double.init) { options.contextBonus = bonus }
         if let decay = flags["--context-decay"].flatMap(Double.init) { options.contextDecay = decay }
+        if let scale = flags["--prior-scale"].flatMap(Double.init) { options.priorScale = scale }
+        if let limit = flags["--prior-limit"].flatMap(Double.init) { options.priorLimit = limit }
         var typoOptions = TypoCorrector.Options()
         if let score = flags["--typo-score"].flatMap(Int.init) { typoOptions.minScore = score }
         if let margin = flags["--typo-margin"].flatMap(Int.init) { typoOptions.margin = margin }
@@ -151,11 +154,13 @@ do {
                  "wrongCorrectionRate": $0.total.wrongCorrectionRate, "typosFixed": $0.total.fixedShare]
             }
         }
-        /// One line of a context sweep: what the plan's targets look at.
+        /// One line of a context or prior sweep: what the plan's targets look at.
         func sweepLine(_ label: String, _ point: Evaluation.Results) -> String {
             func recall(_ name: String) -> Double { point.categories.first { $0.name == name }?.recall ?? 0 }
-            return String(format: "  %@  false %6.3f%%  prose+chat %6.2f%%  mixed %6.2f%%", label as NSString,
-                          point.total.falseRate * 100, point.textRecall * 100, recall("mixed") * 100)
+            func falseRate(_ name: String) -> Double { point.categories.first { $0.name == name }?.falseRate ?? 0 }
+            return String(format: "  %@  false %6.3f%%  prose+chat %6.2f%%  mixed %6.2f%%  apps %6.2f%% (false %6.3f%%)",
+                          label as NSString, point.total.falseRate * 100, point.textRecall * 100,
+                          recall("mixed") * 100, recall("apps") * 100, falseRate("apps") * 100)
         }
         if flags["--context-sweep"] != nil {
             func list(_ flag: String, _ fallback: [Double]) -> [Double] {
@@ -170,6 +175,19 @@ do {
             }
             json["contextSweep"] = points.map {
                 ["bonus": $0.options.contextBonus, "decay": $0.options.contextDecay, "falseRate": $0.total.falseRate,
+                 "textRecall": $0.textRecall,
+                 "categories": $0.categories.map { ["name": $0.name, "recall": $0.recall, "falseRate": $0.falseRate] }]
+            }
+        }
+        if flags["--prior-sweep"] != nil {
+            let points = evaluation.priorSweep(items, scales: [0, 0.5, 1, 1.5, 2], limits: [1, 2])
+            print("\nprior sweep: scale, limit")
+            for point in points {
+                print(sweepLine(String(format: "%4.2f  %3.1f", point.options.priorScale, point.options.priorLimit),
+                                point))
+            }
+            json["priorSweep"] = points.map {
+                ["scale": $0.options.priorScale, "limit": $0.options.priorLimit, "falseRate": $0.total.falseRate,
                  "textRecall": $0.textRecall,
                  "categories": $0.categories.map { ["name": $0.name, "recall": $0.recall, "falseRate": $0.falseRate] }]
             }

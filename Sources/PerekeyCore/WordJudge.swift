@@ -87,6 +87,14 @@ struct WordJudge: Sendable {
     /// The word being typed has its place in `recent` already: judging it
     /// again ("hello." and then a space) or undoing it replaces its language.
     private var languageRecorded = false
+    /// The app and site typing goes to, and the prior they give.
+    private(set) var languageContext = LanguageContext()
+    /// Words judged in `languageContext` since the last `takeTally()`.
+    private var tally: [String: Int] = [:]
+    /// How many words `tally` counts.
+    private(set) var tallied = 0
+    /// A tally goes out after this many words, or when the context changes.
+    static let tallySize = 64
 
     /// The language of the last judged word.
     var previousLanguage: String? { recent.latest }
@@ -166,11 +174,36 @@ struct WordJudge: Sendable {
     /// The word being typed is in `language`, as far as Perekey can tell.
     private mutating func record(_ language: String?) {
         if languageRecorded {
+            let old = recent.latest
             recent.replaceLatest(language)
+            guard old != language else { return }
+            if let old { tally[old, default: 0] -= 1 }
+            if let language { tally[language, default: 0] += 1 }
         } else {
             recent.push(language)
             languageRecorded = true
+            guard let language else { return }
+            tally[language, default: 0] += 1
+            tallied += 1
         }
+    }
+
+    /// Typing goes to another app or site. Returns the tally of the one
+    /// before, if it counted anything.
+    mutating func languageContextChanged(_ context: LanguageContext) -> LanguageTally? {
+        let last = takeTally()
+        languageContext = context
+        return last
+    }
+
+    /// The words counted since the last tally, or nil when there are none.
+    mutating func takeTally() -> LanguageTally? {
+        defer {
+            tally = [:]
+            tallied = 0
+        }
+        guard tally.contains(where: { $0.value != 0 }) else { return nil }
+        return LanguageTally(app: languageContext.app, site: languageContext.site, words: tally)
     }
 
     // MARK: - At the word's end
@@ -248,7 +281,7 @@ struct WordJudge: Sendable {
         if let auto {
             let found = auto.classifier.classify(
                 buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
-                context: Classifier.Context(recent: recent)
+                context: Classifier.Context(recent: recent, prior: languageContext.prior)
             )
             decision = found
             if found.verdict == .switch(to: auto.other.id) {

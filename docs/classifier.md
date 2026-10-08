@@ -92,12 +92,14 @@ public struct Classifier: Sendable {
                          context: Context = Context()) -> Decision
     public func impossiblePrefix(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap) -> Bool
 }
-Classifier.Context(recent: RecentLanguages, mode: .automatic | .manual)   // или (previousLanguage:mode:)
+Classifier.Context(recent: RecentLanguages, prior: LanguagePrior, mode: .automatic | .manual)
+                                                         // или (previousLanguage:mode:)
 Classifier.Decision { verdict: .keep | .switch(to: LayoutID) | .unsure; score: Double; reason: Reason; language: String? }
 Classifier.Reason: empty | unsupported | tooLong | digits | kept | passwordLike | codeLike | noise | mixedCase |
                    bothPlausible | shortWord | compared
 Classifier.Options { threshold, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
-                     rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, shortWordRank }
+                     rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale,
+                     shortWordRank }
 ```
 
 `Decision.language` — язык слова, если классификатор уверен. Интеграция
@@ -225,9 +227,10 @@ Classifier.Options { threshold, unknownWordExtra, noiseCost, unknownNoiseCost, o
 | url | синтетика: URL, www, email, пути | keep |
 | password | синтетика: случайные, слово с заглавной внутри и цифрой, CamelCase с символом | keep |
 | captcha | случайные буквы 4–8, латиница и кириллица | keep в обеих раскладках |
+| apps | как chat, но в программе со счётчиками: в 4 случаях из 5 перевешивает язык фразы, иначе другой; доля 75–97 %, 100–3000 слов | keep в своей, switch в чужой, с априорным языком программы |
 
 Каждое слово набирается в своей раскладке (переключение — ложное) и, для
-первых четырёх категорий, в чужой (отсутствие переключения — пропуск).
+prose, chat, mixed, names и apps, в чужой (отсутствие переключения — пропуск).
 `unsure` считается как `keep`. Слова, которые раскладка не печатает
 («café», тире), пропускаются и подсчитываются. Языки до трёх слов перед
 словом в его предложении берутся из корпуса — так, как их ведёт интеграция;
@@ -358,6 +361,36 @@ names 52,8 %. Цели плана — ложных меньше 0,1 % всех �
 307. Цель «ложных не больше 0,04 %» этим не достигается: 255 ложных из 537 —
 капча, у которой нет контекста. Порог 15 бит дал бы 0,040 %, но полнота
 prose+chat упала бы до 98,78 %.
+
+**Язык программы и сайта.** Каждое слово, которому `WordJudge` дал язык,
+считается в `LanguageTally` — только число слов на код языка, без слов.
+Подсчёт на потоке tap — O(1): одна запись в словарь из двух-трёх ключей.
+Раз в 64 слова и при смене программы или сайта счётчики уходят эффектом
+`languagesCounted` с bundle ID и хостом, к которым относились
+(`InputEvent.languageContextChanged` сообщает машине новые). Отмена
+переносит слово в язык раскладки, в которой оно осталось.
+
+На главном потоке `LanguageStatsStore` складывает их в `LanguageStats`: по
+bundle ID и по хосту, со спадом вдвое за 30 дней, не больше 200 сайтов
+(дольше всех не считанные уходят первыми). Файл —
+`~/Library/Application Support/Perekey/languages.json`, отдельно от
+настроек: счётчики меняются каждые несколько десятков слов, а каждое
+изменение настроек уходит в tap и на диск; экспорт настроек их не несёт;
+сброс или битый файл стоят только счётчиков. В файле — bundle ID, хосты,
+коды языков и числа.
+
+Априорный язык (`LanguagePrior`) — log2 доли языка со сглаживанием: каждому
+языку прибавляется 50 слов, так что на первых сотнях слов перевес слабый.
+В браузере берутся счётчики сайта, если на нём набрано от 50 слов, иначе
+браузера. Классификатор прибавляет к счёту `priorScale × (log2 доли
+другого − log2 доли набранного)`, не больше `priorLimit` (2 бита) в любую
+сторону. Короткие слова решаются без него. Карта по языкам, не пара
+ru/en: при N раскладках работает так же.
+
+Категория `apps` корпуса (100 тыс. слов) — до и после: полнота 99,14 % →
+99,23 %, ложных 3 и 3. Масштаб от 0,5 до 2 и предел 1 или 2 бита дают одно и
+то же (`--prior-sweep`): чату хватает контекста предложения, априорный язык
+решает первые слова фраз.
 
 **Отмена.** Пока поправка — последнее набранное:
 

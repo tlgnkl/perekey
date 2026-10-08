@@ -49,6 +49,11 @@ public struct Classifier: Sendable {
         /// only the previous word counts, and a short word is judged as
         /// without context. From the sweep of `perekey-eval --context-sweep`.
         public var contextDecay: Double = 1
+        /// The app's or site's language prior (`LanguagePrior`) moves the
+        /// score by `priorScale` times its lean, at most this many bits
+        /// either way.
+        public var priorLimit: Double = 2
+        public var priorScale: Double = 1
         /// A 1–2 letter word switches only to a form at least this frequent
         /// (160 is Zipf 5: "а", "и", "в", "a", "i"), never after a word in its
         /// own language, after a word in the other language if the typed
@@ -70,6 +75,8 @@ public struct Classifier: Sendable {
         /// The languages the last words of the sentence were judged to be
         /// in, the latest first.
         public var recent: RecentLanguages
+        /// What the app or site says about the language, if anything.
+        public var prior: LanguagePrior
         public var mode: Mode
 
         /// The language the previous word was judged to be in, e.g. "ru".
@@ -79,8 +86,9 @@ public struct Classifier: Sendable {
             self.init(recent: previousLanguage.map { RecentLanguages([$0]) } ?? RecentLanguages(), mode: mode)
         }
 
-        public init(recent: RecentLanguages, mode: Mode = .automatic) {
+        public init(recent: RecentLanguages, prior: LanguagePrior = LanguagePrior(), mode: Mode = .automatic) {
             self.recent = recent
+            self.prior = prior
             self.mode = mode
         }
     }
@@ -233,6 +241,10 @@ public struct Classifier: Sendable {
         var score = typedCost - otherCost
         score += options.openerBonus * Double(typed.openers - other.openers)
         score += contextLean(context.recent, toward: otherCode, from: typedCode)
+        if !context.prior.isEmpty {
+            let lean = options.priorScale * context.prior.lean(toward: otherCode, from: typedCode)
+            score += min(options.priorLimit, max(-options.priorLimit, lean))
+        }
 
         guard automatic else {
             let wins = !typed.isWord || score > 0

@@ -165,6 +165,9 @@ public enum Effect: Hashable, Sendable {
     /// A correction of a word typed with Caps Lock on by mistake was posted
     /// ("ПРИВЕТ" → "Привет"): turn Caps Lock off, on the main thread.
     case capsLockOff
+    /// The languages of the words judged since the last tally, in its app and
+    /// site: add them to `LanguageStats`, off the tap thread. Counts only.
+    case languagesCounted(LanguageTally)
 }
 
 /// What to do with the event that was handled.

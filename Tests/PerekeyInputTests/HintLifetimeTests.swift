@@ -95,6 +95,27 @@ import Testing
         #expect(life.isExpired(at: 4))
     }
 
+    @Test func holdKeepsTheHintForTheReader() {
+        var life = HintLifetime(now: 0)
+        life.hold(for: 10, at: 1)
+        #expect(!life.isExpired(at: 10.9))
+        #expect(life.isExpired(at: 11))
+        // A hold never shortens the wait.
+        var longer = HintLifetime(now: 0)
+        longer.record(.other, at: 20)
+        longer.hold(for: 1, at: 20)
+        #expect(!longer.isExpired(at: 22.9))
+    }
+
+    @Test func holdAlsoLengthensWhatTheHoverFroze() {
+        var life = HintLifetime(now: 0)
+        life.setHovering(true, at: 2.5)
+        life.hold(for: 10, at: 2.6)
+        life.setHovering(false, at: 5)
+        #expect(!life.isExpired(at: 14.9))
+        #expect(life.isExpired(at: 15))
+    }
+
     @Test func classifiesKeys() {
         func kind(_ code: UInt16, _ character: Character?, shortcut: Bool = false) -> HintKey {
             HintKey.classify(keyCode: code, character: character, isShortcut: shortcut)

@@ -18,6 +18,8 @@ struct Desk {
     var held: [KeyEvent] = []
     var selected: LayoutID?
     var retypes: [Retype] = []
+    /// Every retype asked for, in order, also after it was posted.
+    var history: [Retype] = []
     /// Effects for the app: corrections, undos, learned words, refusals.
     var log: [Effect] = []
     /// Answer the next retypes with `.retypeCancelled`, as a failed caret check.
@@ -94,6 +96,7 @@ struct Desk {
                 selected = id
             case let .retype(retype):
                 retypes.append(retype)
+                history.append(retype)
             case .releaseHeld:
                 let events = held
                 held.removeAll()

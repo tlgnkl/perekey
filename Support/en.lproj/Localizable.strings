@@ -2,7 +2,12 @@
 /* Keys are the English text. scripts/check-strings.sh keeps both files in step with the sources. */
 
 "%@ turned on Secure Input. While it is on, macOS hides keystrokes from every app." = "%@ turned on Secure Input. While it is on, macOS hides keystrokes from every app.";
+"%lld bit" = "%lld bit";
+"%lld bits" = "%lld bits";
+"%lld bits (few)" = "%lld bits";
 "%lld min" = "%lld min";
+"A known abbreviation: it goes in capitals" = "A known abbreviation: it goes in capitals";
+"A short word: the dictionary and the word before it decide" = "A short word: the dictionary and the word before it decide";
 "Access granted" = "Access granted";
 "Accessibility" = "Accessibility";
 "All edits" = "All edits";
@@ -17,6 +22,7 @@
 "Automatic switching is on" = "Automatic switching is on";
 "Back" = "Back";
 "Cancel" = "Cancel";
+"Capitals inside the word and no common word to switch to: a name, a code or a captcha" = "Capitals inside the word and no common word to switch to: a name, a code or a captcha";
 "Caps Lock" = "Caps Lock";
 "Caps Lock is already remapped on this Mac. Instant mode will replace that remapping." = "Caps Lock is already remapped on this Mac. Instant mode will replace that remapping.";
 "Click here and type" = "Click here and type";
@@ -28,6 +34,8 @@
 "Done" = "Done";
 "Double Shift" = "Double Shift";
 "Drag Perekey into the Accessibility list in System Settings" = "Drag Perekey into the Accessibility list in System Settings";
+"Edge of %@ at a threshold of %lld" = "Edge of %@ at a threshold of %lld";
+"Edge of %@, but it needed %lld" = "Edge of %@, but it needed %lld";
 "General" = "General";
 "Hint" = "Hint";
 "Hint at the caret" = "Hint at the caret";
@@ -36,11 +44,18 @@
 "How to use Caps Lock" = "How to use Caps Lock";
 "Instant" = "Instant";
 "Instant switch; Option retypes" = "Instant switch; Option retypes";
+"It looks like a password, so Perekey leaves it alone" = "It looks like a password, so Perekey leaves it alone";
 "Karabiner-Elements is running. Its rules may override this." = "Karabiner-Elements is running. Its rules may override this.";
 "Key %lld" = "Key %lld";
 "Launch at login" = "Launch at login";
 "Let Perekey see the keys" = "Let Perekey see the keys";
 "Like Alt+Shift on Windows" = "Like Alt+Shift on Windows";
+"Neither reading is a word: it looks like code, a link or a path" = "Neither reading is a word: it looks like code, a link or a path";
+"Neither reading is likely: it looks like a random string" = "Neither reading is likely: it looks like a random string";
+"No longer always fixing “%@”" = "No longer always fixing “%@”";
+"One letter too many, and the fixed word is a known one" = "One letter too many, and the fixed word is a known one";
+"One letter was missing, and the fixed word is a known one" = "One letter was missing, and the fixed word is a known one";
+"One letter was wrong, and the fixed word is a known one" = "One letter was wrong, and the fixed word is a known one";
 "Shift alone, Option retypes" = "Shift alone, Option retypes";
 "Like Ctrl+Shift on Windows" = "Like Ctrl+Shift on Windows";
 "Like macOS" = "Like macOS";
@@ -86,22 +101,40 @@
 "Step %lld of %lld" = "Step %1$lld of %2$lld";
 "Switch layout" = "Switch layout";
 "The app modes say so. Perekey does not fix words or change the layout here." = "The app modes say so. Perekey does not fix words or change the layout here.";
+"The dictionary spells this word with «ё»" = "The dictionary spells this word with «ё»";
 "The fn / 🌐 key also runs its own macOS action, which can switch the input source." = "The fn / 🌐 key also runs its own macOS action, which can switch the input source.";
 "The same shortcut brought ghbdtn back" = "The same shortcut brought ghbdtn back";
 "The shortcut turned ghbdtn into привет" = "The shortcut turned ghbdtn into привет";
+"The two layouts are not two languages Perekey knows" = "The two layouts are not two languages Perekey knows";
+"The typed word is the better one, by %@" = "The typed word is the better one, by %@";
+"The typed word reads fine in its own language, and the other one is unknown" = "The typed word reads fine in its own language, and the other one is unknown";
+"The word has digits, and Perekey leaves such words alone" = "The word has digits, and Perekey leaves such words alone";
+"The word is on a never-switch list" = "The word is on a never-switch list";
+"There was no word" = "There was no word";
 "This window notices the change by itself." = "This window notices the change by itself.";
+"Too long to be a word" = "Too long to be a word";
 "Try it yourself" = "Try it yourself";
 "Turn automatic switching on or off" = "Turn automatic switching on or off";
 "Turn on here" = "Turn on here";
+"Two capitals at the start: Shift was held a key too long" = "Two capitals at the start: Shift was held a key too long";
 "Two keys" = "Two keys";
+"Two letters were swapped, and the fixed word is a known one" = "Two letters were swapped, and the fixed word is a known one";
 "Type" = "Type";
 "Typed in the wrong layout? Perekey fixes it." = "Typed in the wrong layout? Perekey fixes it.";
+"Typed with Caps Lock on by mistake" = "Typed with Caps Lock on by mistake";
 "Uses the macOS setting “Use Caps Lock to switch to and from ABC”. macOS adds a short delay." = "Uses the macOS setting “Use Caps Lock to switch to and from ABC”. macOS adds a short delay.";
 "Waiting for access…" = "Waiting for access…";
 "Welcome to Perekey" = "Welcome to Perekey";
+"Why didn't Perekey fix it?" = "Why didn't Perekey fix it?";
+"Why?" = "Why?";
+"Will always fix “%@”" = "Will always fix “%@”";
 "Works in the installed app only." = "Works in the installed app only.";
 "and press" = "and press";
 "fn twice starts Dictation in macOS." = "fn twice starts Dictation in macOS.";
+"in English" = "in English";
+"in Russian" = "in Russian";
+"in Ukrainian" = "in Ukrainian";
+"in this layout" = "in this layout";
 "left" = "left";
 "macOS refused to change Caps Lock." = "macOS refused to change Caps Lock.";
 "macOS switches the input source on this shortcut too. The layout would change twice." = "macOS switches the input source on this shortcut too. The layout would change twice.";
@@ -112,6 +145,11 @@
 "twice" = "twice";
 "your retype shortcut" = "your retype shortcut";
 "— revert" = "— revert";
+"“%@” cannot start a word %@" = "“%@” cannot start a word %@";
+"“%@” is a common word %@" = "“%@” is a common word %@";
+"“%@” is a rare word %@" = "“%@” is a rare word %@";
+"“%@” is not a word" = "“%@” is not a word";
+"“%@” is not a word %@" = "“%@” is not a word %@";
 "⌘Space also opens Spotlight. Both will run." = "⌘Space also opens Spotlight. Both will run.";
 
 /* Apps, Words, General (stage 2) */

@@ -36,7 +36,8 @@ after Perekey.
 ## Positioning
 
 - **Predictable:** one Backspace right after an automatic switch undoes it,
-  and Perekey remembers the word.
+  and Perekey remembers the word. Learning is visible: the hint names the
+  remembered word and offers "Forget".
 - **Honest about code:** terminals and IDEs default to manual-only switching.
 - **Verifiable privacy:** open code (GPL-3.0-or-later), typed text stays in
   memory only, the only network request is the update check.
@@ -54,12 +55,19 @@ after Perekey.
 
 - Manual retype of the last word or selection (default: Option).
 - Layout switch by shortcut (default: Shift), presets for Windows habits.
-- Automatic switching with undo and learning from undos.
-- Per-app modes: auto / manual only / off; per-app default layout.
-- Word exceptions, password-field and Secure Input awareness.
-- Later: ё-fication, double-caps fix, switch sound, paste without formatting.
+- Automatic switching with undo and visible learning from undos ("Learned"
+  list, "Forget" in the hint, a switch to turn learning off).
+- Per-app modes: auto / manual only / off; per-app default layout; games off
+  by default.
+- Word exceptions, password-field and Secure Input awareness; password-like
+  strings are never switched.
+- Typo correction for Russian and English (off by default until it meets the
+  quality bar), with the same one-Backspace undo.
+- Later: ё-fication, double-caps and accidental Caps Lock fix, abbreviations,
+  switch sound, paste without formatting.
 - Russian and English UI. Layouts: Russian and English first.
-- No subscription, no telemetry, no sending typed words anywhere.
+- No subscription, no telemetry, no sending typed words anywhere. The update
+  check can be turned off; the language model ships inside app updates.
 
 ## Brand Commitments
 

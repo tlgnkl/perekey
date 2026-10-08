@@ -35,6 +35,7 @@ Perekey — свободный автоматический переключат
 | Язык | Swift 6, строгая конкурентность | Один инструмент сборки. Ядро без AppKit, его легко тестировать |
 | Сборка | SwiftPM + `scripts/bundle.sh` | Нет `.xcodeproj` и конфликтов `.pbxproj`. Собирается без Xcode |
 | Тесты | Swift Testing, `scripts/test.sh` | Скрипт чинит запуск под Command Line Tools |
+| SwiftUI без Xcode | Без `@State`: `let x = State(initialValue:)`, модели `@Observable` + `@Bindable` | В SDK macOS 27 `@State` — макрос, а плагина `SwiftUIMacros` в Command Line Tools нет |
 | Подпись для разработки | `scripts/dev-cert.sh` → «Perekey Dev» | Ad-hoc подпись меняется при каждой сборке, и macOS сбрасывает выданный доступ |
 | Подпись для релизов | Developer ID + нотаризация | Позже, перед первой публичной бетой |
 | Распространение | DMG, свой Homebrew tap, Sparkle 2 | В официальный cask проект с малым числом звёзд не примут |
@@ -195,7 +196,10 @@ Caps Lock — отдельная настройка (см. ниже).
 
 - Вариант 1, без риска: включить системную настройку «Caps Lock переключает
   на ABC». Онбординг показывает, где она.
-- Вариант 2, мгновенно: переназначить Caps Lock в F18 через `hidutil`.
+- Вариант 2, мгновенно: переназначить Caps Lock в F18 через свойство
+  `UserKeyMapping` (`IOHIDEventSystemClientSetProperty`, публичный IOKit).
+  Его же пишет `hidutil property --set`. Сам `hidutil` не зовём: на macOS 27
+  `--get` печатает таблицу по каждому устройству, разбирать её хрупко.
   - Прочитать текущий `UserKeyMapping`, добавить своё, записать. Не затирать
     чужие переназначения.
   - Убрать своё при выходе.

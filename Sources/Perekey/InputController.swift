@@ -229,6 +229,19 @@ final class InputController {
         }
     }
 
+    /// Puts a word on "Всегда исправлять": from now on it switches at the
+    /// word end whatever the score, unless a guard keeps it. `word` is the
+    /// form it should come out in, `typed` what the user typed (a learned
+    /// copy of it is forgotten). For the hint after a manual retype, when
+    /// `WordRules.offerAlwaysFix` says so. Returns false when the word is
+    /// invalid, already there, or on "Не трогать: мои".
+    @discardableResult
+    func alwaysFix(_ word: String, typed: String? = nil) -> Bool {
+        var added = false
+        store.update { added = $0.words.alwaysFix(word, typed: typed) }
+        return added
+    }
+
     /// The user's own shortcut for retyping the last word, as keycaps, or nil.
     private func retypeShortcut() -> String? {
         guard let trigger = store.settings.trigger(for: .convertLastWord) else { return nil }

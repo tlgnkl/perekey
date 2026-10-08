@@ -226,14 +226,19 @@ struct WordJudge: Sendable {
                 context: Classifier.Context(previousLanguage: previousLanguage)
             )
             decision = found
-            if found.verdict == .switch(to: auto.other.id) {
-                if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings) {
+            // An always-fix word switches over a keep, but not over a guard.
+            let forced = found.verdict != .switch(to: auto.other.id) && isAlwaysFixed(buffer, found, auto, settings)
+            if forced || found.verdict == .switch(to: auto.other.id) {
+                if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
+                    || isAlwaysFix(buffer, in: auto.typed, settings)
+                {
                     previousLanguage = auto.typed.language
                     return .keep
                 }
+                // The listed form is what the user wants: no word correction on top.
                 guard var retype = autoRetype(auto, buffer.entries[...], held: boundary, heldKeyCode: key.keyCode,
-                                              midWord: false, undoable: !endsLine, layouts: layouts,
-                                              settings: settings)
+                                              midWord: false, undoable: !endsLine, corrects: !forced,
+                                              layouts: layouts, settings: settings)
                 else { return .keep }
                 retype.decision = found
                 previousLanguage = auto.other.language
@@ -244,7 +249,7 @@ struct WordJudge: Sendable {
             previousLanguage = typed.language
         }
         // The word stays in its layout: fix it there.
-        guard let typo, !isException(buffer, in: typo, settings),
+        guard let typo, !isException(buffer, in: typo, settings), !isAlwaysFix(buffer, in: typo, settings),
               var retype = typoRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary, undoable: !endsLine,
                                       layouts: layouts, settings: settings)
         else { return .keep }
@@ -271,7 +276,7 @@ struct WordJudge: Sendable {
               wordIsPlain(buffer, layouts: layouts),
               context.classifier.impossiblePrefix(buffer.entries.lazy.map(\.stroke), typed: context.typed,
                                                   other: context.other),
-              !isExceptionPrefix(buffer, context, settings)
+              !isExceptionPrefix(buffer, context, settings), !isAlwaysFixPrefix(buffer, in: context.typed, settings)
         else { return nil }
         let trigger = buffer.entries[count - 1].stroke
         guard var retype = autoRetype(context, buffer.entries.dropLast(), held: trigger, heldKeyCode: trigger.keyCode,
@@ -338,8 +343,8 @@ struct WordJudge: Sendable {
     /// The word `entries` retyped in `context.other`, with a correction to
     /// report once posted. Nil when the word cannot be typed there.
     private func autoRetype(_ context: AutoContext, _ entries: ArraySlice<WordBuffer.Entry>, held: KeyStroke?,
-                            heldKeyCode: UInt16, midWord: Bool, undoable: Bool, layouts: LayoutState,
-                            settings: Settings) -> WordRetype?
+                            heldKeyCode: UInt16, midWord: Bool, undoable: Bool, corrects: Bool = true,
+                            layouts: LayoutState, settings: Settings) -> WordRetype?
     {
         guard case let .keys(word) = layouts.retypeKeys(for: entries, into: context.other) else { return nil }
         var strokes = entries.map(\.stroke)
@@ -351,7 +356,7 @@ struct WordJudge: Sendable {
         // The whole word is known: the word corrections see it in its new layout.
         var keys = word.keys
         var fix: WordFix?
-        if !midWord, let found = correctWord(entries, in: context.other, settings: settings) {
+        if !midWord, corrects, let found = correctWord(entries, in: context.other, settings: settings) {
             keys.removeAll(keepingCapacity: true)
             for stroke in found.strokes {
                 guard let text = context.other.text(for: stroke) else { return nil }
@@ -465,6 +470,28 @@ struct WordJudge: Sendable {
         return false
     }
 
+    /// The word is on the always-fix list as this layout reads it.
+    private func isAlwaysFix(_ buffer: WordBuffer, in map: LayoutMap, _ settings: Settings) -> Bool {
+        guard !settings.alwaysFix.isEmpty, let word = Self.text(of: buffer.entries, in: map) else { return false }
+        return settings.alwaysFix.contains(Self.exceptionKey(word))
+    }
+
+    /// The other reading is on the always-fix list and nothing but the score
+    /// kept it (`WordRules.overrides`).
+    private func isAlwaysFixed(_ buffer: WordBuffer, _ decision: Classifier.Decision, _ context: AutoContext,
+                               _ settings: Settings) -> Bool
+    {
+        !settings.alwaysFix.isEmpty && WordRules.overrides(decision) && isAlwaysFix(buffer, in: context.other, settings)
+    }
+
+    /// Some always-fix word starts with the word so far as typed: do not
+    /// switch it away early.
+    private func isAlwaysFixPrefix(_ buffer: WordBuffer, in map: LayoutMap, _ settings: Settings) -> Bool {
+        guard !settings.alwaysFix.isEmpty, let word = Self.text(of: buffer.entries, in: map) else { return false }
+        let prefix = Self.exceptionKey(word)
+        return settings.alwaysFix.contains { $0.hasPrefix(prefix) }
+    }
+
     static func text(of entries: [WordBuffer.Entry], in map: LayoutMap) -> String? {
         var text = ""
         for entry in entries where !entry.isSpace {
@@ -474,7 +501,7 @@ struct WordJudge: Sendable {
         return text
     }
 
-    /// The word as `WordExceptions` stores it, without the punctuation around it.
+    /// The word as `WordRules` stores it, without the punctuation around it.
     static func exceptionKey(_ word: String) -> String {
         var text = Substring(word)
         func isPart(_ character: Character) -> Bool {
@@ -482,7 +509,7 @@ struct WordJudge: Sendable {
         }
         while let first = text.first, !isPart(first) { text.removeFirst() }
         while let last = text.last, !isPart(last) { text.removeLast() }
-        return WordExceptions.normalize(String(text))
+        return WordRules.normalize(String(text))
     }
 
     // MARK: - Word ends

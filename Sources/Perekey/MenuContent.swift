@@ -588,7 +588,7 @@ struct CorrectionRow: View {
                     .frame(width: 24, height: 22)
                     .help(Text("Already on the list"))
                     .accessibilityLabel(Text("Already on the list"))
-            case .empty, .invalid:
+            case .empty, .invalid, .neverTouch:
                 EmptyView()
             }
             RowIconButton(id: "fix-\(entry.id)-report", symbol: "flag", title: "Report a word", nav: nav) {

@@ -157,7 +157,7 @@ public enum Effect: Hashable, Sendable {
     case correctionUndoFailed(seq: UInt32)
     /// The user undid an automatic switch and `Settings.learnFromUndos` is on
     /// (with the undo's `.retypePosted`, never for a cancelled undo):
-    /// add the word to the learned exceptions (`WordExceptions.learn`). It is
+    /// add the word to the learned list (`WordRules.learn`). It is
     /// normalized, and it is the typed reading where the list takes it
     /// ("ghbdtn"), else the other one (`CorrectionUndo.learnable`). The next
     /// settings snapshot carries it in `Settings.exceptions`.

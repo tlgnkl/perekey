@@ -232,16 +232,16 @@ struct CorrectionUndo: Sendable {
     }
 
     /// The word to put on the learned list: the typed reading if
-    /// `WordExceptions` takes it ("ghbdtn"), else the same without the
+    /// `WordRules` takes it ("ghbdtn"), else the same without the
     /// punctuation around it ("[jhjij" gives "jhjij"), else the other reading
     /// ("ds,jh" gives "выбор"). Either reading keeps the word: the check
     /// looks at both.
     static func learnable(_ typed: String?, or other: String?) -> String? {
-        let list = WordExceptions()
+        let list = WordRules()
         for candidate in [typed, typed.map(WordJudge.exceptionKey), other.map(WordJudge.exceptionKey)] {
             guard let candidate else { continue }
             switch list.validate(candidate) {
-            case .ok, .frequent: return WordExceptions.normalize(candidate)
+            case .ok, .frequent: return WordRules.normalize(candidate)
             default: continue
             }
         }

@@ -60,8 +60,8 @@ public struct AppSettings: Hashable, Sendable {
     /// The user's rules per site in Safari and Chromium browsers, keyed by normalized host.
     /// A site rule wins over the browser's app rule.
     public var sites: [String: SiteRule]
-    /// Words never corrected: the user's own and the learned ones.
-    public var words: WordExceptions
+    /// The word lists: never touched (the user's own and the learned ones) and always fixed.
+    public var words: WordRules
     /// Played on the main thread when a shortcut selects a layout. Off by default.
     public var layoutSound: SoundSetting
     /// Played after a successful retype. Off by default.
@@ -79,7 +79,7 @@ public struct AppSettings: Hashable, Sendable {
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
-                words: WordExceptions = WordExceptions(), sites: [String: SiteRule] = [:],
+                words: WordRules = WordRules(), sites: [String: SiteRule] = [:],
                 layoutSound: SoundSetting = .layoutSwitch, correctionSound: SoundSetting = .correction,
                 checkForUpdates: Bool = true, typoCorrection: Bool = true,
                 corrections: TextCorrections = TextCorrections(), caretHint: CaretHintMode = .all)
@@ -130,7 +130,9 @@ public struct AppSettings: Hashable, Sendable {
         }
         var exceptions = Set(words.mine)
         for learned in words.learned { exceptions.insert(learned.word) }
-        return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions,
+        // Never-touch wins: an imported file may have a word on both kinds of list.
+        let alwaysFix = Set(words.always).subtracting(exceptions)
+        return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions, alwaysFix: alwaysFix,
                         learnFromUndos: words.learnFromUndos, corrections: corrections,
                         typoCorrection: typoCorrection)
     }
@@ -150,7 +152,7 @@ extension AppSettings: Codable {
         autoswitch = try container.decodeIfPresent(Bool.self, forKey: .autoswitch) ?? defaults.autoswitch
         onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
         apps = (try? container.decodeIfPresent([String: AppRule].self, forKey: .apps)) ?? defaults.apps
-        words = (try? container.decodeIfPresent(WordExceptions.self, forKey: .words)) ?? defaults.words
+        words = (try? container.decodeIfPresent(WordRules.self, forKey: .words)) ?? defaults.words
         sites = (try? container.decodeIfPresent([String: SiteRule].self, forKey: .sites)) ?? defaults.sites
         layoutSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .layoutSound)) ?? defaults.layoutSound
         correctionSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .correctionSound))

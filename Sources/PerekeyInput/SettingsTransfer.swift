@@ -10,7 +10,9 @@ import PerekeyCore
 /// wrong one must produce an error, not silent defaults.
 public enum SettingsTransfer {
     /// The file format this build writes and the newest it reads.
-    public static let currentVersion = 1
+    /// 2: `words.always` ("Всегда исправлять") and the undo count of learned
+    /// words. Version 1 files load with both empty: one undo per learned word.
+    public static let currentVersion = 2
 
     private static let knownKeys: Set<String> = ["hotkeys", "capsLock", "autoswitch", "onboardingDone", "words"]
 

@@ -27,6 +27,9 @@ public enum EngineMessage: Sendable {
     case corrected(Correction)
     /// The correction with this `seq` was undone: hide its hint.
     case correctionUndone(seq: UInt32)
+    /// The undo of the correction with this `seq` was cancelled by the caret
+    /// check: the text stays corrected and cannot be undone. Hide its hint.
+    case correctionUndoFailed(seq: UInt32)
     /// The user undid an automatic switch: learn the word, as typed.
     case learned(String)
 }
@@ -52,6 +55,9 @@ public enum TapState: Hashable, Sendable {
 ///   whether the text before the caret is the word, while the main thread
 ///   selects the target layout. The retype is posted once both are done, or
 ///   cancelled on a mismatch. No AX answer means post anyway (`CaretCheck`).
+/// - **Replays:** events the machine held are posted again, marked
+///   `.replayed`. User keys that reach the tap before the last of them wait
+///   in `ReplayGate` and follow as the next replayed batch.
 ///
 /// State below the `// Tap thread` mark is touched only on the tap thread,
 /// hence `@unchecked Sendable`.
@@ -75,6 +81,11 @@ public final class InputEngine: @unchecked Sendable {
     private var disables: [Double] = []
     private var resumeTimer: CFRunLoopTimer?
     private var check: CaretCheckState?
+    /// User events waiting behind replayed ones still in flight.
+    private var replays = ReplayGate<CGEvent>()
+    private var replayTimer: CFRunLoopTimer?
+    /// The hint's button in CG global coordinates, while the hint shows.
+    private var hintButton: CGRect?
 
     /// The pre-Backspace check of the retype with `seq`.
     private struct CaretCheckState {
@@ -122,10 +133,20 @@ public final class InputEngine: @unchecked Sendable {
         perform { $0.postIfPending(retype) }
     }
 
-    /// Undoes the last automatic switch, as the hint's Undo button asks.
-    /// Does nothing once the user has typed on.
-    public func undoLastCorrection() {
-        perform { $0.handle(.undoLastCorrection(time: Self.now)) }
+    /// Undoes the automatic switch with this `Correction.seq`, as the hint's
+    /// Undo button asks. Does nothing once the user has typed on, clicked
+    /// elsewhere, or a newer switch came.
+    public func undoLastCorrection(seq: UInt32) {
+        perform { $0.handle(.undoLastCorrection(seq: seq, time: Self.now)) }
+    }
+
+    /// Where the hint's button is, in CG global coordinates (top-left origin
+    /// of the main display), or nil once the hint is gone. A click there is
+    /// `.click(onHint: true)`: it keeps the correction undoable. The frame
+    /// goes into the tap thread like any other block: the hint appears long
+    /// before anyone can click it.
+    public func setHintButtonFrame(_ frame: CGRect?) {
+        perform { $0.hintButton = frame }
     }
 
     /// The main thread could not select the retype's layout.
@@ -147,7 +168,7 @@ public final class InputEngine: @unchecked Sendable {
                 }
             }
             if engine.keyboardTap == nil { engine.createTapsOrRetry() }
-            engine.handle(.inputLost)
+            engine.inputLost()
         }
     }
 
@@ -155,7 +176,7 @@ public final class InputEngine: @unchecked Sendable {
     public func accessRevoked() {
         perform { engine in
             engine.removeTaps()
-            engine.handle(.inputLost)
+            engine.inputLost()
             engine.createTapsOrRetry()
         }
     }
@@ -287,6 +308,20 @@ public final class InputEngine: @unchecked Sendable {
             }
         }
 
+        switch origin {
+        case .user:
+            // Replays still on their way would come after this key: it waits
+            // for them and goes out behind them, marked replayed.
+            if replays.mustWait(at: time) {
+                if let copy = event.copy() { holdBehindReplays(copy, at: time) }
+                return nil
+            }
+        case .replayed:
+            replays.replayedSeen()
+        case .own:
+            break
+        }
+
         let keyCode = UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags.rawValue
         let input: InputEvent = switch type {
@@ -311,7 +346,52 @@ public final class InputEngine: @unchecked Sendable {
         }
         // The disposition first: a held event may be released by the same output.
         execute(output.effects)
+        if origin == .replayed { postReplayed(replays.takeReady(), at: time) }
         return result
+    }
+
+    private func holdBehindReplays(_ event: CGEvent, at time: Double) {
+        let first = replays.waiting.isEmpty
+        replays.hold(event)
+        if first, let deadline = replays.deadline { scheduleReplayCheck(at: deadline, now: time) }
+    }
+
+    /// Posts events again, marked `.replayed`. Counted ones are expected back
+    /// through the tap; keys typed meanwhile wait for them.
+    private func postReplayed(_ events: [CGEvent], at time: Double, counted: Bool = true) {
+        guard !events.isEmpty else { return }
+        let mark = SyntheticMark.replayed.userData
+        for event in events {
+            event.setIntegerValueField(.eventSourceUserData, value: mark)
+            event.post(tap: .cghidEventTap)
+        }
+        if counted { replays.posted(events.count, at: time) }
+    }
+
+    /// Replays that never came back must not hold the keyboard for long.
+    private func scheduleReplayCheck(at deadline: Double, now: Double) {
+        if let replayTimer { CFRunLoopTimerInvalidate(replayTimer) }
+        let fire = CFAbsoluteTimeGetCurrent() + max(0, deadline - now)
+        let timer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, fire, 0, 0, 0) { [self] _ in
+            replayTimer = nil
+            let time = Self.now
+            if let late = replays.expire(at: time) {
+                log.error("\(late.count, privacy: .public) keys waited for replays that did not come back")
+                postReplayed(late, at: time, counted: false)
+            } else if let deadline = replays.deadline {
+                scheduleReplayCheck(at: deadline, now: time)
+            }
+        }
+        replayTimer = timer
+        CFRunLoopAddTimer(runLoop, timer, .commonModes)
+    }
+
+    /// Events may have been lost: the machine lets its held events go, then
+    /// the keys that waited for replays follow them.
+    private func inputLost() {
+        let waiting = replays.reset()
+        handle(.inputLost)
+        postReplayed(waiting, at: Self.now)
     }
 
     private func pointer(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -320,7 +400,8 @@ public final class InputEngine: @unchecked Sendable {
         case CGEventType.tapDisabledByTimeout.rawValue, CGEventType.tapDisabledByUserInput.rawValue:
             tapDisabled(type, at: time)
         case 1, 3, 25:
-            handle(.click(time: time))
+            let onHint = hintButton?.contains(event.location) ?? false
+            handle(.click(time: time, onHint: onHint))
         default:
             handle(.scroll(time: time))
         }
@@ -330,7 +411,7 @@ public final class InputEngine: @unchecked Sendable {
     private func tapDisabled(_ type: CGEventType, at time: Double) {
         disables = disables.filter { time - $0 < 60 } + [time]
         log.error("Event tap disabled (\(type.rawValue, privacy: .public)), \(self.disables.count, privacy: .public) in the last minute")
-        handle(.inputLost)
+        inputLost()
         guard resumeTimer == nil else { return }
         if disables.count >= Self.disablesBeforeSuspend {
             // Re-enabling at once would loop: disabled, enabled, disabled.
@@ -360,7 +441,8 @@ public final class InputEngine: @unchecked Sendable {
     private func postIfPending(_ retype: Retype) {
         guard machine.pendingRetypeSeq == retype.seq else {
             log.error("Retype \(retype.seq, privacy: .public) arrived after its fence; not posted")
-            // The buffer believes the word was retyped; it was not.
+            // The buffer believes the word was retyped; it was not. No event
+            // was lost, so replays on their way still keep their order.
             handle(.inputLost)
             return
         }
@@ -446,11 +528,7 @@ public final class InputEngine: @unchecked Sendable {
             case .releaseHeld:
                 let events = held
                 held.removeAll()
-                let mark = SyntheticMark.replayed.userData
-                for event in events {
-                    event.setIntegerValueField(.eventSourceUserData, value: mark)
-                    event.post(tap: .cghidEventTap)
-                }
+                postReplayed(events, at: Self.now)
             case let .scheduleDeadline(at):
                 scheduleDeadline(at: at)
             case let .autoswitchChanged(on):
@@ -461,6 +539,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.corrected(correction))
             case let .correctionUndone(seq):
                 toMain(.correctionUndone(seq: seq))
+            case let .correctionUndoFailed(seq):
+                toMain(.correctionUndoFailed(seq: seq))
             case let .learned(word):
                 toMain(.learned(word))
             case let .refused(refusal):

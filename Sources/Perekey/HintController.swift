@@ -23,8 +23,16 @@ final class HintController {
     private var timer: Timer?
     private var remaining: TimeInterval = 0
     private var currentAction: (() -> Void)?
+    private var publishedButtonFrame: CGRect?
 
-    init() {}
+    /// The button's frame in CG global coordinates (top-left origin of the
+    /// main display) while the hint shows, nil once it goes. The engine
+    /// tells a click on it from a click that moves the caret.
+    var onButtonFrame: ((CGRect?) -> Void)?
+
+    init() {
+        model.onButtonFrameChange = { [weak self] in self?.publishButtonFrame() }
+    }
 
     /// After a correction: `original` struck out, `replacement` underlined, an
     /// «Undo» chip that calls `onUndo`.
@@ -85,12 +93,29 @@ final class HintController {
         if !wasVisible { setVisible(true) }
         remaining = Self.lifetime
         startTimer()
+        publishButtonFrame()
+    }
+
+    private func publishButtonFrame() {
+        var frame: CGRect?
+        if let panel, panel.isVisible, currentAction != nil, model.buttonFrame != .zero,
+           let main = NSScreen.screens.first
+        {
+            // The hosting view fills the panel and has a top-left origin.
+            let button = model.buttonFrame
+            frame = CGRect(x: panel.frame.minX + button.minX, y: main.frame.maxY - panel.frame.maxY + button.minY,
+                           width: button.width, height: button.height)
+        }
+        guard frame != publishedButtonFrame else { return }
+        publishedButtonFrame = frame
+        onButtonFrame?(frame)
     }
 
     private func dismiss() {
         timer?.invalidate()
         timer = nil
         currentAction = nil
+        publishButtonFrame()
         guard let panel, panel.isVisible else { return }
         setVisible(false)
         let mine = generation

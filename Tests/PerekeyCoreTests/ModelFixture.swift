@@ -40,7 +40,15 @@ enum ModelFixture {
         ("func", 120), ("var", 140), ("return", 170), ("switch", 170), ("iphone", 170),
     ]
 
-    static let bytes: [UInt8] = {
+    static let bytes: [UInt8] = build()
+
+    /// The fixture plus English words whose prefixes do not count as
+    /// possible: a word that starts like no English word but is one.
+    static func model(withRareEnglish words: [String]) -> LanguageModel {
+        try! LanguageModel(bytes: build(rareEnglish: words))
+    }
+
+    private static func build(rareEnglish: [String] = []) -> [UInt8] {
         var builder = ModelBuilder()
         builder.meta = "fixture"
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
@@ -51,9 +59,12 @@ enum ModelFixture {
         for (word, rank) in english {
             builder.addForm(word, language: "en", rank: rank, weight: Double(rank))
         }
+        for word in rareEnglish {
+            builder.addForm(word, language: "en", rank: 230, weight: 230, prefixes: false)
+        }
         for word in ["iPhone", "Wi-Fi", "ГОСТ"] { builder.addKeep(word) }
         return builder.build()
-    }()
+    }
 
     static let model = try! LanguageModel(bytes: bytes)
 }

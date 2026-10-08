@@ -128,9 +128,16 @@ public enum Effect: Hashable, Sendable {
     case corrected(Correction)
     /// The correction with this `seq` was undone: Backspace right after it,
     /// `HotkeyAction.undoLastCorrection` or `InputEvent.undoLastCorrection`.
-    /// Hide its hint.
+    /// Comes with the `.retypePosted` of the undo. Hide its hint.
     case correctionUndone(seq: UInt32)
-    /// The user undid an automatic switch and `Settings.learnFromUndos` is on:
+    /// The undo of the correction with this `seq` was cancelled: the text
+    /// before the caret was not the corrected word (`.retypeCancelled`). The
+    /// text stays corrected and nothing is learned; a Backspace that asked
+    /// for the undo is let through as an ordinary Backspace. The correction
+    /// can no longer be undone: hide its hint.
+    case correctionUndoFailed(seq: UInt32)
+    /// The user undid an automatic switch and `Settings.learnFromUndos` is on
+    /// (with the undo's `.retypePosted`, never for a cancelled undo):
     /// add the word to the learned exceptions (`WordExceptions.learn`). It is
     /// normalized, and it is the typed reading where the list takes it
     /// ("ghbdtn"), else the other one (`InputMachine.learnable`). The next

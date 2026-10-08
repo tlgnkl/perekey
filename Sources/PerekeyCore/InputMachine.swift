@@ -34,7 +34,9 @@
 /// Inside a word only an impossible prefix ("ghb") switches early: the
 /// letters before it are retyped and the key that made it impossible is held.
 /// Backspace right after a switch puts the word back (`Effect.learned` when
-/// the user wants Perekey to learn from that).
+/// the user wants Perekey to learn from that). The undo is a retype like any
+/// other: it reports only once posted, and when the caret check cancels it,
+/// the Backspace goes through as an ordinary one.
 public struct InputMachine: Sendable {
     public private(set) var settings: Settings
     public private(set) var buffer = WordBuffer()
@@ -81,8 +83,14 @@ public struct InputMachine: Sendable {
     /// it is neither judged again nor counts as typing after the correction.
     private var heldBoundary: (keyCode: UInt16, endsWord: Bool)?
     /// The last automatic switch, while Backspace or the undo action can
-    /// still take it back.
+    /// still take it back. Anything that may move the caret or change the
+    /// text ends it: a key that does not continue the word, a click outside
+    /// the hint's button, a shortcut, a focus change.
     private var lastCorrection: PendingCorrection?
+    /// The Backspace that asked for an undo is held, and the undo was posted:
+    /// drop the Backspace when it comes back. After a cancelled undo it comes
+    /// back as an ordinary Backspace.
+    private var dropUndoKey = false
 
     private struct Fence: Sendable {
         var seq: UInt32
@@ -101,6 +109,23 @@ public struct InputMachine: Sendable {
         var selectionAction = SelectionAction.convertLayout
         /// An automatic switch: reported as `.corrected` once posted.
         var correction: PendingCorrection?
+        /// An undo of one: reported as `.correctionUndone` once posted.
+        var undo: UndoInFlight?
+    }
+
+    /// What an undo reports once its retype is posted. Nothing of it happens
+    /// before: a cancelled undo leaves the text corrected and learns nothing.
+    private struct UndoInFlight: Sendable {
+        /// The `Correction.seq` being undone.
+        var seq: UInt32
+        /// `.corrected` went out, so the hint shows it.
+        var reported: Bool
+        /// Only the start of the word is known: learn it when it ends.
+        var isOpen: Bool
+        /// The word to learn, if `Settings.learnFromUndos`.
+        var learn: String?
+        /// The Backspace that asked for the undo is the first held event.
+        var heldKey: Bool
     }
 
     /// The transform a shortcut applies to the selection.
@@ -133,8 +158,12 @@ public struct InputMachine: Sendable {
         var extended = false
         /// `.corrected` went out, so an undo reports `.correctionUndone`.
         var reported = false
-        /// False after a click: Backspace now deletes wherever the caret went.
+        /// False after a click on the hint's button: the hint's Undo still
+        /// works, Backspace is an ordinary one.
         var backspaceUndoes = true
+        /// A click outside the hint came while the retype was in flight: the
+        /// caret may have moved, so the switch cannot be undone or extended.
+        var clicked = false
     }
 
     /// The synthetic keys of a word retype, or why there are none.
@@ -197,13 +226,20 @@ public struct InputMachine: Sendable {
             }
             return .pass
 
-        case let .click(time):
+        case let .click(time, onHint):
             expireFence(at: time, effects: &effects)
             detector.otherInput(at: time)
             buffer.clear()
-            // The caret may have moved: Backspace no longer undoes. The hint's
-            // Undo button still may (a click on the hint lands here first).
-            lastCorrection?.backspaceUndoes = false
+            if onHint, lastCorrection?.isOpen == false {
+                // The hint's button takes the click and the caret stays; the
+                // Undo it sends comes next. Backspace is an ordinary one now.
+                lastCorrection?.backspaceUndoes = false
+            } else {
+                // The caret may be anywhere now: an undo would erase text
+                // there, and the next letters are no part of the word.
+                lastCorrection = nil
+                if !onHint { fence?.correction?.clicked = true }
+            }
 
         case let .scroll(time):
             detector.otherInput(at: time)
@@ -254,11 +290,22 @@ public struct InputMachine: Sendable {
             effects.append(.scheduleDeadline(at: deadline))
             if var pending = posted.correction {
                 fence?.correction = nil
+                if pending.clicked { pending.correction.undoable = false }
                 if !pending.isOpen {
                     pending.reported = true
                     effects.append(.corrected(pending.correction))
                 }
-                lastCorrection = pending
+                lastCorrection = pending.clicked ? nil : pending
+            }
+            if let undo = posted.undo {
+                fence?.undo = nil
+                if undo.reported { effects.append(.correctionUndone(seq: undo.seq)) }
+                if undo.isOpen {
+                    learnAtWordEnd = true
+                } else if let word = undo.learn {
+                    effects.append(.learned(word))
+                }
+                dropUndoKey = undo.heldKey
             }
             if posted.viaAccessibility {
                 fence?.lastOwnEventSeen = true
@@ -273,7 +320,14 @@ public struct InputMachine: Sendable {
             // The text before the caret was not what the buffer expected, so
             // the buffer is wrong too. Put the layout back and let input go.
             guard let cancelled = fence, cancelled.seq == seq else { break }
-            if cancelled.correction != nil {
+            if let undo = cancelled.undo {
+                // The caret is not after the corrected word: the text stays,
+                // nothing is learned, and the held Backspace comes back as an
+                // ordinary one. The hint's Undo could not work either.
+                if undo.reported { effects.append(.correctionUndoFailed(seq: undo.seq)) }
+                buffer.abandonWord()
+                wordSuppressed = true
+            } else if cancelled.correction != nil {
                 // The held key comes back next and may finish an impossible
                 // prefix again: ignore the rest of this word.
                 buffer.abandonWord()
@@ -306,8 +360,10 @@ public struct InputMachine: Sendable {
             classifier = newClassifier
             previousLanguage = nil
 
-        case let .undoLastCorrection(time):
-            undoCorrection(at: time, effects: &effects)
+        case let .undoLastCorrection(seq, time):
+            // A hint left over from an older switch must not undo a newer one.
+            guard lastCorrection?.correction.seq == seq else { break }
+            undoCorrection(at: time, heldKey: false, effects: &effects)
         }
         return .pass
     }
@@ -324,6 +380,14 @@ public struct InputMachine: Sendable {
             return .pass
         case .user, .replayed:
             if fence != nil { return .hold }
+        }
+        if dropUndoKey, key.phase == .down {
+            // The held events come back in order, the Backspace first.
+            dropUndoKey = false
+            if key.origin == .replayed, key.keyCode == KeyCode.delete {
+                swallowedKeyUps.insert(key.keyCode)
+                return .drop
+            }
         }
         guard !secureInput else { return .pass }
 
@@ -358,11 +422,10 @@ public struct InputMachine: Sendable {
             lastCorrection = nil
             if key.keyCode == KeyCode.delete, held == 0, last.backspaceUndoes, !(last.isOpen && last.extended) {
                 lastCorrection = last
-                if undoCorrection(at: time, effects: &effects) {
-                    swallowedKeyUps.insert(key.keyCode)
-                    return .drop
-                }
-            } else if last.isOpen, key.keyCode != KeyCode.delete,
+                // Held, not dropped: if the undo is cancelled, the Backspace
+                // still does what the user pressed it for.
+                if undoCorrection(at: time, heldKey: true, effects: &effects) { return .hold }
+            } else if last.isOpen, key.keyCode != KeyCode.delete, !KeyCode.navigation.contains(key.keyCode),
                       held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit) == 0
             {
                 lastCorrection = last
@@ -531,6 +594,8 @@ public struct InputMachine: Sendable {
             buffer.type(trigger.stroke, in: trigger.layout)
             return false
         }
+        // Decided for the whole word: the end of it must not switch it back.
+        wordSuppressed = true
         return true
     }
 
@@ -563,9 +628,12 @@ public struct InputMachine: Sendable {
     }
 
     /// Puts back the last automatic switch: the word in its layout, through
-    /// the fence. Returns false when there is nothing to undo.
+    /// the fence. Returns false when there is nothing to undo. What the undo
+    /// reports waits in the fence for `.retypePosted`. `heldKey`: the
+    /// Backspace that asked for it is held, to be dropped once the undo is
+    /// posted and let through if it is cancelled.
     @discardableResult
-    private mutating func undoCorrection(at time: Double, effects: inout [Effect]) -> Bool {
+    private mutating func undoCorrection(at time: Double, heldKey: Bool, effects: inout [Effect]) -> Bool {
         guard fence == nil, let last = lastCorrection else { return false }
         lastCorrection = nil
         let correction = last.correction
@@ -587,13 +655,10 @@ public struct InputMachine: Sendable {
         wordSuppressed = true
         wordJudged = true
         previousLanguage = source.language
-        if last.reported { effects.append(.correctionUndone(seq: correction.seq)) }
-        if last.isOpen {
-            // Only the start of the word is known yet: learn it when it ends.
-            learnAtWordEnd = true
-        } else if settings.learnFromUndos, let word = Self.learnable(correction.original, or: correction.replacement) {
-            effects.append(.learned(word))
-        }
+        let learn = last.isOpen || !settings.learnFromUndos
+            ? nil : Self.learnable(correction.original, or: correction.replacement)
+        fence?.undo = UndoInFlight(seq: correction.seq, reported: last.reported, isOpen: last.isOpen, learn: learn,
+                                   heldKey: heldKey)
         return true
     }
 
@@ -729,6 +794,9 @@ public struct InputMachine: Sendable {
     // MARK: - Actions
 
     private mutating func perform(_ action: HotkeyAction, at time: Double, effects: inout [Effect]) {
+        // A shortcut may change the text or the layout (a plain paste, a
+        // retype): Backspace after it must not undo a switch from before.
+        if case .undoLastCorrection = action {} else { lastCorrection = nil }
         switch action {
         case .switchLayout:
             let next: LayoutID? = if let currentLayout, let index = layoutOrder.firstIndex(of: currentLayout) {
@@ -764,7 +832,7 @@ public struct InputMachine: Sendable {
             effects.append(.pastePlain)
 
         case .undoLastCorrection:
-            undoCorrection(at: time, effects: &effects)
+            undoCorrection(at: time, heldKey: false, effects: &effects)
         }
     }
 

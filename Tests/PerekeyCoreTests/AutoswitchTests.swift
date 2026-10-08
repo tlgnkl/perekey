@@ -312,20 +312,22 @@ private let ru = Fixture.russian.id
         #expect(desk.text == "[jhjij ")
     }
 
-    @Test func hintUndoAfterClickOnIt() {
+    @Test func hintUndoAfterClickOnIt() throws {
         var desk = Desk()
         desk.type("[jhjij ")
-        desk.send(.click(time: desk.time)) // on the hint's button
-        desk.send(.undoLastCorrection(time: desk.time))
+        let seq = try #require(desk.corrections.first).seq
+        desk.send(.click(time: desk.time, onHint: true))
+        desk.send(.undoLastCorrection(seq: seq, time: desk.time))
         desk.settle()
         #expect(desk.text == "[jhjij ")
         #expect(desk.undone.count == 1)
     }
 
-    @Test func backspaceAfterClickIsOrdinary() {
+    @Test(arguments: [false, true])
+    func backspaceAfterClickIsOrdinary(onHint: Bool) {
         var desk = Desk()
         desk.type("[jhjij ")
-        desk.send(.click(time: desk.time))
+        desk.send(.click(time: desk.time, onHint: onHint))
         desk.press(KeyCode.delete)
         #expect(desk.text == "хорошо")
         #expect(desk.undone.isEmpty)
@@ -334,17 +336,18 @@ private let ru = Fixture.russian.id
     @Test func undoEventWithoutCorrectionDoesNothing() {
         var desk = Desk()
         desk.type("hello ")
-        desk.send(.undoLastCorrection(time: desk.time))
+        desk.send(.undoLastCorrection(seq: 1, time: desk.time))
         desk.settle()
         #expect(desk.text == "hello ")
         #expect(desk.log.isEmpty)
     }
 
-    @Test func focusChangeEndsTheChance() {
+    @Test func focusChangeEndsTheChance() throws {
         var desk = Desk()
         desk.type("[jhjij ")
+        let seq = try #require(desk.corrections.first).seq
         desk.send(.focusChanged(Desk.textEdit))
-        desk.send(.undoLastCorrection(time: desk.time))
+        desk.send(.undoLastCorrection(seq: seq, time: desk.time))
         desk.settle()
         #expect(desk.text == "хорошо ")
     }
@@ -380,5 +383,157 @@ private let ru = Fixture.russian.id
         #expect(settings.snapshot.learnFromUndos)
         settings.words.learnFromUndos = false
         #expect(!settings.snapshot.learnFromUndos)
+    }
+}
+
+/// Whatever may move the caret or change the text ends the chance to undo:
+/// an undo then would erase someone else's text.
+@Suite struct AutoswitchUndoSafetyTests {
+    @Test func clickElsewhereEndsTheHintUndo() throws {
+        var desk = Desk()
+        desk.type("[jhjij ")
+        let seq = try #require(desk.corrections.first).seq
+        desk.send(.click(time: desk.time)) // another paragraph, no AX there
+        desk.send(.undoLastCorrection(seq: seq, time: desk.time))
+        desk.settle()
+        #expect(desk.text == "хорошо ")
+        #expect(desk.undone.isEmpty)
+        #expect(desk.learned.isEmpty)
+    }
+
+    @Test func clickWhileTheSwitchIsInFlightMakesItFinal() throws {
+        var desk = Desk()
+        desk.type("[jhjij ", settling: false)
+        desk.send(.click(time: desk.time))
+        desk.settle()
+        #expect(try #require(desk.corrections.first).undoable == false, "no hint with Undo")
+        desk.press(KeyCode.delete)
+        #expect(desk.undone.isEmpty)
+    }
+
+    @Test func clickEndsAnOpenSwitchInsideTheWord() {
+        var desk = Desk()
+        desk.type("ghb")
+        #expect(desk.text == "при")
+        desk.send(.click(time: desk.time))
+        desk.type("ljv ") // "дом", somewhere else
+        #expect(desk.text == "придом ")
+        #expect(desk.corrections.isEmpty, "the old word is not reported with the new letters")
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "придом")
+        #expect(desk.undone.isEmpty)
+    }
+
+    @Test func clickOnTheHintKeepsAnOpenSwitchFromGrowing() {
+        var desk = Desk()
+        desk.type("ghb")
+        desk.send(.click(time: desk.time, onHint: true)) // an older hint
+        desk.type("ljv ")
+        #expect(desk.corrections.isEmpty)
+    }
+
+    @Test func navigationKeyEndsAnOpenSwitch() {
+        var desk = Desk()
+        desk.type("ghb")
+        desk.press(KeyCode.leftArrow)
+        desk.type("ljv ")
+        #expect(desk.corrections.isEmpty)
+        desk.press(KeyCode.delete)
+        #expect(desk.undone.isEmpty)
+    }
+
+    @Test(arguments: [HotkeyAction.pastePlain, .switchLayout, .selectLanguage("ru"), .toggleAutoswitch])
+    func shortcutEndsTheChance(action: HotkeyAction) {
+        let f13: UInt16 = 105
+        var settings = Settings()
+        settings.hotkeys.append(HotkeyBinding(.key(keyCode: f13, modifiers: []), action: action))
+        var desk = Desk(settings)
+        desk.type("[jhjij ")
+        desk.press(f13) // a plain paste would put text after the word
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "хорошо")
+        #expect(desk.undone.isEmpty)
+    }
+
+    @Test func olderHintDoesNotUndoANewerSwitch() throws {
+        var desk = Desk()
+        desk.type("[jhjij ")
+        desk.type("руддщ ", on: Fixture.russian)
+        #expect(desk.text == "хорошо hello ")
+        #expect(desk.corrections.count == 2)
+        let older = desk.corrections[0].seq
+        let newer = desk.corrections[1].seq
+        desk.send(.undoLastCorrection(seq: older, time: desk.time))
+        desk.settle()
+        #expect(desk.text == "хорошо hello ")
+        #expect(desk.undone.isEmpty)
+        desk.send(.undoLastCorrection(seq: newer, time: desk.time))
+        desk.settle()
+        #expect(desk.text == "хорошо руддщ ")
+        #expect(desk.undone == [newer])
+    }
+
+    @Test func hintOfAWordDoesNotUndoAnOpenSwitch() throws {
+        var desk = Desk()
+        desk.type("[jhjij ")
+        let seq = try #require(desk.corrections.first).seq
+        desk.type("руддщ ", on: Fixture.russian)
+        desk.type("ghb")
+        desk.send(.undoLastCorrection(seq: seq, time: desk.time))
+        desk.settle()
+        #expect(desk.text == "хорошо hello при")
+    }
+
+    @Test func undoReportsOnlyOncePosted() throws {
+        var desk = Desk()
+        desk.type("[jhjij ")
+        let seq = try #require(desk.corrections.first).seq
+        desk.press(KeyCode.delete, settling: false)
+        #expect(desk.undone.isEmpty)
+        #expect(desk.learned.isEmpty)
+        desk.settle()
+        #expect(desk.text == "[jhjij ")
+        #expect(desk.undone == [seq])
+        #expect(desk.learned == ["jhjij"])
+    }
+
+    @Test func cancelledUndoKeepsTheTextAndLetsTheBackspaceThrough() throws {
+        var desk = Desk()
+        desk.type("[jhjij ")
+        let seq = try #require(desk.corrections.first).seq
+        desk.cancelRetypes = true // the caret check finds other text
+        desk.press(KeyCode.delete, settling: false)
+        desk.type("ljv", settling: false) // typed while the undo is in flight
+        desk.settle()
+        #expect(desk.text == "хорошодом", "an ordinary Backspace, then the letters")
+        #expect(desk.appLayout == ru)
+        #expect(desk.undone.isEmpty)
+        #expect(desk.learned.isEmpty)
+        #expect(desk.log.contains(.correctionUndoFailed(seq: seq)))
+    }
+
+    @Test func cancelledHintUndoChangesNothing() throws {
+        var desk = Desk()
+        desk.type("[jhjij ")
+        let seq = try #require(desk.corrections.first).seq
+        desk.cancelRetypes = true
+        desk.send(.click(time: desk.time, onHint: true))
+        desk.send(.undoLastCorrection(seq: seq, time: desk.time))
+        desk.settle()
+        #expect(desk.text == "хорошо ")
+        #expect(desk.learned.isEmpty)
+        #expect(desk.log.contains(.correctionUndoFailed(seq: seq)))
+    }
+
+    @Test func switchInsideTheWordIsNotTakenBackAtItsEnd() {
+        // "ghb" starts no English word, so it switches early; the whole
+        // "ghbzzz" is English in this model. One retype, not two.
+        let classifier = Classifier(model: ModelFixture.model(withRareEnglish: ["ghbzzz"]))
+        var desk = Desk(classifier: classifier)
+        desk.type("ghbzzz ")
+        #expect(desk.text == Fixture.russian.type(Fixture.abc.strokes("ghbzzz ")))
+        #expect(desk.appLayout == ru)
+        #expect(desk.corrections.count == 1)
+        #expect(desk.corrections.first?.source == en)
     }
 }

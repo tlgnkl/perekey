@@ -152,6 +152,11 @@ struct WordJudge: Sendable {
     /// The word being typed has its place in `recent` already: judging it
     /// again ("hello." and then a space) or undoing it replaces its language.
     private var languageRecorded = false
+    /// The word being typed counts in `tally`: it was judged in the app of
+    /// `languageContext`.
+    private var languageCounted = false
+    /// Words judged now count in `tally` (`inContextApp`, as of the last judgement).
+    private var counting = false
     /// The app and site typing goes to, and the prior they give.
     private(set) var languageContext = LanguageContext()
     /// Words judged in `languageContext` since the last `takeTally()`.
@@ -164,9 +169,15 @@ struct WordJudge: Sendable {
     /// The language of the last judged word.
     var previousLanguage: String? { recent.latest }
 
-    /// What the classifier is told about the next word.
-    private var currentContext: Classifier.Context {
-        Classifier.Context(recent: recent, prior: languageContext.prior)
+    /// What the classifier is told about the next word. The app's prior
+    /// only where the focus is in that app: not in Perekey's own windows,
+    /// not in the moment the focus has moved and the context not yet.
+    private func context(focus: Focus?) -> Classifier.Context {
+        Classifier.Context(recent: recent, prior: inContextApp(focus) ? languageContext.prior : LanguagePrior())
+    }
+
+    private func inContextApp(_ focus: Focus?) -> Bool {
+        languageContext.app != nil && focus?.bundleID == languageContext.app
     }
     /// The next word starts a sentence (after `. ! ?`, a line end or a focus
     /// change): a capital there is no name. Independent of the word itself.
@@ -253,13 +264,14 @@ struct WordJudge: Sendable {
         if languageRecorded {
             let old = recent.latest
             recent.replaceLatest(language)
-            guard old != language else { return }
+            guard languageCounted, old != language else { return }
             if let old { tally[old, default: 0] -= 1 }
             if let language { tally[language, default: 0] += 1 }
         } else {
             recent.push(language)
             languageRecorded = true
-            guard let language else { return }
+            languageCounted = counting
+            guard counting, let language else { return }
             tally[language, default: 0] += 1
             tallied += 1
         }
@@ -311,7 +323,8 @@ struct WordJudge: Sendable {
             return .keep
         }
         judged = true
-        contextAtJudge = currentContext
+        counting = inContextApp(focus)
+        contextAtJudge = context(focus: focus)
         // The word after this key starts a sentence after `. ! ?` or a line
         // end. The space after "hello." judges the word again: the period is
         // in the buffer then.
@@ -410,7 +423,7 @@ struct WordJudge: Sendable {
         else { return nil }
         var decision = auto.classifier.classify(
             buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
-            context: judged ? contextAtJudge : currentContext,
+            context: judged ? contextAtJudge : context(focus: focus),
             explaining: true
         )
         if decision.verdict == .switch(to: auto.other.id),

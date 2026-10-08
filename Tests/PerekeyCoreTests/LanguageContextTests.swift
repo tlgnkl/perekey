@@ -220,6 +220,18 @@ private let ru = Fixture.russian.id
         #expect(try #require(tallies(desk).first).generation == 4)
     }
 
+    @Test func wordsTypedOutsideTheContextsAppCountForNoApp() throws {
+        // Perekey's own window, or the focus moved before the context did.
+        var desk = Desk()
+        desk.send(.languageContextChanged(LanguageContext(app: "com.apple.Safari")))
+        desk.type("hello world ")
+        desk.send(.focusChanged(Focus(bundleID: "com.apple.Safari")))
+        desk.type("keyboard ")
+        desk.send(.languageContextChanged(LanguageContext()))
+        let tally = try #require(tallies(desk).first)
+        #expect(tally.words == ["en": 1])
+    }
+
     @Test func anUndoMovesTheWordToItsLayout() throws {
         var desk = Desk()
         desk.send(.languageContextChanged(Self.textEdit))

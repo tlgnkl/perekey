@@ -23,6 +23,18 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>__VERSION__</string>
+	<!-- perekey://pause, resume, autoswitch, mode: harmless actions only (ControlCommand.swift). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.perekey.Perekey</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>perekey</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>__BUILD__</string>
 	<key>LSApplicationCategoryType</key>
@@ -31,6 +43,11 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<!-- AppleScript: Support/Perekey.sdef, copied by scripts/bundle.sh. -->
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>Perekey.sdef</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Perekey contributors. Licensed under GPL-3.0-or-later.</string>
 	<!-- Sparkle 2. The only network address of the app; README, "Network", names it. -->

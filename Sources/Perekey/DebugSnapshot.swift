@@ -121,6 +121,8 @@ enum DebugSnapshot {
         settings.apps["com.apple.Notes"] = AppRule(mode: .auto, rememberLastLayout: true)
         settings.apps["com.apple.Terminal"] = AppRule(mode: .manualOnly)
         settings.apps["com.apple.Chess"] = AppRule(mode: .off)
+        settings.statistics = true
+        let usage = sampleUsage(in: directory, name: "window")
         let file = SettingsFile(url: directory.appending(path: "window.json"))
         try? file.save(settings)
         let store = SettingsStore(file: file)
@@ -129,7 +131,7 @@ enum DebugSnapshot {
             for section in SettingsSection.allCases {
                 let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
                                       lastCheck: Date().addingTimeInterval(-3_600 * 5))
-                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates,
+                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                         initial: section, windowBackground: false)
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
@@ -224,7 +226,7 @@ enum DebugSnapshot {
             let store = SettingsStore(file: file)
             let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil)
             let usage = on ? sampleUsage(in: directory, name: name) : UsageRecorder(file: UsageStatsFile(url: directory.appending(path: "\(name).stats.json"))) { false }
-            render(GeneralPane(store: store, updates: updates, usage: usage).frame(width: size.width, height: size.height),
+            render(PrivacyPane(store: store, usage: usage).frame(width: size.width, height: size.height),
                    dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
         let sources = InputSources()

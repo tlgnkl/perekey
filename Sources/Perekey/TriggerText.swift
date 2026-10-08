@@ -28,6 +28,15 @@ enum TriggerText {
     }
 
     static func keyName(_ keyCode: UInt16) -> String {
+        // Named as Apple's Russian manuals do: «Пробел», but «Return», «Tab», «Esc», «Delete».
+        switch keyCode {
+        case KeyCode.space: return String(localized: "Space")
+        case KeyCode.return: return String(localized: "Return")
+        case KeyCode.tab: return String(localized: "Tab")
+        case KeyCode.escape: return String(localized: "Escape")
+        case KeyCode.delete: return String(localized: "Delete")
+        default: break
+        }
         if let name = fixedNames[keyCode] { return name }
         let stroke = KeyStroke(keyCode)
         if let text = LayoutReader.installedLayout("com.apple.keylayout.ABC")?.text(for: stroke)?.uppercased(),
@@ -40,7 +49,6 @@ enum TriggerText {
 
     private static let fixedNames: [UInt16: String] = {
         var names: [UInt16: String] = [
-            KeyCode.space: "Space", KeyCode.return: "Return", KeyCode.tab: "Tab", KeyCode.escape: "Escape",
             KeyCode.leftArrow: "←", KeyCode.rightArrow: "→", KeyCode.downArrow: "↓", KeyCode.upArrow: "↑",
         ]
         let functionKeys: [UInt16] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111,

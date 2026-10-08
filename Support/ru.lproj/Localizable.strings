@@ -30,12 +30,14 @@
 "Continue" = "Продолжить";
 "Control + Shift" = "Control + Shift";
 "Ctrl+Shift habit on a Mac" = "Привычка Ctrl+Shift на Mac";
+"Delete" = "Delete";
 "Don't touch" = "Не трогать";
 "Done" = "Готово";
 "Double Shift" = "Двойной Shift";
 "Drag Perekey into the Accessibility list in System Settings" = "Перетащите Perekey в список «Универсальный доступ» в Системных настройках";
 "Edge of %@ at a threshold of %lld" = "Перевес %@ при пороге %lld";
 "Edge of %@, but it needed %lld" = "Перевес %@, а нужно %lld";
+"Escape" = "Esc";
 "General" = "Основные";
 "Hint" = "Подсказка";
 "Hint at the caret" = "Подсказка у курсора";
@@ -56,6 +58,7 @@
 "One letter too many, and the fixed word is a known one" = "Лишняя буква, а исправленное слово есть в словаре";
 "One letter was missing, and the fixed word is a known one" = "Не хватало буквы, а исправленное слово есть в словаре";
 "One letter was wrong, and the fixed word is a known one" = "Одна буква не та, а исправленное слово есть в словаре";
+"Return" = "Return";
 "Shift alone, Option retypes" = "Один Shift, Option перенабирает";
 "Like Ctrl+Shift on Windows" = "Как Ctrl+Shift в Windows";
 "Like macOS" = "Как в macOS";
@@ -97,9 +100,11 @@
 "Shift twice retypes" = "Двойной Shift перенабирает";
 "Shortcuts" = "Сочетания";
 "Shows what Perekey changed, a moment after the word." = "Показывает, что Perekey изменил, сразу после слова.";
+"Space" = "Пробел";
 "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal." = "Запускайте Perekey командой «open Perekey.app», а не самим файлом. Иначе macOS выдаст доступ Терминалу.";
 "Step %lld of %lld" = "Шаг %1$lld из %2$lld";
 "Switch layout" = "Сменить раскладку";
+"Tab" = "Tab";
 "The app modes say so. Perekey does not fix words or change the layout here." = "Так задано в режимах программ. Здесь Perekey не исправляет и не меняет раскладку.";
 "The dictionary spells this word with «ё»" = "В словаре это слово пишется с «ё»";
 "The fn / 🌐 key also runs its own macOS action, which can switch the input source." = "Клавиша fn / 🌐 запускает и своё действие macOS, которое может сменить источник ввода.";

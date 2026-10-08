@@ -53,6 +53,30 @@ def norm(key):
     return re.sub(r"%(?:\d+\$)?(?:lld|ld|d|u|@|f)", "%@", key)
 
 
+SPEC = re.compile(r"%(?:(\d+)\$)?[-+ 0#]*\d*(?:\.\d+)?(lld|ld|llu|lu|d|u|@|f|s|c|x)")
+
+
+def specs(text):
+    """The format specifiers of a string, as (position or None, type); %% is no specifier."""
+    return [(int(m.group(1)) if m.group(1) else None, m.group(2)) for m in SPEC.finditer(text.replace("%%", ""))]
+
+
+def spec_problem(key, value):
+    """Why `value` cannot be formatted with the arguments `key` takes, or None.
+    Same count and types; the order too, unless the value numbers its specifiers (%1$lld)."""
+    want, have = [t for _, t in specs(key)], specs(value)
+    if sorted(want) != sorted(t for _, t in have):
+        return f"specifiers {[t for _, t in have]} do not match the key's {want}"
+    if all(p is not None for p, _ in have):
+        if any(p < 1 or p > len(want) or want[p - 1] != t for p, t in have):
+            return f"positional specifiers {[(p, t) for p, t in have]} do not match the key's {want}"
+    elif any(p is not None for p, _ in have):
+        return "mixes positional and plain specifiers"
+    elif [t for _, t in have] != want:
+        return f"specifiers {[t for _, t in have]} are in another order than the key's {want}; number them (%1$@)"
+    return None
+
+
 def unescape(s):
     return re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), s)
 
@@ -71,6 +95,33 @@ def file_keys(lang):
             for key in plistlib.load(f):
                 pairs.setdefault(key, key)
     return pairs
+
+
+def check_stringsdict(lang):
+    """Each plural entry: its variables' value types must be the key's specifiers; the formats
+    inside (one, few, other…) must keep that one specifier."""
+    bad = 0
+    for path in glob.glob(f"Support/{lang}.lproj/Localizable.stringsdict"):
+        with open(path, "rb") as f:
+            entries = plistlib.load(f)
+        for key, entry in entries.items():
+            fmt = entry.get("NSStringLocalizedFormatKey", "")
+            variables = [name for name in re.findall(r"%#@(\w+)@", fmt)]
+            want = [t for _, t in specs(key)]
+            got = []
+            for name in variables:
+                variable = entry.get(name, {})
+                got.append(variable.get("NSStringFormatValueTypeKey", ""))
+                for form, text in variable.items():
+                    if form in ("one", "two", "few", "many", "other", "zero"):
+                        inner = [t for _, t in specs(text)]
+                        if len(inner) > 1:
+                            bad += 1
+                            print(f"{lang}: stringsdict {key!r}, {name}.{form}: more than one specifier")
+            if sorted(want) != sorted(got):
+                bad += 1
+                print(f"{lang}: stringsdict {key!r}: the key takes {want} but the variables are {got}")
+    return bad
 
 
 def main():
@@ -94,9 +145,11 @@ def main():
                 bad += 1
                 print(f"{lang}: unused key {k!r}")
         for k, v in have.items():
-            if k.count("%") != v.count("%") and not re.search(r"%\d\$", v):
+            problem = spec_problem(k, v)
+            if problem:
                 bad += 1
-                print(f"{lang}: placeholder count differs in {k!r}")
+                print(f"{lang}: {k!r}: {problem}")
+        bad += check_stringsdict(lang)
         if lang != LANGS[0]:
             first = {norm(k) for k in file_keys(LANGS[0])}
             for n, k in have_n.items():

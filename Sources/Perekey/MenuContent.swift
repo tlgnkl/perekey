@@ -50,7 +50,7 @@ struct MenuContent: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
             }
-            Divider()
+            PKDivider(leading: 12, trailing: 12)
             VStack(alignment: .leading, spacing: 2) {
                 switchRow(
                     title: "Automatic switching",
@@ -75,15 +75,16 @@ struct MenuContent: View {
                 LaunchAtLoginRow(launch: launch)
             }
             .padding(.vertical, 6)
-            Divider()
+            PKDivider(leading: 12, trailing: 12)
             LayoutsList(sources: sources)
                 .padding(.vertical, 6)
-            Divider()
+            PKDivider(leading: 12, trailing: 12)
             VStack(alignment: .leading, spacing: 0) {
                 SettingsLink {
                     MenuRowLabel(title: "Settings…", shortcut: "⌘,")
                 }
                 .buttonStyle(MenuRowStyle())
+                .simultaneousGesture(TapGesture().onEnded { SettingsFront.raise() })
                 .keyboardShortcut(",")
                 if let onShowOnboarding {
                     Button(action: onShowOnboarding) {
@@ -116,18 +117,24 @@ struct MenuContent: View {
         HStack(spacing: 10) {
             CapsuleView(
                 model: CapsuleModel(code: sources.currentLayout.map(sources.indicator(of:)) ?? "⌨", struck: !store.settings.autoswitch),
-                dark: colorScheme == .dark, height: 30, fontSize: 17
+                dark: colorScheme == .dark, height: 30, fontSize: 17, animated: true
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout"))
-                    .font(.headline)
+                    .font(PK.Font.headline)
+                    .foregroundStyle(Color.pkInk)
                 Text(store.settings.autoswitch ? String(localized: "Automatic switching is on") : String(localized: "Automatic switching is off"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk2)
             }
             Spacer(minLength: 0)
         }
-        .padding(12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .glassStrip(in: RoundedRectangle(cornerRadius: PK.Radius.row, style: .continuous), glow: false)
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
     }
 
     private func switchRow(title: LocalizedStringKey, isOn: Binding<Bool>) -> some View {
@@ -153,26 +160,24 @@ struct PauseCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: reason.symbol)
-                .font(.system(size: 13, weight: .bold))
-                .frame(width: 28, height: 28)
-                .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary))
+            HatchTile(symbol: reason.symbol)
             VStack(alignment: .leading, spacing: 4) {
-                Text(reason.title(now: now)).font(.subheadline.weight(.semibold))
+                Text(reason.title(now: now)).font(PK.Font.bodyStrong).foregroundStyle(Color.pkInk)
                 Text(reason.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk2)
                     .fixedSize(horizontal: false, vertical: true)
                 if let title = reason.actionTitle {
                     Button(title, action: onAction)
-                        .controlSize(.small)
+                        .buttonStyle(.pkSmall)
                         .padding(.top, 2)
                 }
             }
             Spacer(minLength: 0)
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.accentColor.opacity(0.1)))
+        .pkCard()
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -183,12 +188,11 @@ struct SwitchLine: View {
 
     var body: some View {
         HStack {
-            Text(title)
+            Text(title).font(PK.Font.body).foregroundStyle(Color.pkInk)
             Spacer(minLength: 8)
-            Toggle("", isOn: isOn)
+            Toggle(title, isOn: isOn)
                 .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                .toggleStyle(.pkSwitch)
         }
     }
 }
@@ -204,20 +208,20 @@ struct LaunchAtLoginRow: View {
             if launch.status == .requiresApproval {
                 HStack(spacing: 6) {
                     Text("Approve Perekey in Login Items.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(PK.Font.caption)
+                        .foregroundStyle(Color.pkInk2)
                     Button("Open Settings") { launch.openSystemSettings() }
-                        .controlSize(.small)
+                        .buttonStyle(.pkSmall)
                 }
             } else if !launch.isAvailable {
                 Text("Works in the installed app only.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk2)
             }
             if let error = launch.lastError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkWarn)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -236,14 +240,14 @@ struct LayoutsList: View {
             ForEach(sources.layouts, id: \.id) { layout in
                 Button { sources.select(layout.id) } label: {
                     HStack {
-                        Text(sources.name(of: layout.id))
+                        Text(sources.name(of: layout.id)).font(PK.Font.body)
                         Spacer()
                         if sources.currentLayout == layout.id {
-                            Image(systemName: "checkmark").font(.caption.weight(.bold))
+                            Image(systemName: "checkmark").font(.system(size: 11, weight: .bold))
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(MenuRowStyle())
@@ -258,17 +262,18 @@ struct MenuRowLabel: View {
 
     var body: some View {
         HStack {
-            Text(title)
+            Text(title).font(PK.Font.body)
             Spacer()
-            if let shortcut { Text(shortcut).foregroundStyle(.secondary) }
+            if let shortcut { Text(shortcut).font(PK.Font.body).opacity(0.55) }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
         .contentShape(Rectangle())
     }
 }
 
 /// Row with the Solid Indigo Fill hover and white text from the menu spec.
+/// Inset 6pt from the edge with an 8pt radius, like a native menu item.
 struct MenuRowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         Hoverable(configuration: configuration)
@@ -279,10 +284,13 @@ struct MenuRowStyle: ButtonStyle {
         private let hovering = State(initialValue: false)
 
         var body: some View {
+            let hot = hovering.wrappedValue
             configuration.label
-                .foregroundStyle(hovering.wrappedValue ? Color.white : Color.primary)
-                .background(hovering.wrappedValue ? Color(red: 0x5E / 255, green: 0x5C / 255, blue: 0xE6 / 255) : .clear)
+                .foregroundStyle(hot ? Color.white : Color.pkInk)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hot ? Color.pkIndigoFill : .clear))
+                .padding(.horizontal, 6)
                 .onHover { hovering.wrappedValue = $0 }
+                .pkAnimation(.easeOut(duration: 0.1), value: hot)
         }
     }
 }

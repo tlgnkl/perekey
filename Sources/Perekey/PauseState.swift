@@ -25,6 +25,9 @@ final class PauseState {
     @ObservationIgnored var onTurnOnHere: (@MainActor () -> Void)?
 
     @ObservationIgnored private var wakeUp: Task<Void, Never>?
+    /// Exists only while a timed pause runs: moves `now` once a minute so the
+    /// capsule's minutes stay right with the menu closed.
+    @ObservationIgnored private var minuteTicker: Task<Void, Never>?
     @ObservationIgnored private var wakeObserver: (any NSObjectProtocol)?
 
     init() {
@@ -85,6 +88,15 @@ final class PauseState {
         pauses.expire(at: now)
         wakeUp?.cancel()
         wakeUp = nil
+        minuteTicker?.cancel()
+        minuteTicker = nil
+        if let until = pauses.timedUntil, until > now {
+            minuteTicker = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                self?.refresh()
+            }
+        }
         guard let deadline = pauses.nextDeadline else { return }
         wakeUp = Task { [weak self] in
             let wait = deadline.timeIntervalSinceNow

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import PerekeyCore
 import PerekeyInput
 import SwiftUI
 
@@ -16,6 +17,7 @@ struct PerekeyApp: App {
     private let launchAtLogin = LaunchAtLogin()
     private let updates: Updates
     private let input: InputController
+    private let shell: MenuBarShell
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
@@ -32,25 +34,105 @@ struct PerekeyApp: App {
                                               engineIsRunning: { input.tapState == .running },
                                               demoActive: { input.appModes.onboardingDemo = $0 })
         self.onboarding = onboarding
-        Task { @MainActor in onboarding.showIfFirstLaunch() }
+        let recents = RecentCorrections()
+        input.onCorrection = { recents.record($0) }
+        input.onCorrectionUndone = { recents.undone(seq: $0) }
+        let shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
+                             input: input, recents: recents, onboarding: onboarding, updates: updates)
+        self.shell = shell
+        Task { @MainActor in
+            onboarding.showIfFirstLaunch()
+            // After launch, so the status bar exists.
+            shell.start()
+        }
         // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;
         // this keeps `swift run` behaving the same way.
         NSApplication.shared.setActivationPolicy(.accessory)
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuContent(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
-                        appModes: input.appModes,
-                        onShowOnboarding: { onboarding.show() }, updates: updates)
-        } label: {
-            MenuBarLabel(sources: inputSources, store: store, pause: pause)
-        }
-        .menuBarExtraStyle(.window)
-
         Settings {
             SettingsView(store: store, recording: recording, sources: inputSources, updates: updates)
         }
+    }
+}
+
+/// The menu bar part: the live capsule and its menu panel, plus the windows the
+/// menu opens. A class, because the App value cannot hold changing state.
+@MainActor
+final class MenuBarShell {
+    private let sources: InputSources
+    private let store: SettingsStore
+    private let recents: RecentCorrections
+    private let onboarding: OnboardingController
+    private let menu: MenuPanelController
+    private let reportWindow = ReportWordWindow()
+    private let pause: PauseState
+    private var statusItem: StatusItemController?
+
+    init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
+         recents: RecentCorrections, onboarding: OnboardingController, updates: Updates)
+    {
+        self.sources = sources
+        self.store = store
+        self.pause = pause
+        self.recents = recents
+        self.onboarding = onboarding
+        let reportWindow = reportWindow
+        menu = MenuPanelController(
+            sources: sources, store: store, pause: pause, launch: launch, appModes: input.appModes,
+            recents: recents, updates: updates
+        ) { menu in
+            MenuActions(
+                openSettings: {
+                    menu.close()
+                    // A menu bar app has no Dock icon: activate first, then ask for the window.
+                    NSApp.activate()
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    SettingsFront.raise()
+                },
+                showOnboarding: { menu.close(); onboarding.show() },
+                showAbout: {
+                    menu.close()
+                    NSApp.activate()
+                    NSApp.orderFrontStandardAboutPanel(nil)
+                },
+                quit: { NSApplication.shared.terminate(nil) },
+                report: { word in
+                    menu.close()
+                    reportWindow.show(word: word, layouts: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
+                }
+            )
+        }
+    }
+
+    func start() {
+        guard statusItem == nil else { return }
+        statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu)
+    }
+}
+
+/// "Report a word" from the menu: the form in its own small window.
+@MainActor
+final class ReportWordWindow {
+    private var window: NSWindow?
+
+    func show(word: String, layouts: [String]) {
+        window?.close()
+        let sheet = ReportWordSheet(initialWord: word, layouts: layouts, version: ReportContext.version, onOpen: { [weak self] url in
+            NSWorkspace.shared.open(url)
+            self?.window?.close()
+        }, onCancel: { [weak self] in self?.window?.close() })
+        let host = NSHostingView(rootView: sheet)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.title = String(localized: "Report a word")
+        window.contentView = host
+        window.isReleasedWhenClosed = false
+        window.center()
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
     }
 }
 

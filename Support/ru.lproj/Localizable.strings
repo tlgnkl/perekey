@@ -81,7 +81,6 @@
 "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them." = "Двойной Shift открывает «Search Everywhere» в IDE от JetBrains. Если вы ими пользуетесь, выберите другое сочетание.";
 "Shift twice retypes" = "Двойной Shift перенабирает";
 "Shortcuts" = "Сочетания";
-"Show Onboarding…" = "Как пользоваться…";
 "Shows what Perekey changed, a moment after the word." = "Показывает, что Perekey изменил, сразу после слова.";
 "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal." = "Запускайте Perekey командой «open Perekey.app», а не самим файлом. Иначе macOS выдаст доступ Терминалу.";
 "Step %lld of %lld" = "Шаг %1$lld из %2$lld";
@@ -139,7 +138,6 @@
 "Replace your settings?" = "Заменить ваши настройки?";
 "The file has %@ shortcuts, %@ apps and %@ words." = "В файле: сочетаний — %@, программ — %@, слов — %@.";
 "They replace all your current settings." = "Они заменят все текущие настройки.";
-"Don't switch in %@" = "Не переключать в %@";
 "Apps" = "Программы";
 "Words" = "Слова";
 "Perekey never corrects these words, in any layout." = "Эти слова Perekey не исправляет ни в какой раскладке.";
@@ -257,3 +255,18 @@
 "Pause, the mode of the current app and the latest fixes." = "Пауза, режим текущей программы и последние правки.";
 "In Settings" = "В настройках";
 "Shortcuts, apps, sites and words." = "Сочетания, программы, сайты и слова.";
+"Recent corrections" = "Последние правки";
+"memory only" = "только в памяти";
+"Nothing yet. Corrections appear here as you type." = "Пока ничего. Правки появятся здесь, когда вы наберёте текст.";
+"Don't touch this word" = "Не трогать это слово";
+"Already on the list" = "Слово уже в списке";
+"Wrong layout" = "Не та раскладка";
+"Typo" = "Опечатка";
+"Double capital" = "Две заглавные";
+"Abbreviation" = "Аббревиатура";
+"How to Use Perekey" = "Как пользоваться";
+"About Perekey" = "О Perekey";
+"%@ — switch" = "%@ — смена";
+"%@ — retype" = "%@ — перенабор";
+"Turn on or off: %@" = "Вкл. и выкл.: %@";
+"Opens the Perekey menu" = "Открывает меню Perekey";

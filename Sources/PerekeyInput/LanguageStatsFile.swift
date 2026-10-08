@@ -3,8 +3,9 @@
 import Foundation
 import PerekeyCore
 
-/// The language counts of apps and sites (`LanguageStats`) as JSON in
-/// Application Support, next to the settings but not in them.
+/// The language counts of apps (`LanguageStats`) as JSON in Application
+/// Support, next to the settings but not in them. The counts of sites are
+/// never written: they live in memory until quit.
 ///
 /// A file of its own: the counts change every few dozen words, the settings
 /// only when the user changes something, and every settings change goes to
@@ -13,7 +14,7 @@ import PerekeyCore
 /// cannot be read, costs nothing but the counts: an unreadable file starts
 /// over, nothing is set aside.
 ///
-/// The file holds bundle IDs, hosts, language codes and numbers. Never a word.
+/// The file holds bundle IDs, language codes and numbers. Never a word, never a host.
 public struct LanguageStatsFile: Sendable {
     public let url: URL
 

@@ -155,17 +155,20 @@ public struct LanguageTally: Hashable, Sendable {
     }
 }
 
-/// The counts of every app and site, as the app layer keeps them on disk.
+/// The counts of every app and site, as the app layer keeps them.
+///
+/// Only the apps go to disk. The sites stay in memory and are gone on quit:
+/// hosts on disk would be a browsing history, and a list of them is what
+/// the counts must never become.
 public struct LanguageStats: Hashable, Sendable, Codable {
     public static let version = 1
     public var version = LanguageStats.version
     /// By bundle ID.
     public private(set) var apps: [String: LanguageCounts] = [:]
-    /// By normalized host.
+    /// By normalized host. Never encoded.
     public private(set) var sites: [String: LanguageCounts] = [:]
 
-    /// Sites kept at most: the least recently counted go first. A long list
-    /// of hosts is a browsing history, and nothing needs it.
+    /// Sites kept at most, in memory: the least recently counted go first.
     public static let maxSites = 200
     /// Counts below this many words are forgotten.
     static let minWords = 1.0
@@ -212,13 +215,12 @@ public struct LanguageStats: Hashable, Sendable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, apps, sites
+        case version, apps
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? Self.version
         apps = try container.decodeIfPresent([String: LanguageCounts].self, forKey: .apps) ?? [:]
-        sites = try container.decodeIfPresent([String: LanguageCounts].self, forKey: .sites) ?? [:]
     }
 }

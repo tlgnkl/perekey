@@ -21,7 +21,9 @@ struct LanguageStatsFileTests {
             stats.record(LanguageTally(app: "org.telegram.desktop", site: nil, words: ["ru": 40, "en": 3]), at: 100)
             stats.record(LanguageTally(app: "com.apple.Safari", site: "github.com", words: ["en": 12]), at: 200)
             try file.save(stats)
-            #expect(file.load() == stats)
+            let loaded = file.load()
+            #expect(loaded.apps == stats.apps)
+            #expect(loaded.sites.isEmpty, "sites live in memory only")
         }
     }
 
@@ -34,11 +36,11 @@ struct LanguageStatsFileTests {
         }
     }
 
-    @Test func theFileHoldsOnlyNamesCodesAndNumbers() throws {
+    @Test func theFileHoldsAppsCodesAndNumbersButNoHost() throws {
         var stats = LanguageStats()
         stats.record(LanguageTally(app: "org.telegram.desktop", site: "mail.example", words: ["ru": 40]), at: 100)
+        #expect(stats.sites.count == 1)
         let json = try #require(String(data: LanguageStatsFile.encode(stats), encoding: .utf8))
-        #expect(json == #"{"apps":{"org.telegram.desktop":{"updated":100,"words":{"ru":40}}},"#
-            + #""sites":{"mail.example":{"updated":100,"words":{"ru":40}}},"version":1}"#)
+        #expect(json == #"{"apps":{"org.telegram.desktop":{"updated":100,"words":{"ru":40}}},"version":1}"#)
     }
 }

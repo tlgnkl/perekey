@@ -227,10 +227,10 @@ private let ru = Fixture.russian.id
         encoder.outputFormatting = [.sortedKeys]
         let json = try #require(String(data: encoder.encode(stats), encoding: .utf8))
         for word in words + ["хорошо", "привет", "мир"] { #expect(!json.contains(word)) }
-        // Only names of apps and sites, language codes, numbers and the format's own keys.
+        // Only bundle IDs, language codes, numbers and the format's own keys: no host.
+        #expect(!json.contains("mail.example"))
         let strings = json.split(separator: "\"").enumerated().filter { $0.offset % 2 == 1 }.map { String($0.element) }
-        let allowed: Set<String> = ["apps", "sites", "version", "words", "updated", "en", "ru", "com.apple.TextEdit",
-                                    "mail.example"]
+        let allowed: Set<String> = ["apps", "version", "words", "updated", "en", "ru", "com.apple.TextEdit"]
         #expect(Set(strings).isSubset(of: allowed), "\(json)")
     }
 }

@@ -67,8 +67,15 @@ cp Support/Perekey.sdef "$APP/Contents/Resources/Perekey.sdef" # AppleScript dic
 # scripts/build-model.sh, made here if missing (needs the data cache of
 # scripts/fetch-data.sh lexicon). The app maps the files of the installed
 # layouts' languages from Bundle.main: Contents/Resources/<language>.pklm.
+# Each file must match its hash in data/model.sha256: a stale local build
+# would otherwise ship silently.
 MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
 LANGUAGES="${PEREKEY_LANGUAGES:-ru en}"
+if [[ -e "$MODEL" && ! -d "$MODEL" ]]; then
+    echo "error: PEREKEY_MODEL=$MODEL is a file; it names the directory of <language>.pklm now" >&2
+    echo "       (the single perekey.model is gone, scripts/build-model.sh writes ru.pklm, en.pklm, uk.pklm)" >&2
+    exit 1
+fi
 for language in $LANGUAGES; do
     if [[ ! -f "$MODEL/$language.pklm" ]]; then
         scripts/build-model.sh --out "$MODEL" >/dev/null
@@ -76,6 +83,13 @@ for language in $LANGUAGES; do
     fi
 done
 for language in $LANGUAGES; do
+    want="$(awk -v name="$language.pklm" '$2 == name { print $1 }' data/model.sha256)"
+    have="$(shasum -a 256 "$MODEL/$language.pklm" | cut -d' ' -f1)"
+    if [[ -z "$want" || "$have" != "$want" ]]; then
+        echo "error: $MODEL/$language.pklm does not match data/model.sha256 (${want:-no entry})." >&2
+        echo "       Rebuild it: scripts/build-model.sh --out $MODEL" >&2
+        exit 1
+    fi
     cp "$MODEL/$language.pklm" "$APP/Contents/Resources/$language.pklm"
 done
 

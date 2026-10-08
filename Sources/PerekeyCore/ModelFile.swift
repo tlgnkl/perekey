@@ -12,8 +12,10 @@ public enum ModelFile {
     public static let fileExtension = "pklm"
 
     /// A model file, or a directory of them. From a directory it maps the
-    /// files of `languages` that are there (`<language>.pklm`), or every
-    /// file when `languages` is nil.
+    /// file of each of `languages` (`<language>.pklm`), and throws when one
+    /// is missing: the tools ask for what they measure. With `languages`
+    /// nil it maps every file there. The app's lenient path, which skips a
+    /// language without a file, is `ModelStore.model(languages:)`.
     public static func load(_ path: String, languages: [String]? = nil) throws -> LanguageModel {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -21,7 +23,7 @@ public enum ModelFile {
         }
         let names = try languages.map { $0.map { "\($0).\(fileExtension)" } }
             ?? FileManager.default.contentsOfDirectory(atPath: path).filter { $0.hasSuffix(".\(fileExtension)") }.sorted()
-        let models = try names.map { "\(path)/\($0)" }.filter { FileManager.default.fileExists(atPath: $0) }.map(loadFile)
+        let models = try names.map { try loadFile("\(path)/\($0)") }
         guard !models.isEmpty else { throw CocoaError(.fileReadNoSuchFile) }
         return LanguageModel(combining: models)
     }

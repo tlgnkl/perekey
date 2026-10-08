@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import Foundation
 import Testing
 @testable import PerekeyCore
 
@@ -82,5 +83,21 @@ import Testing
         #expect(ModelFormat.fold(0x2019) == 0x2019, "’ is typed with ⌥ only; English text keeps it as a symbol")
         #expect(ModelFormat.Fingerprint.of("пʼять".unicodeScalars, folded: true)
             == ModelFormat.Fingerprint.of("п'ять".unicodeScalars, folded: true))
+    }
+
+    @Test func aDirectoryMapsTheLanguagesAskedForAndFailsOnAMissingOne() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("perekey-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for (code, words) in [("ru", ["привет"]), ("en", ["hello"])] {
+            var builder = ModelBuilder()
+            builder.addLanguage(code, alphabet: code == "ru" ? Self.russianAlphabet : Self.englishAlphabet)
+            for word in words { builder.addForm(word, language: code, rank: 200, weight: 100) }
+            try Data(builder.build()).write(to: directory.appendingPathComponent("\(code).pklm"))
+        }
+        #expect(try ModelFile.load(directory.path).codes == ["ru", "en"])
+        #expect(try ModelFile.load(directory.path, languages: ["en"]).codes == ["en"])
+        // A tool that asks for a language must not measure without it.
+        #expect(throws: (any Error).self) { try ModelFile.load(directory.path, languages: ["ru", "uk"]) }
     }
 }

@@ -48,7 +48,12 @@ public enum ModelStore {
             if let model = model(at: url.path) { models.append(model) }
         }
         guard !models.isEmpty else {
-            log.error("no model for \(languages.sorted().joined(separator: ", "), privacy: .public): automatic switching is off")
+            if languages.isEmpty {
+                // No layout of an enabled language: nothing to switch, nothing wrong.
+                log.info("no layout of \(enabledLanguages.sorted().joined(separator: ", "), privacy: .public): no model mapped")
+            } else {
+                log.error("no model for \(languages.sorted().joined(separator: ", "), privacy: .public): automatic switching is off")
+            }
             return nil
         }
         return models.count == 1 ? models[0] : LanguageModel(combining: models)

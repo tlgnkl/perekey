@@ -39,6 +39,8 @@ struct MenuContent: View {
     let appModes: AppModeController
     /// Opens the onboarding window again; `nil` hides the row (snapshots).
     var onShowOnboarding: (() -> Void)?
+    /// `nil` hides "Check for Updates…" (snapshots).
+    var updates: Updates?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -86,6 +88,9 @@ struct MenuContent: View {
                 .buttonStyle(MenuRowStyle())
                 .simultaneousGesture(TapGesture().onEnded { SettingsFront.raise() })
                 .keyboardShortcut(",")
+                if let updates {
+                    UpdatesMenuRow(updates: updates)
+                }
                 if let onShowOnboarding {
                     Button(action: onShowOnboarding) {
                         MenuRowLabel(title: "Show Onboarding…", shortcut: nil)
@@ -227,6 +232,31 @@ struct LaunchAtLoginRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 3)
+    }
+}
+
+/// "Check for Updates…", or the gentle reminder of a found update. Hidden when
+/// a profile forbids updates; dimmed in a build that cannot update itself.
+struct UpdatesMenuRow: View {
+    let updates: Updates
+
+    var body: some View {
+        let policy = updates.policy
+        if policy.state != .managedOff {
+            Button { updates.checkNow() } label: {
+                if let version = updates.pendingVersion {
+                    HStack(spacing: 0) {
+                        MenuRowLabel(title: "Install Update \(version)…", shortcut: nil)
+                        Circle().fill(Color.pkIndigo).frame(width: 7, height: 7).padding(.trailing, 12)
+                            .accessibilityHidden(true)
+                    }
+                } else {
+                    MenuRowLabel(title: "Check for Updates…", shortcut: nil)
+                }
+            }
+            .buttonStyle(MenuRowStyle())
+            .disabled(!policy.canCheckNow)
+        }
     }
 }
 

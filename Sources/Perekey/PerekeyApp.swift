@@ -14,6 +14,7 @@ struct PerekeyApp: App {
     private let onboarding: OnboardingController
     private let pause = PauseState()
     private let launchAtLogin = LaunchAtLogin()
+    private let updates: Updates
     private let input: InputController
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -24,6 +25,7 @@ struct PerekeyApp: App {
         let store = SettingsStore()
         self.store = store
         recording = ShortcutRecording(store: store)
+        updates = Updates(store: store)
         let input = InputController(sources: inputSources, store: store, pause: pause)
         self.input = input
         let onboarding = OnboardingController(store: store, sources: inputSources,
@@ -39,14 +41,14 @@ struct PerekeyApp: App {
         MenuBarExtra {
             MenuContent(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
                         appModes: input.appModes,
-                        onShowOnboarding: { onboarding.show() })
+                        onShowOnboarding: { onboarding.show() }, updates: updates)
         } label: {
             MenuBarLabel(sources: inputSources, store: store, pause: pause)
         }
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(store: store, recording: recording, sources: inputSources)
+            SettingsView(store: store, recording: recording, sources: inputSources, updates: updates)
         }
     }
 }

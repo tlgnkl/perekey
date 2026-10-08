@@ -13,6 +13,9 @@
 #                  (default: "Perekey Dev" from scripts/dev-cert.sh if present, else -)
 #   PEREKEY_BINARY a prebuilt executable (a universal one from build-universal.sh)
 #                  to use instead of building the host product
+#   SPARKLE_FRAMEWORK  Sparkle.framework to embed (default: next to the
+#                  executable, where SwiftPM puts it)
+#   SPARKLE_PUBLIC_ED_KEY  replaces SUPublicEDKey of Support/Info.plist
 #   PEREKEY_MODEL  language model file (default: $SCRATCH_PATH/model/perekey.model,
 #                  built by scripts/build-model.sh if missing)
 set -euo pipefail
@@ -39,12 +42,18 @@ else
     swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --product Perekey
     BINARY="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --show-bin-path)/Perekey"
 fi
+SPARKLE_FRAMEWORK="${SPARKLE_FRAMEWORK:-$(dirname "$BINARY")/Sparkle.framework}"
+[[ -d "$SPARKLE_FRAMEWORK" ]] || { echo "error: no Sparkle.framework at $SPARKLE_FRAMEWORK" >&2; exit 1; }
 
 APP="$OUT/Perekey.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/Perekey"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" Support/Info.plist > "$APP/Contents/Info.plist"
+# Overrides the public key of Support/Info.plist, e.g. to test scripts/appcast.sh with a throwaway key.
+if [[ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+    plutil -replace SUPublicEDKey -string "$SPARKLE_PUBLIC_ED_KEY" "$APP/Contents/Info.plist"
+fi
 # Resources load from Bundle.main; Bundle.module of an executable target would break the signature.
 for lproj in Support/*.lproj; do
     cp -R "$lproj" "$APP/Contents/Resources/"
@@ -60,6 +69,37 @@ if [[ ! -f "$MODEL" ]]; then
 fi
 cp "$MODEL" "$APP/Contents/Resources/perekey.model"
 
-codesign --force --options runtime --timestamp=none ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} \
-    --sign "$SIGN_IDENTITY" "$APP"
+# Sparkle 2 (docs/release.md). The executable links @rpath/Sparkle.framework.
+# SwiftPM leaves rpaths into the build directory; the bundle needs only
+# Contents/Frameworks. Perekey is not sandboxed, so Sparkle's XPC services
+# (needed only by sandboxed apps) are left out.
+FRAMEWORKS="$APP/Contents/Frameworks"
+mkdir -p "$FRAMEWORKS"
+ditto "$SPARKLE_FRAMEWORK" "$FRAMEWORKS/Sparkle.framework"
+rm -rf "$FRAMEWORKS/Sparkle.framework/Versions/B/XPCServices" "$FRAMEWORKS/Sparkle.framework/XPCServices"
+EXE="$APP/Contents/MacOS/Perekey"
+# install_name_tool warns that it invalidates the linker signature; the app is signed below.
+otool -l "$EXE" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | sort -u | while read -r rpath; do
+    [[ "$rpath" == /usr/lib/swift ]] || install_name_tool -delete_rpath "$rpath" "$EXE" 2>/dev/null
+done
+install_name_tool -add_rpath @executable_path/../Frameworks "$EXE" 2>/dev/null
+
+# Sign inside out with one identity: Sparkle's helpers, the framework, the app.
+# Library validation lets a hardened app load only libraries of its own team.
+# The local "Perekey Dev" and ad hoc signatures have no team, so those builds
+# get an entitlement that turns the check off; Developer ID builds do not.
+SIGN=(codesign --force --options runtime ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} --sign "$SIGN_IDENTITY")
+APP_ENTITLEMENTS=()
+if [[ "$SIGN_IDENTITY" == "Developer ID Application"* ]]; then
+    SIGN+=(--timestamp) # notarization needs a secure timestamp
+else
+    SIGN+=(--timestamp=none)
+    APP_ENTITLEMENTS=(--entitlements Support/Dev.entitlements)
+fi
+SPARKLE="$FRAMEWORKS/Sparkle.framework/Versions/B"
+"${SIGN[@]}" "$SPARKLE/Autoupdate"
+"${SIGN[@]}" "$SPARKLE/Updater.app"
+"${SIGN[@]}" "$FRAMEWORKS/Sparkle.framework"
+"${SIGN[@]}" ${APP_ENTITLEMENTS[@]+"${APP_ENTITLEMENTS[@]}"} "$APP"
+codesign --verify --deep --strict "$APP"
 echo "$APP"

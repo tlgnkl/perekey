@@ -16,7 +16,15 @@ let package = Package(
         // and tap thread rules are in docs/PLAN.md, "Потоки".
         .target(name: "PerekeyInput", dependencies: ["PerekeyCore"]),
         // The menu bar app.
-        .executableTarget(name: "Perekey", dependencies: ["PerekeyCore", "PerekeyInput"]),
+        .executableTarget(name: "Perekey", dependencies: ["PerekeyCore", "PerekeyInput", "Sparkle"]),
+        // Sparkle 2, the official release XCFramework. scripts/bundle.sh embeds it in
+        // Contents/Frameworks and signs it. To upgrade: take `version` and `checksum`
+        // from Package.swift of the Sparkle tag.
+        .binaryTarget(
+            name: "Sparkle",
+            url: "https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-for-Swift-Package-Manager.zip",
+            checksum: "17e28312b8e18ab7cdbbe09a6fb28cc55a5479ec6c371dbc07cdecd2a14fd959"
+        ),
         // Dev tool: dumps installed layouts as test fixtures.
         .executableTarget(name: "perekey-layout-dump", dependencies: ["PerekeyCore", "PerekeyInput"]),
         // Benchmarks InputMachine and the classifier; scripts/bench.sh runs it in CI.

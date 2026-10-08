@@ -48,12 +48,17 @@ public struct AppSettings: Hashable, Sendable {
     public var layoutSound: SoundSetting
     /// Played after a successful retype. Off by default.
     public var correctionSound: SoundSetting
+    /// Sparkle checks for updates on its own schedule. On by default. Off, Perekey
+    /// makes no network requests unless the user clicks "Check Now".
+    public var checkForUpdates: Bool
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
                 words: WordExceptions = WordExceptions(), sites: [String: SiteRule] = [:],
-                layoutSound: SoundSetting = .layoutSwitch, correctionSound: SoundSetting = .correction)
+                layoutSound: SoundSetting = .layoutSwitch, correctionSound: SoundSetting = .correction,
+                checkForUpdates: Bool = true)
     {
+        self.checkForUpdates = checkForUpdates
         self.sites = sites
         self.layoutSound = layoutSound
         self.correctionSound = correctionSound
@@ -101,6 +106,7 @@ public struct AppSettings: Hashable, Sendable {
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
+        case checkForUpdates
     }
 
     public init(from decoder: any Decoder) throws {
@@ -116,5 +122,6 @@ extension AppSettings: Codable {
         layoutSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .layoutSound)) ?? defaults.layoutSound
         correctionSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .correctionSound))
             ?? defaults.correctionSound
+        checkForUpdates = (try? container.decodeIfPresent(Bool.self, forKey: .checkForUpdates)) ?? defaults.checkForUpdates
     }
 }

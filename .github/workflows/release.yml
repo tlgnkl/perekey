@@ -1,6 +1,6 @@
 # Release: on a v* tag, build a universal app, pack a DMG, optionally sign and
-# notarize it, sign the Sparkle update, and attach everything to the GitHub
-# release.
+# notarize it, write the signed Sparkle appcast, attach everything to the
+# GitHub release, and publish the appcast on GitHub Pages.
 #
 # Secrets (all optional; a missing secret skips its step, and the release is
 # then an unsigned preview build):
@@ -18,10 +18,12 @@ on:
 
 permissions:
   contents: write
+  # Starts pages.yml, which publishes the new appcast.xml.
+  actions: write
 
-env:
-  # Keep in step with the Sparkle version in Package.swift.
-  SPARKLE_VERSION: '2.7.1'
+# Sparkle's tools come from the same zip and checksum as the binaryTarget in
+# Package.swift (scripts/appcast.sh reads them there), so there is no second
+# version to keep in step.
 
 jobs:
   release:
@@ -89,7 +91,7 @@ jobs:
           # The stapled DMG changed, so its checksum did too.
           (cd .build/dmg && shasum -a 256 "Perekey-$VERSION.dmg" > "Perekey-$VERSION.dmg.sha256")
 
-      - name: Sign the update for Sparkle
+      - name: Appcast for Sparkle
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
@@ -97,21 +99,24 @@ jobs:
             echo "No SPARKLE_ED_PRIVATE_KEY: no appcast entry for this release."
             exit 0
           fi
-          # The exact appcast steps are documented in docs/release.md.
-          curl -fsSL -o "$RUNNER_TEMP/sparkle.tar.xz" \
-            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
-          mkdir "$RUNNER_TEMP/sparkle"
-          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
-          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" \
-            --ed-key-file - ".build/dmg/Perekey-$VERSION.dmg" | tee .build/dmg/sparkle-signature.txt
+          # Signs the DMG with EdDSA and writes .build/appcast/appcast.xml (docs/release.md).
+          TAG="$GITHUB_REF_NAME" scripts/appcast.sh ".build/dmg/Perekey-$VERSION.dmg"
 
       - name: Upload to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           files=(".build/dmg/Perekey-$VERSION.dmg" ".build/dmg/Perekey-$VERSION.dmg.sha256")
-          [[ -f .build/dmg/sparkle-signature.txt ]] && files+=(.build/dmg/sparkle-signature.txt)
           [[ -f .build/appcast/appcast.xml ]] && files+=(.build/appcast/appcast.xml)
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --title "Perekey $VERSION" --generate-notes
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+
+      - name: Publish the appcast on GitHub Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # pages.yml takes appcast.xml from the release GitHub marks "Latest"
+        # (never a prerelease) and serves it at SUFeedURL.
+        run: |
+          [[ -f .build/appcast/appcast.xml ]] || exit 0
+          gh workflow run pages.yml --ref main

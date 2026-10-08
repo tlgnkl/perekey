@@ -90,7 +90,10 @@ enum DebugSnapshot {
                 let pause = PauseState(frozen: menu.pause, now: now)
                 let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
                 appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", isGame: false))
-                let view = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch, appModes: appModes)
+                let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil,
+                                      pendingVersion: menu.name == "normal" ? "1.2" : nil)
+                let view = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch, appModes: appModes,
+                                       updates: updates)
                     .background(Color(nsColor: .windowBackgroundColor))
                 render(view, dark: dark, size: CGSize(width: 318, height: 520),
                        to: directory.appending(path: "menu-\(menu.name)-\(suffix).png"))
@@ -115,7 +118,10 @@ enum DebugSnapshot {
         let recording = ShortcutRecording(store: store)
         for dark in [false, true] {
             for section in SettingsSection.allCases {
-                let view = SettingsView(store: store, recording: recording, sources: sources, initial: section, windowBackground: false)
+                let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
+                                      lastCheck: Date().addingTimeInterval(-3_600 * 5))
+                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates,
+                                        initial: section, windowBackground: false)
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
             }
@@ -195,12 +201,23 @@ enum DebugSnapshot {
             render(view, dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
         let general = SettingsStore(file: SettingsFile(url: directory.appending(path: "general.json")))
-        render(GeneralPane(store: general).frame(width: size.width, height: 460), dark: false,
-               size: CGSize(width: size.width, height: 460), to: directory.appending(path: "general-light.png"))
+        let generalSize = CGSize(width: size.width, height: 720)
+        let updateStates: [(name: String, managed: ManagedSettings, configured: Bool, lastCheck: Date?, dark: Bool)] = [
+            ("general-light", ManagedSettings(), true, Date().addingTimeInterval(-3_600 * 5), false),
+            ("general-managed-light", ManagedSettings(updatesDisabled: true), true, nil, false),
+            ("general-devbuild-dark", ManagedSettings(), false, nil, true),
+        ]
+        for state in updateStates {
+            let updates = Updates(store: general, preview: state.managed, configured: state.configured, lastCheck: state.lastCheck)
+            render(GeneralPane(store: general, updates: updates).frame(width: generalSize.width, height: generalSize.height),
+                   dark: state.dark, size: generalSize, to: directory.appending(path: "\(state.name).png"))
+        }
         let soundsFile = SettingsFile(url: directory.appending(path: "general-sounds.json"))
         try? soundsFile.save(AppSettings(layoutSound: SoundSetting(isOn: true, name: "Pop"),
                                          correctionSound: SoundSetting(isOn: false, name: "Glass")))
-        render(GeneralPane(store: SettingsStore(file: soundsFile)).frame(width: size.width, height: 460), dark: true,
+        let soundsStore = SettingsStore(file: soundsFile)
+        let soundsUpdates = Updates(store: soundsStore, preview: ManagedSettings(), configured: true, lastCheck: nil)
+        render(GeneralPane(store: soundsStore, updates: soundsUpdates).frame(width: size.width, height: 460), dark: true,
                size: CGSize(width: size.width, height: 460), to: directory.appending(path: "general-sounds-dark.png"))
         for (name, word, dark) in [("report-light", "ghbdtn", false), ("report-nothing-dark", "", true)] {
             let sheet = ReportWordSheet(initialWord: word, layouts: ["ABC", "Russian"],

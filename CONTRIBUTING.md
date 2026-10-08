@@ -12,7 +12,8 @@ Requires macOS 14+ and Swift 6. Command Line Tools are enough; Xcode is not need
 | `scripts/test.sh` | Run unit tests. Works around the missing Swift Testing macro plugin on Command Line Tools. Extra arguments go to `swift test`. |
 | `scripts/bench.sh` | Benchmark `InputMachine` in release. `BENCH_BASE=<ref>` compares with another commit and fails on a >20 % slowdown. Run it when you touch `PerekeyCore`. |
 | `scripts/dev-cert.sh` | Run once. Creates a local self-signed "Perekey Dev" identity. macOS ties Accessibility and Input Monitoring grants to the code signature; an ad-hoc signature changes every build, so the grant is lost after each rebuild. |
-| `scripts/bundle.sh` | Build and sign `.build/app/Perekey.app`. |
+| `scripts/bundle.sh` | Build and sign `.build/app/Perekey.app`, with Sparkle embedded in `Contents/Frameworks`. |
+| `scripts/appcast.sh` | Write the signed Sparkle appcast for a release DMG. CI runs it; see [docs/release.md](docs/release.md). |
 
 Start the app with `open .build/app/Perekey.app`, not by running the binary.
 macOS (TCC) attributes permissions to the process that launched it, so a binary

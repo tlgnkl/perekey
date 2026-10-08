@@ -193,3 +193,13 @@
 "Transliterate the selection" = "Transliterate the selection";
 "What Perekey did" = "What Perekey did";
 "You see the text before anything is sent." = "You see the text before anything is sent.";
+"Updates" = "Updates";
+"Check for updates automatically" = "Check for updates automatically";
+"Once a day Perekey downloads the list of versions from one address. Nothing about you or this Mac is sent." = "Once a day Perekey downloads the list of versions from one address. Nothing about you or this Mac is sent.";
+"Last check" = "Last check";
+"Check Now" = "Check Now";
+"Managed by your organization. Perekey does not check for updates and makes no network requests." = "Managed by your organization. Perekey does not check for updates and makes no network requests.";
+"This build has no update key and cannot update itself." = "This build has no update key and cannot update itself.";
+"Never" = "Never";
+"Install Update %@…" = "Install Update %@…";
+"Check for Updates…" = "Check for Updates…";

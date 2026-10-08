@@ -34,6 +34,10 @@ done
 
 mkdir -p "$SCRATCH_PATH/lipo"
 lipo -create "${slices[@]}" -output "$SCRATCH_PATH/lipo/Perekey"
+# Sparkle's XCFramework is already universal: any slice's copy will do.
+# bundle.sh finds it next to PEREKEY_BINARY.
+rm -rf "$SCRATCH_PATH/lipo/Sparkle.framework"
+ditto "$bin_dir/Sparkle.framework" "$SCRATCH_PATH/lipo/Sparkle.framework"
 
 # The model is architecture-independent; build it once, next to the slices.
 export PEREKEY_MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model/perekey.model}"

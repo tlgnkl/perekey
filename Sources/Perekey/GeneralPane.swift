@@ -6,16 +6,18 @@ import PerekeyInput
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Settings → General: sounds, feedback, and export and import of all settings.
+/// Settings → General: sounds, updates, feedback, and export and import of all settings.
 struct GeneralPane: View {
     let store: SettingsStore
+    let updates: Updates
     /// Names of the enabled layouts, for the report.
     let layoutNames: [String]
 
     private let reporting: State<Bool>
 
-    init(store: SettingsStore, layoutNames: [String] = [], isReporting: Bool = false) {
+    init(store: SettingsStore, updates: Updates, layoutNames: [String] = [], isReporting: Bool = false) {
         self.store = store
+        self.updates = updates
         self.layoutNames = layoutNames
         reporting = State(initialValue: isReporting)
     }
@@ -23,6 +25,7 @@ struct GeneralPane: View {
     var body: some View {
         PKPane(title: Text("General")) {
             soundsSection
+            updatesSection
             PKGroup(header: Text("Feedback")) {
                 PKRow(Text("A wrong correction?"), detail: Text("You see the text before anything is sent.")) {
                     Button("Report a word…") { reporting.wrappedValue = true }
@@ -57,6 +60,43 @@ struct GeneralPane: View {
                 reporting.wrappedValue = false
             }, onCancel: { reporting.wrappedValue = false })
         }
+    }
+
+    /// The switch, the last check and "Check Now". A profile turns it all off;
+    /// a development build has no key to check updates with.
+    private var updatesSection: some View {
+        let policy = updates.policy
+        return PKGroup(header: Text("Updates")) {
+            PKRow(Text("Check for updates automatically"),
+                  detail: Text("Once a day Perekey downloads the list of versions from one address. Nothing about you or this Mac is sent.")) {
+                Toggle(isOn: Binding(get: { updates.checksAutomatically }, set: { updates.setChecksAutomatically($0) })) {
+                    Text("Check for updates automatically")
+                }
+                .labelsHidden()
+                .toggleStyle(.pkSwitch)
+                .disabled(policy.isLocked)
+            }
+            PKDivider()
+            PKRow(Text("Last check"), detail: lastCheckText) {
+                Button("Check Now") { updates.checkNow() }
+                    .buttonStyle(.pkSecondary)
+                    .disabled(!policy.canCheckNow)
+            }
+            switch policy.state {
+            case .managedOff:
+                PKCallout(Text("Managed by your organization. Perekey does not check for updates and makes no network requests."),
+                          symbol: "building.2.fill", quiet: true)
+            case .notConfigured:
+                PKCallout(Text("This build has no update key and cannot update itself."), symbol: "info.circle.fill", quiet: true)
+            case .automatic, .manual:
+                EmptyView()
+            }
+        }
+    }
+
+    private var lastCheckText: Text {
+        guard let date = updates.lastCheck else { return Text("Never") }
+        return Text(verbatim: date.formatted(date: .abbreviated, time: .shortened))
     }
 
     /// A switch, a system sound picker and a play button.

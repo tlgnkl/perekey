@@ -193,3 +193,13 @@
 "Transliterate the selection" = "Транслитерировать выделение";
 "What Perekey did" = "Что сделал Perekey";
 "You see the text before anything is sent." = "Текст виден до отправки.";
+"Updates" = "Обновления";
+"Check for updates automatically" = "Проверять обновления автоматически";
+"Once a day Perekey downloads the list of versions from one address. Nothing about you or this Mac is sent." = "Раз в день Perekey скачивает список версий с одного адреса. Ничего о вас и об этом Mac не отправляется.";
+"Last check" = "Последняя проверка";
+"Check Now" = "Проверить сейчас";
+"Managed by your organization. Perekey does not check for updates and makes no network requests." = "Управляется вашей организацией. Perekey не проверяет обновления и не обращается к сети.";
+"This build has no update key and cannot update itself." = "В этой сборке нет ключа обновлений, она не обновляется сама.";
+"Never" = "Ни разу";
+"Install Update %@…" = "Установить обновление %@…";
+"Check for Updates…" = "Проверить обновления…";

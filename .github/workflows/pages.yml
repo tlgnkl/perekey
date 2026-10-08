@@ -1,7 +1,8 @@
 # Deploys site/ to GitHub Pages. In the repository settings, set
 # Pages > Source to "GitHub Actions" once.
-# Later the Sparkle appcast goes into the same artifact: put appcast.xml into
-# site/ (or copy it into the upload directory in a step before upload).
+# The Sparkle appcast (SUFeedURL, https://tlgnkl.github.io/perekey/appcast.xml)
+# goes into the same artifact: appcast.xml of the latest release, which
+# release.yml writes and then starts this workflow. See docs/release.md.
 name: Pages
 
 on:
@@ -28,6 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Take the appcast from the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern appcast.xml --dir site --clobber \
+            || echo "No release with appcast.xml yet."
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

@@ -158,8 +158,115 @@ if classifierP99 > 100_000 {
     failed = true
 }
 
+// Automatic switching: the machine with the classifier on, typing a mix of
+// words in the right and the wrong layout. The driver plays the system layer:
+// it posts each retype, sends its synthetic keys back, confirms the layout and
+// replays held keys, so switches, fences, replays and undos all run. Every
+// handled event is timed on its own, classification included.
+struct AutoswitchRun {
+    var events = 0
+    var samples: [Double] = []
+    var corrections = 0
+}
+
+func autoswitchSession(rounds: Int) -> AutoswitchRun {
+    var run = AutoswitchRun()
+    run.samples.reserveCapacity(rounds * 80)
+    var machine = InputMachine(layouts: [abc, russian], currentLayout: abc.id, classifier: classifier)
+    _ = machine.handle(.focusChanged(Focus(bundleID: "app.perekey.bench")))
+    var time = 0.0
+    var held: [KeyEvent] = []
+    var retypes: [Retype] = []
+    var selected: LayoutID?
+    // Physical keys of each word in the layout it is meant for: when the
+    // other layout is selected, the word comes out wrong and gets switched.
+    let words: [(String, LayoutMap)] = [
+        ("привет", russian), ("мир", russian), ("hello", abc), ("world", abc), ("хорошо", russian),
+        ("будет", russian), ("code", abc), ("выбор", russian), ("это", russian), ("keyboard", abc),
+        ("layout", abc), ("спасибо", russian), ("https://example.com", abc), ("the", abc), ("и", russian),
+    ]
+
+    func handle(_ event: InputEvent) -> Output {
+        let start = clock.now
+        let output = machine.handle(event)
+        run.samples.append(nanoseconds(clock.now - start))
+        run.events += 1
+        for effect in output.effects {
+            switch effect {
+            case let .selectLayout(id): selected = id
+            case let .retype(retype): retypes.append(retype)
+            case .corrected: run.corrections += 1
+            case .releaseHeld:
+                let replay = held
+                held.removeAll()
+                for var event in replay {
+                    event.origin = .replayed
+                    key(event)
+                }
+            default: break
+            }
+        }
+        return output
+    }
+    func key(_ event: KeyEvent) {
+        time += 0.0005
+        if handle(.key(event, time: time)).disposition == .hold { held.append(event) }
+    }
+    func settle() {
+        while selected != nil || !retypes.isEmpty {
+            if !retypes.isEmpty {
+                let retype = retypes.removeFirst()
+                guard machine.pendingRetypeSeq == retype.seq else { continue }
+                time += 0.001
+                _ = handle(.retypePosted(seq: retype.seq, time: time))
+                let count = retype.deleteCount + retype.keys.count
+                for index in 0..<count {
+                    key(KeyEvent(.down, keyCode: 0, origin: .own(seq: retype.seq, last: index == count - 1)))
+                }
+            }
+            if let id = selected {
+                selected = nil
+                _ = handle(.layoutChanged(id))
+            }
+        }
+    }
+    func press(_ stroke: KeyStroke) {
+        let flags: UInt64 = stroke.modifiers.contains(.shift) ? 0x2_0002 : 0
+        time += 0.06
+        key(KeyEvent(.down, keyCode: stroke.keyCode, flags: flags))
+        time += 0.03
+        key(KeyEvent(.up, keyCode: stroke.keyCode, flags: flags))
+        settle()
+    }
+
+    for round in 0..<rounds {
+        let (word, layout) = words[round % words.count]
+        for stroke in layout.strokes(word) { press(stroke) }
+        press(KeyStroke(KeyCode.space))
+        // Now and then the user takes a switch back.
+        if round % 11 == 5 { press(KeyStroke(KeyCode.delete)) }
+    }
+    return run
+}
+
+var autoswitch = autoswitchSession(rounds: 6000)
+autoswitch.samples.sort()
+let autoswitchMean = autoswitch.samples.reduce(0, +) / Double(autoswitch.samples.count)
+let autoswitchP99 = autoswitch.samples[autoswitch.samples.count * 99 / 100]
+print(String(format: "autoswitch: %d events, %d corrections: mean %.0f ns, p99 %.0f ns, max %.0f ns",
+             autoswitch.events, autoswitch.corrections, autoswitchMean, autoswitchP99, autoswitch.samples.last!))
+if autoswitchP99 > 1_000_000 {
+    print("FAIL: autoswitch p99 exceeds the 1 ms tap callback budget")
+    failed = true
+}
+if autoswitch.corrections == 0 {
+    print("FAIL: the autoswitch session switched nothing")
+    failed = true
+}
+
 if arguments.count >= 3 {
-    try JSONEncoder().encode(["mean": mean, "p99": p99, "classifier": classifierMean, "classifierP99": classifierP99])
+    try JSONEncoder().encode(["mean": mean, "p99": p99, "classifier": classifierMean, "classifierP99": classifierP99,
+                              "autoswitch": autoswitchMean, "autoswitchP99": autoswitchP99])
         .write(to: URL(fileURLWithPath: arguments[2]))
 }
 exit(failed ? 1 : 0)

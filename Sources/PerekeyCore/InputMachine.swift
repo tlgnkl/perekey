@@ -40,7 +40,11 @@ public struct InputMachine: Sendable {
     public private(set) var buffer = WordBuffer()
     /// The layout Perekey believes is selected: the last one it selected, or
     /// the last one the system reported.
-    public private(set) var currentLayout: LayoutID?
+    public private(set) var currentLayout: LayoutID? {
+        didSet { currentMap = currentLayout.flatMap { layouts[$0] } }
+    }
+    /// The table of `currentLayout`, looked up once per change, not per key.
+    private var currentMap: LayoutMap?
 
     private var detector: ChordDetector<HotkeyAction>
     /// Key triggers, with modifiers as a `kindMask` so matching does not allocate.
@@ -155,6 +159,7 @@ public struct InputMachine: Sendable {
         apply(settings)
         setLayouts(layouts)
         self.currentLayout = currentLayout
+        currentMap = currentLayout.flatMap { self.layouts[$0] }
         confirmedLayout = currentLayout
     }
 
@@ -393,7 +398,7 @@ public struct InputMachine: Sendable {
             return
         }
         let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
-        guard let currentLayout, let map = layouts[currentLayout] else {
+        guard let currentLayout, let map = currentMap else {
             buffer.clear()
             return
         }
@@ -418,11 +423,17 @@ public struct InputMachine: Sendable {
 
     // MARK: - Automatic switching
 
+    /// The flags that let automatic switching act, without any lookup: the
+    /// per-key path checks this first.
+    private var autoswitchMayAct: Bool {
+        settings.autoswitch && appMode == .auto && classifier != nil
+    }
+
     /// Automatic switching may act now, between this layout and its counterpart.
     private func autoContext() -> AutoContext? {
         guard settings.autoswitch, appMode == .auto, !secureInput, let classifier,
               let focus, focus.isKnown, !focus.isSecureField,
-              let currentLayout, let typed = layouts[currentLayout],
+              let currentLayout, let typed = currentMap,
               let otherID = counterpart(of: currentLayout), let other = layouts[otherID],
               typed.language != other.language
         else { return nil }
@@ -444,16 +455,16 @@ public struct InputMachine: Sendable {
                                     effects: inout [Effect]) -> Bool
     {
         // Cheap exits first: this runs on every key press.
-        guard !wordJudged, let last = buffer.entries.last, !last.isSpace,
+        guard autoswitchMayAct, !wordJudged, let last = buffer.entries.last, !last.isSpace,
               held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit) == 0
         else { return false }
         let endsLine = key.keyCode == KeyCode.return || key.keyCode == KeyCode.tab
             || key.keyCode == KeyCode.keypadEnter
         let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
         guard endsLine || stroke.keyCode == KeyCode.space
-            || currentLayout.flatMap({ layouts[$0] }).map({ Self.isPunctuation(stroke, in: $0) }) == true,
+            || currentMap.map({ Self.isPunctuation(stroke, in: $0) }) == true,
             let context = autoContext(),
-              endsLine || Self.endsWord(stroke, typed: context.typed, other: context.other)
+            endsLine || Self.endsWord(stroke, typed: context.typed, other: context.other)
         else { return false }
         if !endsLine, stroke.keyCode != KeyCode.space,
            buffer.entries.dropFirst().contains(where: { $0.stroke.modifiers.contains(.shift) })
@@ -506,7 +517,7 @@ public struct InputMachine: Sendable {
     /// is held and comes back in the new layout.
     private mutating func switchInsideWord(at time: Double, effects: inout [Effect]) -> Bool {
         let count = buffer.entries.count
-        guard count == 3 || count == 4, !wordSuppressed, buffer.entries.last?.isSpace == false,
+        guard count == 3 || count == 4, autoswitchMayAct, !wordSuppressed, buffer.entries.last?.isSpace == false,
               let context = autoContext(), wordIsPlain(),
               context.classifier.impossiblePrefix(buffer.entries.lazy.map(\.stroke), typed: context.typed,
                                                   other: context.other),
@@ -1030,6 +1041,7 @@ public struct InputMachine: Sendable {
     private mutating func setLayouts(_ maps: [LayoutMap]) {
         layoutOrder = maps.map(\.id)
         layouts = Dictionary(maps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        currentMap = currentLayout.flatMap { layouts[$0] }
     }
 
     /// The modifiers held after a `flagsChanged` event.

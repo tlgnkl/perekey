@@ -37,10 +37,34 @@ public struct Retype: Hashable, Sendable {
     /// in many apps it breaks ⌘Z and formatting. Posts no key events: send
     /// `.retypePosted` once the text is set, or `.retypeCancelled` if it was not.
     public var viaAccessibility: Bool
+    /// Who asked for it. The system layer passes it on untouched, for the hint.
+    public var origin: Origin
+    /// What automatic switching decided about the word, for «Why?». Set for a
+    /// word retyped by hand while automatic switching was on, and for an
+    /// automatic switch; nil when it did not judge the word.
+    public var decision: Classifier.Decision?
+
+    /// Who asked for a retype.
+    public enum Origin: Hashable, Sendable {
+        /// Automatic switching or a word correction, by its kind.
+        case automatic(Correction.Kind)
+        /// The undo of an automatic correction.
+        case undo
+        /// The user's shortcut: `convertLastWord` (word, phrase or selection),
+        /// `changeCase` or `transliterate`.
+        case manual(HotkeyAction)
+
+        public var isAutomatic: Bool {
+            if case .automatic = self { true } else { false }
+        }
+    }
 
     public init(deleteCount: Int, keys: [Key], target: LayoutID, expected: String, seq: UInt32,
-                viaAccessibility: Bool = false)
+                viaAccessibility: Bool = false, origin: Origin = .manual(.convertLastWord),
+                decision: Classifier.Decision? = nil)
     {
+        self.origin = origin
+        self.decision = decision
         self.deleteCount = deleteCount
         self.keys = keys
         self.target = target
@@ -71,6 +95,16 @@ public struct Correction: Hashable, Sendable {
     public var undoable: Bool
     /// What was corrected. A typo fixed together with the layout is `.typo`.
     public var kind: Kind
+    /// What the classifier decided, when it switched the layout at the end of
+    /// the word. Nil for a switch inside the word and for corrections that
+    /// stay in their layout.
+    public var decision: Classifier.Decision?
+    /// The switch happened inside the word, at an impossible start ("ghb").
+    public var insideWord = false
+    /// What a typo correction changed.
+    public var typoChange: TypoCorrector.Change?
+    /// The language of the layout the word was typed in, e.g. "en".
+    public var sourceLanguage: String?
 
     /// The corrections of the word-boundary pipeline (docs/PLAN.md, «Этап 4»).
     public enum Kind: Hashable, Sendable {

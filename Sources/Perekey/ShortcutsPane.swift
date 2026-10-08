@@ -15,21 +15,20 @@ struct ShortcutsPane: View {
     ]
 
     var body: some View {
-        Form {
-            Section {
-                Text("Pick a set by habit or record your own. A shortcut of modifiers alone fires when you release the keys.")
-                    .foregroundStyle(.secondary)
-            }
+        PKPane(title: Text("Shortcuts")) {
+            Text("Pick a set by habit or record your own. A shortcut of modifiers alone fires when you release the keys.")
+                .font(PK.Font.body)
+                .foregroundStyle(Color.pkInk2)
+                .fixedSize(horizontal: false, vertical: true)
             presetSection
             actionsSection
             capsLockSection
         }
-        .formStyle(.grouped)
     }
 
     private var presetSection: some View {
-        Section("Preset") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 8)], alignment: .leading, spacing: 8) {
+        PKGroup(header: Text("Preset")) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
                 ForEach(HotkeyPreset.allCases, id: \.self) { preset in
                     PresetChip(title: preset.title, note: preset.note, isSelected: store.settings.preset == preset) {
                         recording.stop()
@@ -37,60 +36,60 @@ struct ShortcutsPane: View {
                     }
                 }
             }
+            .padding(PK.Space.md)
         }
     }
 
     private var actionsSection: some View {
-        Section {
-            ForEach(Self.actions, id: \.self) { action in
-                LabeledContent {
+        PKGroup {
+            ForEach(Array(Self.actions.enumerated()), id: \.element) { index, action in
+                if index > 0 { PKDivider() }
+                PKRow(Text(verbatim: TriggerText.name(of: action))) {
                     ShortcutRecorderButton(action: action, store: store, recording: recording)
-                } label: {
-                    Text(verbatim: TriggerText.name(of: action))
                 }
             }
             ForEach(recording.conflictTexts, id: \.self) { text in
-                Label(text, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                PKCallout(Text(text))
             }
         }
     }
 
     private var capsLockSection: some View {
-        Section("Caps Lock") {
-            Picker("How to use Caps Lock", selection: capsLockBinding) {
-                Text("Don't touch").tag(CapsLockMode.untouched)
-                Text("Like macOS").tag(CapsLockMode.system)
-                Text("Instant").tag(CapsLockMode.instant)
+        PKGroup(header: Text("Caps Lock")) {
+            PKRow(Text("How to use Caps Lock")) {
+                PKSegmented(items: [
+                    .init(value: .untouched, label: Text("Don't touch")),
+                    .init(value: .system, label: Text("Like macOS")),
+                    .init(value: .instant, label: Text("Instant")),
+                ], selection: capsLockBinding)
+                .frame(width: 280)
             }
-            .pickerStyle(.segmented)
 
             switch store.settings.capsLock {
             case .untouched:
                 EmptyView()
             case .system:
-                Text("Uses the macOS setting “Use Caps Lock to switch to and from ABC”. macOS adds a short delay.")
-                    .foregroundStyle(.secondary)
-                Button("Open Keyboard Settings") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
-                        NSWorkspace.shared.open(url)
+                PKDivider()
+                PKRow(Text("Uses the macOS setting “Use Caps Lock to switch to and from ABC”. macOS adds a short delay.")) {
+                    Button("Open Keyboard Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
                     }
+                    .buttonStyle(.pkSecondary)
                 }
             case .instant:
-                Text("Perekey remaps Caps Lock and gives it back when it quits.")
-                    .foregroundStyle(.secondary)
+                PKDivider()
+                PKNote(Text("Perekey remaps Caps Lock and gives it back when it quits."))
                 if CapsLockRemapper.isKarabinerRunning {
-                    Label("Karabiner-Elements is running. Its rules may override this.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                    PKCallout(Text("Karabiner-Elements is running. Its rules may override this."))
                 }
             }
             if store.capsLockFailed {
-                Label("macOS refused to change Caps Lock.", systemImage: "xmark.octagon.fill")
-                    .foregroundStyle(.red)
+                PKCallout(Text("macOS refused to change Caps Lock."), symbol: "xmark.octagon.fill", tone: .error)
             }
             if CapsLockRemapper.isRemapped {
-                Button("Restore Caps Lock") { store.setCapsLock(.untouched) }
+                PKCalloutButton(Text("Restore Caps Lock"), symbol: "arrow.uturn.backward") { store.setCapsLock(.untouched) }
             }
         }
     }
@@ -118,37 +117,48 @@ struct ShortcutsPane: View {
 }
 
 /// One choice in a preset grid. Onboarding reuses it, with an extra Caps Lock choice.
+/// Selected: 2.5pt indigo ring with glow, plus a checkmark (a ring alone vanishes
+/// for people who cannot tell the tint apart).
 struct PresetChip: View {
     let title: String
     let note: String
     let isSelected: Bool
     let action: () -> Void
 
-    // The selection is a ring and a checkmark, not a tint: an inactive window
-    // draws every prominent button grey, and the choice would vanish with focus.
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: PK.Radius.segment, style: .continuous)
         Button(action: action) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: title).fontWeight(.semibold)
-                    Text(verbatim: note).font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: title).font(PK.Font.bodyStrong).foregroundStyle(Color.pkInk)
+                    Text(verbatim: note).font(PK.Font.caption).foregroundStyle(Color.pkInk2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                    .foregroundStyle(isSelected ? Color.pkIndigo : Color.pkInk3)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background, in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.separator),
-                                  lineWidth: isSelected ? 2 : 1)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .background(Color.pkPlate, in: shape)
+            .overlay(shape.strokeBorder(isSelected ? Color.pkIndigo : Color.pkRule, lineWidth: isSelected ? 2.5 : 0.5))
+            .shadow(color: isSelected ? Color.pkGlow : .clear, radius: 7, y: 4)
+            .contentShape(shape)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleStyle())
+        .pkAnimation(PK.Motion.spring, value: isSelected)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Press scales to .95 (picker tiles) with the press curve.
+struct PressScaleStyle: ButtonStyle {
+    var scale: CGFloat = 0.97
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .pkAnimation(PK.Motion.press, value: configuration.isPressed)
     }
 }

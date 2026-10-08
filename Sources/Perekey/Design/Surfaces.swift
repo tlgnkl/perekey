@@ -39,6 +39,8 @@ struct StripFill<S: InsettableShape>: View {
     var dark: Bool?
     var glow = true
     var pressed = false
+    var glowRadius: CGFloat = 8
+    var glowOffset: CGFloat = 5
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
@@ -56,20 +58,44 @@ struct StripFill<S: InsettableShape>: View {
             .overlay(
                 shape.strokeBorder(.white.opacity(isDark ? (increased ? 0.5 : 0.22) : 0.95), lineWidth: increased ? 1 : 0.5)
             )
-            .shadow(color: glow ? PK.glowPair.resolved(dark: isDark).opacity(pressed ? 0.5 : 1) : .clear, radius: 8, x: 0, y: 5)
+            .shadow(color: glow ? PK.glowPair.resolved(dark: isDark).opacity(pressed ? 0.5 : 1) : .clear, radius: glowRadius, x: 0, y: glowOffset)
+    }
+}
+
+private struct LiquidGlassKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    /// `false` draws every glass surface with the macOS 14 look (materials and
+    /// the gradient strip). Offscreen snapshots use it: Liquid Glass samples the
+    /// screen behind a window, and an offscreen window has none.
+    var pkLiquidGlass: Bool {
+        get { self[LiquidGlassKey.self] }
+        set { self[LiquidGlassKey.self] = newValue }
+    }
+}
+
+private struct GlassModifier<S: Shape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+    let interactive: Bool
+    @Environment(\.pkLiquidGlass) private var liquid
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *), liquid {
+            content.glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
+        } else {
+            content.background(.ultraThinMaterial, in: shape)
+        }
     }
 }
 
 extension View {
     /// Liquid Glass on macOS 26+, a material before it. For controls and bars
     /// that float over content.
-    @ViewBuilder
     func pkGlass<S: Shape>(in shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        if #available(macOS 26, *) {
-            glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
-        } else {
-            background(.ultraThinMaterial, in: shape)
-        }
+        modifier(GlassModifier(shape: shape, tint: tint, interactive: interactive))
     }
 
     /// The signature strip as a background: Liquid Glass tinted with Indigo
@@ -85,9 +111,10 @@ private struct GlassStripModifier<S: InsettableShape>: ViewModifier {
     let pressed: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.pkLiquidGlass) private var liquid
 
     func body(content: Content) -> some View {
-        if #available(macOS 26, *), !reduceTransparency {
+        if #available(macOS 26, *), !reduceTransparency, liquid {
             content
                 .glassEffect(.regular.tint(PK.mistPair.resolved(dark: scheme == .dark)), in: shape)
                 .background {
@@ -120,9 +147,10 @@ extension View {
 /// A 1pt hairline between rows.
 struct PKDivider: View {
     var leading: CGFloat = PK.Space.lg
+    var trailing: CGFloat = 0
 
     var body: some View {
-        Rectangle().fill(Color.pkRule).frame(height: 1).padding(.leading, leading)
+        Rectangle().fill(Color.pkRule).frame(height: 1).padding(.leading, leading).padding(.trailing, trailing)
             .accessibilityHidden(true)
     }
 }

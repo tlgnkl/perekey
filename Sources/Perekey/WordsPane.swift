@@ -22,70 +22,75 @@ struct WordsPane: View {
     private var validation: WordExceptions.Validation { words.validate(draft.wrappedValue, isFrequent: isFrequent) }
 
     var body: some View {
-        Form {
-            Section {
-                Text("Perekey never corrects these words, in any layout.")
-                    .foregroundStyle(.secondary)
-            }
+        PKPane(title: Text("Words")) {
+            Text("Perekey never corrects these words, in any layout.")
+                .font(PK.Font.body)
+                .foregroundStyle(Color.pkInk2)
+                .fixedSize(horizontal: false, vertical: true)
             mineSection
             learnedSection
         }
-        .formStyle(.grouped)
     }
 
     private var mineSection: some View {
-        Section {
-            HStack {
+        PKGroup(header: Text("My words") + Text(count(words.mine.count)).foregroundStyle(Color.pkInk3)) {
+            HStack(spacing: 8) {
                 TextField("Word", text: draft.projectedValue, prompt: Text("Add a word"))
                     .labelsHidden()
+                    .pkField()
                     .onSubmit(add)
                 Button("Add", action: add)
+                    .buttonStyle(.pkPrimary)
                     .disabled(![.ok, .frequent].contains(validation))
             }
+            .padding(PK.Space.md)
             if let message = message {
-                Label(message.text, systemImage: message.symbol)
-                    .foregroundStyle(message.warning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                    .font(.callout)
+                PKCallout(Text(message.text), symbol: message.symbol, tone: .warn, quiet: !message.warning)
             }
             if words.mine.isEmpty {
-                Text("No words yet.").foregroundStyle(.secondary)
+                PKDivider()
+                PKNote(Text("No words yet."))
             }
             ForEach(words.mine, id: \.self) { word in
-                LabeledContent {
+                PKDivider()
+                PKRow(Text(word)) {
                     Button("Remove") { store.update { $0.words.remove(word) } }
-                        .buttonStyle(.borderless)
-                } label: {
-                    Text(word)
+                        .buttonStyle(.pkLink)
                 }
             }
-        } header: {
-            Text("My words") + Text(count(words.mine.count)).foregroundStyle(.tertiary)
         }
     }
 
     private var learnedSection: some View {
-        Section {
-            Toggle("Learn from undone corrections", isOn: learnBinding)
+        PKGroup(header: Text("Learned") + Text(count(words.learned.count)).foregroundStyle(Color.pkInk3)) {
+            PKRow(Text("Learn from undone corrections")) {
+                Toggle("Learn from undone corrections", isOn: learnBinding)
+                    .labelsHidden()
+                    .toggleStyle(.pkSwitch)
+            }
             if words.learned.isEmpty {
-                Text("Words you undo after a correction appear here.").foregroundStyle(.secondary)
+                PKDivider()
+                PKNote(Text("Words you undo after a correction appear here."))
             }
             ForEach(words.learned, id: \.word) { item in
-                LabeledContent {
+                PKDivider()
+                PKRow(Text(item.word)) {
                     HStack(spacing: 12) {
                         Text(Date(timeIntervalSince1970: item.learnedAt).formatted(date: .abbreviated, time: .omitted))
-                            .foregroundStyle(.secondary)
+                            .font(PK.Font.caption)
+                            .foregroundStyle(Color.pkInk2)
                         Button("Forget") { store.update { $0.words.forget(item.word) } }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.pkLink)
                     }
-                } label: {
-                    Text(item.word)
                 }
             }
             if !words.learned.isEmpty {
-                Button("Forget all") { store.update { $0.words.forgetAllLearned() } }
+                PKDivider()
+                PKRow(Text(verbatim: "")) {
+                    Button("Forget all") { store.update { $0.words.forgetAllLearned() } }
+                        .buttonStyle(.pkSecondary)
+                }
             }
-        } header: {
-            Text("Learned") + Text(count(words.learned.count)).foregroundStyle(.tertiary)
         }
     }
 

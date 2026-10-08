@@ -122,8 +122,9 @@ struct PKSegmented<Value: Hashable>: View {
                         .font(.system(size: mini ? 12 : 13, weight: selected ? .semibold : .regular))
                         .foregroundStyle(selected ? Color.pkInk : Color.pkInk2)
                         .lineLimit(1)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity, minHeight: mini ? 22 : 26)
+                        .fixedSize(horizontal: mini, vertical: false)
+                        .padding(.horizontal, mini ? 10 : 12)
+                        .frame(maxWidth: mini ? nil : .infinity, minHeight: mini ? 22 : 26)
                         .background {
                             if selected {
                                 Color.clear
@@ -303,7 +304,13 @@ struct PKGroup<Content: View>: View {
 struct PKRow<Trailing: View>: View {
     let title: Text
     var detail: Text?
-    @ViewBuilder var trailing: Trailing
+    let trailing: Trailing
+
+    init(_ title: Text, detail: Text? = nil, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.detail = detail
+        self.trailing = trailing()
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -327,6 +334,8 @@ struct PKRow<Trailing: View>: View {
 struct PKNote: View {
     let text: Text
 
+    init(_ text: Text) { self.text = text }
+
     var body: some View {
         text
             .font(PK.Font.caption)
@@ -345,6 +354,15 @@ struct PKCallout: View {
     let text: Text
     var symbol = "exclamationmark.triangle.fill"
     var tone: Tone = .warn
+    /// Plain information in a callout's place: no tint, Secondary Ink.
+    var quiet = false
+
+    init(_ text: Text, symbol: String = "exclamationmark.triangle.fill", tone: Tone = .warn, quiet: Bool = false) {
+        self.text = text
+        self.symbol = symbol
+        self.tone = tone
+        self.quiet = quiet
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -352,25 +370,57 @@ struct PKCallout: View {
             text.font(PK.Font.caption).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(tone == .warn ? Color.pkWarn : Color.pkRose)
+        .foregroundStyle(quiet ? Color.pkInk2 : (tone == .warn ? Color.pkWarn : Color.pkRose))
         .padding(.horizontal, PK.Space.lg)
         .padding(.vertical, 10)
-        .background(tone == .warn ? Color.pkWarnSoft : Color.pkRose.opacity(0.14))
+        .background(quiet ? Color.clear : (tone == .warn ? Color.pkWarnSoft : Color.pkRose.opacity(0.14)))
+    }
+}
+
+/// A warn-tinted row that is itself a button ("Restore Caps Lock").
+struct PKCalloutButton: View {
+    let text: Text
+    var symbol = "exclamationmark.triangle.fill"
+    let action: () -> Void
+
+    init(_ text: Text, symbol: String = "exclamationmark.triangle.fill", action: @escaping () -> Void) {
+        self.text = text
+        self.symbol = symbol
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).font(.system(size: 12, weight: .bold))
+                text.font(PK.Font.bodyStrong)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(Color.pkWarn)
+            .padding(.horizontal, PK.Space.lg)
+            .padding(.vertical, 11)
+            .frame(minHeight: 44)
+            .background(Color.pkWarnSoft)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
 /// A 30pt input: Solid Plate with rim; focus adds the 3pt Indigo Mist halo.
 /// Apply to a `TextField`; it sets the plain style itself.
 struct PKField: ViewModifier {
+    var font = PK.Font.body
+    var height: CGFloat = 30
     @FocusState private var focused: Bool
 
     func body(content: Content) -> some View {
         content
             .textFieldStyle(.plain)
-            .font(PK.Font.body)
+            .font(font)
             .focused($focused)
             .padding(.horizontal, 10)
-            .frame(height: 30)
+            .frame(height: height)
             .background(Color.pkPlate, in: RoundedRectangle(cornerRadius: PK.Radius.field, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: PK.Radius.field, style: .continuous)
                 .strokeBorder(focused ? Color.pkIndigo : Color.pkRule, lineWidth: focused ? 1 : 0.5))
@@ -382,5 +432,5 @@ struct PKField: ViewModifier {
 }
 
 extension View {
-    func pkField() -> some View { modifier(PKField()) }
+    func pkField(font: Font = PK.Font.body, height: CGFloat = 30) -> some View { modifier(PKField(font: font, height: height)) }
 }

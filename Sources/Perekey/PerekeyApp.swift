@@ -38,6 +38,7 @@ struct PerekeyApp: App {
     var body: some Scene {
         MenuBarExtra {
             MenuContent(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
+                        appModes: input.appModes,
                         onShowOnboarding: { onboarding.show() })
         } label: {
             MenuBarLabel(sources: inputSources, store: store, pause: pause)
@@ -45,7 +46,7 @@ struct PerekeyApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(store: store, recording: recording)
+            SettingsView(store: store, recording: recording, sources: inputSources)
         }
     }
 }

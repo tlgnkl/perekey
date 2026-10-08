@@ -14,10 +14,11 @@ public enum ModelStore {
     private static let log = Logger(subsystem: "app.perekey", category: "model")
 
     /// The languages the app switches between. A model file is all the core
-    /// needs to switch a pair, so a language joins here only with its own
-    /// task: Ukrainian with stage 8, task 1 (ru ↔ uk never switches
-    /// automatically, docs/PLAN.md). `uk.pklm` is built and tested already.
-    public static let enabledLanguages: Set<String> = ["ru", "en"]
+    /// needs to weigh a reading, so a language joins here only when its pair
+    /// is measured (`scripts/eval.sh`). Automatic switching goes between a
+    /// Latin and a Cyrillic language only (`Classifier.switchesAutomatically`):
+    /// ru ↔ uk is manual.
+    public static let enabledLanguages: Set<String> = ["ru", "en", "uk"]
 
     /// The enabled languages the model needs for these layouts.
     public static func languages(of layouts: [LayoutMap], enabled: Set<String> = enabledLanguages) -> Set<String> {

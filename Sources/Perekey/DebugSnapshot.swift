@@ -233,7 +233,7 @@ enum DebugSnapshot {
             let store = SettingsStore(file: file)
             let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil)
             let usage = on ? sampleUsage(in: directory, name: name) : UsageRecorder(file: UsageStatsFile(url: directory.appending(path: "\(name).stats.json"))) { false }
-            render(PrivacyPane(store: store, usage: usage).frame(width: size.width, height: size.height),
+            render(PrivacyPane(store: store, usage: usage, languages: LanguageStatsStore(file: nil)).frame(width: size.width, height: size.height),
                    dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
         let sources = InputSources()

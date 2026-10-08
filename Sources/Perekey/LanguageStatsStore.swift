@@ -48,6 +48,12 @@ final class LanguageStatsStore {
         save()
     }
 
+    /// Forgets every app and site (Settings → Privacy).
+    func resetAll() {
+        stats = LanguageStats()
+        save()
+    }
+
     private func save() {
         do {
             try file?.save(stats)

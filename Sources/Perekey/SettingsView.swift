@@ -129,7 +129,7 @@ struct SettingsView: View {
         case .apps: AppsPane(store: store, sources: sources, languages: languages)
         case .sites: SitesPane(store: store, sources: sources)
         case .words: WordsPane(store: store, layouts: sources.layouts)
-        case .privacy: PrivacyPane(store: store, usage: usage, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
+        case .privacy: PrivacyPane(store: store, usage: usage, languages: languages, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
         }
     }
 }

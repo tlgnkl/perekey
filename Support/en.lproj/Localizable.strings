@@ -292,4 +292,7 @@
 "Undone share" = "Undone share";
 "Today: no corrections" = "Today: no corrections";
 "Privacy" = "Privacy";
-"What you type stays in memory and never leaves this Mac. Settings, your words and the counts you allow are files on this Mac. The only network request is the update check." = "What you type stays in memory and never leaves this Mac. Settings, your words and the counts you allow are files on this Mac. The only network request is the update check.";
+"What you type stays in memory and never leaves this Mac. Settings, your words, the languages of apps and the counts you allow are files on this Mac. The only network request is the update check." = "What you type stays in memory and never leaves this Mac. Settings, your words, the languages of apps and the counts you allow are files on this Mac. The only network request is the update check.";
+"Languages of apps" = "Languages of apps";
+"Forget the languages of apps" = "Forget the languages of apps";
+"To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit.";

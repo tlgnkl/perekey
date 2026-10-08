@@ -14,6 +14,9 @@ struct PerekeyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
+        #if DEBUG
+        DebugSnapshot.runIfRequested()
+        #endif
         let store = SettingsStore()
         self.store = store
         recording = ShortcutRecording(store: store)

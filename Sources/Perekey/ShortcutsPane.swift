@@ -29,7 +29,7 @@ struct ShortcutsPane: View {
 
     private var presetSection: some View {
         Section("Preset") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 8)], alignment: .leading, spacing: 8) {
                 ForEach(HotkeyPreset.allCases, id: \.self) { preset in
                     PresetChip(preset: preset, isSelected: store.settings.preset == preset) {
                         recording.stop()
@@ -122,16 +122,31 @@ private struct PresetChip: View {
     let isSelected: Bool
     let action: () -> Void
 
+    // The selection is a ring and a checkmark, not a tint: an inactive window
+    // draws every prominent button grey, and the choice would vanish with focus.
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(LocalizedStringKey(preset.title)).fontWeight(.semibold)
-                Text(LocalizedStringKey(preset.note)).font(.caption).opacity(0.8)
+            HStack(alignment: .top, spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(preset.title)).fontWeight(.semibold)
+                    Text(LocalizedStringKey(preset.note)).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.separator),
+                                  lineWidth: isSelected ? 2 : 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
-        .buttonStyle(.borderedProminent)
-        .tint(isSelected ? .accentColor : .gray)
+        .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

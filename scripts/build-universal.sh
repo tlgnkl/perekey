@@ -40,7 +40,7 @@ rm -rf "$SCRATCH_PATH/lipo/Sparkle.framework"
 ditto "$bin_dir/Sparkle.framework" "$SCRATCH_PATH/lipo/Sparkle.framework"
 
 # The model is architecture-independent; build it once, next to the slices.
-export PEREKEY_MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model/perekey.model}"
+export PEREKEY_MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
 PEREKEY_BINARY="$SCRATCH_PATH/lipo/Perekey" scripts/bundle.sh >/dev/null
 
 APP="$OUT/Perekey.app"

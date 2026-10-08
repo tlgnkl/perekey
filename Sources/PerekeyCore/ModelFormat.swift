@@ -73,7 +73,10 @@ public enum ModelFormat {
 
     /// Case folding the model and the classifier agree on: Latin and Cyrillic
     /// capitals become small letters, everything else stays. `ё` stays `ё`;
-    /// the builder adds the `е` spelling of every word with `ё` itself.
+    /// the builder adds the `е` spelling of every word with `ё` itself. The
+    /// Ukrainian apostrophe `ʼ` (U+02BC, what the Ukrainian layouts type)
+    /// reads as `'`, the joiner of the alphabets. `’` (U+2019) stays: the
+    /// layouts type it with ⌥ only, and English text would change with it.
     @inlinable
     public static func fold(_ scalar: UInt32) -> UInt32 {
         switch scalar {
@@ -84,6 +87,7 @@ public enum ModelFormat {
         case 0x406: return 0x456 // І
         case 0x407: return 0x457 // Ї
         case 0x490: return 0x491 // Ґ
+        case 0x2BC: return 0x27 // ʼ
         default: return scalar
         }
     }

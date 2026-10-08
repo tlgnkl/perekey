@@ -3,8 +3,14 @@
 import Foundation
 import PerekeyCore
 
-/// Builds the language model from the data cache and the lists in `data/`.
-/// Sources and licences: data/SOURCES.md. Steps: docs/classifier.md.
+/// Builds the language model files, one per language, from the data cache
+/// and the lists in `data/`. Sources and licences: data/SOURCES.md. Steps:
+/// docs/classifier.md.
+///
+/// Every file carries its language's sections and the lists that are not
+/// per language: its own `keep` and `case` entries plus `data/mixed`
+/// ("iPhone"). The mixed list is tiny and copied into each file, so any
+/// subset of files the app maps keeps it whole (docs/classifier.md, «Файл на язык»).
 public struct ModelBuild {
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
@@ -12,14 +18,22 @@ public struct ModelBuild {
 
     public struct Report {
         public var notes: [String] = []
-        public var bytes: [UInt8] = []
+        /// The model file of each language, in the order asked for.
+        public var files: [(language: String, bytes: [UInt8])] = []
     }
 
     /// Letters of each language in model order: the alphabet plus joiners.
+    /// The order of ru and en is fixed: it is in the bytes of their files.
     public static let alphabets: [String: String] = [
         "ru": "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-",
         "en": "abcdefghijklmnopqrstuvwxyz'-",
+        // The apostrophe is a letter of the word ("п'ять"): `'`, and `ʼ`
+        // through `ModelFormat.fold`; the builder reads `’` as `'` too.
+        "uk": "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя'-",
     ]
+
+    /// The languages `perekey-model` builds by default.
+    public static let languages = ["ru", "en", "uk"]
 
     public let cache: String
     public let data: String
@@ -29,12 +43,14 @@ public struct ModelBuild {
         self.data = data
     }
 
-    public func run() throws -> Report {
+    public func run(languages: [String] = ModelBuild.languages) throws -> Report {
         var report = Report()
-        var builder = ModelBuilder()
-        var sources: [String] = []
-
-        for language in ["ru", "en"] {
+        let mixed = try DataLists(directory: "\(data)/mixed")
+        let manifest = (try? String(contentsOfFile: "\(cache)/MANIFEST.sha256", encoding: .utf8)) ?? ""
+        for language in languages {
+            guard Self.alphabets[language] != nil else { throw Failure(description: "no alphabet for \(language)") }
+            var builder = ModelBuilder()
+            var sources: [String] = []
             builder.addLanguage(language, alphabet: Self.alphabets[language]!)
             let lists = try DataLists(directory: "\(data)/\(language)")
             var forms = 0, rejected = 0
@@ -47,12 +63,18 @@ public struct ModelBuild {
             var ranks: [String: UInt8] = [:]
             for entry in frequencies.entries {
                 guard !lists.remove.contains(entry.word) else { continue }
-                let rank = lists.rank[entry.word] ?? WordFreq.rank(zipf: entry.zipf)
+                // `ʼ` folds to `'`: it is the Ukrainian apostrophe, in other lists a foreign token.
+                let word = language == "uk" ? Self.apostrophes(entry.word) : entry.word
+                guard language == "uk" || !word.unicodeScalars.contains("\u{2BC}") else {
+                    rejected += 1
+                    continue
+                }
+                let rank = lists.rank[word] ?? WordFreq.rank(zipf: entry.zipf)
                 let weight = entry.zipf >= 2.5 ? pow(10, entry.zipf / 2) : 0
-                if builder.addForm(entry.word, language: language, rank: rank, weight: weight,
+                if builder.addForm(word, language: language, rank: rank, weight: weight,
                                    prefixes: entry.zipf >= 2.5)
                 {
-                    ranks[entry.word] = rank
+                    ranks[word] = rank
                     forms += 1
                 } else {
                     rejected += 1
@@ -61,38 +83,48 @@ public struct ModelBuild {
 
             // 2. Word forms from the spelling dictionary, expanded by its affix
             // rules. Forms unknown to wordfreq get rank 0 and a small weight.
-            let (dic, aff, name) = try spellingDictionary(language)
-            let hunspell = Hunspell(affix: aff)
-            var seen: Set<String> = []
-            var expanded = 0
-            let entries = Hunspell.entries(dic: dic)
-            // Words with "ё" are derived from the dictionary as it is expanded.
-            var yo = Self.alphabets[language]!.contains("ё") ? YoTable(entries: entries) : nil
-            // An abbreviation Perekey corrects must not be an ordinary word: "it" ≠ "IT".
-            let corrected = Set(lists.correctedAbbreviations.map { $0.lowercased() })
-            var ordinary: Set<String> = []
-            for (index, entry) in entries.enumerated() {
-                let lowercaseStem = entry.stem.first?.isLowercase == true
-                hunspell.expand(entry.stem, flags: entry.flags) { form in
-                    let word = form.lowercased()
-                    if lists.remove.contains(word) { return }
-                    yo?.add(word, entry: index)
-                    if lowercaseStem, corrected.contains(word) { ordinary.insert(word) }
-                    guard seen.insert(word).inserted else { return }
-                    expanded += 1
-                    if ranks[word] != nil { return }
-                    let rank = lists.rank[word] ?? 0
-                    if builder.addForm(word, language: language, rank: rank, weight: 1) {
-                        forms += 1
-                    } else {
-                        rejected += 1
+            // Ukrainian has none with a compatible licence (data/SOURCES.md):
+            // wordfreq alone, the n-grams cover the rare forms.
+            if let (dic, aff, name) = try spellingDictionary(language) {
+                let hunspell = Hunspell(affix: aff)
+                var seen: Set<String> = []
+                var expanded = 0
+                let entries = Hunspell.entries(dic: dic)
+                // Words with "ё" are derived from the dictionary as it is expanded.
+                var yo = Self.alphabets[language]!.contains("ё") ? YoTable(entries: entries) : nil
+                // An abbreviation Perekey corrects must not be an ordinary word: "it" ≠ "IT".
+                let corrected = Set(lists.correctedAbbreviations.map { $0.lowercased() })
+                var ordinary: Set<String> = []
+                for (index, entry) in entries.enumerated() {
+                    let lowercaseStem = entry.stem.first?.isLowercase == true
+                    hunspell.expand(entry.stem, flags: entry.flags) { form in
+                        let word = form.lowercased()
+                        if lists.remove.contains(word) { return }
+                        yo?.add(word, entry: index)
+                        if lowercaseStem, corrected.contains(word) { ordinary.insert(word) }
+                        guard seen.insert(word).inserted else { return }
+                        expanded += 1
+                        if ranks[word] != nil { return }
+                        let rank = lists.rank[word] ?? 0
+                        if builder.addForm(word, language: language, rank: rank, weight: 1) {
+                            forms += 1
+                        } else {
+                            rejected += 1
+                        }
                     }
                 }
-            }
-            sources.append("\(name): \(expanded) forms after affix expansion")
-            if !ordinary.isEmpty {
-                throw Failure(description: "data/\(language)/abbreviations.txt: ordinary words in \(name): "
-                    + ordinary.sorted().joined(separator: ", "))
+                sources.append("\(name): \(expanded) forms after affix expansion")
+                if !ordinary.isEmpty {
+                    throw Failure(description: "data/\(language)/abbreviations.txt: ordinary words in \(name): "
+                        + ordinary.sorted().joined(separator: ", "))
+                }
+                if var table = yo {
+                    for word in lists.add + lists.noYo { table.block(word) }
+                    var added = 0
+                    let yoForms = table.forms { ranks[$0] }
+                    for form in yoForms where builder.addYo(form, language: language) { added += 1 }
+                    report.notes.append("\(language): \(added) forms take \"ё\" unambiguously")
+                }
             }
 
             // 3. Hand-maintained lists.
@@ -116,35 +148,43 @@ public struct ModelBuild {
             }
             for word in lists.abbreviations { builder.addCasedForm(word, corrects: false) }
             for word in lists.keep { builder.addKeep(word) }
-            if var table = yo {
-                for word in lists.add + lists.noYo { table.block(word) }
-                var added = 0
-                let yoForms = table.forms { ranks[$0] }
-                for form in yoForms where builder.addYo(form, language: language) { added += 1 }
-                report.notes.append("\(language): \(added) forms take \"ё\" unambiguously")
-            }
             report.notes.append("\(language): \(forms) forms, \(rejected) rejected (outside the alphabet)")
-        }
-        let mixed = try DataLists(directory: "\(data)/mixed")
-        for word in mixed.keep {
-            builder.addKeep(word)
-            builder.addCasedForm(word, corrects: false)
-        }
+            for word in mixed.keep {
+                builder.addKeep(word)
+                builder.addCasedForm(word, corrects: false)
+            }
 
-        let manifest = (try? String(contentsOfFile: "\(cache)/MANIFEST.sha256", encoding: .utf8)) ?? ""
-        builder.meta = """
-        Perekey language model. Licence: CC BY-SA 4.0 (data/SOURCES.md).
-        Sources: \(sources.joined(separator: "; ")).
-        wordfreq data by Robyn Speer, CC BY-SA 4.0. Russian word forms: modified from the
-        dictionary by Alexander I. Lebedev (BSD-like licence). English word forms: SCOWL / ESDB.
-        Inputs:
-        \(manifest.split(separator: "\n").filter { $0.contains("wordfreq/") || $0.contains("hunspell-ru/") || $0.contains("esdb/") }.joined(separator: "\n"))
-        """
-        report.bytes = builder.build()
+            // The inputs of this language only: a new source for another
+            // language leaves this file's bytes and hash alone.
+            let inputs: [String] = switch language {
+            case "ru": ["wordfreq/large_ru.", "hunspell-ru/"]
+            case "en": ["wordfreq/large_en.", "esdb/"]
+            default: ["wordfreq/large_\(language)."]
+            }
+            let formsNote = switch language {
+            case "ru": "Word forms: modified from the dictionary by Alexander I. Lebedev (BSD-like licence)."
+            case "en": "Word forms: SCOWL / ESDB."
+            default: "No word-form dictionary."
+            }
+            builder.meta = """
+            Perekey language model, \(language). Licence: CC BY-SA 4.0 (data/SOURCES.md).
+            Sources: \(sources.joined(separator: "; ")).
+            wordfreq data by Robyn Speer, CC BY-SA 4.0. \(formsNote)
+            Inputs:
+            \(manifest.split(separator: "\n").filter { line in inputs.contains { line.contains($0) } }.joined(separator: "\n"))
+            """
+            report.files.append((language, builder.build()))
+        }
         return report
     }
 
-    private func spellingDictionary(_ language: String) throws -> (dic: String, aff: String, name: String) {
+    /// The Ukrainian apostrophes `’` and `ʼ` as `'`.
+    static func apostrophes(_ word: String) -> String {
+        guard word.unicodeScalars.contains(where: { $0 == "\u{2019}" || $0 == "\u{2BC}" }) else { return word }
+        return String(String.UnicodeScalarView(word.unicodeScalars.map { $0 == "\u{2019}" || $0 == "\u{2BC}" ? "'" : $0 }))
+    }
+
+    private func spellingDictionary(_ language: String) throws -> (dic: String, aff: String, name: String)? {
         switch language {
         case "ru":
             let dic = try String(contentsOfFile: "\(cache)/hunspell-ru/ru_RU.dic", encoding: .utf8)
@@ -159,7 +199,7 @@ public struct ModelBuild {
             let aff = String(decoding: try Archive.unzip(path, member: "en_US-large.aff"), as: UTF8.self)
             return (dic, aff, "SCOWL \(archive)")
         default:
-            throw Failure(description: "no spelling dictionary for \(language)")
+            return nil
         }
     }
 }

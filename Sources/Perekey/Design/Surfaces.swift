@@ -63,7 +63,9 @@ struct StripFill<S: InsettableShape>: View {
 }
 
 private struct LiquidGlassKey: EnvironmentKey {
-    static let defaultValue = true
+    /// On unless turned off with `defaults write app.perekey.Perekey LiquidGlass -bool false`:
+    /// a way out if real Liquid Glass hides something, since snapshots cannot draw it.
+    static let defaultValue = UserDefaults.standard.object(forKey: "LiquidGlass") as? Bool ?? true
 }
 
 extension EnvironmentValues {

@@ -40,7 +40,7 @@
 "Launch at login" = "Открывать при входе в систему";
 "Let Perekey see the keys" = "Дайте Perekey видеть нажатия";
 "Like Alt+Shift on Windows" = "Как Alt+Shift в Windows";
-"Like Caramba" = "Как в Caramba";
+"Shift alone, Option retypes" = "Один Shift, Option перенабирает";
 "Like Ctrl+Shift on Windows" = "Как Ctrl+Shift в Windows";
 "Like macOS" = "Как в macOS";
 "No layout" = "Нет раскладки";

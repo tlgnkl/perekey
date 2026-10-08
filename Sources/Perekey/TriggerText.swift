@@ -90,7 +90,7 @@ extension HotkeyPreset {
 
     var note: String {
         switch self {
-        case .standard: String(localized: "Like Caramba")
+        case .standard: String(localized: "Shift alone, Option retypes")
         case .windowsAltShift: String(localized: "Like Alt+Shift on Windows")
         case .windowsControlShift: String(localized: "Like Ctrl+Shift on Windows")
         case .commandShift: String(localized: "Ctrl+Shift habit on a Mac")

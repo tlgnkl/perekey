@@ -381,9 +381,9 @@ private let ru = Fixture.russian.id
 
     @Test func modifiersWithoutSideBits() {
         // Virtual keyboards may set only the device-independent bits.
-        #expect(InputMachine.modifiers(keyCode: 61, flags: EventFlags.option) == [.rightOption])
-        #expect(InputMachine.modifiers(keyCode: 61, flags: EventFlags.option | EventFlags.shift)
+        #expect(Shortcuts.modifiers(keyCode: 61, flags: EventFlags.option) == [.rightOption])
+        #expect(Shortcuts.modifiers(keyCode: 61, flags: EventFlags.option | EventFlags.shift)
             == [.rightOption, .leftShift])
-        #expect(InputMachine.modifiers(keyCode: 61, flags: 0).isEmpty)
+        #expect(Shortcuts.modifiers(keyCode: 61, flags: 0).isEmpty)
     }
 }

@@ -271,6 +271,20 @@ private let ru = Fixture.russian.id
         #expect(desk.learned == ["ghbdtn"])
     }
 
+    @Test func aManualRetypeAfterAnUndoInsideTheWordLearnsNothing() {
+        var desk = Desk()
+        desk.type("ghb")
+        desk.press(KeyCode.delete)
+        desk.type("dtn")
+        // The user retypes the word themselves: they want it switched after
+        // all, so "do not switch" is no lesson to learn.
+        desk.tapOption()
+        #expect(desk.text == "привет")
+        desk.type(" ")
+        #expect(desk.text == "привет ")
+        #expect(desk.learned.isEmpty)
+    }
+
     @Test func backspaceInsideTheWordFixesATypo() {
         var desk = Desk()
         desk.type("ghbdtnn")
@@ -355,10 +369,10 @@ private let ru = Fixture.russian.id
 
 @Suite struct LearnableWordTests {
     @Test func readingThatTheListTakes() {
-        #expect(InputMachine.learnable("Ghbdtn", or: "Привет") == "ghbdtn")
-        #expect(InputMachine.learnable("[jhjij", or: "хорошо") == "jhjij")
-        #expect(InputMachine.learnable("ds,jh", or: "выбор") == "выбор")
-        #expect(InputMachine.learnable("a/b", or: "ф.и") == nil)
+        #expect(CorrectionUndo.learnable("Ghbdtn", or: "Привет") == "ghbdtn")
+        #expect(CorrectionUndo.learnable("[jhjij", or: "хорошо") == "jhjij")
+        #expect(CorrectionUndo.learnable("ds,jh", or: "выбор") == "выбор")
+        #expect(CorrectionUndo.learnable("a/b", or: "ф.и") == nil)
     }
 
     @Test func learnedWordStopsTheSwitch() {

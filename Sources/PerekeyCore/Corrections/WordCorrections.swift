@@ -3,10 +3,10 @@
 /// The dictionary corrections of a finished word, after its layout is
 /// decided and its typos fixed (docs/corrections.md).
 ///
-/// At the key that ends a word `InputMachine` decides the layout first
+/// At the key that ends a word `WordJudge` decides the layout first
 /// (automatic switching), fixes a typo (`TypoCorrector`), then hands the
 /// word, as it reads in that layout, to these steps in order
-/// (`InputMachine.correctWord`). Each step may change the letters; the next
+/// (`WordJudge.correctWord`). Each step may change the letters; the next
 /// one sees the result. If the word changed, it goes out as one retype with
 /// the switch, if any: one `Correction`, one hint, one Backspace to undo it.
 ///

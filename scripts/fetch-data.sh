@@ -8,10 +8,10 @@
 # Usage: scripts/fetch-data.sh [group...]
 #
 # Groups:
-#   lexicon   word lists and frequencies for the model (~15 MB)
-#   text      Wikipedia text for character n-grams (~540 MB)
+#   lexicon   word lists and frequencies for the model (~26 MB)
+#   text      Wikipedia text for character n-grams (~1 GB)
 #   model     lexicon + text (default)
-#   heldout   held-out corpus sources, used only for evaluation (~140 MB)
+#   heldout   held-out corpus sources, used only for evaluation (~141 MB)
 #   heavy     large optional held-out source: ru.stackoverflow.com (~1 GB)
 #   fallback  needs a legal decision before use: OpenCorpora (ru), Wiktionary
 #             forms (uk, ~300 MB)
@@ -54,14 +54,22 @@ lexicon|wordfreq/README.md|$GH_RAW/rspeer/wordfreq/$WORDFREQ_REV/README.md|0f1db
 lexicon|hunspell-ru/ru_RU.dic|$GH_RAW/LibreOffice/dictionaries/$LO_DICT_REV/ru_RU/ru_RU.dic|f6047416a0204adbecf3a451b874ec8a97ee37e2cbc714466ef04d8dbcc0d6fc
 lexicon|hunspell-ru/ru_RU.aff|$GH_RAW/LibreOffice/dictionaries/$LO_DICT_REV/ru_RU/ru_RU.aff|38ce7d4af78e211e9bafe4bf7e3d6a2c420591136cb738ec6648f8fdf6524cd7
 lexicon|hunspell-ru/README_ru_RU.txt|$GH_RAW/LibreOffice/dictionaries/$LO_DICT_REV/ru_RU/README_ru_RU.txt|262af2f6ad70a61e5ee1332ff44fa8ee50edca819cf33207d8ad6ba6a0c9be52
+lexicon|hunspell-be/be-official.dic|$GH_RAW/LibreOffice/dictionaries/$LO_DICT_REV/be_BY/be-official.dic|86237db80ddf5dc68d4319abed4de709a2096835042b332cf323207c13e869cd
+lexicon|hunspell-be/be-official.aff|$GH_RAW/LibreOffice/dictionaries/$LO_DICT_REV/be_BY/be-official.aff|0a7f8246a352e7eea61f88d44a200a277a8a5dd5b06f1d7725f16138d1b751c1
+lexicon|hunspell-be/README_be_BY.txt|$GH_RAW/LibreOffice/dictionaries/$LO_DICT_REV/be_BY/README_be_BY.txt|8e11338bf07f3fc3eea1add0a091c3da4e1e0504a63f909790dabeef27de1ec3
 lexicon|esdb/hunspell-en_US-large-$ESDB_VER.zip|https://github.com/en-wl/wordlist/releases/download/$ESDB_REL/hunspell-en_US-large-$ESDB_VER.zip|06ab5a2a12c29033f100988d3b0a5e53dcad40bf2473ccb78270619d1da99321
 text|wikipedia/ru/train-00007-of-00021.parquet|$HF_WIKI.ru/train-00007-of-00021.parquet|39b59952cd92a148b301f4d2b3ae1fb71e4caab987c6abe278f0dbdf0b01bb88
 text|wikipedia/en/train-00028-of-00041.parquet|$HF_WIKI.en/train-00028-of-00041.parquet|10589a39188af404fa458da252df7dcf22c6f6395a1501d9243ef56ce4c3c148
 text|wikipedia/uk/train-00002-of-00010.parquet|$HF_WIKI.uk/train-00002-of-00010.parquet|11f25bf916b71e9030626104542acbe298b0ee1bfc394444928253d91a4095a2
+text|wikipedia/be/train-00000-of-00002.parquet|$HF_WIKI.be/train-00000-of-00002.parquet|68048674aca99df6826cb3cc212a0c14eedd70ddf66aedd3833fb55aca7a8b39
+text|wikipedia/be/train-00001-of-00002.parquet|$HF_WIKI.be/train-00001-of-00002.parquet|d7930469968c695b232d005bbfb7857db3b0c14245887acf0fab374312d97d6f
+text|wikipedia/kk/train-00000-of-00001.parquet|$HF_WIKI.kk/train-00000-of-00001.parquet|7ecd6679b1635942941a67744eca1f677ec01fca9b60406253bda128ebf80dc4
 heldout|tatoeba/sentences_CC0.tar.bz2|https://downloads.tatoeba.org/exports/sentences_CC0.tar.bz2|-
 heldout|tatoeba/rus_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/rus/rus_sentences.tsv.bz2|-
 heldout|tatoeba/eng_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2|-
 heldout|tatoeba/ukr_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/ukr/ukr_sentences.tsv.bz2|-
+heldout|tatoeba/bel_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/bel/bel_sentences.tsv.bz2|-
+heldout|tatoeba/kaz_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/kaz/kaz_sentences.tsv.bz2|-
 heldout|stackexchange/russian.stackexchange.com.7z|$IA_SE/russian.stackexchange.com.7z|5508d4cb5978e216482225aef6f193dec31b7d67f16d0fa5ad0367931103348d
 heldout|stackexchange/rus.stackexchange.com.7z|$IA_SE/rus.stackexchange.com.7z|f7ce56e7027f55ebc735c6206e712c75f47b9b508a0f851580f32a086590b930
 heldout|stackexchange/ukrainian.stackexchange.com.7z|$IA_SE/ukrainian.stackexchange.com.7z|8cf51f9d9e69ed9e05870002a440628cccc99074ebc842aeec7439b7ec21636c

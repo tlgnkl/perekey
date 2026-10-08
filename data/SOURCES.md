@@ -19,11 +19,18 @@
 | Словоформы en | SCOWL / ESDB, en_US-large | разрешительная (HPND-подобная) | `lexicon` |
 | Символьные n-граммы | wordfreq 3.2: формы от Zipf 2,5 с весом √частоты | данные CC BY-SA 4.0 | `lexicon` |
 | Задел, не используется | Википедия ru, en и uk, снимок 2023-11-01 | CC BY-SA 4.0 (+ GFDL) | `text` |
+| Ранг частоты be и kk | Википедия be и kk, снимок 2023-11-01: слова считает `scripts/wiki-freq.py` | CC BY-SA 4.0 (+ GFDL) | `text` |
+| Словоформы be | Hunspell be-official из LibreOffice (Грамматическая база bnkorpus.info) | CC BY-SA 4.0 или LGPLv3 | `lexicon` |
 | Отложенный корпус | Tatoeba, Stack Exchange (в том числе `ukrainian`), GeoNames, синтетика | CC0, CC BY 2.0 FR, CC BY-SA, CC BY 4.0 | `heldout`, `heavy` |
 | Запасной словарь ru | OpenCorpora | CC BY-SA 3.0 | `fallback`, только после юриста |
 | Запасные словоформы uk | Викисловарь (en.wiktionary) через kaikki.org | CC BY-SA 4.0 + GFDL | `fallback`, только после юриста |
 
 **Словоформ uk в основном наборе нет.** Единственный полный словарь, ВЕСУМ (dict_uk) и всё, что из него собрано, выпущен под CC BY-NC-SA 4.0. Он несовместим с моделью (см. «Отклонены»). Модель uk строим только по wordfreq: частоты, формы и n-граммы, как у ru и en.
+
+**be, kk, uz.** В wordfreq 3.2 нет ни одного из трёх языков (проверено по каталогу
+`wordfreq/data` на пине v3.2: файлов `small_`/`large_` для них нет).
+Частоты be и kk считаем по Википедии. Словоформы есть только у be. Узбекский
+пропущен: см. раздел «Белорусский, казахский, узбекский».
 
 Списки исправлений этапа 4 новых внешних источников не добавляют:
 
@@ -131,6 +138,8 @@ may comply with either license or both».
 | [wordfreq](https://github.com/rspeer/wordfreq) 3.2, `large_ru`, `large_en`, `large_uk` | Данные CC BY-SA 4.0, код Apache-2.0 ([README](https://github.com/rspeer/wordfreq#license)) | ru 713 447 форм, 4,5 МБ; en 321 180 форм, 1,5 МБ; uk 443 616 форм, 2,8 МБ | msgpack.gz, 800 корзин centibel | Ранг частоты, дополнительные формы | Да |
 | [Hunspell ru_RU](https://github.com/LibreOffice/dictionaries/tree/master/ru_RU), А. Лебедев | BSD-подобная ([README_ru_RU.txt](https://github.com/LibreOffice/dictionaries/blob/master/ru_RU/README_ru_RU.txt)) | 146 269 основ, из них 7 347 с «ё» | `.dic` + `.aff` | Словоформы раскрытием аффиксов | Да |
 | [SCOWL / ESDB](https://github.com/en-wl/wordlist) `en_US-large` | Разрешительная, без доп. условий для официальных словарей ([Copyright](https://github.com/en-wl/wordlist/blob/v2/Copyright)) | 0,84 МБ `.dic` | Hunspell zip | Словоформы en | Да |
+| [Hunspell be-official](https://github.com/LibreOffice/dictionaries/tree/32b006a2c22a4ac7e8ed3f03346f7b3d85a970a4/be_BY), А. Булойчык и У. Кошчанка, на базе [Граматычнай базы](https://github.com/Belarus/GrammarDB) | «License: CC BY-SA 4.0 or LGPLv3» ([README_be_BY.txt](https://github.com/LibreOffice/dictionaries/blob/32b006a2c22a4ac7e8ed3f03346f7b3d85a970a4/be_BY/README_be_BY.txt)); база — [CC BY-SA 4.0](https://github.com/Belarus/GrammarDB/blob/master/LICENSE.txt), движок GPLv3 | 363 130 основ, 10,6 МБ `.dic`, 0,18 МБ `.aff` (в модели be всего 714 151 форма) | `.dic` + `.aff` | Словоформы be раскрытием аффиксов | Да |
+| [Википедия](https://huggingface.co/datasets/wikimedia/wikipedia) be (2 файла, 285 МБ) и kk (181 МБ), снимок 20231101 | CC BY-SA 4.0 + GFDL (ToU) | be 41,3 млн токенов, 390 тыс. слов с числом ≥ 3; kk 29,5 млн токенов, 295 тыс. слов | parquet → `wikifreq/large_<язык>.msgpack.gz` | Ранг частоты, формы, веса n-грамм: слова считает `scripts/wiki-freq.py` в формате wordfreq | Да |
 | [Википедия](https://huggingface.co/datasets/wikimedia/wikipedia) ru, en и uk, снимок 20231101, по одному файлу | CC BY-SA 4.0 + GFDL (ToU) | ru 171 МБ, en 188 МБ, uk 182 МБ parquet (файл 00002 из 10) | parquet, чистый текст | Пока ничего: в сборке нет читателя parquet. Задумывалась для n-грамм и прозы отложенного корпуса | Да, но не используется |
 
 **wordfreq.** Код под Apache-2.0, а не MIT; с GPLv3 совместим. Данные
@@ -155,7 +164,7 @@ as such». Такой пункт GPLv3 допускает (§7(c)). Старая
 Берём именно копию LibreOffice с BSD-текстом. Частот в Hunspell нет: формы без
 ранга в wordfreq получают нижнюю корзину.
 
-**Википедия.** Снимок 20231101 сделан после перехода на 4.0 (июнь 2023).
+**Википедия.** (Для be и kk она читается: `scripts/wiki-freq.py` считает слова, см. раздел про них ниже.) Снимок 20231101 сделан после перехода на 4.0 (июнь 2023).
 Статьи, которые не правились после перехода, формально остаются под 3.0 — та
 же цепочка, что у OpenCorpora. Для символьных n-грамм риск мал: статистика букв
 вряд ли переработка в смысле авторского права. Сборщик пошёл запасным путём:
@@ -202,6 +211,9 @@ Tatoeba и GeoNames обновляются без версий. Скрипт и�
 | [Taiga](https://tatianashavrina.github.io/taiga_site/) | Заявлена CC BY-SA 3.0 | Тексты журналов и соцсетей; права авторов не очищены | Нет |
 | [OpenSubtitles / OPUS](https://opus.nlpl.eu/OpenSubtitles.php) | Лицензии нет, просьба указать источник | Субтитры — производные от фильмов | Нет. Косвенно есть в wordfreq как частоты |
 | Корпуса из Common Crawl (OSCAR, CC-100, mC4, FineWeb-2, CulturaX) | Обёртка CC0 или ODC-By | По [условиям Common Crawl](https://commoncrawl.org/terms-of-use) права третьих лиц на тексты остаются, риск на пользователе | Нет |
+| Hunspell kk_KZ ([taem/hunspell-kk](https://github.com/taem/hunspell-kk), 53 тыс. основ из aspell-kk) | «GNU GPL 2.0 or above, GNU LGPL 2.1 or above, MPL 1.1 or above» ([README_kk_KZ.txt](https://github.com/taem/hunspell-kk/blob/master/README_kk_KZ.txt)) | Данные GPL/LGPL/MPL. Включённые в файл модели, они обязывают отдать весь файл под GPL: CC BY-SA 4.0 этого не допускает, обратный путь BY-SA → GPLv3 открыт. Годилось бы только при решении, что kk.pklm выходит под GPLv3 | Запас: вопрос 9 |
+| [Apertium](https://github.com/apertium) bel, kaz, uzb | GPL-3.0 (по метаданным GitHub) | То же, что для kk_KZ: данные GPL в файле под BY-SA | Нет |
+| Узбекский Hunspell | Не нашёл ни в LibreOffice, ни среди открытых репозиториев GitHub | — | Нет |
 | [ВЕСУМ / dict_uk](https://github.com/brown-uk/dict_uk) (А. Рисін, В. Старко) | Данные CC BY-NC-SA 4.0, код GPL-3.0 ([README](https://github.com/brown-uk/dict_uk/blob/v6.7.5/README.md#ліцензія-)); с 2018 года ([коммит](https://github.com/brown-uk/dict_uk/commit/c4748edf79c05cd20d169fdaf69f8345a9938ef7)) | Условие NonCommercial. BY-SA §3(b) требует отдать переработку под BY-SA или совместимую лицензию, а «NC» — дополнительное ограничение, которого нет ни в BY-SA, ни в GPLv3 | Нет |
 | Hunspell uk_UA из LibreOffice ([`uk_UA/`](https://github.com/LibreOffice/dictionaries/tree/32b006a2c22a4ac7e8ed3f03346f7b3d85a970a4/uk_UA)), 350 657 основ | [README_uk_UA.txt](https://github.com/LibreOffice/dictionaries/blob/32b006a2c22a4ac7e8ed3f03346f7b3d85a970a4/uk_UA/README_uk_UA.txt): «licensed under MPL 1.1»; так же пишет [distr/hunspell/README.md](https://github.com/brown-uk/dict_uk/blob/master/distr/hunspell/README.md) автора | Это сборка ВЕСУМ 6.7.5: `.dic` и `.aff` совпадают байт в байт с `hunspell-uk_UA_6.7.5.zip` из релиза dict_uk. Исходные данные NC, а заявление про MPL 1.1 противоречит им. Даже если авторы вправе так лицензировать свою сборку, MPL 1.1 несовместима с GPLv3 (FSF) и требует оставить изменённые файлы под MPL | Нет. Файл не пиннится |
 | UniMorph [`ukr.xz`](https://github.com/unimorph/ukr), pymorphy2-dicts-uk, морфология LanguageTool uk | Автоматические сборки ВЕСУМ; README UniMorph: CC BY-NC-SA ([README](https://github.com/unimorph/ukr/blob/master/README.md)) | То же, что ВЕСУМ | Нет |
@@ -225,6 +237,53 @@ Tatoeba и GeoNames обновляются без версий. Скрипт и�
 свежие слова модель получит из n-грамм, а не из словаря: ошибок
 «слово/не слово» на редких формах будет больше. На решение о раскладке это
 влияет слабо, пока слово переключается по нескольким признакам.
+
+## Белорусский, казахский, узбекский
+
+Проверено 09.10.2026. Покрытие — доля слов Tatoeba, которые модель знает
+(`perekey-eval coverage`, сборка `scripts/build-model.sh --languages …`):
+
+| Язык | Частоты | Словоформы | Токенов Tatoeba | Покрытие |
+|---|---|---|---|---|
+| be | Википедия be | Hunspell be-official | 84 590 (14 427 предложений) | 96,37 % (только Википедия: 95,16 %) |
+| kk | Википедия kk | нет | 28 641 (4 575 предложений) | 94,50 % |
+| uz | нет | нет | — | модель не строим |
+
+Для сравнения, uk по wordfreq даёт 98,68 %. Википедия мала (30–40 млн токенов
+против миллиардов у wordfreq), поэтому покрытие ниже. У kk 2 239 из 28 641
+токенов вне алфавита: в Tatoeba есть казахские фразы латиницей.
+
+**Как считаем.** `scripts/wiki-freq.py` переводит текст в нижний регистр,
+режет на слова, оставляет слова только из букв алфавита, апострофа и дефиса и
+пишет слова с числом вхождений ≥ 3 в список wordfreq `cB`, где Zipf =
+log10(число · 10⁹ / все токены). Дальше сборщик идёт тем же путём, что для
+wordfreq: ранг, вес n-грамм от Zipf 2,5. Одни и те же parquet дают один и тот же
+файл: они пиннятся. Нужны `pyarrow` и `msgpack` (шаг подготовки, не
+приложение). Данные — счётчики слов, то есть факты; условие BY-SA 4.0 и
+рассуждение раздела «Охраняется ли частотная таблица» к ним применимы так же,
+как к частотам wordfreq. Авторство: Википедия, CC BY-SA 4.0, в заголовке
+модели.
+
+**be.** Hunspell be-official выпущен под «CC BY-SA 4.0 or LGPLv3», как и его
+база. Берём ветку CC BY-SA 4.0: она та же, что у модели. Условие BY-SA
+указать изменения выполняем в заголовке модели. Старая версия правописания (2008) —
+официальная, она совпадает с Википедией be.
+
+**kk.** Единственный словарь, Hunspell kk_KZ, под GPL/LGPL/MPL. Без него
+покрытие 94,50 %. Выпуск kk.pklm под GPLv3 вместо BY-SA 4.0 возможен (путь BY-SA 4.0 → GPLv3
+открыт), но это решение юриста и владельца; см. вопрос 9.
+
+**uz.** Раскладок Uzbek в macOS две: `Uzbek-Cyrillic` и `Afghan Uzbek`
+(арабская графика). Латинской нет (проверено по
+`AppleKeyboardLayouts-L.dat`). Для переключателя неверной раскладки имеет
+смысл только кириллица: латинская узбекская раскладка — тот же QWERTY, и
+переключать с английской было бы нечего. Но Википедия uz пишется латиницей:
+кириллицы в ней 0,94 млн букв из 291 млн, после подсчёта остаётся 6 358 слов
+с числом ≥ 3. Tatoeba `uzb` — 1 235 предложений обоих алфавитов. Переводить
+латиницу в кириллицу по правилам нельзя: е/э, ц, ё и ъ/ь нельзя восстановить
+из латиницы без словаря. Вывод: данных под совместимой лицензией для
+кириллицы нет, uz пропущен. Вернуться, когда появится кириллический корпус
+с открытой лицензией.
 
 ## Что выполнить при выпуске
 
@@ -257,6 +316,10 @@ Tatoeba и GeoNames обновляются без версий. Скрипт и�
 8. Годится ли Викисловарь (kaikki) как запас для uk при цепочке 3.0 → 4.0 →
    GPLv3 и праве изготовителя базы? Выигрыш мал (+0,5 п. п.), поэтому по
    умолчанию его не берём.
+9. Выпускать ли kk.pklm под GPLv3 (а не BY-SA 4.0), чтобы взять Hunspell
+   kk_KZ под GPL 2+/LGPL 2.1+/MPL 1.1+? Выигрыш измерить до решения.
+10. Википедия be и kk, как и uk: старые правки остались под 3.0 (цепочка
+    3.0 → 4.0 → GPLv3). Для счётчиков слов риск мал, но не нулевой.
 
 ## Не юридические вопросы
 

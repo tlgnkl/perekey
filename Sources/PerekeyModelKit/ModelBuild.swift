@@ -30,10 +30,17 @@ public struct ModelBuild {
         // The apostrophe is a letter of the word ("п'ять"): `'`, and `ʼ`
         // through `ModelFormat.fold`; the builder reads `’` as `'` too.
         "uk": "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя'-",
+        // The apostrophe is a letter here too ("аб'ём").
+        "be": "абвгдеёжзійклмнопрстуўфхцчшыьэюя'-",
+        "kk": "абвгғдеёжзийкқлмнңоөпрстуұүфхһцчшщъыіьэюяә-",
     ]
 
     /// The languages `perekey-model` builds by default.
     public static let languages = ["ru", "en", "uk"]
+
+    /// Languages wordfreq has no list for: the frequencies are counted from
+    /// the Wikipedia snapshot by scripts/wiki-freq.py.
+    static let wikipediaFrequencies: Set = ["be", "kk"]
 
     public let cache: String
     public let data: String
@@ -58,8 +65,13 @@ public struct ModelBuild {
             // 1. Frequencies and extra forms from wordfreq. Weighted n-gram
             // statistics come from here: weight = sqrt(frequency per billion),
             // from Zipf 2.5 up; the long tail is typos and foreign words.
-            let frequencies = try WordFreq(gzipPath: "\(cache)/wordfreq/large_\(language).msgpack.gz")
-            sources.append("wordfreq 3.2 large_\(language): \(frequencies.entries.count) words")
+            let fromWikipedia = Self.wikipediaFrequencies.contains(language)
+            let frequencies = try WordFreq(gzipPath: fromWikipedia
+                ? "\(cache)/wikifreq/large_\(language).msgpack.gz"
+                : "\(cache)/wordfreq/large_\(language).msgpack.gz")
+            sources.append(fromWikipedia
+                ? "Wikipedia \(language) 20231101, words counted by scripts/wiki-freq.py: \(frequencies.entries.count) words"
+                : "wordfreq 3.2 large_\(language): \(frequencies.entries.count) words")
             var ranks: [String: UInt8] = [:]
             for entry in frequencies.entries {
                 guard !lists.remove.contains(entry.word) else { continue }
@@ -91,7 +103,7 @@ public struct ModelBuild {
                 var expanded = 0
                 let entries = Hunspell.entries(dic: dic)
                 // Words with "ё" are derived from the dictionary as it is expanded.
-                var yo = Self.alphabets[language]!.contains("ё") ? YoTable(entries: entries) : nil
+                var yo = language == "ru" ? YoTable(entries: entries) : nil
                 // An abbreviation Perekey corrects must not be an ordinary word: "it" ≠ "IT".
                 let corrected = Set(lists.correctedAbbreviations.map { $0.lowercased() })
                 var ordinary: Set<String> = []
@@ -159,17 +171,23 @@ public struct ModelBuild {
             let inputs: [String] = switch language {
             case "ru": ["wordfreq/large_ru.", "hunspell-ru/"]
             case "en": ["wordfreq/large_en.", "esdb/"]
+            case "be": ["wikifreq/large_be.", "wikipedia/be/", "hunspell-be/"]
+            case "kk": ["wikifreq/large_kk.", "wikipedia/kk/"]
             default: ["wordfreq/large_\(language)."]
             }
             let formsNote = switch language {
             case "ru": "Word forms: modified from the dictionary by Alexander I. Lebedev (BSD-like licence)."
             case "en": "Word forms: SCOWL / ESDB."
+            case "be": "Word forms: Hunspell be-official from the Belarusian Grammar Database (bnkorpus.info), CC BY-SA 4.0."
             default: "No word-form dictionary."
             }
+            let frequencyNote = fromWikipedia
+                ? "Frequencies counted from Wikipedia (CC BY-SA 4.0 + GFDL)."
+                : "wordfreq data by Robyn Speer, CC BY-SA 4.0."
             builder.meta = """
             Perekey language model, \(language). Licence: CC BY-SA 4.0 (data/SOURCES.md).
             Sources: \(sources.joined(separator: "; ")).
-            wordfreq data by Robyn Speer, CC BY-SA 4.0. \(formsNote)
+            \(frequencyNote) \(formsNote)
             Inputs:
             \(manifest.split(separator: "\n").filter { line in inputs.contains { line.contains($0) } }.joined(separator: "\n"))
             """
@@ -198,6 +216,10 @@ public struct ModelBuild {
             let dic = String(decoding: try Archive.unzip(path, member: "en_US-large.dic"), as: UTF8.self)
             let aff = String(decoding: try Archive.unzip(path, member: "en_US-large.aff"), as: UTF8.self)
             return (dic, aff, "SCOWL \(archive)")
+        case "be":
+            let dic = try String(contentsOfFile: "\(cache)/hunspell-be/be-official.dic", encoding: .utf8)
+            let aff = try String(contentsOfFile: "\(cache)/hunspell-be/be-official.aff", encoding: .utf8)
+            return (dic, aff, "Hunspell be-official")
         default:
             return nil
         }

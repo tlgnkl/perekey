@@ -16,7 +16,7 @@ public struct Coverage {
     public var known = 0
 
     /// Tatoeba files by model language.
-    static let tatoeba = ["ru": "rus", "en": "eng", "uk": "ukr"]
+    static let tatoeba = ["ru": "rus", "en": "eng", "uk": "ukr", "be": "bel", "kk": "kaz"]
 
     public static func measure(_ model: LanguageModel.Language, cache: String) throws -> Coverage {
         guard let name = tatoeba[model.code] else {

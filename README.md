@@ -2,10 +2,29 @@
 
 Free and open-source automatic keyboard layout switcher for macOS.
 
-Typed `ghbdtn` instead of `привет`? Perekey fixes it as you type, or on a
-double Shift. Every shortcut is configurable, including Windows-style ⌥⇧ and ⌃⇧.
+Typed `ghbdtn` instead of `привет`? Perekey fixes it as you type, or when you
+press Option. Every shortcut is configurable, including Windows-style ⌥⇧ and ⌃⇧.
 
-> Early development. See [docs/PLAN.md](docs/PLAN.md) for the roadmap (in Russian).
+> Pre-release: no signed build yet. See [docs/PLAN.md](docs/PLAN.md) for the
+> roadmap and [docs/manual-check.md](docs/manual-check.md) for what is still to
+> be checked by hand (both in Russian).
+
+## What it does
+
+- **Retype on a shortcut.** Option (or any shortcut) retypes the last word or
+  the selection in the other layout; press again to bring it back.
+- **Automatic switching.** A language model inside the app decides at the end
+  of each word. One Backspace right after a correction undoes it, and Perekey
+  remembers the word — the hint near the caret says so and offers "Forget".
+- **Honest about code.** Terminals and IDEs are "manual only" by default, games
+  are off. Rules per app and per website.
+- **Any shortcut.** Presets for Caramba-style Shift, Windows ⌥⇧ / ⌃⇧, ⌘⇧, two
+  separate keys, Caps Lock; or record your own, with conflict warnings.
+- **Never in passwords.** Password fields, Secure Input, password-like strings
+  and captcha-like random strings are left alone.
+- **Extras.** Change case, transliterate, paste without formatting, sounds.
+- **Private.** Typed text stays in memory. The only network request is the
+  update check, and it can be turned off (see below).
 
 ## Network
 

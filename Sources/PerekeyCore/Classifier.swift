@@ -41,6 +41,14 @@ public struct Classifier: Sendable {
         public var mixedCaseRank: UInt8 = 128
         /// Bits in favour of the language of the previous word.
         public var contextBonus: Double = 3
+        /// How much each earlier word of the sentence counts against the one
+        /// after it: the word before the previous one counts `contextDecay`
+        /// times as much, the one before that `contextDecay²`
+        /// (`RecentLanguages`). Zero judges by the previous word alone. When
+        /// the words before are in both languages, the sentence mixes them:
+        /// only the previous word counts, and a short word is judged as
+        /// without context. From the sweep of `perekey-eval --context-sweep`.
+        public var contextDecay: Double = 1
         /// A 1–2 letter word switches only to a form at least this frequent
         /// (160 is Zipf 5: "а", "и", "в", "a", "i"), never after a word in its
         /// own language, after a word in the other language if the typed
@@ -59,12 +67,20 @@ public struct Classifier: Sendable {
     }
 
     public struct Context: Hashable, Sendable {
-        /// The language the previous word was judged to be in, e.g. "ru".
-        public var previousLanguage: String?
+        /// The languages the last words of the sentence were judged to be
+        /// in, the latest first.
+        public var recent: RecentLanguages
         public var mode: Mode
 
+        /// The language the previous word was judged to be in, e.g. "ru".
+        public var previousLanguage: String? { recent.latest }
+
         public init(previousLanguage: String? = nil, mode: Mode = .automatic) {
-            self.previousLanguage = previousLanguage
+            self.init(recent: previousLanguage.map { RecentLanguages([$0]) } ?? RecentLanguages(), mode: mode)
+        }
+
+        public init(recent: RecentLanguages, mode: Mode = .automatic) {
+            self.recent = recent
             self.mode = mode
         }
     }
@@ -216,10 +232,7 @@ public struct Classifier: Sendable {
         let otherCost = other.cost - bonus(other)
         var score = typedCost - otherCost
         score += options.openerBonus * Double(typed.openers - other.openers)
-        if let previous = context.previousLanguage {
-            if previous == otherCode { score += options.contextBonus }
-            if previous == typedCode { score -= options.contextBonus }
-        }
+        score += contextLean(context.recent, toward: otherCode, from: typedCode)
 
         guard automatic else {
             let wins = !typed.isWord || score > 0
@@ -241,7 +254,9 @@ public struct Classifier: Sendable {
             let frequent = (other.rank ?? 0) >= options.shortWordRank
             let typedRank = typed.isWord ? (typed.rank ?? 0) : 0
             let wins: Bool
-            if typed.letters == 0 || context.previousLanguage == typedCode {
+            if typed.letters == 0
+                || (context.previousLanguage == typedCode && !isMixed(context.recent, typedCode, otherCode))
+            {
                 wins = false
             } else if context.previousLanguage == otherCode {
                 wins = frequent && typedRank < (other.rank ?? 0)
@@ -278,6 +293,41 @@ public struct Classifier: Sendable {
         }
         return Decision(verdict: .keep, score: score, reason: .compared,
                         language: plausible(typed) ? typedCode : nil)
+    }
+
+    /// Bits the words before give the other reading: `contextBonus` for the
+    /// previous word in the other language, `contextDecay` times less for
+    /// each word further back; in a mixed sentence the previous word alone.
+    private func contextLean(_ recent: RecentLanguages, toward other: String?, from typed: String?) -> Double {
+        if isMixed(recent, typed, other) {
+            if recent.latest == other { return options.contextBonus }
+            if recent.latest == typed { return -options.contextBonus }
+            return 0
+        }
+        var lean = 0.0
+        var weight = options.contextBonus
+        for index in 0..<recent.count {
+            if let language = recent[index] {
+                if language == other { lean += weight }
+                if language == typed { lean -= weight }
+            }
+            weight *= options.contextDecay
+            if weight == 0 { break }
+        }
+        return lean
+    }
+
+    /// The words before are in both languages: the sentence mixes them.
+    private func isMixed(_ recent: RecentLanguages, _ typed: String?, _ other: String?) -> Bool {
+        guard recent.count > 1, let typed, let other else { return false }
+        var seenTyped = false
+        var seenOther = false
+        for index in 0..<recent.count {
+            let language = recent[index]
+            if language == typed { seenTyped = true }
+            if language == other { seenOther = true }
+        }
+        return seenTyped && seenOther
     }
 
     /// A known form, or cheap enough per letter not to be noise. A reading

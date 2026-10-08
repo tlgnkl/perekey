@@ -82,8 +82,14 @@ struct WordJudge: Sendable {
     /// Typo correction over the model of `classifier`; nil without a model.
     private var typoCorrector: TypoCorrector?
     var appMode: AppMode = .auto
-    /// The language of the last judged word: context for the next one.
-    private(set) var previousLanguage: String?
+    /// The languages of the last judged words: context for the next one.
+    private(set) var recent = RecentLanguages()
+    /// The word being typed has its place in `recent` already: judging it
+    /// again ("hello." and then a space) or undoing it replaces its language.
+    private var languageRecorded = false
+
+    /// The language of the last judged word.
+    var previousLanguage: String? { recent.latest }
     /// The next word starts a sentence (after `. ! ?`, a line end or a focus
     /// change): a capital there is no name. Independent of the word itself.
     private(set) var sentenceStart = true
@@ -101,7 +107,7 @@ struct WordJudge: Sendable {
     mutating func setClassifier(_ newClassifier: Classifier?) {
         classifier = newClassifier
         typoCorrector = newClassifier.map { TypoCorrector(model: $0.model) }
-        previousLanguage = nil
+        recent.removeAll()
     }
 
     // MARK: - What happened to the word
@@ -109,7 +115,10 @@ struct WordJudge: Sendable {
     /// A key that types a character went into the buffer. `startsWord`: it
     /// began a new word, and whatever was decided about the last one is over.
     mutating func typed(startsWord: Bool) {
-        if startsWord { switching = .allowed }
+        if startsWord {
+            switching = .allowed
+            languageRecorded = false
+        }
         judged = false
     }
 
@@ -136,7 +145,7 @@ struct WordJudge: Sendable {
     mutating func wordUndone(language: String?) {
         switching = .suppressed
         judged = true
-        previousLanguage = language
+        record(language)
     }
 
     /// The undo of a switch inside the word was posted: learn the word once
@@ -147,8 +156,21 @@ struct WordJudge: Sendable {
 
     /// The text before the caret is unknown now.
     mutating func forgetContext(newField: Bool) {
-        previousLanguage = nil
+        recent.removeAll()
+        languageRecorded = false
         if newField { sentenceStart = true }
+    }
+
+    // MARK: - Languages of the words
+
+    /// The word being typed is in `language`, as far as Perekey can tell.
+    private mutating func record(_ language: String?) {
+        if languageRecorded {
+            recent.replaceLatest(language)
+        } else {
+            recent.push(language)
+            languageRecorded = true
+        }
     }
 
     // MARK: - At the word's end
@@ -198,7 +220,10 @@ struct WordJudge: Sendable {
         // in the buffer then.
         let startsSentence = endsLine || Self.endsSentence(stroke, in: typed)
             || (stroke.keyCode == KeyCode.space && Self.endsSentence(last.stroke, in: typed))
-        defer { sentenceStart = startsSentence }
+        defer {
+            sentenceStart = startsSentence
+            if startsSentence { recent.keepLatest() }
+        }
 
         if switching != .allowed {
             var ruling = Ruling.keep
@@ -211,7 +236,7 @@ struct WordJudge: Sendable {
                     ruling = .learn(word)
                 }
             }
-            previousLanguage = typed.language
+            record(typed.language)
             return ruling
         }
         guard wordIsPlain(buffer, layouts: layouts) else { return .keep }
@@ -223,12 +248,12 @@ struct WordJudge: Sendable {
         if let auto {
             let found = auto.classifier.classify(
                 buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
-                context: Classifier.Context(previousLanguage: previousLanguage)
+                context: Classifier.Context(recent: recent)
             )
             decision = found
             if found.verdict == .switch(to: auto.other.id) {
                 if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings) {
-                    previousLanguage = auto.typed.language
+                    record(auto.typed.language)
                     return .keep
                 }
                 guard var retype = autoRetype(auto, buffer.entries[...], held: boundary, heldKeyCode: key.keyCode,
@@ -236,12 +261,12 @@ struct WordJudge: Sendable {
                                               settings: settings)
                 else { return .keep }
                 retype.decision = found
-                previousLanguage = auto.other.language
+                record(auto.other.language)
                 return .retype(retype)
             }
-            previousLanguage = found.language
+            record(found.language)
         } else {
-            previousLanguage = typed.language
+            record(typed.language)
         }
         // The word stays in its layout: fix it there.
         guard let typo, !isException(buffer, in: typo, settings),

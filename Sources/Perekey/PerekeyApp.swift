@@ -11,6 +11,7 @@ struct PerekeyApp: App {
     private let inputSources = InputSources()
     private let store: SettingsStore
     private let recording: ShortcutRecording
+    private let onboarding: OnboardingController
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
@@ -20,6 +21,9 @@ struct PerekeyApp: App {
         let store = SettingsStore()
         self.store = store
         recording = ShortcutRecording(store: store)
+        let onboarding = OnboardingController(store: store, sources: inputSources)
+        self.onboarding = onboarding
+        Task { @MainActor in onboarding.showIfFirstLaunch() }
         // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;
         // this keeps `swift run` behaving the same way.
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -33,6 +37,7 @@ struct PerekeyApp: App {
             Divider()
             SettingsLink { Text("Settings…") }
                 .keyboardShortcut(",")
+            Button("Show Onboarding…") { onboarding.show() }
             Button("Quit Perekey") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
         } label: {

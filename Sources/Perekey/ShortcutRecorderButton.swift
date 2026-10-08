@@ -34,7 +34,7 @@ struct ShortcutRecorderButton: View {
     }
 }
 
-private struct Keycap: View {
+struct Keycap: View {
     let text: String
 
     var body: some View {

@@ -31,7 +31,7 @@ struct ShortcutsPane: View {
         Section("Preset") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 8)], alignment: .leading, spacing: 8) {
                 ForEach(HotkeyPreset.allCases, id: \.self) { preset in
-                    PresetChip(preset: preset, isSelected: store.settings.preset == preset) {
+                    PresetChip(title: preset.title, note: preset.note, isSelected: store.settings.preset == preset) {
                         recording.stop()
                         store.update { $0.apply(preset) }
                     }
@@ -117,8 +117,10 @@ struct ShortcutsPane: View {
     }
 }
 
-private struct PresetChip: View {
-    let preset: HotkeyPreset
+/// One choice in a preset grid. Onboarding reuses it, with an extra Caps Lock choice.
+struct PresetChip: View {
+    let title: String
+    let note: String
     let isSelected: Bool
     let action: () -> Void
 
@@ -128,8 +130,8 @@ private struct PresetChip: View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(LocalizedStringKey(preset.title)).fontWeight(.semibold)
-                    Text(LocalizedStringKey(preset.note)).font(.caption).foregroundStyle(.secondary)
+                    Text(LocalizedStringKey(title)).fontWeight(.semibold)
+                    Text(LocalizedStringKey(note)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")

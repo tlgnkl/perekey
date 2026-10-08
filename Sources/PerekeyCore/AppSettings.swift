@@ -20,13 +20,16 @@ public struct AppSettings: Hashable, Sendable {
     public var hotkeys: [HotkeyBinding]
     public var capsLock: CapsLockMode
     public var autoswitch: Bool
+    /// Whether the user has been through the onboarding window. It opens once, on first launch.
+    public var onboardingDone: Bool
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
-                autoswitch: Bool = true)
+                autoswitch: Bool = true, onboardingDone: Bool = false)
     {
         self.hotkeys = hotkeys
         self.capsLock = capsLock
         self.autoswitch = autoswitch
+        self.onboardingDone = onboardingDone
     }
 
     /// The preset these shortcuts are, or `nil` for the user's own set.
@@ -59,7 +62,7 @@ public struct AppSettings: Hashable, Sendable {
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkeys, capsLock, autoswitch
+        case hotkeys, capsLock, autoswitch, onboardingDone
     }
 
     public init(from decoder: any Decoder) throws {
@@ -68,5 +71,6 @@ extension AppSettings: Codable {
         hotkeys = try container.decodeIfPresent([HotkeyBinding].self, forKey: .hotkeys) ?? defaults.hotkeys
         capsLock = (try? container.decodeIfPresent(CapsLockMode.self, forKey: .capsLock)) ?? defaults.capsLock
         autoswitch = try container.decodeIfPresent(Bool.self, forKey: .autoswitch) ?? defaults.autoswitch
+        onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
     }
 }

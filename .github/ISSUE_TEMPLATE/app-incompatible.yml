@@ -1,0 +1,32 @@
+name: App does not work with Perekey
+description: Perekey misbehaves or does nothing in a specific app
+labels: [compatibility]
+body:
+  - type: markdown
+    attributes:
+      value: Check the [compatibility matrix](../blob/main/docs/compatibility.md) first.
+  - type: input
+    id: app
+    attributes:
+      label: App name and version
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Perekey version
+    validations:
+      required: true
+  - type: textarea
+    id: fails
+    attributes:
+      label: What fails
+      description: Which feature, in which field. Do not paste private text.
+    validations:
+      required: true

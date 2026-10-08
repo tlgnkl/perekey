@@ -24,6 +24,10 @@ PEREKEY_SNAPSHOT=/tmp/shots .build/debug/Perekey
 Without `dev-cert.sh` the app is signed ad hoc, and macOS forgets the
 Accessibility permission after every rebuild.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO sign-off (`git commit -s`).
+
 ## License
 
 [GPL-3.0-or-later](LICENSE).

@@ -1,0 +1,44 @@
+name: False switch (wrong correction)
+description: Perekey changed text that was correct, or fixed it wrongly
+labels: [false-switch]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste private text** (passwords, messages, names). Use a similar made-up example.
+  - type: input
+    id: typed
+    attributes:
+      label: What you typed
+    validations:
+      required: true
+  - type: input
+    id: did
+    attributes:
+      label: What Perekey did
+    validations:
+      required: true
+  - type: input
+    id: app
+    attributes:
+      label: App (name and version)
+    validations:
+      required: true
+  - type: input
+    id: layouts
+    attributes:
+      label: Layouts enabled
+      description: For example ABC, Russian.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options: [Automatic, Double Shift, Hotkey, Other]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Perekey and macOS version

@@ -32,9 +32,13 @@ public struct Classifier: Sendable {
         /// without a frequency (rank 0) counts as Zipf 2.5.
         public var dictionaryBonus: Double = 1
         public var rankBonus: Double = 2.5
-        /// Below this rank (Zipf 1.5) a frequency-list token is not a known
+        /// Below this rank (Zipf 2.5) a frequency-list token is not a known
         /// form: it does not lower the margin for a switch.
-        public var knownRank: UInt8 = 48
+        public var knownRank: UInt8 = 80
+        /// A capital inside a word (one, with small letters around) switches
+        /// only to a form at least this frequent (Zipf 4): "НщгЕгиу" is
+        /// "YouTube", "оФТУ" is noise. Two capitals inside never switch.
+        public var mixedCaseRank: UInt8 = 128
         /// Bits in favour of the language of the previous word.
         public var contextBonus: Double = 3
         /// A 1–2 letter word switches only to a form at least this frequent
@@ -86,8 +90,11 @@ public struct Classifier: Sendable {
         case codeLike
         /// Neither reading is probable and neither is a known form: captcha.
         case noise
-        /// Capitals inside the word and no known form to switch to: "taToG".
+        /// Capitals inside the word and no frequent form to switch to: "taToG".
         case mixedCase
+        /// The other reading is unknown and the typed one reads fine in its
+        /// own language: nothing says it is wrong.
+        case bothPlausible
         /// A 1–2 letter word, decided by the dictionary alone.
         case shortWord
         /// Decided by the costs: `score` says how.
@@ -251,10 +258,17 @@ public struct Classifier: Sendable {
             return Decision(verdict: wins ? .switch(to: otherLayout.id) : .keep, score: score, reason: .compared,
                             language: wins ? otherCode : nil)
         }
-        if typed.upperInside > 0, typed.lower > 0, !known {
-            // Shift inside a word, and nothing known to switch to: a captcha,
+        if typed.upperInside > 0, typed.lower > 0,
+           typed.upperInside > 1 || (other.rank ?? 0) < options.mixedCaseRank
+        {
+            // Shift inside a word, and nothing frequent to switch to: a captcha,
             // a product name, an identifier.
             return Decision(verdict: .keep, score: score, reason: .mixedCase, language: nil)
+        }
+        if !known, typed.cost / Double(typed.letters + 1) < options.noiseCost {
+            // Switching to an unknown word needs the typed reading to be noise
+            // in its own language: "cokef" reads like English, so it stays.
+            return Decision(verdict: .keep, score: score, reason: .bothPlausible, language: nil)
         }
         if score >= margin {
             return Decision(verdict: .switch(to: otherLayout.id), score: score, reason: .compared, language: otherCode)
@@ -272,7 +286,8 @@ public struct Classifier: Sendable {
     private func plausible(_ reading: Reading, carries: Bool = false) -> Bool {
         if isKnown(reading) { return true }
         let bound = carries ? options.unknownNoiseCost : options.noiseCost
-        if carries, !reading.prefixPossible { return false }
+        // Unknown and short: too little to go on.
+        if carries, !reading.prefixPossible || reading.letters < 4 { return false }
         return reading.cost / Double(reading.letters + 1) <= bound
     }
 

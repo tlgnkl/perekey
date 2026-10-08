@@ -180,8 +180,8 @@ public struct InputMachine: Sendable {
             return swallowedKeyUps.remove(key.keyCode) != nil ? .drop : .pass
         }
 
-        // F-keys and arrows always carry the fn bit, so fn never takes part.
         detector.otherInput(at: time)
+        // F-keys and arrows always carry the fn bit, so fn never takes part.
         let held = ModifierKind.kindMask(inEventFlags: key.flags) & ~ModifierKind.function.maskBit
         if let hotkey = keyHotkeys.first(where: { $0.keyCode == key.keyCode && $0.modifiers == held }) {
             swallowedKeyUps.insert(key.keyCode)

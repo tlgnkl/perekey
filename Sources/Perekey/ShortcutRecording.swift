@@ -116,6 +116,10 @@ final class ShortcutRecording {
         guard let target = action else { return }
         switch result {
         case let .recorded(trigger):
+            if case .modifiers = trigger, !target.acceptsModifierOnlyTrigger {
+                hint = String(localized: "This one needs a key with modifiers, not modifiers alone.")
+                return
+            }
             store.update { $0.setTrigger(trigger, for: target) }
             let conflicts = ShortcutConflicts.check(trigger, for: target, among: store.settings.hotkeys)
             stop()

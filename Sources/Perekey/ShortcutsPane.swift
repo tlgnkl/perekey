@@ -12,6 +12,7 @@ struct ShortcutsPane: View {
 
     private static let actions: [HotkeyAction] = [
         .switchLayout, .convertLastWord, .toggleAutoswitch, .selectLanguage("en"), .selectLanguage("ru"),
+        .changeCase, .transliterate, .pastePlain,
     ]
 
     var body: some View {
@@ -44,13 +45,22 @@ struct ShortcutsPane: View {
         PKGroup {
             ForEach(Array(Self.actions.enumerated()), id: \.element) { index, action in
                 if index > 0 { PKDivider() }
-                PKRow(Text(verbatim: TriggerText.name(of: action))) {
+                PKRow(Text(verbatim: TriggerText.name(of: action)), detail: detail(of: action)) {
                     ShortcutRecorderButton(action: action, store: store, recording: recording)
                 }
             }
             ForEach(recording.conflictTexts, id: \.self) { text in
                 PKCallout(Text(text))
             }
+        }
+    }
+
+    private func detail(of action: HotkeyAction) -> Text? {
+        switch action {
+        case .changeCase: Text("Press again to go lower, Title, UPPER.")
+        case .transliterate: Text("Selection only: Cyrillic to Latin and back.")
+        case .pastePlain: Text("Off until you record a key with modifiers, such as ⌃⌥V.")
+        default: nil
         }
     }
 

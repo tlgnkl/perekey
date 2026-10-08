@@ -28,6 +28,7 @@ final class InputController {
     @ObservationIgnored private var engine: InputEngine!
     @ObservationIgnored private var focus: FocusObserver!
     @ObservationIgnored private var selection: SelectionReader!
+    @ObservationIgnored private var plainPaste: PlainPaste!
     @ObservationIgnored private var lastSettings: PerekeyCore.Settings
     @ObservationIgnored private var tokens: [(NotificationCenter, any NSObjectProtocol)] = []
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "input")
@@ -39,6 +40,10 @@ final class InputController {
         appModes = AppModeController(sources: sources, store: store, pause: pause)
         lastSettings = store.snapshot
         lastSettings = effectiveSettings
+
+        plainPaste = PlainPaste { [weak self] in
+            PlainPaste.postCommandV(keyCode: self?.keyCode(typing: "v", fallback: 9) ?? 9) // kVK_ANSI_V
+        }
 
         let textProbe = TextProbe()
         selection = SelectionReader(probe: textProbe)
@@ -103,6 +108,8 @@ final class InputController {
         case let .tapState(state):
             tapState = state
         case let .select(id, then):
+            // Without a retype it is a layout shortcut; a retype has its own sound.
+            if then == nil { SystemSounds.play(store.settings.layoutSound) }
             let selected = sources.select(id)
             guard let then else { break }
             guard selected else {
@@ -121,24 +128,29 @@ final class InputController {
         case let .convertSelection(seq):
             let reader = selection!
             let engine = engine!
-            let keyCode = copyKeyCode
+            let copyKey = keyCode(typing: "c", fallback: 8) // kVK_ANSI_C
             Task {
-                let read = await reader.read(seq: seq, copyKeyCode: keyCode)
+                let read = await reader.read(seq: seq, copyKeyCode: copyKey)
                 engine.send(.selectionRead(seq: seq, text: read.text, viaAccessibility: read.viaAccessibility))
             }
         case .secureInputChanged:
             secureInput.refresh()
+        case .pastePlain:
+            plainPaste.paste()
+        case .retyped:
+            SystemSounds.play(store.settings.correctionSound)
         }
     }
 
-    /// The key that types "c": ⌘C is matched on the layout macOS uses for
-    /// shortcuts, the current one if it types Latin letters, else a Latin one.
-    private var copyKeyCode: UInt16 {
+    /// The key that types a shortcut letter such as "c" or "v": ⌘C and ⌘V are
+    /// matched on the layout macOS uses for shortcuts, the current one if it
+    /// types Latin letters, else a Latin one.
+    private func keyCode(typing letter: Character, fallback: UInt16) -> UInt16 {
         let current = sources.layouts.first { $0.id == sources.currentLayout }
         for map in [current].compactMap({ $0 }) + sources.layouts {
-            if let stroke = map.stroke(for: "c"), stroke.modifiers.isEmpty { return stroke.keyCode }
+            if let stroke = map.stroke(for: letter), stroke.modifiers.isEmpty { return stroke.keyCode }
         }
-        return 8 // kVK_ANSI_C
+        return fallback
     }
 
     private func observeSystem() {

@@ -19,6 +19,10 @@ public enum EngineMessage: Sendable {
     /// selected. User input is held until then.
     case convertSelection(seq: UInt32)
     case secureInputChanged(Bool)
+    /// Paste the pasteboard as plain text (`PlainPaste`), on the main thread.
+    case pastePlain
+    /// A retype was posted: the correction sound plays.
+    case retyped
 }
 
 public enum TapState: Hashable, Sendable {
@@ -368,12 +372,14 @@ public final class InputEngine: @unchecked Sendable {
         }
         TextSink.post(retype)
         handle(.retypePosted(seq: retype.seq, time: Self.now))
+        toMain(.retyped)
     }
 
     private func replacedViaAccessibility(_ retype: Retype, done: Bool) {
         guard machine.pendingRetypeSeq == retype.seq else { return }
         if done {
             handle(.retypePosted(seq: retype.seq, time: Self.now))
+            toMain(.retyped)
         } else {
             log.error("Retype \(retype.seq, privacy: .public): AX did not replace the selection")
             handle(.retypeCancelled(seq: retype.seq))
@@ -437,6 +443,8 @@ public final class InputEngine: @unchecked Sendable {
                 scheduleDeadline(at: at)
             case let .autoswitchChanged(on):
                 toMain(.autoswitchChanged(on))
+            case .pastePlain:
+                toMain(.pastePlain)
             case let .refused(refusal):
                 toMain(.refused(refusal))
             case let .convertSelection(seq):

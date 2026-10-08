@@ -51,7 +51,8 @@ To verify, allow only this host in Little Snitch or LuLu.
 
 ## Build
 
-Requires macOS 14+ and Swift 6 (Xcode or Command Line Tools).
+Runs on macOS 14+. Building needs the macOS 26 SDK and Swift 6.2+ (Xcode 26 or
+its Command Line Tools): the app uses Liquid Glass where available.
 
 ```sh
 scripts/test.sh       # run unit tests

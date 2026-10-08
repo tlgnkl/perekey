@@ -36,7 +36,7 @@ jobs:
   # The no-Xcode path: Command Line Tools only, as in docs/PLAN.md and the
   # local setup. A pinned image keeps the toolchain from changing under us.
   clt-only:
-    runs-on: macos-15
+    runs-on: macos-latest # needs the macOS 26 SDK (Liquid Glass, Swift 6.2+), like the build job
     steps:
       - uses: actions/checkout@v4
       - name: Select Command Line Tools

@@ -281,6 +281,19 @@ import Testing
     }
 }
 
+/// Belarusian and Kazakh: built from Wikipedia counts, not switched yet.
+@Suite struct BelarusianKazakhModelTests {
+    @Test func alphabetsHoldTheirOwnLetters() throws {
+        let belarusian = try #require(ModelBuild.alphabets["be"])
+        for letter in "ўі'ёы" { #expect(belarusian.contains(letter)) }
+        for letter in "ґїєъщ" { #expect(!belarusian.contains(letter)) }
+        let kazakh = try #require(ModelBuild.alphabets["kk"])
+        for letter in "әғқңөұүһі" { #expect(kazakh.contains(letter)) }
+        for letter in "ў'" { #expect(!kazakh.contains(letter)) }
+        #expect(!ModelBuild.languages.contains("be") && !ModelBuild.languages.contains("kk"))
+    }
+}
+
 /// The Ukrainian model: built without a word-form dictionary, not switched yet.
 @Suite struct UkrainianModelTests {
     @Test func alphabetHoldsTheUkrainianLettersAndTheApostrophe() throws {

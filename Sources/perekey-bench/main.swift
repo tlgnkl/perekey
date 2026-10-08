@@ -108,11 +108,12 @@ if p99 > 1_000_000 {
 }
 
 // The classifier: two readings of every word of the session, in the budget
-// of a single key stroke. PEREKEY_MODEL names a real model; without it a
-// small model is built here, which exercises the same code paths.
+// of a single key stroke. PEREKEY_MODEL names a real model, a file or the
+// directory of `ru.pklm` and `en.pklm`; without it a small model is built
+// here, which exercises the same code paths.
 let model: LanguageModel
 if let path = ProcessInfo.processInfo.environment["PEREKEY_MODEL"] {
-    model = try ModelFile.load(path)
+    model = try ModelFile.load(path, languages: ["ru", "en"])
 } else {
     var builder = ModelBuilder()
     builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")

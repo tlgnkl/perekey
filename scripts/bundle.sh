@@ -16,8 +16,10 @@
 #   SPARKLE_FRAMEWORK  Sparkle.framework to embed (default: next to the
 #                  executable, where SwiftPM puts it)
 #   SPARKLE_PUBLIC_ED_KEY  replaces SUPublicEDKey of Support/Info.plist
-#   PEREKEY_MODEL  language model file (default: $SCRATCH_PATH/model/perekey.model,
-#                  built by scripts/build-model.sh if missing)
+#   PEREKEY_MODEL  directory of the language model files (default:
+#                  $SCRATCH_PATH/model, built by scripts/build-model.sh if missing)
+#   PEREKEY_LANGUAGES  the model files to ship (default: "ru en"; uk.pklm is
+#                  built and checked, but the app switches only ru and en yet)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -61,14 +63,21 @@ done
 cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp Support/Perekey.sdef "$APP/Contents/Resources/Perekey.sdef" # AppleScript dictionary (Info.plist: OSAScriptingDefinition)
 
-# The language model: PEREKEY_MODEL, or the build of scripts/build-model.sh,
-# made here if missing (needs the data cache of scripts/fetch-data.sh lexicon).
-# The app reads it from Bundle.main as Contents/Resources/perekey.model.
-MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model/perekey.model}"
-if [[ ! -f "$MODEL" ]]; then
-    scripts/build-model.sh --out "$MODEL" >/dev/null
-fi
-cp "$MODEL" "$APP/Contents/Resources/perekey.model"
+# The language model, a file per language: PEREKEY_MODEL, or the build of
+# scripts/build-model.sh, made here if missing (needs the data cache of
+# scripts/fetch-data.sh lexicon). The app maps the files of the installed
+# layouts' languages from Bundle.main: Contents/Resources/<language>.pklm.
+MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+LANGUAGES="${PEREKEY_LANGUAGES:-ru en}"
+for language in $LANGUAGES; do
+    if [[ ! -f "$MODEL/$language.pklm" ]]; then
+        scripts/build-model.sh --out "$MODEL" >/dev/null
+        break
+    fi
+done
+for language in $LANGUAGES; do
+    cp "$MODEL/$language.pklm" "$APP/Contents/Resources/$language.pklm"
+done
 
 # Sparkle 2 (docs/release.md). The executable links @rpath/Sparkle.framework.
 # SwiftPM leaves rpaths into the build directory; the bundle needs only

@@ -32,6 +32,9 @@ public enum EngineMessage: Sendable {
     case correctionUndoFailed(seq: UInt32)
     /// The user undid an automatic switch: learn the word, as typed.
     case learned(String)
+    /// A word typed with Caps Lock on by mistake was corrected: turn it off
+    /// (`CapsLockState.turnOff`).
+    case capsLockOff
 }
 
 public enum TapState: Hashable, Sendable {
@@ -543,6 +546,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.correctionUndoFailed(seq: seq))
             case let .learned(word):
                 toMain(.learned(word))
+            case .capsLockOff:
+                toMain(.capsLockOff)
             case let .refused(refusal):
                 toMain(.refused(refusal))
             case let .convertSelection(seq):

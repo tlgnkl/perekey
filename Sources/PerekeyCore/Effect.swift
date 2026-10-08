@@ -143,6 +143,9 @@ public enum Effect: Hashable, Sendable {
     /// ("ghbdtn"), else the other one (`InputMachine.learnable`). The next
     /// settings snapshot carries it in `Settings.exceptions`.
     case learned(String)
+    /// A correction of a word typed with Caps Lock on by mistake was posted
+    /// ("ПРИВЕТ" → "Привет"): turn Caps Lock off, on the main thread.
+    case capsLockOff
 }
 
 /// What to do with the event that was handled.

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/// The keys of the word just typed, with the spaces after it.
+/// The keys of the word just typed, with the spaces after it, and of a few
+/// words before it (`history`) for the phrase retype.
 ///
 /// The buffer keeps key strokes, not text: the same strokes read as "ghbdtn"
 /// in English and "привет" in Russian. Keys `,` `.` `;` `'` `[` `]` are letters
@@ -25,7 +26,17 @@ public struct WordBuffer: Hashable, Sendable {
     /// the tail of one would surprise the user, so the buffer gives up on it.
     public static let capacity = 64
 
+    /// How many words before the current one the buffer keeps: a phrase
+    /// retype reaches this far back.
+    public static let historyWords = 7
+
     public private(set) var entries: [Entry] = []
+    /// The words typed right before `entries`, oldest first, each with the
+    /// spaces after it: "ghbdtn vbh " before "tot". Only text the caret has
+    /// not left: everything that clears the word clears these too.
+    public private(set) var history: [Entry] = []
+    /// How many words `history` holds.
+    public private(set) var historyCount = 0
     /// Too many keys without a space: ignore keys until the next space.
     private var overflowed = false
 
@@ -49,7 +60,10 @@ public struct WordBuffer: Hashable, Sendable {
             if !entries.isEmpty { entries.append(entry) }
             return
         }
-        if entries.last?.isSpace == true { entries.removeAll(keepingCapacity: true) }
+        if entries.last?.isSpace == true {
+            pushHistory()
+            entries.removeAll(keepingCapacity: true)
+        }
         guard entries.count < Self.capacity else {
             clear()
             overflowed = true
@@ -59,7 +73,12 @@ public struct WordBuffer: Hashable, Sendable {
     }
 
     public mutating func deleteBackward() {
-        if !overflowed, !entries.isEmpty { entries.removeLast() }
+        if !overflowed, !entries.isEmpty {
+            entries.removeLast()
+        } else {
+            // Into the words before: no longer known to be what they were.
+            clearHistory()
+        }
     }
 
     /// Forget the word and ignore keys until the next space.
@@ -70,7 +89,63 @@ public struct WordBuffer: Hashable, Sendable {
 
     public mutating func clear() {
         entries.removeAll(keepingCapacity: true)
+        clearHistory()
         overflowed = false
+    }
+
+    private mutating func clearHistory() {
+        history.removeAll(keepingCapacity: true)
+        historyCount = 0
+    }
+
+    /// The finished word goes to `history`; the oldest word drops out.
+    private mutating func pushHistory() {
+        history.append(contentsOf: entries)
+        historyCount += 1
+        if historyCount > Self.historyWords, let end = Self.endOfFirstWord(in: history) {
+            history.removeSubrange(..<end)
+            historyCount -= 1
+        }
+    }
+
+    /// The index after the first word of `entries` and its spaces.
+    private static func endOfFirstWord(in entries: [Entry]) -> Int? {
+        guard let space = entries.firstIndex(where: \.isSpace) else { return nil }
+        return entries[space...].firstIndex { !$0.isSpace } ?? entries.endIndex
+    }
+
+    /// The last `words` words, the current one included, each with the
+    /// spaces after it; `nil` when fewer are known.
+    public func phrase(words: Int) -> [Entry]? {
+        guard words >= 1, !entries.isEmpty, words - 1 <= historyCount else { return nil }
+        var start = history.endIndex
+        for _ in 0..<(words - 1) {
+            // Back over the spaces after the word, then over the word.
+            while start > history.startIndex, history[start - 1].isSpace { start -= 1 }
+            while start > history.startIndex, !history[start - 1].isSpace { start -= 1 }
+        }
+        return Array(history[start...]) + entries
+    }
+
+    /// Puts other layouts on the last `entries.count` keys: the phrase as a
+    /// retype left it. The keys themselves must be the same.
+    public mutating func relabelPhrase(_ phrase: [Entry]) {
+        let fromHistory = phrase.count - entries.count
+        guard fromHistory >= 0, fromHistory <= history.count else { return }
+        for (offset, entry) in phrase.prefix(fromHistory).enumerated() {
+            history[history.count - fromHistory + offset].layout = entry.layout
+        }
+        for (index, entry) in zip(entries.indices, phrase.suffix(entries.count)) {
+            entries[index].layout = entry.layout
+        }
+    }
+
+    /// After a correction the word is other keys, possibly more or fewer,
+    /// in `layout`. The spaces after it, if any, stay.
+    public mutating func replaceWord(_ strokes: [KeyStroke], in layout: LayoutID) {
+        let spaces = entries.reversed().prefix(while: \.isSpace).count
+        let tail = entries.suffix(spaces)
+        entries = strokes.map { Entry($0, in: layout) } + tail
     }
 
     /// After a case change the word's keys are other strokes in the same layout.

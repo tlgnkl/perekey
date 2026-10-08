@@ -18,6 +18,15 @@ enum ModelFixture {
         ("ночь", 165), ("утро", 160), ("вечер", 160), ("неделя", 160), ("месяц", 160), ("год", 185),
         ("программа", 165), ("компьютер", 160), ("телефон", 160), ("клавиатура", 140), ("раскладка", 130),
         ("переключение", 120), ("кто-то", 160), ("что-то", 170), ("почему", 175), ("потому", 170),
+        ("ещё", 200), ("всё", 210), ("все", 215), ("трёхзвёздный", 60),
+    ]
+
+    /// Words that take "ё" unambiguously: what the builder derives from the dictionary.
+    static let yo = ["ещё", "ёлка", "трёхзвёздный"]
+
+    /// Words with a fixed case, and whether Perekey corrects to them.
+    static let cased: [(String, Bool)] = [
+        ("МВД", true), ("ВрИО", true), ("MP3", true), ("NASA", true), ("iPhone", false), ("ГОСТ", false),
     ]
 
     static let english: [(String, UInt8)] = [
@@ -63,7 +72,14 @@ enum ModelFixture {
             builder.addForm(word, language: "en", rank: 230, weight: 230, prefixes: false)
         }
         for word in ["iPhone", "Wi-Fi", "ГОСТ"] { builder.addKeep(word) }
+        addCorrections(to: &builder)
         return builder.build()
+    }
+
+    /// The tables of the stage 4 corrections.
+    static func addCorrections(to builder: inout ModelBuilder) {
+        for word in yo { builder.addYo(word, language: "ru") }
+        for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
     }
 
     static let model = try! LanguageModel(bytes: bytes)

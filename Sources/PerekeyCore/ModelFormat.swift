@@ -32,6 +32,14 @@ public enum ModelFormat {
     public static let prefixTag = tag("pfix")
     /// Strings the classifier never switches, case-sensitive.
     public static let keepTag = tag("keep")
+    /// Words with a fixed letter case ("МВД", "iPhone") by their folded
+    /// fingerprint, and whether Perekey writes them so. Optional: a model
+    /// without it corrects no abbreviations.
+    public static let casedTag = tag("case")
+    /// Words of one language that take "ё" where the "е" spelling is no
+    /// other word: the "dict" layout, the value byte marks which "е" become
+    /// "ё". Optional, Russian only.
+    public static let yoTag = tag("yo")
 
     /// Four ASCII bytes packed little-endian; shorter strings are zero-padded.
     public static func tag(_ text: String) -> UInt32 {

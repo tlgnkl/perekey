@@ -12,11 +12,15 @@ public struct ModelBuilder: Sendable {
     public static let order = 4
     /// Buckets of the word-form table: 2^16, about 45 forms each for 3 M forms.
     public static let bucketBits = 16
+    /// Buckets of the "ё" table: it holds tens of thousands of forms, not millions.
+    public static let yoBucketBits = 12
 
     /// Free text stored in the model: sources, licences, input hashes.
     public var meta = ""
     private var languages: [LanguageBuilder] = []
     private var keep: Set<UInt64> = []
+    /// Folded fingerprint → the spelling, and whether Perekey corrects to it.
+    private var cased: [UInt64: (form: String, corrects: Bool)] = [:]
 
     public init() {}
 
@@ -49,6 +53,32 @@ public struct ModelBuilder: Sendable {
         keep.insert(ModelFormat.Fingerprint.of(text.unicodeScalars, folded: false))
     }
 
+    /// Adds a word with a fixed letter case. `corrects`: Perekey writes the
+    /// word so when it is typed in another case ("мвд" → "МВД"); otherwise
+    /// the spelling only keeps other case corrections off it ("iPhone").
+    /// Of two spellings with one folded form, a correcting one wins, then
+    /// the smaller string, so the order of calls does not matter.
+    public mutating func addCasedForm(_ form: String, corrects: Bool) {
+        guard !form.isEmpty else { return }
+        let key = ModelFormat.Fingerprint.of(form.unicodeScalars, folded: true)
+        if let known = cased[key], known.corrects && !corrects || known.corrects == corrects && known.form <= form {
+            return
+        }
+        cased[key] = (form, corrects)
+    }
+
+    /// Adds a form with "ё" that the "е" spelling stands for unambiguously:
+    /// the model then knows "еще" is "ещё". Returns false when the form has
+    /// no "ё", more than eight "е" and "ё" together, or other letters than
+    /// the alphabet.
+    @discardableResult
+    public mutating func addYo(_ form: String, language: String) -> Bool {
+        guard let index = languages.firstIndex(where: { $0.language == language }) else {
+            preconditionFailure("unknown language \(language)")
+        }
+        return languages[index].addYo(form)
+    }
+
     public func build() -> [UInt8] {
         var sections: [(tag: UInt32, language: UInt32, body: [UInt8])] = []
         sections.append((ModelFormat.metaTag, 0, Self.metaSection(meta)))
@@ -57,8 +87,10 @@ public struct ModelBuilder: Sendable {
             sections.append((ModelFormat.ngramTag, code, language.ngramSection()))
             sections.append((ModelFormat.dictionaryTag, code, language.dictionarySection()))
             sections.append((ModelFormat.prefixTag, code, language.prefixSection()))
+            if let yo = language.yoSection() { sections.append((ModelFormat.yoTag, code, yo)) }
         }
         sections.append((ModelFormat.keepTag, 0, Self.keepSection(keep)))
+        if !cased.isEmpty { sections.append((ModelFormat.casedTag, 0, Self.casedSection(cased))) }
 
         var writer = ByteWriter()
         writer.u32(ModelFormat.magic)
@@ -101,6 +133,28 @@ public struct ModelBuilder: Sendable {
         return writer.bytes
     }
 
+    /// `u32 count, u32 text size`, the sorted folded fingerprints (u64), the
+    /// text offsets (u32 × count + 1), one flag byte per entry (bit 0: Perekey
+    /// corrects to it), padding to 8, then the UTF-8 spellings back to back.
+    private static func casedSection(_ cased: [UInt64: (form: String, corrects: Bool)]) -> [UInt8] {
+        let sorted = cased.sorted { $0.key < $1.key }
+        var text: [UInt8] = []
+        var offsets: [UInt32] = [0]
+        for entry in sorted {
+            text.append(contentsOf: entry.value.form.utf8)
+            offsets.append(UInt32(text.count))
+        }
+        var writer = ByteWriter()
+        writer.u32(UInt32(sorted.count))
+        writer.u32(UInt32(text.count))
+        for entry in sorted { writer.u64(entry.key) }
+        for offset in offsets { writer.u32(offset) }
+        for entry in sorted { writer.bytes.append(entry.value.corrects ? 1 : 0) }
+        writer.align()
+        writer.bytes.append(contentsOf: text)
+        return writer.bytes
+    }
+
     private static func keepSection(_ keep: Set<UInt64>) -> [UInt8] {
         var writer = ByteWriter()
         writer.u32(UInt32(keep.count))
@@ -117,6 +171,9 @@ struct LanguageBuilder: Sendable {
     private var symbols: [UInt32: UInt8]
     private var counts: [Double]
     private var ranks: [UInt64: UInt8] = [:]
+    /// Folded fingerprint of the "е" spelling → which "е" become "ё", bit
+    /// `i` for the `i`-th "е" of the word.
+    private var yo: [UInt64: UInt8] = [:]
     private var prefixes3: [UInt64]
     private var prefixes4: [UInt64]
 
@@ -161,6 +218,25 @@ struct LanguageBuilder: Sendable {
             let spelled = word.map { $0 == yo ? e : $0 }
             addSymbols(spelled, fingerprint: plain.value, rank: rank, weight: weight, prefixes: prefixes)
         }
+        return true
+    }
+
+    mutating func addYo(_ form: String) -> Bool {
+        var plain = ModelFormat.Fingerprint()
+        var mask: UInt8 = 0
+        var vowels = 0
+        for scalar in form.unicodeScalars {
+            let folded = ModelFormat.fold(scalar.value)
+            guard symbols[folded] != nil else { return false }
+            if folded == 0x451 || folded == 0x435 {
+                guard vowels < 8 else { return false }
+                if folded == 0x451 { mask |= 1 << UInt8(vowels) }
+                vowels += 1
+            }
+            plain.add(folded == 0x451 ? 0x435 : folded)
+        }
+        guard mask != 0 else { return false }
+        yo[plain.value] = mask
         return true
     }
 
@@ -251,13 +327,23 @@ struct LanguageBuilder: Sendable {
     }
 
     func dictionarySection() -> [UInt8] {
-        let bits = ModelBuilder.bucketBits
+        Self.fingerprintTable(ranks, bits: ModelBuilder.bucketBits)
+    }
+
+    /// The "ё" table in the dictionary's layout, `nil` when the language has none.
+    func yoSection() -> [UInt8]? {
+        yo.isEmpty ? nil : Self.fingerprintTable(yo, bits: ModelBuilder.yoBucketBits)
+    }
+
+    /// `u32 bucket bits, u32 count, u64 0`, the bucket offsets, the 32-bit
+    /// fingerprints, padding to 8, one value byte per entry.
+    static func fingerprintTable(_ values: [UInt64: UInt8], bits: Int) -> [UInt8] {
         // Grouped by bucket (the top bits of the hash), ordered by the 32-bit
         // fingerprint (the low bits) within a bucket: the reader's search order.
         func order(_ hash: UInt64) -> (Int, UInt32) {
             (Int(hash >> UInt64(64 - bits)), UInt32(truncatingIfNeeded: hash))
         }
-        let sorted = ranks.sorted { order($0.key) < order($1.key) }
+        let sorted = values.sorted { order($0.key) < order($1.key) }
         var writer = ByteWriter()
         writer.u32(UInt32(bits))
         writer.u32(UInt32(sorted.count))

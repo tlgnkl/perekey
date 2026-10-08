@@ -51,14 +51,17 @@ public struct AppSettings: Hashable, Sendable {
     /// Sparkle checks for updates on its own schedule. On by default. Off, Perekey
     /// makes no network requests unless the user clicks "Check Now".
     public var checkForUpdates: Bool
+    /// The stage 4 corrections, each with its own switch.
+    public var corrections: TextCorrections
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
                 words: WordExceptions = WordExceptions(), sites: [String: SiteRule] = [:],
                 layoutSound: SoundSetting = .layoutSwitch, correctionSound: SoundSetting = .correction,
-                checkForUpdates: Bool = true)
+                checkForUpdates: Bool = true, corrections: TextCorrections = TextCorrections())
     {
         self.checkForUpdates = checkForUpdates
+        self.corrections = corrections
         self.sites = sites
         self.layoutSound = layoutSound
         self.correctionSound = correctionSound
@@ -102,14 +105,14 @@ public struct AppSettings: Hashable, Sendable {
         var exceptions = Set(words.mine)
         for learned in words.learned { exceptions.insert(learned.word) }
         return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions,
-                        learnFromUndos: words.learnFromUndos)
+                        learnFromUndos: words.learnFromUndos, corrections: corrections)
     }
 }
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
-        case checkForUpdates
+        case checkForUpdates, corrections
     }
 
     public init(from decoder: any Decoder) throws {
@@ -126,5 +129,7 @@ extension AppSettings: Codable {
         correctionSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .correctionSound))
             ?? defaults.correctionSound
         checkForUpdates = (try? container.decodeIfPresent(Bool.self, forKey: .checkForUpdates)) ?? defaults.checkForUpdates
+        corrections = (try? container.decodeIfPresent(TextCorrections.self, forKey: .corrections))
+            ?? defaults.corrections
     }
 }

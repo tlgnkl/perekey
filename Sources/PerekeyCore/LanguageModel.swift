@@ -29,6 +29,98 @@ public struct LanguageModel: @unchecked Sendable {
         let ranks: UnsafePointer<UInt8>
         let prefixes3: UnsafePointer<UInt64>
         let prefixes4: UnsafePointer<UInt64>
+        /// Which "е" of a word become "ё" (`ModelFormat.yoTag`); `nil` without the section.
+        let yo: FingerprintTable?
+    }
+
+    /// The bucketed fingerprint table of the "dict" layout: a value byte per
+    /// 48-bit word fingerprint.
+    struct FingerprintTable: @unchecked Sendable {
+        let bucketBits: Int
+        let bucketOffsets: UnsafePointer<UInt32>
+        let fingerprints: UnsafePointer<UInt32>
+        let values: UnsafePointer<UInt8>
+
+        init(_ section: UnsafeRawBufferPointer, name: String) throws {
+            var reader = ByteReader(section)
+            guard section.count >= 16 else { throw Error.badSection(name) }
+            bucketBits = Int(reader.u32())
+            let count = Int(reader.u32())
+            _ = reader.u64()
+            guard bucketBits >= 1, bucketBits <= 24 else { throw Error.badSection(name) }
+            let offsetsStart = 16
+            let fingerprintsStart = offsetsStart + ((1 << bucketBits) + 1) * 4
+            let valuesStart = (fingerprintsStart + count * 4 + 7) & ~7
+            guard valuesStart + count <= section.count else { throw Error.badSection(name) }
+            bucketOffsets = section.baseAddress!.advanced(by: offsetsStart).assumingMemoryBound(to: UInt32.self)
+            fingerprints = section.baseAddress!.advanced(by: fingerprintsStart).assumingMemoryBound(to: UInt32.self)
+            values = section.baseAddress!.advanced(by: valuesStart).assumingMemoryBound(to: UInt8.self)
+            for bucket in 0..<(1 << bucketBits) {
+                guard bucketOffsets[bucket] <= bucketOffsets[bucket + 1], Int(bucketOffsets[bucket + 1]) <= count else {
+                    throw Error.badSection(name)
+                }
+            }
+        }
+
+        func value(of fingerprint: UInt64) -> UInt8? {
+            let bucket = Int(fingerprint >> UInt64(64 - bucketBits))
+            let wanted = UInt32(truncatingIfNeeded: fingerprint)
+            var low = Int(bucketOffsets[bucket])
+            var high = Int(bucketOffsets[bucket + 1])
+            while low < high {
+                let mid = (low + high) / 2
+                let value = fingerprints[mid]
+                if value == wanted { return values[mid] }
+                if value < wanted { low = mid + 1 } else { high = mid }
+            }
+            return nil
+        }
+    }
+
+    /// Words with a fixed letter case (`ModelFormat.casedTag`).
+    struct CasedForms: @unchecked Sendable {
+        let count: Int
+        let keys: UnsafePointer<UInt64>
+        let offsets: UnsafePointer<UInt32>
+        let flags: UnsafePointer<UInt8>
+        let text: UnsafeRawBufferPointer
+
+        init(_ section: UnsafeRawBufferPointer) throws {
+            var reader = ByteReader(section)
+            guard section.count >= 8 else { throw Error.badSection("case") }
+            count = Int(reader.u32())
+            let textSize = Int(reader.u32())
+            let keysStart = 8
+            let offsetsStart = keysStart + count * 8
+            let flagsStart = offsetsStart + (count + 1) * 4
+            let textStart = (flagsStart + count + 7) & ~7
+            guard textStart + textSize <= section.count else { throw Error.badSection("case") }
+            let base = section.baseAddress!
+            keys = base.advanced(by: keysStart).assumingMemoryBound(to: UInt64.self)
+            offsets = base.advanced(by: offsetsStart).assumingMemoryBound(to: UInt32.self)
+            flags = base.advanced(by: flagsStart).assumingMemoryBound(to: UInt8.self)
+            text = UnsafeRawBufferPointer(rebasing: section[textStart..<textStart + textSize])
+            for index in 0..<count {
+                guard offsets[index] <= offsets[index + 1], Int(offsets[index + 1]) <= textSize,
+                      index == 0 || keys[index - 1] < keys[index]
+                else { throw Error.badSection("case") }
+            }
+        }
+
+        func form(of folded: UInt64) -> (form: String, corrects: Bool)? {
+            var low = 0
+            var high = count
+            while low < high {
+                let mid = (low + high) / 2
+                let value = keys[mid]
+                if value == folded {
+                    let bytes = UnsafeRawBufferPointer(rebasing: text[Int(offsets[mid])..<Int(offsets[mid + 1])])
+                    return (String(decoding: bytes, as: UTF8.self), flags[mid] & 1 != 0)
+                }
+                if value < folded { low = mid + 1 } else { high = mid }
+            }
+            return nil
+        }
     }
 
     static let symbolTableSize = 0x500
@@ -39,6 +131,7 @@ public struct LanguageModel: @unchecked Sendable {
     public let languages: [Language]
     private let keepHashes: UnsafePointer<UInt64>
     private let keepCount: Int
+    private let cased: CasedForms?
 
     /// Reads a model from `bytes`. `owner` is retained for the life of the model.
     public init(bytes: UnsafeRawBufferPointer, owner: AnyObject?) throws {
@@ -63,6 +156,8 @@ public struct LanguageModel: @unchecked Sendable {
 
         var meta = ""
         var keep: (UnsafePointer<UInt64>, Int)?
+        var cased: CasedForms?
+        var yo: [String: UnsafeRawBufferPointer] = [:]
         var partial: [String: (ngram: UnsafeRawBufferPointer?, dict: UnsafeRawBufferPointer?,
                                prefix: UnsafeRawBufferPointer?)] = [:]
         var order: [String] = []
@@ -88,6 +183,10 @@ public struct LanguageModel: @unchecked Sendable {
                 let count = Int(section.u32())
                 guard 8 + count * 8 <= body.count else { throw Error.badSection("keep") }
                 keep = (body.baseAddress!.advanced(by: 8).assumingMemoryBound(to: UInt64.self), count)
+            case ModelFormat.casedTag:
+                cased = try CasedForms(body)
+            case ModelFormat.yoTag:
+                yo[language] = body
             case ModelFormat.ngramTag, ModelFormat.dictionaryTag, ModelFormat.prefixTag:
                 if partial[language] == nil {
                     partial[language] = (nil, nil, nil)
@@ -104,12 +203,14 @@ public struct LanguageModel: @unchecked Sendable {
         guard let keep else { throw Error.badSection("keep") }
         keepHashes = keep.0
         keepCount = keep.1
+        self.cased = cased
         languages = try order.map { code in
             let parts = partial[code]!
             guard let ngram = parts.ngram, let dict = parts.dict, let prefix = parts.prefix else {
                 throw Error.languageIncomplete(code)
             }
-            return try Language(code: code, ngram: ngram, dictionary: dict, prefix: prefix)
+            return try Language(code: code, ngram: ngram, dictionary: dict, prefix: prefix,
+                                yo: yo[code].map { try FingerprintTable($0, name: "yo") })
         }
     }
 
@@ -135,13 +236,20 @@ public struct LanguageModel: @unchecked Sendable {
         }
         return false
     }
+
+    /// The fixed spelling of a word by its folded fingerprint ("мвд" → "МВД"),
+    /// and whether Perekey corrects to it; `nil` for a word of no fixed case.
+    public func casedForm(of folded: UInt64) -> (form: String, corrects: Bool)? {
+        cased?.form(of: folded)
+    }
 }
 
 extension LanguageModel.Language {
     init(code: String, ngram: UnsafeRawBufferPointer, dictionary: UnsafeRawBufferPointer,
-         prefix: UnsafeRawBufferPointer) throws
+         prefix: UnsafeRawBufferPointer, yo: LanguageModel.FingerprintTable? = nil) throws
     {
         self.code = code
+        self.yo = yo
         var reader = ByteReader(ngram)
         guard ngram.count >= 16 else { throw LanguageModel.Error.badSection("ngrm") }
         let order = Int(reader.u32())
@@ -234,6 +342,13 @@ extension LanguageModel.Language {
             if value < wanted { low = mid + 1 } else { high = mid }
         }
         return nil
+    }
+
+    /// Which "е" of the word become "ё", by its folded fingerprint: bit `i`
+    /// for the `i`-th "е". `nil` when the word takes no "ё" or the "е"
+    /// spelling is a word of its own ("все").
+    public func yoMask(of fingerprint: UInt64) -> UInt8? {
+        yo?.value(of: fingerprint)
     }
 
     /// Whether some word of the language starts with these 3 or 4 symbols.

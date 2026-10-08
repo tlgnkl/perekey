@@ -201,6 +201,8 @@ final class InputController {
             }
         case let .learned(word):
             learn(word)
+        case .capsLockOff:
+            CapsLockState.turnOff()
         }
     }
 

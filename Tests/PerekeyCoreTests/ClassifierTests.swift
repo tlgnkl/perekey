@@ -185,6 +185,7 @@ import Testing
         for (word, rank) in ModelFixture.russian { builder.addForm(word, language: "ru", rank: rank, weight: Double(rank)) }
         for (word, rank) in ModelFixture.english { builder.addForm(word, language: "en", rank: rank, weight: Double(rank)) }
         for word in ["iPhone", "Wi-Fi", "ГОСТ"] { builder.addKeep(word) }
+        ModelFixture.addCorrections(to: &builder)
         #expect(builder.build() == ModelFixture.bytes)
     }
 

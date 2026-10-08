@@ -45,4 +45,51 @@ import Testing
         buffer.relabel(to: Fixture.russian.id)
         #expect(buffer.wordLayout == Fixture.russian.id)
     }
+
+    private func text(_ entries: [WordBuffer.Entry]?) -> String? {
+        entries.map { Fixture.abc.type($0.map(\.stroke)) }
+    }
+
+    @Test func keepsWordsBeforeForAPhrase() {
+        let buffer = typed("a  bc d ")
+        #expect(text(buffer.entries) == "d ")
+        #expect(buffer.historyCount == 2)
+        #expect(text(buffer.phrase(words: 1)) == "d ")
+        #expect(text(buffer.phrase(words: 2)) == "bc d ")
+        #expect(text(buffer.phrase(words: 3)) == "a  bc d ")
+        #expect(buffer.phrase(words: 4) == nil)
+    }
+
+    @Test func historyKeepsTheLastWords() {
+        let buffer = typed((1...12).map { String(repeating: "x", count: $0 % 3 + 1) }.joined(separator: " "))
+        #expect(buffer.historyCount == WordBuffer.historyWords)
+        #expect(text(buffer.phrase(words: WordBuffer.historyWords + 1)) == "xxx x xx xxx x xx xxx x")
+    }
+
+    @Test func historyEndsWhereTheBufferLosesTrack() {
+        var buffer = typed("ab cd")
+        buffer.deleteBackward()
+        buffer.deleteBackward()
+        #expect(buffer.historyCount == 1, "deleting the current word keeps the words before")
+        buffer.deleteBackward()
+        #expect(buffer.historyCount == 0, "deleting into them does not")
+        buffer = typed("ab cd")
+        buffer.clear()
+        #expect(buffer.phrase(words: 1) == nil && buffer.historyCount == 0)
+        buffer = typed("ab cd")
+        buffer.abandonWord()
+        #expect(buffer.historyCount == 0)
+    }
+
+    @Test func relabelsAPhraseAndReplacesAWord() {
+        var buffer = typed("ab cd ")
+        let russian = buffer.phrase(words: 2)!.map { WordBuffer.Entry($0.stroke, in: Fixture.russian.id) }
+        buffer.relabelPhrase(russian)
+        #expect(buffer.phrase(words: 2) == russian)
+
+        buffer = typed("ab")
+        buffer.replaceWord(Fixture.abc.strokes("xyz"), in: Fixture.russian.id)
+        #expect(Fixture.abc.type(buffer.entries.map(\.stroke)) == "xyz")
+        #expect(buffer.wordLayout == Fixture.russian.id)
+    }
 }

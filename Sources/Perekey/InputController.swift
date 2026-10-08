@@ -22,6 +22,7 @@ final class InputController {
     @ObservationIgnored private let secureInput = SecureInputMonitor()
     @ObservationIgnored private var engine: InputEngine!
     @ObservationIgnored private var focus: FocusObserver!
+    @ObservationIgnored private var selection: SelectionReader!
     @ObservationIgnored private var lastSettings: PerekeyCore.Settings
     @ObservationIgnored private var tokens: [(NotificationCenter, any NSObjectProtocol)] = []
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "input")
@@ -33,8 +34,11 @@ final class InputController {
         lastSettings = store.snapshot
         lastSettings = effectiveSettings
 
+        let textProbe = TextProbe()
+        selection = SelectionReader(probe: textProbe)
         engine = InputEngine(
-            machine: InputMachine(settings: lastSettings, layouts: sources.layouts, currentLayout: sources.currentLayout)
+            machine: InputMachine(settings: lastSettings, layouts: sources.layouts, currentLayout: sources.currentLayout),
+            textProbe: textProbe
         ) { [weak self] message in self?.receive(message) }
 
         let engine = engine!
@@ -108,12 +112,27 @@ final class InputController {
             store.update { $0.autoswitch = on }
         case let .refused(refusal):
             log.info("Retype refused: \(String(describing: refusal), privacy: .public)")
-        case .convertSelection:
-            // Converting the selection comes with task 8.
-            log.info("Nothing typed to retype; selection conversion is not implemented yet")
+        case let .convertSelection(seq):
+            let reader = selection!
+            let engine = engine!
+            let keyCode = copyKeyCode
+            Task {
+                let read = await reader.read(seq: seq, copyKeyCode: keyCode)
+                engine.send(.selectionRead(seq: seq, text: read.text, viaAccessibility: read.viaAccessibility))
+            }
         case .secureInputChanged:
             secureInput.refresh()
         }
+    }
+
+    /// The key that types "c": ⌘C is matched on the layout macOS uses for
+    /// shortcuts, the current one if it types Latin letters, else a Latin one.
+    private var copyKeyCode: UInt16 {
+        let current = sources.layouts.first { $0.id == sources.currentLayout }
+        for map in [current].compactMap({ $0 }) + sources.layouts {
+            if let stroke = map.stroke(for: "c"), stroke.modifiers.isEmpty { return stroke.keyCode }
+        }
+        return 8 // kVK_ANSI_C
     }
 
     private func observeSystem() {

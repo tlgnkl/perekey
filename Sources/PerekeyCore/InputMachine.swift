@@ -16,6 +16,11 @@
 /// start a new retype; the replayed events after it are held again, or they
 /// would overtake that retype.
 ///
+/// Converting a selection starts the fence at once, before the text is known:
+/// the system layer reads the selection (`Effect.convertSelection`), answers
+/// with `.selectionRead`, and from there it goes like a word retype. Keys the
+/// user types meanwhile are held the whole time.
+///
 /// Clicks cannot be held: the mouse tap only listens, since an active mouse
 /// tap would delay all pointer input. A click during the fence reaches the
 /// app before the held keys. The fence lasts milliseconds, so this is rare.
@@ -52,6 +57,11 @@ public struct InputMachine: Sendable {
         var deadline: Double
         /// The layout to go back to if the retype is cancelled.
         var layoutBefore: LayoutID?
+        /// The selection is being read; `.selectionRead` has not come yet.
+        var awaitsSelection = false
+        /// The retype replaces the selection through accessibility: no own
+        /// events will come, `.retypePosted` stands for the last one.
+        var viaAccessibility = false
     }
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil) {
@@ -141,10 +151,18 @@ public struct InputMachine: Sendable {
             swallowedKeyUps.removeAll()
 
         case let .retypePosted(seq, time):
-            guard fence?.seq == seq else { break }
+            guard let posted = fence, posted.seq == seq, !posted.awaitsSelection else { break }
             let deadline = time + settings.fenceTimeout
             fence?.deadline = deadline
             effects.append(.scheduleDeadline(at: deadline))
+            if posted.viaAccessibility {
+                fence?.lastOwnEventSeen = true
+                releaseIfDone(effects: &effects)
+            }
+
+        case let .selectionRead(seq, text, viaAccessibility):
+            guard let pending = fence, pending.seq == seq, pending.awaitsSelection else { break }
+            retypeSelection(text, viaAccessibility: viaAccessibility, effects: &effects)
 
         case let .retypeCancelled(seq):
             // The text before the caret was not what the buffer expected, so
@@ -271,7 +289,7 @@ public struct InputMachine: Sendable {
             return
         }
         guard let source = buffer.wordLayout else {
-            effects.append(.convertSelection)
+            startSelectionConversion(at: time, effects: &effects)
             return
         }
         guard let currentLayout, layouts[currentLayout] != nil,
@@ -299,8 +317,7 @@ public struct InputMachine: Sendable {
             keys.append(Retype.Key(stroke: entry.stroke, text: text))
         }
 
-        let seq = nextSeq
-        nextSeq = nextSeq == .max ? 1 : nextSeq + 1
+        let seq = takeSeq()
         let layoutBefore = target == currentLayout ? nil : currentLayout
         select(target, effects: &effects)
         effects.append(.retype(Retype(deleteCount: keys.count, keys: keys, target: target,
@@ -312,6 +329,51 @@ public struct InputMachine: Sendable {
         fence = Fence(seq: seq, awaitedLayout: target == confirmedLayout ? nil : target, deadline: deadline,
                       layoutBefore: layoutBefore)
         effects.append(.scheduleDeadline(at: deadline))
+    }
+
+    private mutating func takeSeq() -> UInt32 {
+        let seq = nextSeq
+        nextSeq = nextSeq == .max ? 1 : nextSeq + 1
+        return seq
+    }
+
+    /// Nothing typed: hold input and ask the system layer for the selection.
+    private mutating func startSelectionConversion(at time: Double, effects: inout [Effect]) {
+        let seq = takeSeq()
+        buffer.clear()
+        // Long: reading may go through the pasteboard; `.retypePosted` shortens it.
+        let deadline = time + settings.postTimeout
+        fence = Fence(seq: seq, deadline: deadline, awaitsSelection: true)
+        effects.append(.convertSelection(seq: seq))
+        effects.append(.scheduleDeadline(at: deadline))
+    }
+
+    /// The selected text arrived: retype it in the counterpart layout, or
+    /// refuse and let input go.
+    private mutating func retypeSelection(_ text: String, viaAccessibility: Bool, effects: inout [Effect]) {
+        fence?.awaitsSelection = false
+        var candidates: [LayoutMap] = []
+        candidates.reserveCapacity(layoutOrder.count)
+        if let currentLayout, let map = layouts[currentLayout] { candidates.append(map) }
+        for id in layoutOrder where id != currentLayout {
+            if let map = layouts[id] { candidates.append(map) }
+        }
+        let result = SelectionConversion.convert(text, layouts: candidates) { source in
+            counterpart(of: source).flatMap { layouts[$0] }
+        }
+        guard case let .keys(source, keys) = result, let target = counterpart(of: source) else {
+            if case let .refused(refusal) = result { effects.append(.refused(refusal)) }
+            release(effects: &effects)
+            return
+        }
+        guard let seq = fence?.seq else { return }
+        let layoutBefore = target == currentLayout ? nil : currentLayout
+        select(target, effects: &effects)
+        effects.append(.retype(Retype(deleteCount: 0, keys: keys, target: target, expected: text, seq: seq,
+                                      viaAccessibility: viaAccessibility)))
+        fence?.awaitedLayout = target == confirmedLayout ? nil : target
+        fence?.layoutBefore = layoutBefore
+        fence?.viaAccessibility = viaAccessibility
     }
 
     /// The layout a word typed in `source` should be retyped into.
@@ -330,7 +392,9 @@ public struct InputMachine: Sendable {
     // MARK: - Fence
 
     private mutating func releaseIfDone(effects: inout [Effect]) {
-        if let fence, fence.lastOwnEventSeen, fence.awaitedLayout == nil { release(effects: &effects) }
+        if let fence, fence.lastOwnEventSeen, fence.awaitedLayout == nil, !fence.awaitsSelection {
+            release(effects: &effects)
+        }
     }
 
     @discardableResult

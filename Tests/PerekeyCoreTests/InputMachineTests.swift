@@ -80,21 +80,21 @@ private let ru = Fixture.russian.id
         var kb = Keyboard()
         kb.type("ghbdtn", in: Fixture.abc)
         kb.press(keyCode)
-        #expect(kb.tapOption().effects == [.convertSelection])
+        #expect(kb.tapOption().startsSelectionConversion)
     }
 
     @Test func commandShortcutForgetsWord() {
         var kb = Keyboard()
         kb.type("ghbdtn", in: Fixture.abc)
         kb.press(0, flags: Keyboard.leftCommand) // ⌘A
-        #expect(kb.tapOption().effects == [.convertSelection])
+        #expect(kb.tapOption().startsSelectionConversion)
     }
 
     @Test func optionBackspaceForgetsWord() {
         var kb = Keyboard()
         kb.type("ghbdtn", in: Fixture.abc)
         kb.press(KeyCode.delete, flags: Keyboard.leftOption)
-        #expect(kb.tapOption().effects == [.convertSelection])
+        #expect(kb.tapOption().startsSelectionConversion)
     }
 
     @Test func clickForgetsWordScrollDoesNot() throws {
@@ -106,14 +106,14 @@ private let ru = Fixture.russian.id
         kb = Keyboard()
         kb.type("ghbdtn", in: Fixture.abc)
         kb.send(.click(time: kb.time))
-        #expect(kb.tapOption().effects == [.convertSelection])
+        #expect(kb.tapOption().startsSelectionConversion)
     }
 
     @Test func focusChangeForgetsWord() {
         var kb = Keyboard()
         kb.type("ghbdtn", in: Fixture.abc)
         kb.send(.focusChanged(Focus(bundleID: "com.apple.Safari")))
-        #expect(kb.tapOption().effects == [.convertSelection])
+        #expect(kb.tapOption().startsSelectionConversion)
     }
 
     @Test func wordTypedWithOptionIsRefused() {
@@ -129,7 +129,9 @@ private let ru = Fixture.russian.id
         kb.press(14, flags: Keyboard.leftOption) // ⌥E: dead acute
         kb.press(14) // é
         kb.press(KeyCode.delete)
-        #expect(kb.tapOption().effects == [.convertSelection])
+        let selection = kb.tapOption()
+        #expect(selection.startsSelectionConversion)
+        kb.send(.selectionRead(seq: try #require(selection.selectionSeq), text: ""))
         kb.type(" vbh", in: Fixture.abc)
         #expect(try #require(kb.tapOption().retype).text == "мир")
     }

@@ -40,14 +40,15 @@ public struct ModelBuild {
             var forms = 0, rejected = 0
 
             // 1. Frequencies and extra forms from wordfreq. Weighted n-gram
-            // statistics come from here: weight = sqrt(frequency per billion).
+            // statistics come from here: weight = sqrt(frequency per billion),
+            // from Zipf 2.5 up; the long tail is typos and foreign words.
             let frequencies = try WordFreq(gzipPath: "\(cache)/wordfreq/large_\(language).msgpack.gz")
             sources.append("wordfreq 3.2 large_\(language): \(frequencies.entries.count) words")
             var ranks: [String: UInt8] = [:]
             for entry in frequencies.entries {
                 guard !lists.remove.contains(entry.word) else { continue }
                 let rank = lists.rank[entry.word] ?? WordFreq.rank(zipf: entry.zipf)
-                let weight = pow(10, entry.zipf / 2)
+                let weight = entry.zipf >= 2.5 ? pow(10, entry.zipf / 2) : 0
                 if builder.addForm(entry.word, language: language, rank: rank, weight: weight,
                                    prefixes: entry.zipf >= 2.5)
                 {

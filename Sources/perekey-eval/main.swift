@@ -4,7 +4,7 @@
 //
 //   perekey-eval corpus --cache <dir> --code <dir> --out <file> [--words N] [--seed S]
 //   perekey-eval run --model <file> --corpus <file> --layouts <dir>
-//                    [--threshold T] [--sweep] [--errors N] [--json <file>]
+//                    [--threshold T] [--sweep] [--errors N per category] [--json <file>]
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
 //                     [--previous ru|en]
 //
@@ -76,7 +76,7 @@ do {
             "ru": layout("Russian", in: layouts), "en": layout("ABC", in: layouts),
         ], options: options)
 
-        let results = evaluation.run(items, maxErrors: Int(flags["--errors"] ?? "30") ?? 30)
+        let results = evaluation.run(items, maxErrors: Int(flags["--errors"] ?? "12") ?? 12)
         print(Evaluation.report(results))
         if !results.errors.isEmpty {
             print("examples of errors:")

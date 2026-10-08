@@ -58,10 +58,17 @@ public struct Evaluation {
         self.options = options
     }
 
-    public func run(_ items: [CorpusItem], maxErrors: Int = 50) -> Results {
+    /// - Parameter maxErrors: how many wrong decisions to keep per category as examples.
+    public func run(_ items: [CorpusItem], maxErrors: Int = 20) -> Results {
         let classifier = Classifier(model: model, options: options)
         var categories: [String: Category] = [:]
         var results = Results(threshold: options.threshold, categories: [], errors: [])
+        var errorCounts: [String: Int] = [:]
+        func record(_ item: CorpusItem, typed: LayoutID, expectSwitch: Bool, decision: Classifier.Decision) {
+            guard errorCounts[item.category, default: 0] < maxErrors else { return }
+            errorCounts[item.category, default: 0] += 1
+            results.errors.append(Case(item: item, typed: typed, expectSwitch: expectSwitch, decision: decision))
+        }
         for item in items {
             guard let own = layouts[item.language],
                   let other = layouts.first(where: { $0.key != item.language })?.value
@@ -86,9 +93,7 @@ public struct Evaluation {
             category.keepWords += 1
             if case .switch = kept.verdict {
                 category.falseSwitches += 1
-                if results.errors.count < maxErrors {
-                    results.errors.append(Case(item: item, typed: own.id, expectSwitch: false, decision: kept))
-                }
+                record(item, typed: own.id, expectSwitch: false, decision: kept)
             }
 
             if Corpus.switchable.contains(item.category) {
@@ -96,8 +101,8 @@ public struct Evaluation {
                 category.switchWords += 1
                 if wrong.verdict == .switch(to: own.id) {
                     category.switches += 1
-                } else if results.errors.count < maxErrors {
-                    results.errors.append(Case(item: item, typed: other.id, expectSwitch: true, decision: wrong))
+                } else {
+                    record(item, typed: other.id, expectSwitch: true, decision: wrong)
                 }
             } else if !Corpus.englishOnly.contains(item.category) {
                 // Captcha in the other layout: still nothing to switch to.
@@ -105,9 +110,7 @@ public struct Evaluation {
                 category.keepWords += 1
                 if case .switch = wrong.verdict {
                     category.falseSwitches += 1
-                    if results.errors.count < maxErrors {
-                        results.errors.append(Case(item: item, typed: other.id, expectSwitch: false, decision: wrong))
-                    }
+                    record(item, typed: other.id, expectSwitch: false, decision: wrong)
                 }
             }
             categories[item.category] = category

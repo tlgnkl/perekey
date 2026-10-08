@@ -89,21 +89,26 @@ public enum Corpus {
             count += add(tokens, category: "mixed", to: &items)
         }
 
-        // Names: city names, Latin and Cyrillic, out of context.
+        // Names: city names, Latin and Cyrillic, word by word.
         let names = try geonames("\(cache)/geonames/cities15000.zip")
-        for name in names.shuffled(using: &random).prefix(quota("names")) {
-            guard let language = language(of: name) else { continue }
-            items.append(CorpusItem(category: "names", language: language, previous: nil, text: name))
+        count = 0
+        for name in names.shuffled(using: &random) where count < quota("names") {
+            count += add(name.split(separator: " ").map(String.init), category: "names", to: &items)
         }
 
-        // Code: whitespace tokens of Swift sources, kept as typed.
+        // Code: whitespace tokens of Swift sources, kept as typed. String
+        // literals are skipped: the tests and the benchmark spell out words
+        // in the wrong layout on purpose.
         var tokens: [String] = []
         for file in try FileManager.default.subpathsOfDirectory(atPath: code).filter({ $0.hasSuffix(".swift") }).sorted() {
             let text = try String(contentsOfFile: "\(code)/\(file)", encoding: .utf8)
-            tokens += text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).map(String.init)
+            tokens += text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+                .filter { !$0.contains("\"") }.map(String.init)
         }
+        // Code follows code: the previous token was typed in the English layout
+        // and read as English, the way the integration will track it.
         for token in tokens.shuffled(using: &random).prefix(quota("code")) {
-            items.append(CorpusItem(category: "code", language: "en", previous: nil, text: token))
+            items.append(CorpusItem(category: "code", language: "en", previous: "en", text: token))
         }
 
         // Synthetic strings with a fixed seed.

@@ -15,17 +15,33 @@ public struct Classifier: Sendable {
         /// Bits the other reading must win by. The default comes from the ROC
         /// sweep of `perekey-eval`.
         public var threshold: Double = 10
+        /// Extra bits the other reading must win by when it is not a known
+        /// form: a rare form or a name, but also a random string.
+        public var unknownWordExtra: Double = 6
         /// Bits per letter above which a reading is noise unless it is a word form.
         public var noiseCost: Double = 7
-        /// Bonus of a known word form, bits, plus `rankBonus` per unit of
-        /// Zipf frequency (`rank / 32`).
-        public var dictionaryBonus: Double = 4
-        public var rankBonus: Double = 1.5
+        /// The same bound for a reading that must carry a switch on its own,
+        /// without the dictionary.
+        public var unknownNoiseCost: Double = 5
+        /// Bits for each leading quote or bracket of the typed reading that
+        /// is a letter in the other: "'nj" starts with "э".
+        public var openerBonus: Double = 3
+        /// Bonus of a known word form: `dictionaryBonus` bits plus `rankBonus`
+        /// per unit of Zipf frequency (`rank / 32`) above 1.5, so the junk at
+        /// the bottom of the frequency lists earns almost nothing. A form
+        /// without a frequency (rank 0) counts as Zipf 2.5.
+        public var dictionaryBonus: Double = 1
+        public var rankBonus: Double = 2.5
+        /// Below this rank (Zipf 1.5) a frequency-list token is not a known
+        /// form: it does not lower the margin for a switch.
+        public var knownRank: UInt8 = 48
         /// Bits in favour of the language of the previous word.
-        public var contextBonus: Double = 2
+        public var contextBonus: Double = 3
         /// A 1–2 letter word switches only to a form at least this frequent
-        /// (160 is Zipf 5: "а", "и", "в", "a", "i") and only if the typed
-        /// reading is much rarer.
+        /// (160 is Zipf 5: "а", "и", "в", "a", "i"), never after a word in its
+        /// own language, after a word in the other language if the typed
+        /// reading is rarer, and without context only if it is rarer by a
+        /// unit of Zipf.
         public var shortWordRank: UInt8 = 160
 
         public init() {}
@@ -70,6 +86,8 @@ public struct Classifier: Sendable {
         case codeLike
         /// Neither reading is probable and neither is a known form: captcha.
         case noise
+        /// Capitals inside the word and no known form to switch to: "taToG".
+        case mixedCase
         /// A 1–2 letter word, decided by the dictionary alone.
         case shortWord
         /// Decided by the costs: `score` says how.
@@ -174,7 +192,9 @@ public struct Classifier: Sendable {
         if automatic, model.isKept(typed.exactFingerprint) {
             return Decision(verdict: .keep, score: 0, reason: .kept, language: nil)
         }
-        if automatic, typed.count > 6, typed.upperInside > 0, typed.lower > 0, typed.symbols > 0 {
+        // Both readings must look like a password: a closing quote typed in
+        // the wrong layout reads as a capital in the other ("water?\"" is "цфеук?Э").
+        if automatic, typed.isPasswordLike, other.isPasswordLike {
             return Decision(verdict: .keep, score: 0, reason: .passwordLike, language: nil)
         }
         guard other.isWord else {
@@ -188,6 +208,7 @@ public struct Classifier: Sendable {
         let typedCost = typed.isWord ? typed.cost - bonus(typed) : Double(typed.count) * options.noiseCost
         let otherCost = other.cost - bonus(other)
         var score = typedCost - otherCost
+        score += options.openerBonus * Double(typed.openers - other.openers)
         if let previous = context.previousLanguage {
             if previous == otherCode { score += options.contextBonus }
             if previous == typedCode { score -= options.contextBonus }
@@ -199,25 +220,43 @@ public struct Classifier: Sendable {
                             language: wins ? otherCode : typedCode)
         }
 
-        guard plausible(other) else {
+        guard plausible(other, carries: true) else {
             let typedPlausible = typed.isWord && plausible(typed)
             return Decision(verdict: .keep, score: score, reason: typedPlausible ? .compared : .noise,
                             language: typedPlausible ? typedCode : nil)
         }
+        let known = isKnown(other)
+        let margin = known ? options.threshold : options.threshold + options.unknownWordExtra
+        if other.letters <= 2 {
+            // Too short for the n-grams: the dictionary and the context decide.
+            // The typed reading may carry a symbol ("t`" is "её") but must
+            // have a letter: "{" is no reason to type "х".
+            let frequent = (other.rank ?? 0) >= options.shortWordRank
+            let typedRank = typed.isWord ? (typed.rank ?? 0) : 0
+            let wins: Bool
+            if typed.letters == 0 || context.previousLanguage == typedCode {
+                wins = false
+            } else if context.previousLanguage == otherCode {
+                wins = frequent && typedRank < (other.rank ?? 0)
+            } else {
+                wins = frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0)
+            }
+            return Decision(verdict: wins ? .switch(to: otherLayout.id) : .keep, score: score, reason: .shortWord,
+                            language: wins ? otherCode : (typed.isWord && plausible(typed) ? typedCode : nil))
+        }
         if !typed.isWord {
-            // "ghbdtn^" against "привет,": only a known form is worth a switch.
-            let wins = other.rank != nil && score >= options.threshold
+            // "ghbdtn^" against "привет,": the typed reading has a symbol, so
+            // the other one must carry the switch by itself.
+            let wins = score >= margin
             return Decision(verdict: wins ? .switch(to: otherLayout.id) : .keep, score: score, reason: .compared,
                             language: wins ? otherCode : nil)
         }
-        if typed.letters <= 2 || other.letters <= 2 {
-            let frequent = (other.rank ?? 0) >= options.shortWordRank
-            let typedRarer = typed.rank == nil || Int(typed.rank!) + 64 <= Int(other.rank ?? 0)
-            let wins = frequent && typedRarer && context.previousLanguage != typedCode
-            return Decision(verdict: wins ? .switch(to: otherLayout.id) : .keep, score: score, reason: .shortWord,
-                            language: wins ? otherCode : (plausible(typed) ? typedCode : nil))
+        if typed.upperInside > 0, typed.lower > 0, !known {
+            // Shift inside a word, and nothing known to switch to: a captcha,
+            // a product name, an identifier.
+            return Decision(verdict: .keep, score: score, reason: .mixedCase, language: nil)
         }
-        if score >= options.threshold {
+        if score >= margin {
             return Decision(verdict: .switch(to: otherLayout.id), score: score, reason: .compared, language: otherCode)
         }
         if score > 0 {
@@ -227,14 +266,26 @@ public struct Classifier: Sendable {
                         language: plausible(typed) ? typedCode : nil)
     }
 
-    /// A known form, or cheap enough per letter not to be noise.
-    private func plausible(_ reading: Reading) -> Bool {
-        reading.rank != nil || reading.cost / Double(reading.letters + 1) <= options.noiseCost
+    /// A known form, or cheap enough per letter not to be noise. A reading
+    /// that `carries` a switch without the dictionary must be cheaper still
+    /// and start like some word of the language.
+    private func plausible(_ reading: Reading, carries: Bool = false) -> Bool {
+        if isKnown(reading) { return true }
+        let bound = carries ? options.unknownNoiseCost : options.noiseCost
+        if carries, !reading.prefixPossible { return false }
+        return reading.cost / Double(reading.letters + 1) <= bound
+    }
+
+    /// In the dictionary with a frequency worth the name, or a form without one.
+    private func isKnown(_ reading: Reading) -> Bool {
+        guard let rank = reading.rank else { return false }
+        return rank == 0 || rank >= options.knownRank
     }
 
     private func bonus(_ reading: Reading) -> Double {
         guard let rank = reading.rank else { return 0 }
-        return options.dictionaryBonus + options.rankBonus * Double(rank) / 32
+        let zipf = rank == 0 ? 2.5 : Double(rank) / 32
+        return options.dictionaryBonus + options.rankBonus * max(0, zipf - 1.5)
     }
 }
 
@@ -252,6 +303,8 @@ struct Reading {
     var coreSymbols = 0
     /// Characters anywhere that are neither letters nor digits, wrappers included.
     var symbols = 0
+    /// Quotes and brackets stripped from the start.
+    var openers = 0
     var digits = 0
     var upper = 0
     var lower = 0
@@ -264,10 +317,17 @@ struct Reading {
     /// n-gram cost in bits; meaningful when `isWord`.
     var cost = 0.0
     var rank: UInt8?
+    /// Whether some word of the language starts with its first 3–4 letters.
+    var prefixPossible = true
 
     /// Only letters (and digits, which the automatic mode refuses earlier)
     /// inside the core: a word the model can measure.
     var isWord: Bool { letters > 0 && coreSymbols == 0 }
+
+    /// Longer than 6, a capital after the first character, small letters and
+    /// a symbol: the plan's rule for a password in an ordinary field. A
+    /// capital only at the start is a sentence start, not a password.
+    var isPasswordLike: Bool { count > 6 && upperInside > 0 && lower > 0 && symbols > 0 }
 
     /// Leading and trailing characters that wrap a word in text. A character
     /// that is a letter of the language (`[` is `х` in Russian) is not a wrapper.
@@ -308,11 +368,18 @@ struct Reading {
         }
         self.count = index
         coreEnd = index
-        while coreStart < coreEnd, Self.isOpening(scalars[coreStart]), !language.isLetter(scalars[coreStart]) {
+        // An apostrophe is a letter inside an English word ("don't") but a
+        // quote at its edge ('verb').
+        func isWrapper(_ scalar: UInt32, opening: Bool) -> Bool {
+            guard opening ? Self.isOpening(scalar) : Self.isClosing(scalar) else { return false }
+            return scalar == 0x27 || !language.isLetter(scalar)
+        }
+        while coreStart < coreEnd, isWrapper(scalars[coreStart], opening: true) {
             coreStart += 1
             self.symbols += 1
+            openers += 1
         }
-        while coreEnd > coreStart, Self.isClosing(scalars[coreEnd - 1]), !language.isLetter(scalars[coreEnd - 1]) {
+        while coreEnd > coreStart, isWrapper(scalars[coreEnd - 1], opening: false) {
             coreEnd -= 1
             self.symbols += 1
         }
@@ -345,9 +412,44 @@ struct Reading {
         }
         fingerprint = folded.value
         exactFingerprint = exact.value
-        if isWord {
-            cost = language.cost(UnsafeBufferPointer(rebasing: symbols[0..<letters]))
-            rank = language.rank(of: fingerprint)
+        guard isWord else { return }
+        rank = language.rank(of: fingerprint)
+        if letters >= 3 {
+            prefixPossible = language.isPossiblePrefix(UnsafeBufferPointer(rebasing: symbols[0..<min(4, letters)]))
         }
+
+        // Hyphens join words: "кто-то", "out-of-date". The word lists rarely
+        // have them, so each part is measured and looked up on its own.
+        let hyphen = language.symbol(0x2D)
+        var start = 0
+        var parts = 0
+        var partRank: UInt8 = 255
+        var partsKnown = true
+        for position in 0...letters where position == letters || symbols[position] == hyphen {
+            if position > start {
+                cost += language.cost(UnsafeBufferPointer(rebasing: symbols[start..<position]))
+                parts += 1
+                if rank == nil, partsKnown {
+                    var part = ModelFormat.Fingerprint()
+                    var index = coreStart
+                    var seen = 0
+                    while index < coreEnd, seen < position {
+                        let scalar = ModelFormat.fold(scalars[index])
+                        if language.symbol(scalar) >= 2 {
+                            if seen >= start { part.add(scalar) }
+                            seen += 1
+                        }
+                        index += 1
+                    }
+                    if let known = language.rank(of: part.value) {
+                        partRank = min(partRank, known)
+                    } else {
+                        partsKnown = false
+                    }
+                }
+            }
+            start = position + 1
+        }
+        if rank == nil, parts >= 2, partsKnown { rank = partRank }
     }
 }

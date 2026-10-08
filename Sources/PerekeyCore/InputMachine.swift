@@ -198,7 +198,7 @@ public struct InputMachine: Sendable {
             case .ends:
                 break
             }
-            if judge.mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings) {
+            if judge.gate.mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings) {
                 switch judge.judge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings,
                                    focus: focus, secureInput: secureInput)
                 {
@@ -223,7 +223,7 @@ public struct InputMachine: Sendable {
         if isHeldBoundary {
             // The word it ended was judged already; a held letter continues it.
             if boundary?.endsWord == true { judge.boundaryReplayed() }
-        } else if judge.mayActInsideWord(buffer: buffer, settings: settings),
+        } else if judge.gate.mayActInsideWord(buffer: buffer, settings: settings),
                   let retype = judge.insideWord(buffer: buffer, layouts: layouts, settings: settings, focus: focus,
                                                 secureInput: secureInput)
         {

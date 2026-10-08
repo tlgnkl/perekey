@@ -256,4 +256,31 @@ private let ru = Fixture.russian.id
         wordJudge.forgetContext(newField: false)
         #expect(wordJudge.recent.count == 0)
     }
+
+    @Test func theExplanationHasTheContextTheDecisionHad() throws {
+        var wordJudge = WordJudge(classifier: Desk.classifier)
+        let russian = LayoutState([Fixture.abc, Fixture.russian], current: ru)
+        for word in ["привет", "мир"] {
+            var buffer = WordBuffer()
+            for stroke in Fixture.russian.strokes(word) { buffer.type(stroke, in: ru) }
+            wordJudge.typed(startsWord: true)
+            _ = wordJudge.judge(endedBy: KeyEvent(.down, keyCode: KeyCode.space), held: 0, buffer: buffer,
+                                layouts: russian, settings: Settings(), focus: Desk.textEdit, secureInput: false)
+        }
+        #expect(wordJudge.recent == RecentLanguages(["ru", "ru"]))
+        var buffer = WordBuffer()
+        for stroke in Fixture.abc.strokes("ghbdtn") { buffer.type(stroke, in: en) }
+        wordJudge.typed(startsWord: true)
+        guard case let .retype(retype) = wordJudge.judge(
+            endedBy: KeyEvent(.down, keyCode: KeyCode.space), held: 0, buffer: buffer, layouts: layouts,
+            settings: Settings(), focus: Desk.textEdit, secureInput: false
+        ) else {
+            Issue.record("expected a switch")
+            return
+        }
+        let expected = Desk.classifier.classify(Fixture.abc.strokes("ghbdtn"), typed: Fixture.abc,
+                                                other: Fixture.russian,
+                                                context: Classifier.Context(recent: RecentLanguages(["ru", "ru"])))
+        #expect(try #require(retype.decision).score == expected.score)
+    }
 }

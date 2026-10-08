@@ -19,6 +19,11 @@ body:
     validations:
       required: true
   - type: input
+    id: reason
+    attributes:
+      label: Classifier decision
+      description: Filled in by Perekey, names and numbers only. Leave it as it is.
+  - type: input
     id: app
     attributes:
       label: App (name and version)

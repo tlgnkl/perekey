@@ -108,9 +108,9 @@ final class MenuBarShell {
                     NSApp.orderFrontStandardAboutPanel(nil)
                 },
                 quit: { NSApplication.shared.terminate(nil) },
-                report: { word in
+                report: { word, reason in
                     menu.close()
-                    reportWindow.show(word: word, layouts: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
+                    reportWindow.show(word: word, reason: reason, layouts: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
                 }
             )
         }
@@ -127,9 +127,9 @@ final class MenuBarShell {
 final class ReportWordWindow {
     private var window: NSWindow?
 
-    func show(word: String, layouts: [String]) {
+    func show(word: String, reason: String = "", layouts: [String]) {
         window?.close()
-        let sheet = ReportWordSheet(initialWord: word, layouts: layouts, version: ReportContext.version, onOpen: { [weak self] url in
+        let sheet = ReportWordSheet(initialWord: word, reason: reason, layouts: layouts, version: ReportContext.version, onOpen: { [weak self] url in
             NSWorkspace.shared.open(url)
             self?.window?.close()
         }, onCancel: { [weak self] in self?.window?.close() })

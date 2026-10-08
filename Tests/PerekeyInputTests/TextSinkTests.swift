@@ -12,7 +12,8 @@ import Testing
             Retype.Key(stroke: KeyStroke(35, .shift), text: "З"),
             Retype.Key(stroke: KeyStroke(31), text: "щ"),
         ],
-        target: "com.apple.keylayout.Russian", expected: "Po", seq: 7
+        target: "com.apple.keylayout.Russian", expected: "Po", seq: 7,
+        origin: .manual(.convertLastWord)
     )
 
     private func text(of event: CGEvent) -> String {

@@ -12,6 +12,15 @@ struct ManualActions: Sendable {
         case changeCase
         /// Other script (`transliterate`).
         case transliterate
+
+        /// The shortcut that runs it.
+        var hotkeyAction: HotkeyAction {
+            switch self {
+            case .convertLayout: .convertLastWord
+            case .changeCase: .changeCase
+            case .transliterate: .transliterate
+            }
+        }
     }
 
     /// What a shortcut does.
@@ -32,6 +41,9 @@ struct ManualActions: Sendable {
         /// word alone, since the user said which layout it is in. A case
         /// change keeps the layout and does neither.
         var changesLayout: Bool
+        /// The first press on a word, whose automatic decision is worth
+        /// explaining; not a phrase or the press that puts a word back.
+        var explainable = false
     }
 
     /// The same keys after a retype, as the buffer must hold them.
@@ -104,7 +116,8 @@ struct ManualActions: Sendable {
         case let .keys(word):
             let original = buffer.entries.allSatisfy { $0.layout == source } ? nil : buffer.entries
             phrase = PhraseRetype(words: 1, retyped: true, target: target, original: original, source: source)
-            return .retype(ManualRetype(word: word, target: target, edit: .relabel(target), changesLayout: true))
+            return .retype(ManualRetype(word: word, target: target, edit: .relabel(target), changesLayout: true,
+                                        explainable: true))
         }
     }
 

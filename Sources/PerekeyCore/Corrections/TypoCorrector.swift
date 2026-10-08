@@ -56,6 +56,20 @@ public struct TypoCorrector: Sendable {
         public var strokes: [KeyStroke]
         public var text: String
         public var rank: UInt8
+        /// What the one edit was.
+        public var change: Change
+    }
+
+    /// The kind of the one edit, for explaining a correction.
+    public enum Change: Hashable, Sendable, CaseIterable {
+        /// A wrong letter.
+        case substitute
+        /// Two letters swapped.
+        case transpose
+        /// A letter too many.
+        case delete
+        /// A letter missing.
+        case insert
     }
 
     /// The one edit that turns the typed word into the candidate.
@@ -231,7 +245,13 @@ public struct TypoCorrector: Sendable {
             result.append(stroke)
             text.unicodeScalars.append(unicode)
         }
-        return Candidate(strokes: result, text: text, rank: best.rank)
+        let change: Change = switch best.edit {
+        case .substitute: .substitute
+        case .transpose: .transpose
+        case .delete: .delete
+        case .insert: .insert
+        }
+        return Candidate(strokes: result, text: text, rank: best.rank, change: change)
     }
 
     /// A letter proper, not a joiner the alphabet also has (`-`, `'`).

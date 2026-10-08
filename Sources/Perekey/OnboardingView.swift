@@ -85,9 +85,9 @@ private struct WelcomeStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
-                Text("ghbdtn").foregroundStyle(.secondary).strikethrough()
+                Text(verbatim: "ghbdtn").foregroundStyle(.secondary).strikethrough()
                 Image(systemName: "arrow.right").foregroundStyle(.tertiary)
-                Text("привет").fontWeight(.semibold)
+                Text(verbatim: "привет").fontWeight(.semibold)
             }
             .font(.system(size: 30, design: .rounded))
             .padding(.top, 20)
@@ -183,8 +183,8 @@ private struct PresetStep: View {
                         model.choose(preset)
                     }
                 }
-                PresetChip(title: "Caps Lock",
-                           note: model.capsLockBlocked ? "Already remapped. Use Settings." : "Instant switch; Option retypes",
+                PresetChip(title: String(localized: "Caps Lock"),
+                           note: model.capsLockBlocked ? String(localized: "Already remapped. Use Settings.") : String(localized: "Instant switch; Option retypes"),
                            isSelected: model.capsLockChosen) {
                     model.chooseCapsLock()
                 }
@@ -208,7 +208,7 @@ private struct DemoStep: View {
             StepHeader(title: "Try it yourself", lead: nil)
             HStack(spacing: 6) {
                 Text("Type")
-                Text("ghbdtn").font(.body.monospaced().bold())
+                Text(verbatim: "ghbdtn").font(.body.monospaced().bold())
                 Text("and press")
                 if let trigger = model.retypeTrigger {
                     ForEach(Array(TriggerText.keycaps(of: trigger).enumerated()), id: \.offset) { _, cap in

@@ -46,7 +46,7 @@ struct ShortcutsPane: View {
                 LabeledContent {
                     ShortcutRecorderButton(action: action, store: store, recording: recording)
                 } label: {
-                    Text(LocalizedStringKey(TriggerText.name(of: action)))
+                    Text(verbatim: TriggerText.name(of: action))
                 }
             }
             ForEach(recording.conflictTexts, id: \.self) { text in
@@ -130,8 +130,8 @@ struct PresetChip: View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(LocalizedStringKey(title)).fontWeight(.semibold)
-                    Text(LocalizedStringKey(note)).font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: title).fontWeight(.semibold)
+                    Text(verbatim: note).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")

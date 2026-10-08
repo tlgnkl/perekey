@@ -126,7 +126,7 @@ final class ShortcutRecording {
             store.update { $0.setTrigger(nil, for: target) }
             stop()
         case .needsModifier:
-            hint = "Hold a modifier key together with it."
+            hint = String(localized: "Hold a modifier key together with it.")
         case nil:
             hint = nil
             scheduleDeadline()

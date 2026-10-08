@@ -112,9 +112,9 @@ struct MenuContent: View {
                 dark: colorScheme == .dark, height: 30, fontSize: 17
             )
             VStack(alignment: .leading, spacing: 1) {
-                Text(sources.currentLayout.map(sources.name(of:)) ?? "No layout")
+                Text(sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout"))
                     .font(.headline)
-                Text(store.settings.autoswitch ? "Automatic switching is on" : "Automatic switching is off")
+                Text(store.settings.autoswitch ? String(localized: "Automatic switching is on") : String(localized: "Automatic switching is off"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

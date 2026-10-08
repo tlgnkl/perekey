@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import Foundation
 import PerekeyCore
 import PerekeyInput
 
@@ -14,12 +15,12 @@ enum TriggerText {
             for (kind, side) in chord.parts {
                 switch side {
                 case .either: caps.append(kind.glyph)
-                case .left: caps += ["left", kind.glyph]
-                case .right: caps += ["right", kind.glyph]
+                case .left: caps += [String(localized: "left"), kind.glyph]
+                case .right: caps += [String(localized: "right"), kind.glyph]
                 case .both: caps += [kind.glyph, "+", kind.glyph]
                 }
             }
-            if taps == .double { caps.append("twice") }
+            if taps == .double { caps.append(String(localized: "twice")) }
             return caps
         case let .key(keyCode, modifiers):
             return ModifierKind.displayOrder.filter(modifiers.contains).map(\.glyph) + [keyName(keyCode)]
@@ -34,7 +35,7 @@ enum TriggerText {
         {
             return text
         }
-        return "Key \(keyCode)"
+        return String(localized: "Key \(Int(keyCode))")
     }
 
     private static let fixedNames: [UInt16: String] = {
@@ -50,27 +51,27 @@ enum TriggerText {
 
     static func name(of action: HotkeyAction) -> String {
         switch action {
-        case .switchLayout: "Switch layout"
-        case .convertLastWord: "Retype last word or selection"
-        case .toggleAutoswitch: "Turn automatic switching on or off"
+        case .switchLayout: String(localized: "Switch layout")
+        case .convertLastWord: String(localized: "Retype last word or selection")
+        case .toggleAutoswitch: String(localized: "Turn automatic switching on or off")
         case let .selectLanguage(code):
             switch code {
-            case "en": "Select English"
-            case "ru": "Select Russian"
-            default: "Select \(code)"
+            case "en": String(localized: "Select English")
+            case "ru": String(localized: "Select Russian")
+            default: String(localized: "Select \(code)")
             }
         }
     }
 
     static func warning(for conflict: ShortcutConflict) -> String {
         switch conflict {
-        case .spotlight: "⌘Space also opens Spotlight. Both will run."
-        case .systemInputSwitch: "macOS switches the input source on this shortcut too. The layout would change twice."
-        case .globeKey: "The fn / 🌐 key also runs its own macOS action, which can switch the input source."
-        case .dictation: "fn twice starts Dictation in macOS."
-        case .jetBrainsSearch: "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them."
-        case .launcherDoubleTap: "Raycast or Alfred may use this double tap."
-        case let .otherAction(action): "Also runs “\(name(of: action))”."
+        case .spotlight: String(localized: "⌘Space also opens Spotlight. Both will run.")
+        case .systemInputSwitch: String(localized: "macOS switches the input source on this shortcut too. The layout would change twice.")
+        case .globeKey: String(localized: "The fn / 🌐 key also runs its own macOS action, which can switch the input source.")
+        case .dictation: String(localized: "fn twice starts Dictation in macOS.")
+        case .jetBrainsSearch: String(localized: "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them.")
+        case .launcherDoubleTap: String(localized: "Raycast or Alfred may use this double tap.")
+        case let .otherAction(action): String(localized: "Also runs “\(name(of: action))”.")
         }
     }
 }
@@ -78,23 +79,23 @@ enum TriggerText {
 extension HotkeyPreset {
     var title: String {
         switch self {
-        case .standard: "Shift"
-        case .windowsAltShift: "Option + Shift"
-        case .windowsControlShift: "Control + Shift"
-        case .commandShift: "Command + Shift"
-        case .doubleShift: "Double Shift"
-        case .separateKeys: "Two keys"
+        case .standard: String(localized: "Shift")
+        case .windowsAltShift: String(localized: "Option + Shift")
+        case .windowsControlShift: String(localized: "Control + Shift")
+        case .commandShift: String(localized: "Command + Shift")
+        case .doubleShift: String(localized: "Double Shift")
+        case .separateKeys: String(localized: "Two keys")
         }
     }
 
     var note: String {
         switch self {
-        case .standard: "Like Caramba"
-        case .windowsAltShift: "Like Alt+Shift on Windows"
-        case .windowsControlShift: "Like Ctrl+Shift on Windows"
-        case .commandShift: "Ctrl+Shift habit on a Mac"
-        case .doubleShift: "Shift twice retypes"
-        case .separateKeys: "Right ⌘ — EN, right ⌥ — RU"
+        case .standard: String(localized: "Like Caramba")
+        case .windowsAltShift: String(localized: "Like Alt+Shift on Windows")
+        case .windowsControlShift: String(localized: "Like Ctrl+Shift on Windows")
+        case .commandShift: String(localized: "Ctrl+Shift habit on a Mac")
+        case .doubleShift: String(localized: "Shift twice retypes")
+        case .separateKeys: String(localized: "Right ⌘ — EN, right ⌥ — RU")
         }
     }
 }

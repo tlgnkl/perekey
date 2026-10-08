@@ -203,6 +203,8 @@ public struct InputMachine: Sendable {
                     break
                 case let .learn(word):
                     effects.append(.learned(word))
+                case let .withdraw(word):
+                    effects.append(.alwaysFixWithdrawn(word))
                 case let .retype(retype):
                     startCorrection(retype, at: time, effects: &effects)
                     return .hold
@@ -210,7 +212,9 @@ public struct InputMachine: Sendable {
             }
         }
         updateBuffer(with: key, held: held)
-        if extendsCorrection { undo.extend(with: key, buffer: buffer, layouts: layouts, effects: &effects) }
+        if extendsCorrection {
+            undo.extend(with: key, buffer: buffer, layouts: layouts, alwaysFix: settings.alwaysFix, effects: &effects)
+        }
         if isHeldBoundary {
             // The word it ended was judged already; a held letter continues it.
             if boundary?.endsWord == true { judge.boundaryReplayed() }

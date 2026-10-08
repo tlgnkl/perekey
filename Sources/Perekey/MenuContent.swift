@@ -557,7 +557,9 @@ struct CorrectionRow: View {
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
 
     var body: some View {
-        let status = store.settings.words.validate(entry.original)
+        // A switch's other reading is its replacement: never-touch covers both.
+        let readings = entry.kind == .layout ? [entry.replacement] : []
+        let status = store.settings.words.validate(entry.original, readings: readings)
         HStack(spacing: 6) {
             Image(systemName: entry.kind.symbol)
                 .font(.system(size: 11, weight: .semibold))
@@ -579,7 +581,7 @@ struct CorrectionRow: View {
             switch status {
             case .ok, .frequent:
                 RowIconButton(id: "fix-\(entry.id)-skip", symbol: "hand.raised", title: "Don't touch this word", nav: nav) {
-                    store.update { _ = $0.words.add(entry.original) }
+                    store.update { _ = $0.words.add(entry.original, readings: readings) }
                 }
             case .duplicate:
                 Image(systemName: "checkmark")
@@ -588,7 +590,7 @@ struct CorrectionRow: View {
                     .frame(width: 24, height: 22)
                     .help(Text("Already on the list"))
                     .accessibilityLabel(Text("Already on the list"))
-            case .empty, .invalid, .neverTouch:
+            case .empty, .invalid, .neverTouch, .tooShort:
                 EmptyView()
             }
             RowIconButton(id: "fix-\(entry.id)-report", symbol: "flag", title: "Report a word", nav: nav) {

@@ -149,6 +149,9 @@
 "Don't touch: mine" = "Don't touch: mine";
 "Learn from undone corrections" = "Learn from undone corrections";
 "Always fix" = "Always fix";
+"Use one word: letters, apostrophe and hyphen." = "Use one word: letters, apostrophe and hyphen.";
+"This word is already on a list." = "This word is already on a list.";
+"Use a word of 3 letters or more: shorter ones are too often meant as typed." = "Use a word of 3 letters or more: shorter ones are too often meant as typed.";
 "The word as it should come out" = "The word as it should come out";
 "Typed in the other layout, these words switch after a space even when Perekey is unsure. Passwords, code and digits stay as typed." = "Typed in the other layout, these words switch after a space even when Perekey is unsure. Passwords, code and digits stay as typed.";
 "Words you undo after a correction appear here." = "Words you undo after a correction appear here.";

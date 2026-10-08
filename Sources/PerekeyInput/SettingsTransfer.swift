@@ -12,6 +12,8 @@ public enum SettingsTransfer {
     /// The file format this build writes and the newest it reads.
     /// 2: `words.always` ("Всегда исправлять") and the undo count of learned
     /// words. Version 1 files load with both empty: one undo per learned word.
+    /// The other way is lossy: a Perekey from before version 2 reads a newer
+    /// settings file, but silently drops `always` and `undoCount` on its first save.
     public static let currentVersion = 2
 
     private static let knownKeys: Set<String> = ["hotkeys", "capsLock", "autoswitch", "onboardingDone", "words"]

@@ -46,12 +46,16 @@ extension LearnedWord: Codable {
 /// about the word as typed in either layout reading, so a never-touch word
 /// matches in whichever of the two readings the user put on the list, in any
 /// letter case. An always-fix word is the form the word should come out in
-/// ("аня", not "fyz"): typed in the other layout it switches to it, typed in
-/// its own it stays.
+/// ("артём", not "fhn`v"): typed in the other layout it switches to it, typed
+/// in its own it stays. It matches with "ё" as "е" and "’" as "'"
+/// (`matchKey`), and comes out spelt as stored.
 ///
-/// Never-touch beats always-fix: `alwaysFix` refuses a word on `mine`, and
-/// `AppSettings.snapshot` drops from the always list whatever is on a
-/// never-touch one (an import may bring both).
+/// Never-touch beats always-fix, in either reading of the word: adding to
+/// "Мои" takes the word off "Всегда исправлять", `alwaysFix` refuses a word
+/// of "Мои", and `AppSettings.snapshot` drops from the always list whatever
+/// is on a never-touch one (an import may bring both). The other readings
+/// come from the installed layouts (`readings(of:in:)`); the core has none of
+/// its own, so the callers pass them.
 public struct WordRules: Hashable, Sendable {
     public var mine: [String]
     public var learned: [LearnedWord]
@@ -63,6 +67,10 @@ public struct WordRules: Hashable, Sendable {
     public enum Section: Hashable, Sendable {
         case mine, learned, always
     }
+
+    /// "Всегда исправлять" takes words of this many letters and more: a
+    /// shorter one is too often meant as typed.
+    public static let alwaysFixMinLetters = 3
 
     public init(mine: [String] = [], learned: [LearnedWord] = [], always: [String] = [], learnFromUndos: Bool = true) {
         self.mine = mine
@@ -82,6 +90,39 @@ public struct WordRules: Hashable, Sendable {
         return text.lowercased()
     }
 
+    /// The form "Всегда исправлять" matches by: normalized, "ё" as "е", "’" as "'".
+    public static func matchKey(_ word: String) -> String {
+        String(normalize(word).map { character -> Character in
+            switch character {
+            case "ё": "е"
+            case "\u{2019}": "'"
+            default: character
+            }
+        })
+    }
+
+    /// The always-fix words by `matchKey`, each with its stored spelling.
+    public var alwaysFixTable: [String: String] {
+        var table: [String: String] = [:]
+        for word in always { table[Self.matchKey(word)] = word }
+        return table
+    }
+
+    /// The word typed on the same keys in the other installed layouts,
+    /// normalized: "аня" gives "fyz" with ABC and Russian.
+    public static func readings(of word: String, in layouts: [LayoutMap]) -> [String] {
+        let normalized = normalize(word)
+        guard !normalized.isEmpty else { return [] }
+        var readings: [String] = []
+        for source in layouts where normalized.allSatisfy({ source.stroke(for: $0) != nil }) {
+            for target in layouts where target.id != source.id && target.language != source.language {
+                let reading = normalize(target.convert(normalized, from: source))
+                if reading != normalized, !readings.contains(reading) { readings.append(reading) }
+            }
+        }
+        return readings
+    }
+
     /// Why a word can or cannot be added.
     public enum Validation: Hashable, Sendable {
         case ok
@@ -91,18 +132,23 @@ public struct WordRules: Hashable, Sendable {
         case duplicate
         /// Allowed, but the word is common: it will stop being corrected everywhere.
         case frequent
-        /// Not for "Всегда исправлять": the word is on "Не трогать: мои", which wins.
+        /// Not for "Всегда исправлять": the word, in some reading, is on
+        /// "Не трогать: мои", which wins.
         case neverTouch
+        /// Not for "Всегда исправлять": fewer than `alwaysFixMinLetters` letters.
+        case tooShort
     }
 
-    /// Checks a word before adding it to `section`. `isFrequent` receives the
-    /// normalized word and says whether it is among the 1000 most frequent;
-    /// only a never-touch list warns about that.
+    /// Checks a word before adding it to `section`. `readings` are the word
+    /// typed on the same keys in the other layouts (`readings(of:in:)`).
+    /// `isFrequent` receives the normalized word and says whether it is among
+    /// the 1000 most frequent; only a never-touch list warns about that.
     ///
-    /// For "Мои" a word on a never-touch list is a duplicate; an always-fix
-    /// one is fine, `add` moves it: never-touch wins. For "Всегда исправлять"
-    /// a learned word is fine, `alwaysFix` moves it; a word of "Мои" is not.
-    public func validate(_ word: String, for section: Section = .mine,
+    /// For "Мои" a word on a never-touch list, in any reading, is a
+    /// duplicate; an always-fix one is fine, `add` moves it: never-touch wins.
+    /// For "Всегда исправлять" a learned word is fine, `alwaysFix` forgets it;
+    /// a word of "Мои" is not.
+    public func validate(_ word: String, for section: Section = .mine, readings: [String] = [],
                          isFrequent: (String) -> Bool = { _ in false }) -> Validation
     {
         let normalized = Self.normalize(word)
@@ -110,16 +156,16 @@ public struct WordRules: Hashable, Sendable {
         guard normalized.contains(where: \.isLetter),
               normalized.allSatisfy({ $0.isLetter || $0 == "'" || $0 == "\u{2019}" || $0 == "-" })
         else { return .invalid }
+        let forms = [normalized] + readings.map(Self.normalize)
         switch section {
         case .mine, .learned:
-            if contains(normalized) { return .duplicate }
+            if forms.contains(where: contains) { return .duplicate }
             return isFrequent(normalized) ? .frequent : .ok
         case .always:
-            switch self.section(of: normalized) {
-            case .always: return .duplicate
-            case .mine: return .neverTouch
-            case .learned, nil: return .ok
-            }
+            if normalized.filter(\.isLetter).count < Self.alwaysFixMinLetters { return .tooShort }
+            if forms.contains(where: { self.section(of: $0) == .always }) { return .duplicate }
+            if forms.contains(where: mine.contains) { return .neverTouch }
+            return .ok
         }
     }
 
@@ -129,7 +175,8 @@ public struct WordRules: Hashable, Sendable {
         guard !normalized.isEmpty else { return nil }
         if mine.contains(normalized) { return .mine }
         if learned.contains(where: { $0.word == normalized }) { return .learned }
-        if always.contains(normalized) { return .always }
+        let key = Self.matchKey(normalized)
+        if always.contains(where: { Self.matchKey($0) == key }) { return .always }
         return nil
     }
 
@@ -142,18 +189,19 @@ public struct WordRules: Hashable, Sendable {
     }
 
     /// Adds a word to "Мои". A frequent word is allowed: the caller shows the
-    /// warning first. A learned or always-fix copy moves to "Мои". Returns
-    /// false for an invalid word or one already there.
+    /// warning first. A learned or always-fix copy, in any of `readings`,
+    /// gives way to it. Returns false for an invalid word or one already
+    /// there in some reading.
     @discardableResult
-    public mutating func add(_ word: String) -> Bool {
+    public mutating func add(_ word: String, readings: [String] = []) -> Bool {
         let normalized = Self.normalize(word)
-        switch validate(normalized) {
-        case .ok, .frequent: break
-        case .duplicate where !mine.contains(normalized): break
-        default: return false
-        }
-        learned.removeAll { $0.word == normalized }
-        always.removeAll { $0 == normalized }
+        let forms = [normalized] + readings.map(Self.normalize)
+        guard validate(normalized) != .empty, validate(normalized) != .invalid,
+              !forms.contains(where: mine.contains)
+        else { return false }
+        learned.removeAll { forms.contains($0.word) }
+        let keys = Set(forms.map(Self.matchKey))
+        always.removeAll { keys.contains(Self.matchKey($0)) }
         mine.append(normalized)
         return true
     }
@@ -165,42 +213,49 @@ public struct WordRules: Hashable, Sendable {
     }
 
     /// Adds a word to "Всегда исправлять", in the form it should come out in.
-    /// `typed` is the other reading the user typed, when known (the hint
-    /// after a manual retype passes it): the user says now that it is wrong,
-    /// so a learned copy of either reading is forgotten. Returns false when
-    /// the word is invalid, already there, or either reading is on "Мои".
+    /// `readings` are its other readings (`readings(of:in:)`); `typed` is the
+    /// one the user typed, when known (the hint after a manual retype passes
+    /// it). The user says now that those are wrong, so a learned copy of any
+    /// of them is forgotten. Returns false when `validate(_:for: .always)`
+    /// refuses the word or `typed` is on "Мои".
     @discardableResult
-    public mutating func alwaysFix(_ word: String, typed: String? = nil) -> Bool {
+    public mutating func alwaysFix(_ word: String, typed: String? = nil, readings: [String] = []) -> Bool {
         let normalized = Self.normalize(word)
-        let other = typed.map(Self.normalize)
-        guard validate(normalized, for: .always) == .ok, other.map({ !mine.contains($0) }) ?? true else {
-            return false
-        }
-        learned.removeAll { $0.word == normalized || $0.word == other }
+        let others = (typed.map { [$0] } ?? []) + readings
+        guard validate(normalized, for: .always, readings: others) == .ok else { return false }
+        let forms = [normalized] + others.map(Self.normalize)
+        learned.removeAll { forms.contains($0.word) }
         always.append(normalized)
         return true
     }
 
-    /// Removes a word from "Всегда исправлять".
+    /// Removes a word from "Всегда исправлять", whatever its "ё" and apostrophe.
     public mutating func stopFixing(_ word: String) {
-        let normalized = Self.normalize(word)
-        always.removeAll { $0 == normalized }
+        let key = Self.matchKey(word)
+        always.removeAll { Self.matchKey($0) == key }
     }
 
     /// Learns a word from an undone correction. Does nothing when learning is
     /// off, or the word is invalid or on another list. A word learned before
-    /// counts one more undo. Returns true when the word was added, not when
-    /// it was counted.
+    /// counts one more undo. When the word or one of its `readings` is on
+    /// "Всегда исправлять", the undo withdraws that instead and learns
+    /// nothing: the latest explicit signal wins. Returns true when the word
+    /// was added, not when it was counted or withdrawn.
     @discardableResult
-    public mutating func learn(_ word: String, at seconds: Double) -> Bool {
+    public mutating func learn(_ word: String, at seconds: Double, readings: [String] = []) -> Bool {
         guard learnFromUndos else { return false }
         let normalized = Self.normalize(word)
+        let forms = [normalized] + readings.map(Self.normalize)
+        if forms.contains(where: { section(of: $0) == .always }) {
+            for form in forms { stopFixing(form) }
+            return false
+        }
         if let index = learned.firstIndex(where: { $0.word == normalized }) {
             learned[index].undoCount += 1
             learned[index].lastUndoneAt = seconds
             return false
         }
-        guard validate(normalized) == .ok, section(of: normalized) == nil else { return false }
+        guard validate(normalized, readings: readings) == .ok else { return false }
         learned.append(LearnedWord(word: normalized, learnedAt: seconds))
         return true
     }
@@ -237,8 +292,11 @@ public struct WordRules: Hashable, Sendable {
     /// (docs/PLAN.md, stage 7, «Когда предлагать»): only when automatic
     /// switching could act on the word and left it out of doubt, not because
     /// of a guard. A word on a list was decided by the user already.
+    /// A 1–2 letter word (`shortWord`) is a doubt but is not offered: the
+    /// list does not take it (`alwaysFixMinLetters`).
     public static func offerAlwaysFix(decision: Classifier.Decision, context: OfferContext) -> Bool {
-        context.autoswitch && context.appMode == .auto && !context.listed && overrides(decision)
+        context.autoswitch && context.appMode == .auto && !context.listed && decision.reason != .shortWord
+            && overrides(decision)
     }
 
     /// Whether an always-fix word switches over this decision: the

@@ -379,7 +379,7 @@ private func buffer(_ text: String, in layout: LayoutID = en) -> WordBuffer {
         #expect(role1 == .extends)
         var word = buffer("ghb", in: ru)
         word.type(d, in: ru)
-        undo.extend(with: key(d.keyCode), buffer: word, layouts: layouts, effects: &effects)
+        undo.extend(with: key(d.keyCode), buffer: word, layouts: layouts, alwaysFix: [:], effects: &effects)
         #expect(undo.last?.correction.replacement == "прив")
         #expect(undo.last?.extended == true)
         // Backspace fixes a typo in the word now.

@@ -225,7 +225,8 @@ final class InputController {
         // The onboarding demo undoes «ghbdtn» on purpose: that teaches nothing.
         guard !(appModes.isDemoFront && AppModeController.isDemoWord(word)) else { return }
         var added = false
-        store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970) }
+        let readings = WordRules.readings(of: word, in: sources.layouts)
+        store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970, readings: readings) }
         guard added else { return }
         onLearned?(word)
         guard store.settings.caretHint != .off else { return }
@@ -238,13 +239,14 @@ final class InputController {
     /// Puts a word on "Всегда исправлять": from now on it switches at the
     /// word end whatever the score, unless a guard keeps it. `word` is the
     /// form it should come out in, `typed` what the user typed (a learned
-    /// copy of it is forgotten). For the hint after a manual retype, when
+    /// copy of it, or of another reading in the installed layouts, is forgotten). For the hint after a manual retype, when
     /// `WordRules.offerAlwaysFix` says so. Returns false when the word is
     /// invalid, already there, or on "Не трогать: мои".
     @discardableResult
     func alwaysFix(_ word: String, typed: String? = nil) -> Bool {
         var added = false
-        store.update { added = $0.words.alwaysFix(word, typed: typed) }
+        let readings = WordRules.readings(of: word, in: sources.layouts)
+        store.update { added = $0.words.alwaysFix(word, typed: typed, readings: readings) }
         return added
     }
 

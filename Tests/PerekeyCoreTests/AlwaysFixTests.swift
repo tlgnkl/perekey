@@ -6,6 +6,11 @@ import Testing
 private let en = Fixture.abc.id
 private let ru = Fixture.russian.id
 
+/// The snapshot's always-fix table of these words.
+private func always(_ words: String...) -> [String: String] {
+    WordRules(always: words).alwaysFixTable
+}
+
 /// "Всегда исправлять" in the word judge: the list beats the score, never a guard.
 @Suite struct AlwaysFixTests {
     private func decision(_ typed: String) -> Classifier.Decision {
@@ -19,7 +24,7 @@ private let ru = Fixture.russian.id
         plain.type("Fyz ")
         #expect(plain.text == "Fyz ")
 
-        var desk = Desk(Settings(alwaysFix: ["аня"]))
+        var desk = Desk(Settings(alwaysFix: always("аня")))
         desk.type("Fyz ")
         #expect(desk.text == "Аня ")
         #expect(desk.appLayout == ru)
@@ -36,7 +41,7 @@ private let ru = Fixture.russian.id
     @Test(arguments: ["Fyz!", "fyz,"])
     func punctuationAroundTheWordStillMatches(typed: String) {
         // "," is "б" in Russian: "fyz," stays one token, and its core is no list word.
-        var desk = Desk(Settings(alwaysFix: ["аня"]))
+        var desk = Desk(Settings(alwaysFix: always("аня")))
         desk.type(typed + " ")
         let switched = typed == "Fyz!"
         #expect(desk.text == (switched ? "Аня! " : "fyz, "))
@@ -48,7 +53,7 @@ private let ru = Fixture.russian.id
         plain.type("руддщ ", on: Fixture.russian)
         try #require(plain.text == "hello ")
 
-        var desk = Desk(Settings(alwaysFix: ["руддщ"]), current: ru)
+        var desk = Desk(Settings(alwaysFix: always("руддщ")), current: ru)
         desk.type("руддщ ", on: Fixture.russian)
         #expect(desk.text == "руддщ ")
         #expect(desk.corrections.isEmpty)
@@ -59,7 +64,7 @@ private let ru = Fixture.russian.id
         plain.type("ghb")
         #expect(plain.text == "при")
 
-        var desk = Desk(Settings(alwaysFix: ["ghbdtn"]))
+        var desk = Desk(Settings(alwaysFix: always("ghbdtn")))
         desk.type("ghbdtn ")
         #expect(desk.text == "ghbdtn ")
         #expect(desk.corrections.isEmpty)
@@ -71,7 +76,7 @@ private let ru = Fixture.russian.id
         // other reading is "привет", on the list, and still nothing switches.
         let reason = decision(String(typed.dropLast())).reason
         try #require(reason.isGuard)
-        var desk = Desk(Settings(alwaysFix: ["привет"]))
+        var desk = Desk(Settings(alwaysFix: always("привет")))
         desk.type(typed)
         #expect(desk.text == typed)
         #expect(desk.corrections.isEmpty)
@@ -79,26 +84,26 @@ private let ru = Fixture.russian.id
 
     @Test(arguments: [AppMode.manualOnly, AppMode.off])
     func appModeBeatsTheList(mode: AppMode) {
-        var desk = Desk(Settings(alwaysFix: ["аня"]))
+        var desk = Desk(Settings(alwaysFix: always("аня")))
         desk.send(.appModeChanged(mode))
         desk.type("Fyz ")
         #expect(desk.text == "Fyz ")
     }
 
     @Test func passwordFieldAndSecureInputBeatTheList() {
-        var field = Desk(Settings(alwaysFix: ["аня"]),
+        var field = Desk(Settings(alwaysFix: always("аня")),
                          focus: Focus(bundleID: "com.apple.Safari", isSecureField: true))
         field.type("Fyz ")
         #expect(field.text == "Fyz ")
 
-        var secure = Desk(Settings(alwaysFix: ["аня"]))
+        var secure = Desk(Settings(alwaysFix: always("аня")))
         secure.send(.secureInputChanged(true))
         secure.type("Fyz ")
         #expect(secure.text == "Fyz ")
     }
 
     @Test func autoswitchOffBeatsTheList() {
-        var desk = Desk(Settings(autoswitch: false, alwaysFix: ["аня"]))
+        var desk = Desk(Settings(autoswitch: false, alwaysFix: always("аня")))
         desk.type("Fyz ")
         #expect(desk.text == "Fyz ")
     }
@@ -106,7 +111,7 @@ private let ru = Fixture.russian.id
     @Test(arguments: ["fyz", "аня"])
     func neverTouchBeatsTheListInEitherReading(exception: String) {
         // The snapshot keeps the lists apart; a stale one must still not switch.
-        var desk = Desk(Settings(exceptions: [exception], alwaysFix: ["аня"]))
+        var desk = Desk(Settings(exceptions: [exception], alwaysFix: always("аня")))
         desk.type("Fyz ")
         #expect(desk.text == "Fyz ")
     }
@@ -121,7 +126,7 @@ private let ru = Fixture.russian.id
 
     @Test(arguments: [true, false])
     func undoOfAnAlwaysFixWithdrawsTheWord(learnFromUndos: Bool) {
-        var desk = Desk(Settings(alwaysFix: ["аня"], learnFromUndos: learnFromUndos))
+        var desk = Desk(Settings(alwaysFix: always("аня"), learnFromUndos: learnFromUndos))
         desk.type("Fyz ")
         #expect(desk.withdrawn.isEmpty, "only the undo withdraws")
         desk.press(KeyCode.delete)
@@ -138,26 +143,83 @@ private let ru = Fixture.russian.id
     }
 
     @Test func undoOfAnOrdinarySwitchStillLearns() {
-        var desk = Desk(Settings(alwaysFix: ["аня"]))
+        var desk = Desk(Settings(alwaysFix: always("аня")))
         desk.type("ghbdtn ")
         desk.press(KeyCode.delete)
         #expect(desk.learned == ["ghbdtn"])
         #expect(desk.withdrawn.isEmpty)
     }
 
-    @Test func aCancelledUndoWithdrawsNothing() {
-        var desk = Desk(Settings(alwaysFix: ["аня"]))
+    @Test func aFailedUndoWithdrawsNothing() throws {
+        var desk = Desk(Settings(alwaysFix: always("аня")))
         desk.type("Fyz ")
+        let seq = try #require(desk.corrections.first).seq
         desk.cancelRetypes = true
         desk.press(KeyCode.delete)
+        #expect(desk.log.contains(.correctionUndoFailed(seq: seq)))
+        #expect(desk.text == "Аня", "the Backspace goes through as an ordinary one")
         #expect(desk.withdrawn.isEmpty)
+        #expect(desk.learned.isEmpty)
+    }
+
+    @Test(arguments: [("[jhjij ", "хорошо"), ("ghbdtn ", "привет")])
+    func undoOfAClassifierSwitchToAListedWordWithdrawsIt(typed: String, word: String) {
+        // The classifier switched it on its own, at the end or inside the
+        // word ("ghb"); the word is listed all the same.
+        var desk = Desk(Settings(alwaysFix: always(word)))
+        desk.type(typed)
+        #expect(desk.text == word + " ")
+        desk.press(KeyCode.delete)
+        #expect(desk.withdrawn == [word])
+        #expect(desk.learned.isEmpty)
+    }
+
+    @Test func undoInsideTheWordOfAListedWordWithdrawsItAtTheEnd() {
+        var desk = Desk(Settings(alwaysFix: always("привет")))
+        desk.type("ghb")
+        #expect(desk.text == "при")
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "ghb")
+        desk.type("dtn ")
+        #expect(desk.text == "ghbdtn ")
+        #expect(desk.withdrawn == ["привет"])
+        #expect(desk.learned.isEmpty)
+    }
+
+    @Test(arguments: ["[jhJij ", "ds,Jh "])
+    func aCapitalInsideBeatsTheList(typed: String) {
+        // "ds,Jh" has a symbol in the typed reading: the classifier answers
+        // `compared` before its mixed-case check. The judge checks it itself.
+        var plain = Desk()
+        plain.type(typed)
+        var desk = Desk(Settings(alwaysFix: always("хорошо", "выбор")))
+        desk.type(typed)
+        #expect(desk.text == plain.text, "the list adds nothing to what the classifier decides")
+    }
+
+    @Test(arguments: [("fhntv ", "артём "), ("Fhntv ", "Артём "), ("FHNTV ", "АРТЁМ ")])
+    func comesOutSpeltAsListed(typed: String, expected: String) throws {
+        var desk = Desk(Settings(alwaysFix: always("артём")))
+        desk.type(typed)
+        #expect(desk.text == expected)
+        // The undo puts back what was typed.
+        desk.press(KeyCode.delete)
+        #expect(desk.text == typed)
+    }
+
+    @Test func matchesWithYoAndApostropheFolded() {
+        #expect(WordRules.matchKey(" Артём ") == "артем")
+        #expect(WordRules.matchKey("rock\u{2019}n") == "rock'n")
+        var desk = Desk(Settings(alwaysFix: always("артем")))
+        desk.type("fhntv ")
+        #expect(desk.text == "артем ", "stored without «ё», it comes out without")
     }
 
     @Test func emptyListChangesNothing() {
         for typed in ["Fyz ", "ghbdtn ", "hello ", "ghBdtn! "] {
             var plain = Desk()
             plain.type(typed)
-            var listed = Desk(Settings(alwaysFix: []))
+            var listed = Desk(Settings(alwaysFix: [:]))
             listed.type(typed)
             #expect(listed.text == plain.text)
         }
@@ -174,7 +236,7 @@ private let ru = Fixture.russian.id
         Classifier.Decision(verdict: verdict, score: score, reason: reason, language: nil)
     }
 
-    @Test(arguments: [Classifier.Reason.noise, .bothPlausible, .shortWord, .compared])
+    @Test(arguments: [Classifier.Reason.noise, .bothPlausible, .compared])
     func offeredForDoubt(reason: Classifier.Reason) {
         #expect(WordRules.offerAlwaysFix(decision: decision(.keep, reason), context: on))
         #expect(WordRules.offerAlwaysFix(decision: decision(.unsure, reason), context: on))
@@ -185,6 +247,12 @@ private let ru = Fixture.russian.id
     func notOfferedForGuards(reason: Classifier.Reason) {
         #expect(reason.isGuard)
         #expect(!WordRules.offerAlwaysFix(decision: decision(.keep, reason, score: 0), context: on))
+    }
+
+    @Test func notOfferedForAShortWord() {
+        // A doubt, but the list takes no word of 1–2 letters.
+        #expect(!Classifier.Reason.shortWord.isGuard)
+        #expect(!WordRules.offerAlwaysFix(decision: decision(.keep, .shortWord), context: on))
     }
 
     @Test func notOfferedWhenTheOtherReadingIsNoWord() {

@@ -193,8 +193,11 @@ struct CorrectionUndo: Sendable {
 
     /// A key typed while a switch inside the word is open, after it went into
     /// `buffer`: a letter joins the word, a key that ends the word closes the
-    /// correction and reports it.
-    mutating func extend(with key: KeyEvent, buffer: WordBuffer, layouts: LayoutState, effects: inout [Effect]) {
+    /// correction and reports it. A word it closes on `alwaysFix`
+    /// (`Settings.alwaysFix`) is withdrawn from the list by its undo.
+    mutating func extend(with key: KeyEvent, buffer: WordBuffer, layouts: LayoutState, alwaysFix: [String: String],
+                         effects: inout [Effect])
+    {
         guard var last, last.isOpen else { return }
         self.last = nil
         let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
@@ -217,6 +220,9 @@ struct CorrectionUndo: Sendable {
         last.isOpen = false
         last.extended = false
         last.reported = true
+        if !alwaysFix.isEmpty {
+            last.alwaysFix = alwaysFix[WordRules.matchKey(WordJudge.exceptionKey(last.correction.replacement))]
+        }
         effects.append(.corrected(last.correction))
         self.last = last
     }

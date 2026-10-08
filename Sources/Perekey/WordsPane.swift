@@ -8,6 +8,8 @@ import SwiftUI
 /// "Always fix" switch at the word end whatever the score.
 struct WordsPane: View {
     let store: SettingsStore
+    /// The installed layouts: a word conflicts with a list in any of its readings.
+    var layouts: [LayoutMap] = []
     /// Says whether a word is among the 1000 most frequent. The classifier model will provide it.
     var isFrequent: (String) -> Bool = { _ in false }
 
@@ -15,18 +17,26 @@ struct WordsPane: View {
     private let alwaysDraft: State<String>
     private let found = State(initialValue: FoundTracker())
 
-    init(store: SettingsStore, isFrequent: @escaping (String) -> Bool = { _ in false }, initialDraft: String = "",
-         initialAlwaysDraft: String = "")
+    init(store: SettingsStore, layouts: [LayoutMap] = [], isFrequent: @escaping (String) -> Bool = { _ in false },
+         initialDraft: String = "", initialAlwaysDraft: String = "")
     {
         self.store = store
+        self.layouts = layouts
         self.isFrequent = isFrequent
         draft = State(initialValue: initialDraft)
         alwaysDraft = State(initialValue: initialAlwaysDraft)
     }
 
     private var words: WordRules { store.settings.words }
-    private var validation: WordRules.Validation { words.validate(draft.wrappedValue, isFrequent: isFrequent) }
-    private var alwaysValidation: WordRules.Validation { words.validate(alwaysDraft.wrappedValue, for: .always) }
+    private var validation: WordRules.Validation {
+        words.validate(draft.wrappedValue, readings: readings(of: draft.wrappedValue), isFrequent: isFrequent)
+    }
+
+    private var alwaysValidation: WordRules.Validation {
+        words.validate(alwaysDraft.wrappedValue, for: .always, readings: readings(of: alwaysDraft.wrappedValue))
+    }
+
+    private func readings(of word: String) -> [String] { WordRules.readings(of: word, in: layouts) }
 
     var body: some View {
         PKPane(title: Text("Words")) {
@@ -140,7 +150,7 @@ struct WordsPane: View {
             }
             .padding(PK.Space.md)
             if let message = alwaysMessage {
-                PKCallout(Text(message.text), symbol: message.symbol, tone: .warn, quiet: true)
+                PKCallout(message.text, symbol: message.symbol, tone: .warn, quiet: true)
             }
             if words.always.isEmpty {
                 PKDivider()
@@ -178,14 +188,16 @@ struct WordsPane: View {
     private func add() {
         guard [.ok, .frequent].contains(validation) else { return }
         let word = draft.wrappedValue
-        store.update { $0.words.add(word) }
+        let readings = readings(of: word)
+        store.update { $0.words.add(word, readings: readings) }
         draft.wrappedValue = ""
     }
 
     private func addAlways() {
         guard alwaysValidation == .ok else { return }
         let word = alwaysDraft.wrappedValue
-        store.update { $0.words.alwaysFix(word) }
+        let readings = readings(of: word)
+        store.update { $0.words.alwaysFix(word, readings: readings) }
         alwaysDraft.wrappedValue = ""
     }
 
@@ -193,16 +205,17 @@ struct WordsPane: View {
         switch validation {
         case .ok, .empty: nil
         case .invalid: ("Use one word: letters, apostrophe and hyphen.", "xmark.circle", false)
-        case .duplicate, .neverTouch: ("This word is already on a list.", "info.circle", false)
+        case .duplicate, .neverTouch, .tooShort: ("This word is already on a list.", "info.circle", false)
         case .frequent: ("This word will stop being corrected everywhere.", "exclamationmark.triangle.fill", true)
         }
     }
 
-    private var alwaysMessage: (text: LocalizedStringKey, symbol: String)? {
+    private var alwaysMessage: (text: Text, symbol: String)? {
         switch alwaysValidation {
         case .ok, .empty, .frequent: nil
-        case .invalid: ("Use one word: letters, apostrophe and hyphen.", "xmark.circle")
-        case .duplicate, .neverTouch: ("This word is already on a list.", "info.circle")
+        case .invalid: (Text("Use one word: letters, apostrophe and hyphen."), "xmark.circle")
+        case .tooShort: (Text("Use a word of 3 letters or more: shorter ones are too often meant as typed."), "info.circle")
+        case .duplicate, .neverTouch: (Text("This word is already on a list."), "info.circle")
         }
     }
 }

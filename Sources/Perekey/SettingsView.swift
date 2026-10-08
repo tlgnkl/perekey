@@ -120,7 +120,7 @@ struct SettingsView: View {
         case .shortcuts: ShortcutsPane(store: store, recording: recording)
         case .apps: AppsPane(store: store, sources: sources)
         case .sites: SitesPane(store: store, sources: sources)
-        case .words: WordsPane(store: store)
+        case .words: WordsPane(store: store, layouts: sources.layouts)
         }
     }
 }

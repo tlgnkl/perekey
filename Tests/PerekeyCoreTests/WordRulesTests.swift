@@ -89,7 +89,10 @@ import Testing
         #expect(words.validate("kubectl", for: .always) == .neverTouch)
         #expect(words.validate("fyz", for: .always) == .ok, "a learned word moves")
         #expect(words.validate("two words", for: .always) == .invalid)
-        #expect(words.validate("и", for: .always, isFrequent: { _ in true }) == .ok, "no frequency warning")
+        #expect(words.validate("дом", for: .always, isFrequent: { _ in true }) == .ok, "no frequency warning")
+        #expect(words.validate("ая", for: .always) == .tooShort)
+        #expect(words.validate("ё-ж", for: .always) == .tooShort, "letters count, not characters")
+        #expect(words.validate("ая") == .ok, "never-touch takes short words")
         #expect(words.validate("аня") == .ok, "«Мои» takes an always-fix word: never-touch wins")
         #expect(words.validate("fyz") == .duplicate)
         #expect(words.section(of: " АНЯ ") == .always)
@@ -124,11 +127,67 @@ import Testing
         #expect(words.mine == ["аня"] && words.always.isEmpty)
     }
 
-    @Test func learningSkipsAlwaysFixWords() {
+    @Test func learningAnAlwaysFixWordWithdrawsIt() {
         var words = WordRules(always: ["аня"])
         let learned = words.learn("аня", at: 1)
         #expect(!learned)
-        #expect(words.learned.isEmpty)
+        #expect(words.learned.isEmpty && words.always.isEmpty)
+    }
+
+    // MARK: - The other reading
+
+    private let layouts = [Fixture.abc, Fixture.russian]
+
+    @Test func readingsComeFromTheInstalledLayouts() {
+        #expect(WordRules.readings(of: "Аня", in: layouts) == ["fyz"])
+        #expect(WordRules.readings(of: "fyz", in: layouts) == ["аня"])
+        #expect(WordRules.readings(of: "аня", in: [Fixture.russian]).isEmpty)
+    }
+
+    @Test func alwaysFixForgetsALearnedOtherReading() {
+        // An old undo learned "fyz"; it would keep "аня" from ever switching.
+        var words = WordRules(learned: [LearnedWord(word: "fyz", learnedAt: 1)])
+        let readings = WordRules.readings(of: "аня", in: layouts)
+        #expect(words.validate("аня", for: .always, readings: readings) == .ok)
+        let added = words.alwaysFix("аня", readings: readings)
+        #expect(added)
+        #expect(words.learned.isEmpty && words.always == ["аня"])
+    }
+
+    @Test func alwaysFixRefusesAnOtherReadingOfMine() {
+        var words = WordRules(mine: ["fyz"])
+        let readings = WordRules.readings(of: "аня", in: layouts)
+        #expect(words.validate("аня", for: .always, readings: readings) == .neverTouch)
+        let added = words.alwaysFix("аня", readings: readings)
+        #expect(!added)
+        #expect(words.always.isEmpty)
+    }
+
+    @Test func mineTakesAnOtherReadingOffTheAlwaysList() {
+        var words = WordRules(always: ["аня"])
+        let readings = WordRules.readings(of: "fyz", in: layouts)
+        #expect(words.validate("fyz", readings: readings) == .ok)
+        let added = words.add("fyz", readings: readings)
+        #expect(added)
+        #expect(words.mine == ["fyz"] && words.always.isEmpty)
+        let again = words.add("аня", readings: WordRules.readings(of: "аня", in: layouts))
+        #expect(!again, "on «Мои» already, in the other reading")
+    }
+
+    @Test func learningAnOtherReadingWithdrawsTheAlwaysWord() {
+        var words = WordRules(always: ["аня"])
+        let learned = words.learn("fyz", at: 1, readings: WordRules.readings(of: "fyz", in: layouts))
+        #expect(!learned)
+        #expect(words.learned.isEmpty && words.always.isEmpty)
+    }
+
+    @Test func alwaysListMatchesWithYoFolded() {
+        var words = WordRules(always: ["артём"])
+        #expect(words.section(of: "Артем") == .always)
+        #expect(words.validate("артем", for: .always) == .duplicate)
+        #expect(words.alwaysFixTable == ["артем": "артём"])
+        words.stopFixing("АРТЕМ")
+        #expect(words.always.isEmpty)
     }
 
     @Test func repeatedUndoCountsInsteadOfDuplicating() {
@@ -147,7 +206,7 @@ import Testing
                               always: ["аня", "гошан", "вася"])
         let snapshot = AppSettings(words: words).snapshot
         #expect(snapshot.exceptions == ["аня", "гошан"])
-        #expect(snapshot.alwaysFix == ["вася"])
+        #expect(snapshot.alwaysFix == ["вася": "вася"])
     }
 
     @Test func decodingKeepsAWordOnOneListOnly() throws {

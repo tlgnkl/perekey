@@ -131,7 +131,9 @@ public struct AppSettings: Hashable, Sendable {
         var exceptions = Set(words.mine)
         for learned in words.learned { exceptions.insert(learned.word) }
         // Never-touch wins: an imported file may have a word on both kinds of list.
-        let alwaysFix = Set(words.always).subtracting(exceptions)
+        let alwaysFix = words.alwaysFixTable.filter { key, spelling in
+            !exceptions.contains(key) && !exceptions.contains(spelling)
+        }
         return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions, alwaysFix: alwaysFix,
                         learnFromUndos: words.learnFromUndos, corrections: corrections,
                         typoCorrection: typoCorrection)

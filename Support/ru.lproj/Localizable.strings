@@ -280,3 +280,5 @@
 "Undone" = "Отменено";
 "Undone share" = "Доля отмен";
 "Today: no corrections" = "Сегодня правок нет";
+"Privacy" = "Приватность";
+"What you type stays in memory and never leaves this Mac. Settings, your words and the counts you allow are files on this Mac. The only network request is the update check." = "Набранное остаётся в памяти и не покидает этот Mac. Настройки, ваши слова и разрешённые счётчики лежат файлами на этом Mac. Сеть нужна только для проверки обновлений.";

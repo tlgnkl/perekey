@@ -4,27 +4,12 @@ import AppKit
 import PerekeyCore
 import PerekeyInput
 import SwiftUI
-import UniformTypeIdentifiers
 
-/// Settings → General: sounds, updates, feedback, and export and import of all settings.
+/// Settings → General: corrections, the hint, sounds and updates. What Perekey
+/// stores and never touches is in `PrivacyPane`.
 struct GeneralPane: View {
     let store: SettingsStore
     let updates: Updates
-    /// Names of the enabled layouts, for the report.
-    let layoutNames: [String]
-    /// `nil` hides the statistics section (it needs the recorder).
-    let usage: UsageRecorder?
-
-    private let reporting: State<Bool>
-
-    init(store: SettingsStore, updates: Updates, usage: UsageRecorder? = nil, layoutNames: [String] = [],
-         isReporting: Bool = false) {
-        self.usage = usage
-        self.store = store
-        self.updates = updates
-        self.layoutNames = layoutNames
-        reporting = State(initialValue: isReporting)
-    }
 
     var body: some View {
         PKPane(title: Text("General")) {
@@ -32,23 +17,6 @@ struct GeneralPane: View {
             hintSection
             soundsSection
             updatesSection
-            guaranteesSection
-            if let usage { statisticsSection(usage) }
-            PKGroup(header: Text("Feedback")) {
-                PKRow(Text("A wrong correction?"), detail: Text("You see the text before anything is sent.")) {
-                    Button("Report a word…") { reporting.wrappedValue = true }
-                        .buttonStyle(.pkSecondary)
-                }
-            }
-            PKGroup(header: Text("Settings file")) {
-                PKRow(Text("Back up or move settings"), detail: Text("Shortcuts, apps and words as a JSON file.")) {
-                    HStack(spacing: 8) {
-                        Button("Export…", action: export)
-                        Button("Import…", action: importFile)
-                    }
-                    .buttonStyle(.pkSecondary)
-                }
-            }
         }
     }
 
@@ -102,34 +70,6 @@ struct GeneralPane: View {
         }
     }
 
-    /// Opt-in counters. The week shows only while they are on.
-    private func statisticsSection(_ usage: UsageRecorder) -> some View {
-        _ = usage.revision
-        return PKGroup(header: Text("Statistics")) {
-            PKRow(Text("Count corrections"),
-                  detail: Text("Perekey keeps a count per day on this Mac: how many corrections, of which kind, how many you undid. No words, no apps. It keeps 8 weeks.")) {
-                Toggle(isOn: Binding(get: { store.settings.statistics }, set: { on in
-                    store.update { $0.statistics = on }
-                    if on { usage.enabled() }
-                })) {
-                    Text("Count corrections")
-                }
-                .labelsHidden()
-                .toggleStyle(.pkSwitch)
-            }
-            if store.settings.statistics {
-                PKDivider()
-                UsageWeekView(stats: usage.stats)
-                PKDivider()
-                PKRow(Text("Erase the counts"), detail: Text("Deletes the file with the counts.")) {
-                    Button("Erase") { usage.erase() }
-                        .buttonStyle(.pkSecondary)
-                        .disabled(usage.stats.isEmpty)
-                }
-            }
-        }
-    }
-
     private var hintSection: some View {
         PKGroup(header: Text("Hint")) {
             PKRow(Text("Hint at the caret"), detail: Text("Shows what Perekey changed, a moment after the word.")) {
@@ -144,27 +84,6 @@ struct GeneralPane: View {
         }
     }
 
-    /// What Perekey never changes. Statements, not settings: no controls.
-    private var guaranteesSection: some View {
-        PKGroup(header: Text("Perekey does not touch")) {
-            PKGuaranteeRow(symbol: "lock.fill", Text("Password fields"),
-                           detail: Text("Where macOS marks the field as secure, or secure input is on."),
-                           sample: "••••••••")
-            PKDivider()
-            PKGuaranteeRow(symbol: "key.fill", Text("Strings that look like passwords"),
-                           detail: Text("Upper and lower case, digits and symbols mixed together stay as typed."),
-                           sample: "Xk9#mQ2v")
-            PKDivider()
-            PKGuaranteeRow(symbol: "checkmark.shield.fill", Text("Random letters, as in a captcha"),
-                           detail: Text("When neither layout makes a word, Perekey does nothing."),
-                           sample: "qzkvtp")
-            PKDivider()
-            PKGuaranteeRow(symbol: "terminal.fill", Text("Code in terminals and editors"),
-                           detail: Text("There Perekey acts only on your command."),
-                           sample: "git rebase -i")
-        }
-    }
-
     private var soundsSection: some View {
         PKGroup(header: Text("Sounds")) {
             soundRow(Text("Sound on layout switch"), setting: store.settings.layoutSound) { change in
@@ -174,12 +93,6 @@ struct GeneralPane: View {
             soundRow(Text("Sound on correction"), setting: store.settings.correctionSound) { change in
                 store.update { change(&$0.correctionSound) }
             }
-        }
-        .sheet(isPresented: reporting.projectedValue) {
-            ReportWordSheet(layouts: layoutNames, version: ReportContext.version, onOpen: { url in
-                NSWorkspace.shared.open(url)
-                reporting.wrappedValue = false
-            }, onCancel: { reporting.wrappedValue = false })
         }
     }
 
@@ -251,52 +164,5 @@ struct GeneralPane: View {
                     .toggleStyle(.pkSwitch)
             }
         }
-    }
-
-    private func export() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "Perekey settings.json"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try SettingsTransfer.export(store.settings).write(to: url, options: .atomic)
-        } catch {
-            showError(String(localized: "Cannot export settings"), error)
-        }
-    }
-
-    private func importFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let imported: AppSettings
-        do {
-            imported = try SettingsTransfer.importSettings(from: Data(contentsOf: url))
-        } catch {
-            showError(String(localized: "Cannot import settings"), error)
-            return
-        }
-        let summary = SettingsTransfer.Summary(imported)
-        let alert = NSAlert()
-        alert.messageText = String(localized: "Replace your settings?")
-        alert.informativeText = Self.summaryText(summary)
-        alert.addButton(withTitle: String(localized: "Replace"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        store.replaceAll(with: imported)
-    }
-
-    static func summaryText(_ summary: SettingsTransfer.Summary) -> String {
-        let lead = String(localized: "The file has \(summary.shortcuts) shortcuts, \(summary.apps) apps and \(summary.words) words.")
-        return lead + " " + String(localized: "They replace all your current settings.")
-    }
-
-    private func showError(_ title: String, _ error: any Error) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = title
-        alert.informativeText = error.localizedDescription
-        alert.runModal()
     }
 }

@@ -154,12 +154,12 @@ struct PKKeycap: View {
     var big = false
 
     var body: some View {
-        let isWord = text.count > 1 && text != "fn"
+        // A word ("Space") looks like a glyph (⌫): same 600 12.5pt, same Ink.
         Text(text)
             .lineLimit(1)
             .fixedSize()
-            .font(isWord ? .system(size: 11.5, weight: .semibold) : PK.Font.keycap)
-            .foregroundStyle(isWord ? Color.pkInk2 : Color.pkInk)
+            .font(PK.Font.keycap)
+            .foregroundStyle(Color.pkInk)
             .padding(.horizontal, 7)
             .frame(minWidth: big ? 44 : 24, minHeight: big ? 40 : 24)
             .background(Color.pkPlate, in: RoundedRectangle(cornerRadius: PK.Radius.popup, style: .continuous))

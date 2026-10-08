@@ -9,8 +9,14 @@ struct PerekeyApp: App {
     // A plain `let`: the App value is created once, and the `@State` macro plugin
     // is missing from Command Line Tools.
     private let inputSources = InputSources()
+    private let store: SettingsStore
+    private let recording: ShortcutRecording
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
+        let store = SettingsStore()
+        self.store = store
+        recording = ShortcutRecording(store: store)
         // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;
         // this keeps `swift run` behaving the same way.
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -31,19 +37,15 @@ struct PerekeyApp: App {
         }
 
         Settings {
-            SettingsView()
+            SettingsView(store: store, recording: recording)
         }
     }
 }
 
-struct SettingsView: View {
-    var body: some View {
-        Form {
-            Text("Nothing to configure yet.")
-                .foregroundStyle(.secondary)
-        }
-        .formStyle(.grouped)
-        .frame(width: 420, height: 200)
+/// Removes Perekey's Caps Lock remap on quit: it would outlive the app until logout.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        CapsLockRemapper.apply(.untouched)
     }
 }
 

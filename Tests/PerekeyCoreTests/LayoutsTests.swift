@@ -208,3 +208,18 @@ extension ModelFixture {
                 "two words, into the first reading")
     }
 }
+
+@Suite struct UkrainianTyposTests {
+    @Test func typosAreCorrectedOnlyInLanguagesThatPassedTheGate() {
+        #expect(TypoCorrector.Options().languages == ["ru", "en"])
+        // "сьогодні" with two letters swapped: one edit from a known uk form.
+        let typo = Fixture.ukrainianPC.strokes("сього" + "нді")
+        let corrector = TypoCorrector(model: UkrainianFixture.model)
+        #expect(corrector.correct(typo, in: Fixture.ukrainianPC, sentenceStart: false) == nil)
+        var options = TypoCorrector.Options()
+        options.languages.insert("uk")
+        let measured = TypoCorrector(model: UkrainianFixture.model, options: options)
+        #expect(measured.correct(typo, in: Fixture.ukrainianPC, sentenceStart: false)?.text == "сьогодні",
+                "the corrector itself handles uk once the language is allowed")
+    }
+}

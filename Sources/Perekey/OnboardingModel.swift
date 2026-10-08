@@ -38,6 +38,9 @@ final class OnboardingModel {
     @ObservationIgnored private let isLive: Bool
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var monitor: Any?
+    /// Once the real event tap runs, it retypes in the demo field like
+    /// anywhere else; the private machine would retype a second time.
+    @ObservationIgnored var engineIsRunning: @MainActor () -> Bool = { false }
     @ObservationIgnored private var machine: InputMachine
 
     init(store: SettingsStore, sources: InputSources, step: Step = .welcome, live: Bool = true) {
@@ -147,6 +150,11 @@ final class OnboardingModel {
 
     private func feed(_ event: NSEvent) {
         guard event.window != nil, event.window === window, step == .demo else { return }
+        if engineIsRunning() {
+            // The text field updates after this event; judge it then.
+            DispatchQueue.main.async { [weak self] in self?.judge() }
+            return
+        }
         // The system may have switched layouts under us (menu bar, another shortcut).
         if let actual = sources.currentLayout, actual != machine.currentLayout, !machine.isHolding {
             _ = machine.handle(.layoutChanged(actual))

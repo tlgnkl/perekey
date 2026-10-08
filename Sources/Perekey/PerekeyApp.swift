@@ -14,7 +14,7 @@ struct PerekeyApp: App {
     private let onboarding: OnboardingController
     private let pause = PauseState()
     private let launchAtLogin = LaunchAtLogin()
-    private let pauseSources: PauseSources
+    private let input: InputController
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
@@ -24,8 +24,10 @@ struct PerekeyApp: App {
         let store = SettingsStore()
         self.store = store
         recording = ShortcutRecording(store: store)
-        pauseSources = PauseSources(pause: pause)
-        let onboarding = OnboardingController(store: store, sources: inputSources)
+        let input = InputController(sources: inputSources, store: store, pause: pause)
+        self.input = input
+        let onboarding = OnboardingController(store: store, sources: inputSources,
+                                              engineIsRunning: { input.tapState == .running })
         self.onboarding = onboarding
         Task { @MainActor in onboarding.showIfFirstLaunch() }
         // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;

@@ -8,6 +8,11 @@ public struct Retype: Hashable, Sendable {
     public struct Key: Hashable, Sendable {
         public var stroke: KeyStroke
         public var text: String
+
+        public init(stroke: KeyStroke, text: String) {
+            self.stroke = stroke
+            self.text = text
+        }
     }
 
     /// How many Backspaces to send first.
@@ -20,6 +25,14 @@ public struct Retype: Hashable, Sendable {
     public var expected: String
     /// Mark every posted event `.own(seq:)`, and the last one with `last: true`.
     public var seq: UInt32
+
+    public init(deleteCount: Int, keys: [Key], target: LayoutID, expected: String, seq: UInt32) {
+        self.deleteCount = deleteCount
+        self.keys = keys
+        self.target = target
+        self.expected = expected
+        self.seq = seq
+    }
 
     public var text: String { keys.map(\.text).joined() }
 }

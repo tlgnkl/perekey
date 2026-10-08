@@ -15,7 +15,12 @@ final class SettingsStore {
 
     /// True while a shortcut recorder listens. A future event tap pauses the
     /// hotkeys then, so the keys being recorded do not also run actions.
-    var isRecording = false
+    var isRecording = false {
+        didSet { if isRecording != oldValue { onChange?() } }
+    }
+
+    /// Called after any change the event tap must know about.
+    @ObservationIgnored var onChange: (@MainActor () -> Void)?
 
     /// Set when the system refused a Caps Lock change.
     private(set) var capsLockFailed = false
@@ -39,6 +44,7 @@ final class SettingsStore {
         change(&copy)
         guard copy != settings else { return }
         settings = copy
+        onChange?()
         do {
             try file.save(copy)
         } catch {

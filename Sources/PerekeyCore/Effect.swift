@@ -15,8 +15,8 @@ public struct Retype: Hashable, Sendable {
     public var keys: [Key]
     public var target: LayoutID
     /// The text expected before the caret. Where the accessibility API can
-    /// read it, compare first and cancel the retype on mismatch
-    /// (autocomplete, autocorrect, auto-closed brackets).
+    /// read it, compare first; on mismatch (autocomplete, autocorrect,
+    /// auto-closed brackets) post nothing and send `.retypeCancelled(seq:)`.
     public var expected: String
     /// Mark every posted event `.own(seq:)`, and the last one with `last: true`.
     public var seq: UInt32

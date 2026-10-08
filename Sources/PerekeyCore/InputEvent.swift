@@ -8,6 +8,10 @@ public enum EventOrigin: Hashable, Sendable {
     /// User input held back during a retype and posted again.
     case replayed
 
+    public var isOwn: Bool {
+        if case .own = self { true } else { false }
+    }
+
     public init(mark: SyntheticMark?) {
         switch mark {
         case nil: self = .user
@@ -70,6 +74,9 @@ public enum InputEvent: Hashable, Sendable {
     case layoutsChanged([LayoutMap])
     case secureInputChanged(Bool)
     case settingsChanged(Settings)
+    /// The system layer did not carry out the retype with this `seq`: the text
+    /// before the caret differed from `Retype.expected`.
+    case retypeCancelled(seq: UInt32)
     /// Events may have been lost: the tap was disabled, the Mac woke up, or the
     /// user session changed.
     case inputLost

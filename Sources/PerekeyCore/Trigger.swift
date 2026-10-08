@@ -42,6 +42,29 @@ extension ModifierKind {
     static func held(inEventFlags flags: UInt64) -> Set<ModifierKind> {
         Set(allCases.filter { flags & $0.eventFlag != 0 })
     }
+
+    /// This kind as one bit of a `kindMask`.
+    var maskBit: UInt8 {
+        switch self {
+        case .shift: 1 << 0
+        case .control: 1 << 1
+        case .option: 1 << 2
+        case .command: 1 << 3
+        case .function: 1 << 4
+        }
+    }
+
+    /// The held kinds as a bit mask: the same as `held(inEventFlags:)`, without
+    /// allocating, for the per-keystroke path.
+    static func kindMask(inEventFlags flags: UInt64) -> UInt8 {
+        var mask: UInt8 = 0
+        if flags & EventFlags.shift != 0 { mask |= ModifierKind.shift.maskBit }
+        if flags & EventFlags.control != 0 { mask |= ModifierKind.control.maskBit }
+        if flags & EventFlags.option != 0 { mask |= ModifierKind.option.maskBit }
+        if flags & EventFlags.command != 0 { mask |= ModifierKind.command.maskBit }
+        if flags & EventFlags.function != 0 { mask |= ModifierKind.function.maskBit }
+        return mask
+    }
 }
 
 public extension HotkeyPreset {

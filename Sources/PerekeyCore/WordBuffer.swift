@@ -62,6 +62,12 @@ public struct WordBuffer: Hashable, Sendable {
         if !overflowed, !entries.isEmpty { entries.removeLast() }
     }
 
+    /// Forget the word and ignore keys until the next space.
+    public mutating func abandonWord() {
+        clear()
+        overflowed = true
+    }
+
     public mutating func clear() {
         entries.removeAll(keepingCapacity: true)
         overflowed = false

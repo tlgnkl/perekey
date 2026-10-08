@@ -123,6 +123,17 @@ private let ru = Fixture.russian.id
         #expect(kb.tapOption().effects == [.refused(.unconvertibleWord)])
     }
 
+    @Test func deadKeyAbandonsWord() throws {
+        var kb = Keyboard()
+        kb.type("caf", in: Fixture.abc)
+        kb.press(14, flags: Keyboard.leftOption) // ⌥E: dead acute
+        kb.press(14) // é
+        kb.press(KeyCode.delete)
+        #expect(kb.tapOption().effects == [.convertSelection])
+        kb.type(" vbh", in: Fixture.abc)
+        #expect(try #require(kb.tapOption().retype).text == "мир")
+    }
+
     @Test func passwordFieldIsRefused() {
         var kb = Keyboard()
         kb.send(.focusChanged(Focus(bundleID: "com.apple.Safari", isSecureField: true)))
@@ -203,6 +214,32 @@ private let ru = Fixture.russian.id
         #expect(kb.machine.buffer.isEmpty)
     }
 
+    @Test func replayedInputIsHeldBehindNextRetype() throws {
+        // ⌥ and "a" were held during the first retype. The replayed ⌥ starts a
+        // second retype; the replayed "a" must wait for it, or its Backspaces
+        // would erase "a" instead of the word.
+        var kb = Keyboard()
+        kb.type("ghbdtn", in: Fixture.abc)
+        let first = try #require(kb.tapOption().retype)
+        kb.completeRetype(first)
+        kb.time += 0.3
+        kb.modifiers(keyCode: 58, flags: Keyboard.leftOption, origin: .replayed)
+        let second = try #require(kb.modifiers(keyCode: 58, flags: 0, origin: .replayed).retype)
+        #expect(second.text == "ghbdtn")
+        #expect(kb.press(0, origin: .replayed).disposition == .hold)
+        #expect(kb.completeRetype(second) == [.releaseHeld])
+    }
+
+    @Test func cancelledRetypeRestoresLayout() throws {
+        var kb = Keyboard()
+        kb.type("ghbdtn", in: Fixture.abc)
+        let retype = try #require(kb.tapOption().retype)
+        #expect(kb.send(.retypeCancelled(seq: retype.seq + 1)).effects.isEmpty, "another retype")
+        #expect(kb.send(.retypeCancelled(seq: retype.seq)).effects == [.selectLayout(en), .releaseHeld])
+        #expect(kb.machine.buffer.isEmpty)
+        #expect(kb.machine.currentLayout == en)
+    }
+
     @Test func noWaitWhenLayoutAlreadySelected() throws {
         // Double Shift: the first tap selects Russian and the system confirms it
         // before the second tap retypes.
@@ -244,6 +281,18 @@ private let ru = Fixture.russian.id
         #expect(kb.machine.currentLayout == en)
     }
 
+    @Test func lateConfirmationDoesNotUndoLaterSwitch() {
+        var kb = Keyboard(layouts: [Fixture.abc, Fixture.russian, Fixture.ukrainianPC])
+        kb.tapShift()
+        kb.tapShift()
+        #expect(kb.machine.currentLayout == Fixture.ukrainianPC.id)
+        kb.send(.layoutChanged(ru)) // the first switch, confirmed late
+        #expect(kb.machine.currentLayout == Fixture.ukrainianPC.id)
+        kb.send(.layoutChanged(Fixture.ukrainianPC.id))
+        kb.send(.layoutChanged(en)) // now the user picks English from the menu
+        #expect(kb.machine.currentLayout == en)
+    }
+
     @Test func externalSwitchIsFollowed() {
         var kb = Keyboard()
         kb.send(.layoutChanged(ru))
@@ -276,6 +325,27 @@ private let ru = Fixture.russian.id
         #expect(down == Output(.drop, [.selectLayout(ru)]))
         let up = kb.send(.key(KeyEvent(.up, keyCode: f18), time: kb.time + 0.05))
         #expect(up.disposition == .drop)
+    }
+
+    @Test func keyTriggerIgnoresFunctionBit() {
+        // F-keys always carry the fn bit in their flags.
+        let f18: UInt16 = 79
+        var kb = Keyboard(Settings(hotkeys: [HotkeyBinding(.key(keyCode: f18, modifiers: []), action: .switchLayout)]))
+        kb.time += 1
+        let down = kb.send(.key(KeyEvent(.down, keyCode: f18, flags: EventFlags.function), time: kb.time))
+        #expect(down == Output(.drop, [.selectLayout(ru)]))
+    }
+
+    @Test func secureInputForgetsSwallowedKeyUps() {
+        let a: UInt16 = 0
+        var kb = Keyboard(Settings(hotkeys: [HotkeyBinding(.key(keyCode: a, modifiers: [.control]), action: .switchLayout)]))
+        kb.time += 1
+        kb.send(.key(KeyEvent(.down, keyCode: a, flags: EventFlags.control), time: kb.time))
+        kb.send(.secureInputChanged(true)) // ⌃A's key up never reaches the tap
+        kb.send(.secureInputChanged(false))
+        #expect(kb.press(a).disposition == .pass)
+        kb.time += 0.1
+        #expect(kb.send(.key(KeyEvent(.up, keyCode: a), time: kb.time)).disposition == .pass)
     }
 
     @Test func secureInputDisablesChords() {

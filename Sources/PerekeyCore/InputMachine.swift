@@ -12,7 +12,13 @@
 /// synthetic keys. After a retype the machine holds user keyboard input until
 /// the tap has seen the last synthetic event and the system has confirmed the
 /// layout change, or until `Settings.fenceTimeout` has passed. Held events
-/// come back as `.replayed` and are handled as usual.
+/// come back as `.replayed` and are handled as usual. A replayed event can
+/// start a new retype; the replayed events after it are held again, or they
+/// would overtake that retype.
+///
+/// Clicks cannot be held: the mouse tap only listens, since an active mouse
+/// tap would delay all pointer input. A click during the fence reaches the
+/// app before the held keys. The fence lasts milliseconds, so this is rare.
 public struct InputMachine: Sendable {
     public private(set) var settings: Settings
     public private(set) var buffer = WordBuffer()
@@ -21,10 +27,14 @@ public struct InputMachine: Sendable {
     public private(set) var currentLayout: LayoutID?
 
     private var detector: ChordDetector<HotkeyAction>
-    private var keyHotkeys: [(keyCode: UInt16, modifiers: Set<ModifierKind>, action: HotkeyAction)] = []
+    /// Key triggers, with modifiers as a `kindMask` so matching does not allocate.
+    private var keyHotkeys: [(keyCode: UInt16, modifiers: UInt8, action: HotkeyAction)] = []
     private var layouts: [LayoutID: LayoutMap] = [:]
     private var layoutOrder: [LayoutID] = []
     private var previousLayout: LayoutID?
+    /// Layouts Perekey selected that the system has not confirmed yet, oldest
+    /// first. A late confirmation of an earlier one must not undo a later one.
+    private var pendingSelections: [LayoutID] = []
     /// The layout the system last reported as selected.
     private var confirmedLayout: LayoutID?
     private var secureInput = false
@@ -40,6 +50,8 @@ public struct InputMachine: Sendable {
         /// The layout whose selection the system has not confirmed yet.
         var awaitedLayout: LayoutID?
         var deadline: Double
+        /// The layout to go back to if the retype is cancelled.
+        var layoutBefore: LayoutID?
     }
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil) {
@@ -65,13 +77,13 @@ public struct InputMachine: Sendable {
         case let .key(key, time):
             // A user key that arrives after the deadline joins the held keys,
             // or it would overtake them.
-            if expireFence(at: time, effects: &effects), key.origin == .user { return .hold }
+            if expireFence(at: time, effects: &effects), !key.origin.isOwn { return .hold }
             return handleKey(key, at: time, effects: &effects)
 
         case let .flagsChanged(keyCode, flags, origin, time):
-            if expireFence(at: time, effects: &effects), origin == .user { return .hold }
+            if expireFence(at: time, effects: &effects), !origin.isOwn { return .hold }
             if case .own = origin { return .pass }
-            if origin == .user, fence != nil { return .hold }
+            if fence != nil { return .hold }
             guard !secureInput else { return .pass }
             if keyCode == KeyCode.capsLock {
                 detector.otherInput(at: time)
@@ -96,9 +108,15 @@ public struct InputMachine: Sendable {
 
         case let .layoutChanged(id):
             confirmedLayout = id
-            if id != currentLayout {
-                if let currentLayout, layouts[currentLayout] != nil { previousLayout = currentLayout }
-                currentLayout = id
+            if let index = pendingSelections.firstIndex(of: id) {
+                pendingSelections.removeSubrange(...index)
+            } else {
+                // Someone else switched: the user from the menu, or another app.
+                pendingSelections.removeAll()
+                if id != currentLayout {
+                    if let currentLayout, layouts[currentLayout] != nil { previousLayout = currentLayout }
+                    currentLayout = id
+                }
             }
             if layouts[id] == nil { buffer.clear() }
             if fence?.awaitedLayout == id {
@@ -117,6 +135,15 @@ public struct InputMachine: Sendable {
             secureInput = isOn
             detector.reset()
             buffer.clear()
+            swallowedKeyUps.removeAll()
+
+        case let .retypeCancelled(seq):
+            // The text before the caret was not what the buffer expected, so
+            // the buffer is wrong too. Put the layout back and let input go.
+            guard let cancelled = fence, cancelled.seq == seq else { break }
+            buffer.clear()
+            if let layout = cancelled.layoutBefore { select(layout, effects: &effects) }
+            release(effects: &effects)
 
         case let .settingsChanged(newSettings):
             apply(newSettings)
@@ -143,10 +170,8 @@ public struct InputMachine: Sendable {
                 releaseIfDone(effects: &effects)
             }
             return .pass
-        case .user where fence != nil:
-            return .hold
         case .user, .replayed:
-            break
+            if fence != nil { return .hold }
         }
         guard !secureInput else { return .pass }
         detector.otherInput(at: time)
@@ -155,7 +180,8 @@ public struct InputMachine: Sendable {
             return swallowedKeyUps.remove(key.keyCode) != nil ? .drop : .pass
         }
 
-        let held = ModifierKind.held(inEventFlags: key.flags)
+        // F-keys and arrows always carry the fn bit, so fn never takes part.
+        let held = ModifierKind.kindMask(inEventFlags: key.flags) & ~ModifierKind.function.maskBit
         if let hotkey = keyHotkeys.first(where: { $0.keyCode == key.keyCode && $0.modifiers == held }) {
             swallowedKeyUps.insert(key.keyCode)
             if !key.isRepeat { perform(hotkey.action, at: time, effects: &effects) }
@@ -166,25 +192,32 @@ public struct InputMachine: Sendable {
         return .pass
     }
 
-    private mutating func updateBuffer(with key: KeyEvent, held: Set<ModifierKind>) {
-        if held.contains(.command) || held.contains(.control) || KeyCode.navigation.contains(key.keyCode)
+    private mutating func updateBuffer(with key: KeyEvent, held: UInt8) {
+        if held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit) != 0
+            || KeyCode.navigation.contains(key.keyCode)
             || focus?.isSecureField == true
         {
             buffer.clear()
             return
         }
         if key.keyCode == KeyCode.delete {
-            if held.contains(.option) { buffer.clear() } else { buffer.deleteBackward() }
+            if held & ModifierKind.option.maskBit != 0 { buffer.clear() } else { buffer.deleteBackward() }
             return
         }
         let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
-        guard let currentLayout, let map = layouts[currentLayout],
-              map.text(for: stroke) != nil || map.isDeadKey(stroke)
-        else {
+        guard let currentLayout, let map = layouts[currentLayout] else {
             buffer.clear()
             return
         }
-        buffer.type(stroke, in: currentLayout)
+        if map.isDeadKey(stroke) {
+            // A dead key and the next key make one character, so keys and
+            // characters no longer match one to one. Give up on this word.
+            buffer.abandonWord()
+        } else if map.text(for: stroke) != nil {
+            buffer.type(stroke, in: currentLayout)
+        } else {
+            buffer.clear()
+        }
     }
 
     // MARK: - Actions
@@ -217,6 +250,8 @@ public struct InputMachine: Sendable {
         guard id != currentLayout else { return }
         if let currentLayout, layouts[currentLayout] != nil { previousLayout = currentLayout }
         currentLayout = id
+        if pendingSelections.count == 8 { pendingSelections.removeFirst() }
+        pendingSelections.append(id)
         effects.append(.selectLayout(id))
     }
 
@@ -256,13 +291,15 @@ public struct InputMachine: Sendable {
 
         let seq = nextSeq
         nextSeq = nextSeq == .max ? 1 : nextSeq + 1
+        let layoutBefore = target == currentLayout ? nil : currentLayout
         select(target, effects: &effects)
         effects.append(.retype(Retype(deleteCount: keys.count, keys: keys, target: target,
                                       expected: expected, seq: seq)))
         buffer.relabel(to: target)
 
         let deadline = time + settings.fenceTimeout
-        fence = Fence(seq: seq, awaitedLayout: target == confirmedLayout ? nil : target, deadline: deadline)
+        fence = Fence(seq: seq, awaitedLayout: target == confirmedLayout ? nil : target, deadline: deadline,
+                      layoutBefore: layoutBefore)
         effects.append(.scheduleDeadline(at: deadline))
     }
 
@@ -309,7 +346,8 @@ public struct InputMachine: Sendable {
             case let .modifiers(chord, taps):
                 chords.append(.init(chord, taps: taps.rawValue, action: hotkey.action))
             case let .key(keyCode, modifiers):
-                keyHotkeys.append((keyCode, modifiers, hotkey.action))
+                let mask = modifiers.reduce(UInt8(0)) { $0 | $1.maskBit } & ~ModifierKind.function.maskBit
+                keyHotkeys.append((keyCode, mask, hotkey.action))
             }
         }
         detector = ChordDetector(bindings: chords)

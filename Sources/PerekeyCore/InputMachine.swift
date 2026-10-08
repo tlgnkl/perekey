@@ -92,6 +92,13 @@ public struct InputMachine: Sendable {
     /// back as an ordinary Backspace.
     private var dropUndoKey = false
 
+    // Word corrections at the boundary (stage 4)
+    /// Typo correction over the model of `classifier`; nil without a model.
+    private var typoCorrector: TypoCorrector?
+    /// The next word starts a sentence (after `. ! ?`, a line end or a focus
+    /// change): a capital there is no name.
+    private var sentenceStart = true
+
     private struct Fence: Sendable {
         var seq: UInt32
         var lastOwnEventSeen = false
@@ -164,6 +171,18 @@ public struct InputMachine: Sendable {
         /// A click outside the hint came while the retype was in flight: the
         /// caret may have moved, so the switch cannot be undone or extended.
         var clicked = false
+        /// The strokes that stand for the word in the text now, when a word
+        /// correction changed them (a typo fixed: "прривет" became "привет").
+        /// Nil when they are the word's own strokes. The undo deletes these
+        /// and types `strokes` back.
+        var typed: [KeyStroke]?
+    }
+
+    /// A word-level correction of the word in its layout (`correctWord`).
+    private struct WordFix {
+        /// The keys that type the corrected word.
+        var strokes: [KeyStroke]
+        var kind: Correction.Kind
     }
 
     /// The synthetic keys of a word retype, or why there are none.
@@ -179,12 +198,20 @@ public struct InputMachine: Sendable {
         var other: LayoutMap
     }
 
+    /// Everything typo correction needs in the current layout, or nothing
+    /// when it must not act.
+    private struct TypoContext {
+        var corrector: TypoCorrector
+        var typed: LayoutMap
+    }
+
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil,
                 classifier: Classifier? = nil)
     {
         self.settings = settings
         detector = ChordDetector(bindings: [])
         self.classifier = classifier
+        typoCorrector = classifier.map { TypoCorrector(model: $0.model) }
         apply(settings)
         setLayouts(layouts)
         self.currentLayout = currentLayout
@@ -248,6 +275,7 @@ public struct InputMachine: Sendable {
             focus = newFocus
             buffer.clear()
             previousLanguage = nil
+            sentenceStart = true
             lastCorrection = nil
 
         case let .layoutChanged(id):
@@ -358,6 +386,7 @@ public struct InputMachine: Sendable {
 
         case let .classifierChanged(newClassifier):
             classifier = newClassifier
+            typoCorrector = newClassifier.map { TypoCorrector(model: $0.model) }
             previousLanguage = nil
 
         case let .undoLastCorrection(seq, time):
@@ -514,21 +543,31 @@ public struct InputMachine: Sendable {
 
     /// At a key that ends the word: judge the word, and on a switch retype it
     /// and hold the key. Returns true when the key is to be held.
+    ///
+    /// The word-boundary pipeline (docs/PLAN.md, «Этап 4»): first the layout
+    /// is decided, then the word in the layout decided for it goes through the
+    /// word corrections (`correctWord`). A typo in the wrong layout is fixed
+    /// by the one retype that switches the layout.
     private mutating func judgeWord(endedBy key: KeyEvent, held: UInt8, at time: Double,
                                     effects: inout [Effect]) -> Bool
     {
         // Cheap exits first: this runs on every key press.
-        guard autoswitchMayAct, !wordJudged, let last = buffer.entries.last, !last.isSpace,
+        guard autoswitchMayAct || typoMayAct, !wordJudged, let last = buffer.entries.last, !last.isSpace,
               held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit) == 0
         else { return false }
         let endsLine = key.keyCode == KeyCode.return || key.keyCode == KeyCode.tab
             || key.keyCode == KeyCode.keypadEnter
         let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
-        guard endsLine || stroke.keyCode == KeyCode.space
-            || currentMap.map({ Self.isPunctuation(stroke, in: $0) }) == true,
-            let context = autoContext(),
-            endsLine || Self.endsWord(stroke, typed: context.typed, other: context.other)
+        guard let typed = currentMap,
+              endsLine || stroke.keyCode == KeyCode.space || Self.isPunctuation(stroke, in: typed)
         else { return false }
+        let auto = autoContext()
+        let typo = typoContext()
+        guard auto != nil || typo != nil else { return false }
+        // Russian letters sit on punctuation keys: the other layout says
+        // whether the key ends the word.
+        let other = auto?.other ?? currentLayout.flatMap(counterpart).flatMap { layouts[$0] } ?? typed
+        guard endsLine || Self.endsWord(stroke, typed: typed, other: other) else { return false }
         if !endsLine, stroke.keyCode != KeyCode.space,
            buffer.entries.dropFirst().contains(where: { $0.stroke.modifiers.contains(.shift) })
         {
@@ -537,42 +576,136 @@ public struct InputMachine: Sendable {
             return false
         }
         wordJudged = true
+        // The word after this key starts a sentence after `. ! ?` or a line
+        // end. The space after "hello." judges the word again: the period is
+        // in the buffer then.
+        let startsSentence = endsLine || Self.endsSentence(stroke, in: typed)
+            || (stroke.keyCode == KeyCode.space && Self.endsSentence(last.stroke, in: typed))
+        defer { sentenceStart = startsSentence }
 
         if wordSuppressed {
             if learnAtWordEnd {
                 learnAtWordEnd = false
                 if settings.learnFromUndos,
-                   let word = Self.learnable(text(of: buffer.entries, in: context.typed),
-                                             or: text(of: buffer.entries, in: context.other))
+                   let word = Self.learnable(text(of: buffer.entries, in: typed), or: text(of: buffer.entries, in: other))
                 {
                     effects.append(.learned(word))
                 }
             }
-            previousLanguage = context.typed.language
+            previousLanguage = typed.language
             return false
         }
         guard wordIsPlain() else { return false }
 
-        let decision = context.classifier.classify(
-            buffer.entries.lazy.map(\.stroke), typed: context.typed, other: context.other,
-            context: Classifier.Context(previousLanguage: previousLanguage)
-        )
-        guard decision.verdict == .switch(to: context.other.id) else {
-            previousLanguage = decision.language
-            return false
-        }
-        if isException(context) {
-            previousLanguage = context.typed.language
-            return false
-        }
         // The held key goes back into the text after the word; Return and Tab
         // end the line, so there is nothing to undo after them.
         let boundary: KeyStroke? = endsLine ? nil : stroke
-        guard autoRetype(context, held: boundary, heldKeyCode: key.keyCode, midWord: false, undoable: !endsLine,
-                         at: time, effects: &effects)
-        else { return false }
-        previousLanguage = context.other.language
+        if let auto {
+            let decision = auto.classifier.classify(
+                buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
+                context: Classifier.Context(previousLanguage: previousLanguage)
+            )
+            if decision.verdict == .switch(to: auto.other.id) {
+                if isException(auto) {
+                    previousLanguage = auto.typed.language
+                    return false
+                }
+                guard autoRetype(auto, held: boundary, heldKeyCode: key.keyCode, midWord: false, undoable: !endsLine,
+                                 at: time, effects: &effects)
+                else { return false }
+                previousLanguage = auto.other.language
+                return true
+            }
+            previousLanguage = decision.language
+        } else {
+            previousLanguage = typed.language
+        }
+        // The word stays in its layout: fix it there.
+        guard let typo, !isException(in: typo.typed) else { return false }
+        return typoRetype(typo, held: boundary, heldKeyCode: key.keyCode, undoable: !endsLine, at: time,
+                          effects: &effects)
+    }
+
+    // MARK: - Word corrections
+
+    /// The flags that let typo correction act, without any lookup.
+    private var typoMayAct: Bool {
+        settings.typoCorrection && appMode == .auto && typoCorrector != nil
+    }
+
+    /// Typo correction may act now, in the current layout. The same gates as
+    /// automatic switching: never in «manual only» or «off», in a password
+    /// field, on an unknown focus or under Secure Input.
+    private func typoContext() -> TypoContext? {
+        guard settings.typoCorrection, appMode == .auto, !secureInput, let typoCorrector,
+              let focus, focus.isKnown, !focus.isSecureField,
+              let typed = currentMap, typed.language != nil
+        else { return nil }
+        return TypoContext(corrector: typoCorrector, typed: typed)
+    }
+
+    /// The word corrections at a word boundary, in order, on the word in the
+    /// layout decided for it (`map`). The first step that changes the word
+    /// wins; each step is off by its own setting. Steps:
+    /// 1. Typos: one key off (`TypoCorrector`, `Settings.typoCorrection`).
+    /// 2. Dictionary corrections (double capitals, Caps Lock, abbreviations,
+    ///    ё) go here, after typos: they expect a word the dictionary knows.
+    private func correctWord(_ entries: [WordBuffer.Entry], in map: LayoutMap) -> WordFix? {
+        if settings.typoCorrection, let typoCorrector,
+           let candidate = typoCorrector.correct(entries.lazy.map(\.stroke), in: map, sentenceStart: sentenceStart)
+        {
+            return WordFix(strokes: candidate.strokes, kind: .typo)
+        }
+        return nil
+    }
+
+    /// Retypes the buffered word corrected in its own layout behind the
+    /// fence, as `autoRetype` does for a switch. False when there is nothing
+    /// to correct; nothing has changed then.
+    private mutating func typoRetype(_ context: TypoContext, held: KeyStroke?, heldKeyCode: UInt16, undoable: Bool,
+                                     at time: Double, effects: inout [Effect]) -> Bool
+    {
+        guard let fix = correctWord(buffer.entries, in: context.typed) else { return false }
+        var keys: [Retype.Key] = []
+        var expected = ""
+        keys.reserveCapacity(fix.strokes.count)
+        for entry in buffer.entries {
+            guard let text = context.typed.text(for: entry.stroke) else { return false }
+            expected += text
+        }
+        for stroke in fix.strokes {
+            guard let text = context.typed.text(for: stroke) else { return false }
+            keys.append(Retype.Key(stroke: stroke, text: text))
+        }
+        var strokes = buffer.entries.map(\.stroke)
+        let wordLength = strokes.count
+        if let held, context.typed.text(for: held) != nil { strokes.append(held) }
+        let seq = takeSeq()
+        var pending = PendingCorrection(
+            correction: Correction(seq: seq, original: "", replacement: "", source: context.typed.id,
+                                   target: context.typed.id, undoable: undoable, kind: fix.kind),
+            strokes: strokes, wordLength: wordLength, isOpen: false, typed: fix.strokes
+        )
+        describe(&pending)
+        startRetype((keys, expected), deleteCount: wordLength, target: context.typed.id, seq: seq, at: time,
+                    effects: &effects)
+        fence?.correction = pending
+        buffer.clear()
+        for stroke in fix.strokes { buffer.type(stroke, in: context.typed.id) }
+        heldBoundary = (heldKeyCode, true)
+        lastCorrection = nil
         return true
+    }
+
+    /// Whether the stroke ends a sentence in this layout: `. ! ? …`.
+    static func endsSentence(_ stroke: KeyStroke, in map: LayoutMap) -> Bool {
+        guard !stroke.modifiers.contains(.option), let text = map.text(for: stroke) else { return false }
+        var scalars = text.unicodeScalars.makeIterator()
+        guard let scalar = scalars.next(), scalars.next() == nil else { return false }
+        switch scalar.value {
+        case 0x2E, 0x21, 0x3F, 0x2026: return true
+        default: return false
+        }
     }
 
     /// After a letter: switch at once if the word so far cannot start a word
@@ -612,16 +745,33 @@ public struct InputMachine: Sendable {
             strokes.append(held)
             if midWord { wordLength += 1 }
         }
+        // The whole word is known: the word corrections see it in its new layout.
+        var keys = word.keys
+        var fix: WordFix?
+        if !midWord, let found = correctWord(buffer.entries, in: context.other) {
+            keys.removeAll(keepingCapacity: true)
+            for stroke in found.strokes {
+                guard let text = context.other.text(for: stroke) else { return false }
+                keys.append(Retype.Key(stroke: stroke, text: text))
+            }
+            fix = found
+        }
         let seq = takeSeq()
         var pending = PendingCorrection(
             correction: Correction(seq: seq, original: "", replacement: "", source: context.typed.id,
-                                   target: context.other.id, undoable: undoable),
-            strokes: strokes, wordLength: wordLength, isOpen: midWord
+                                   target: context.other.id, undoable: undoable, kind: fix?.kind ?? .layout),
+            strokes: strokes, wordLength: wordLength, isOpen: midWord, typed: fix?.strokes
         )
         describe(&pending)
-        startRetype(word, target: context.other.id, seq: seq, at: time, effects: &effects)
+        startRetype((keys, word.expected), deleteCount: word.keys.count, target: context.other.id, seq: seq, at: time,
+                    effects: &effects)
         fence?.correction = pending
-        buffer.relabel(to: context.other.id)
+        if let fix {
+            buffer.clear()
+            for stroke in fix.strokes { buffer.type(stroke, in: context.other.id) }
+        } else {
+            buffer.relabel(to: context.other.id)
+        }
         heldBoundary = (heldKeyCode, !midWord)
         lastCorrection = nil
         return true
@@ -644,12 +794,25 @@ public struct InputMachine: Sendable {
         var expected = ""
         keys.reserveCapacity(last.strokes.count)
         for stroke in last.strokes {
-            guard let back = source.text(for: stroke), let now = target.text(for: stroke) else { return false }
+            guard let back = source.text(for: stroke) else { return false }
             keys.append(Retype.Key(stroke: stroke, text: back))
+        }
+        // What stands in the text: the corrected word, then the held key.
+        var deleteCount = last.strokes.count
+        if let typed = last.typed {
+            deleteCount = typed.count + last.strokes.count - last.wordLength
+            for stroke in typed {
+                guard let now = target.text(for: stroke) else { return false }
+                expected += now
+            }
+        }
+        for stroke in last.strokes.dropFirst(last.typed == nil ? 0 : last.wordLength) {
+            guard let now = target.text(for: stroke) else { return false }
             expected += now
         }
         let seq = takeSeq()
-        startRetype((keys, expected), target: source.id, seq: seq, at: time, effects: &effects)
+        startRetype((keys, expected), deleteCount: deleteCount, target: source.id, seq: seq, at: time,
+                    effects: &effects)
         buffer.clear()
         for stroke in last.strokes { buffer.type(stroke, in: source.id) }
         wordSuppressed = true
@@ -687,8 +850,9 @@ public struct InputMachine: Sendable {
         var replacement = ""
         for stroke in pending.strokes.prefix(pending.wordLength) {
             original += source.text(for: stroke) ?? ""
-            replacement += target.text(for: stroke) ?? ""
+            if pending.typed == nil { replacement += target.text(for: stroke) ?? "" }
         }
+        for stroke in pending.typed ?? [] { replacement += target.text(for: stroke) ?? "" }
         pending.correction.original = original
         pending.correction.replacement = replacement
     }
@@ -726,13 +890,13 @@ public struct InputMachine: Sendable {
 
     /// The word is on the user's list, in either reading.
     private func isException(_ context: AutoContext) -> Bool {
-        guard !settings.exceptions.isEmpty else { return false }
-        for map in [context.typed, context.other] {
-            if let word = text(of: buffer.entries, in: map), settings.exceptions.contains(Self.exceptionKey(word)) {
-                return true
-            }
-        }
-        return false
+        isException(in: context.typed) || isException(in: context.other)
+    }
+
+    /// The word is on the user's list as this layout reads it.
+    private func isException(in map: LayoutMap) -> Bool {
+        guard !settings.exceptions.isEmpty, let word = text(of: buffer.entries, in: map) else { return false }
+        return settings.exceptions.contains(Self.exceptionKey(word))
     }
 
     /// Some word on the user's list starts with the word so far, in either
@@ -892,12 +1056,13 @@ public struct InputMachine: Sendable {
     }
 
     /// Selects `target`, asks for the retype and raises the fence.
-    private mutating func startRetype(_ word: (keys: [Retype.Key], expected: String), target: LayoutID, seq: UInt32,
-                                      at time: Double, effects: inout [Effect])
+    /// `deleteCount`: the keys of `expected`, when not as many as typed.
+    private mutating func startRetype(_ word: (keys: [Retype.Key], expected: String), deleteCount: Int? = nil,
+                                      target: LayoutID, seq: UInt32, at time: Double, effects: inout [Effect])
     {
         let layoutBefore = target == currentLayout ? nil : currentLayout
         select(target, effects: &effects)
-        effects.append(.retype(Retype(deleteCount: word.keys.count, keys: word.keys, target: target,
+        effects.append(.retype(Retype(deleteCount: deleteCount ?? word.keys.count, keys: word.keys, target: target,
                                       expected: word.expected, seq: seq)))
         // Long until the retype is posted; `.retypePosted` shortens it.
         let deadline = time + settings.postTimeout

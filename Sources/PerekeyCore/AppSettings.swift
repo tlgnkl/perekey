@@ -51,14 +51,18 @@ public struct AppSettings: Hashable, Sendable {
     /// Sparkle checks for updates on its own schedule. On by default. Off, Perekey
     /// makes no network requests unless the user clicks "Check Now".
     public var checkForUpdates: Bool
+    /// Typo correction (Settings → General, «Correct typos»). Off by default
+    /// until it meets the plan's metric (docs/classifier.md, «Опечатки»).
+    public var typoCorrection: Bool
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
                 words: WordExceptions = WordExceptions(), sites: [String: SiteRule] = [:],
                 layoutSound: SoundSetting = .layoutSwitch, correctionSound: SoundSetting = .correction,
-                checkForUpdates: Bool = true)
+                checkForUpdates: Bool = true, typoCorrection: Bool = true)
     {
         self.checkForUpdates = checkForUpdates
+        self.typoCorrection = typoCorrection
         self.sites = sites
         self.layoutSound = layoutSound
         self.correctionSound = correctionSound
@@ -102,14 +106,14 @@ public struct AppSettings: Hashable, Sendable {
         var exceptions = Set(words.mine)
         for learned in words.learned { exceptions.insert(learned.word) }
         return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions,
-                        learnFromUndos: words.learnFromUndos)
+                        learnFromUndos: words.learnFromUndos, typoCorrection: typoCorrection)
     }
 }
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
-        case checkForUpdates
+        case checkForUpdates, typoCorrection
     }
 
     public init(from decoder: any Decoder) throws {
@@ -126,5 +130,6 @@ extension AppSettings: Codable {
         correctionSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .correctionSound))
             ?? defaults.correctionSound
         checkForUpdates = (try? container.decodeIfPresent(Bool.self, forKey: .checkForUpdates)) ?? defaults.checkForUpdates
+        typoCorrection = (try? container.decodeIfPresent(Bool.self, forKey: .typoCorrection)) ?? defaults.typoCorrection
     }
 }

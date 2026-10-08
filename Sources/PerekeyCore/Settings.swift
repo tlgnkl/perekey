@@ -22,6 +22,9 @@ public struct Settings: Hashable, Sendable, Codable {
     /// Whether undoing an automatic switch asks the app to learn the word
     /// (`Effect.learned`).
     public var learnFromUndos: Bool
+    /// Typo correction at the end of a word (`TypoCorrector`). Off until it
+    /// meets the plan's metric (docs/classifier.md, «Опечатки»).
+    public var typoCorrection: Bool
 
     public init(
         hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys,
@@ -29,7 +32,8 @@ public struct Settings: Hashable, Sendable, Codable {
         fenceTimeout: Double = 0.3,
         postTimeout: Double = 2,
         exceptions: Set<String> = [],
-        learnFromUndos: Bool = true
+        learnFromUndos: Bool = true,
+        typoCorrection: Bool = true
     ) {
         self.hotkeys = hotkeys
         self.autoswitch = autoswitch
@@ -37,5 +41,6 @@ public struct Settings: Hashable, Sendable, Codable {
         self.postTimeout = postTimeout
         self.exceptions = exceptions
         self.learnFromUndos = learnFromUndos
+        self.typoCorrection = typoCorrection
     }
 }

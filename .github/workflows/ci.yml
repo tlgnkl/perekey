@@ -16,6 +16,17 @@ jobs:
       - run: scripts/check-strings.sh
       - run: swift build
       - run: scripts/test.sh
+      - name: Cache the model and held-out data
+        uses: actions/cache@v4
+        with:
+          path: .build/data-cache
+          # The pinned revisions and hashes live in the script itself.
+          key: data-cache-${{ hashFiles('scripts/fetch-data.sh') }}
+      - run: scripts/fetch-data.sh lexicon heldout
+      - name: Build the model and check its hash
+        run: scripts/build-model.sh
+      - name: Evaluate the classifier on the held-out sample
+        run: scripts/eval.sh
       - run: scripts/bundle.sh
       - name: Benchmark InputMachine against the base commit
         run: scripts/bench.sh

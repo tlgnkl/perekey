@@ -21,6 +21,8 @@ let package = Package(
         .executableTarget(name: "perekey-layout-dump", dependencies: ["PerekeyCore", "PerekeyInput"]),
         // Benchmarks InputMachine; scripts/bench.sh runs it in CI.
         .executableTarget(name: "perekey-bench", dependencies: ["PerekeyCore"]),
+        // Dev tool: posts user-looking keystrokes for scripts/e2e.sh.
+        .executableTarget(name: "perekey-e2e"),
         .testTarget(
             name: "PerekeyCoreTests",
             dependencies: ["PerekeyCore"],

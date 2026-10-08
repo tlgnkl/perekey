@@ -28,9 +28,17 @@ import Testing
         #expect(left.x == HintPlacement.margin)
     }
 
-    @Test func clampsAtTheTopWhenFlipped() {
+    @Test func staysBelowNearTheTop() {
+        // Room below the caret: no flip, and the hint stays inside the frame.
         let origin = HintPlacement.origin(size: size, caret: CGRect(x: 300, y: 790, width: 0, height: 16), visible: visible)
-        #expect(origin.y == 800 - 30 - HintPlacement.margin)
+        #expect(origin.y == 790 - HintPlacement.gap - 30)
+    }
+
+    @Test func tallHintIsClampedInside() {
+        // Neither below nor above fits a hint this tall: clamp to the top edge.
+        let tall = CGSize(width: 200, height: 780)
+        let origin = HintPlacement.origin(size: tall, caret: CGRect(x: 300, y: 400, width: 0, height: 16), visible: visible)
+        #expect(origin.y == max(0, 800 - 780 - HintPlacement.margin))
     }
 
     @Test func fallbackIsTopRight() {

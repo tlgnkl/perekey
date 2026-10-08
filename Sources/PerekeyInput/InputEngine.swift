@@ -22,6 +22,9 @@ public enum TapState: Hashable, Sendable {
     /// No Accessibility access yet; retrying once per second.
     case waitingForAccess
     case running
+    /// The system kept disabling the tap (callback too slow, or the system
+    /// under load). Perekey steps aside for a while instead of fighting it.
+    case suspended
 }
 
 /// The event taps and the input logic, on a thread of their own.
@@ -52,6 +55,11 @@ public final class InputEngine: @unchecked Sendable {
     private var held: [CGEvent] = []
     private var secureInput = false
     private var disables: [Double] = []
+    private var resumeTimer: CFRunLoopTimer?
+
+    /// Disables within a minute that make Perekey step aside, and for how long.
+    private static let disablesBeforeSuspend = 3
+    private static let suspendSeconds: Double = 30
 
     public init(machine: InputMachine, onMessage: @escaping @MainActor @Sendable (EngineMessage) -> Void) {
         self.machine = machine
@@ -73,9 +81,16 @@ public final class InputEngine: @unchecked Sendable {
         perform { $0.handle(event) }
     }
 
-    /// Posts a retype after the main thread selected its layout.
+    /// Posts a retype after the main thread selected its layout. Dropped if
+    /// the fence was released meanwhile: its Backspaces would erase what the
+    /// user typed since.
     public func post(_ retype: Retype) {
-        perform { _ in TextSink.post(retype) }
+        perform { $0.postIfPending(retype) }
+    }
+
+    /// The main thread could not select the retype's layout.
+    public func cancel(_ retype: Retype) {
+        send(.retypeCancelled(seq: retype.seq))
     }
 
     /// After wake, unlock or a session switch: make sure the taps work and
@@ -83,8 +98,13 @@ public final class InputEngine: @unchecked Sendable {
     /// turns the whole product off.
     public func checkTaps() {
         perform { engine in
-            for tap in [engine.keyboardTap, engine.mouseTap].compactMap({ $0 }) where !CGEvent.tapIsEnabled(tap: tap) {
-                CGEvent.tapEnable(tap: tap, enable: true)
+            // A tap can come back invalid after sleep; enabling it does nothing then.
+            if let tap = engine.keyboardTap, !CFMachPortIsValid(tap) { engine.removeTaps() }
+            if let tap = engine.mouseTap, !CFMachPortIsValid(tap) { engine.removeTaps() }
+            if engine.resumeTimer == nil {
+                for tap in [engine.keyboardTap, engine.mouseTap].compactMap({ $0 }) where !CGEvent.tapIsEnabled(tap: tap) {
+                    CGEvent.tapEnable(tap: tap, enable: true)
+                }
             }
             if engine.keyboardTap == nil { engine.createTapsOrRetry() }
             engine.handle(.inputLost)
@@ -268,13 +288,44 @@ public final class InputEngine: @unchecked Sendable {
     }
 
     private func tapDisabled(_ type: CGEventType, at time: Double) {
-        // The callback cannot tell which tap was disabled: re-enable both.
-        for tap in [keyboardTap, mouseTap].compactMap({ $0 }) where !CGEvent.tapIsEnabled(tap: tap) {
-            CGEvent.tapEnable(tap: tap, enable: true)
-        }
         disables = disables.filter { time - $0 < 60 } + [time]
         log.error("Event tap disabled (\(type.rawValue, privacy: .public)), \(self.disables.count, privacy: .public) in the last minute")
         handle(.inputLost)
+        guard resumeTimer == nil else { return }
+        if disables.count >= Self.disablesBeforeSuspend {
+            // Re-enabling at once would loop: disabled, enabled, disabled.
+            toMain(.tapState(.suspended))
+            let timer = CFRunLoopTimerCreateWithHandler(
+                kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + Self.suspendSeconds, 0, 0, 0
+            ) { [self] _ in
+                resumeTimer = nil
+                disables.removeAll()
+                enableTaps()
+                toMain(.tapState(.running))
+            }
+            resumeTimer = timer
+            CFRunLoopAddTimer(runLoop, timer, .commonModes)
+            return
+        }
+        enableTaps()
+    }
+
+    /// The callback cannot tell which tap was disabled: enable both.
+    private func enableTaps() {
+        for tap in [keyboardTap, mouseTap].compactMap({ $0 }) where !CGEvent.tapIsEnabled(tap: tap) {
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
+    }
+
+    private func postIfPending(_ retype: Retype) {
+        guard machine.pendingRetypeSeq == retype.seq else {
+            log.error("Retype \(retype.seq, privacy: .public) arrived after its fence; not posted")
+            // The buffer believes the word was retyped; it was not.
+            handle(.inputLost)
+            return
+        }
+        TextSink.post(retype)
+        handle(.retypePosted(seq: retype.seq, time: Self.now))
     }
 
     private func handle(_ event: InputEvent) {
@@ -295,7 +346,7 @@ public final class InputEngine: @unchecked Sendable {
                 }
                 toMain(.select(id, then: then))
             case let .retype(retype):
-                TextSink.post(retype)
+                postIfPending(retype)
             case .releaseHeld:
                 let events = held
                 held.removeAll()

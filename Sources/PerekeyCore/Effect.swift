@@ -24,6 +24,9 @@ public struct Retype: Hashable, Sendable {
     /// auto-closed brackets) post nothing and send `.retypeCancelled(seq:)`.
     public var expected: String
     /// Mark every posted event `.own(seq:)`, and the last one with `last: true`.
+    /// Post only while `InputMachine.pendingRetypeSeq` is this `seq`, then
+    /// send `.retypePosted`: a retype posted after the fence was released
+    /// would erase what the user typed since.
     public var seq: UInt32
 
     public init(deleteCount: Int, keys: [Key], target: LayoutID, expected: String, seq: UInt32) {

@@ -200,10 +200,25 @@ private let ru = Fixture.russian.id
         kb.type("ghbdtn", in: Fixture.abc)
         kb.tapOption()
         #expect(kb.press(9).disposition == .hold)
-        kb.time += 1
+        kb.time += 3
         // The late key must not overtake the one held before it.
         #expect(kb.press(11) == Output(.hold, [.releaseHeld]))
         #expect(!kb.machine.isHolding)
+    }
+
+    @Test func fenceTimeoutCountsFromPosting() throws {
+        // The main thread may take a while to select the layout. The 0.3 s
+        // must not run out before the retype is even posted.
+        var kb = Keyboard()
+        kb.type("ghbdtn", in: Fixture.abc)
+        let retype = try #require(kb.tapOption().retype)
+        #expect(kb.send(.deadline(time: kb.time + 0.5)).effects.isEmpty, "not posted yet: still holding")
+        #expect(kb.machine.pendingRetypeSeq == retype.seq)
+        let postedAt = kb.time + 0.6
+        let posted = kb.send(.retypePosted(seq: retype.seq, time: postedAt))
+        #expect(posted.effects == [.scheduleDeadline(at: postedAt + 0.3)])
+        #expect(kb.send(.deadline(time: postedAt + 0.3)).effects == [.releaseHeld])
+        #expect(kb.machine.pendingRetypeSeq == nil, "a late post must now be dropped")
     }
 
     @Test func inputLostReleases() throws {

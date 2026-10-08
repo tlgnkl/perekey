@@ -97,6 +97,9 @@ struct Keyboard {
     @discardableResult
     mutating func completeRetype(_ retype: Retype, confirm: Bool = true) -> [Effect] {
         var effects: [Effect] = []
+        time += 0.001
+        effects += send(.retypePosted(seq: retype.seq, time: time)).effects
+            .filter { if case .scheduleDeadline = $0 { false } else { true } }
         for index in 0..<(retype.deleteCount + retype.keys.count) {
             let last = index == retype.deleteCount + retype.keys.count - 1
             // Synthetic events come back within microseconds, not at typing speed.

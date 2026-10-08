@@ -87,6 +87,9 @@ public enum InputEvent: Hashable, Sendable {
     case layoutsChanged([LayoutMap])
     case secureInputChanged(Bool)
     case settingsChanged(Settings)
+    /// The system layer posted the retype with this `seq`. The fence
+    /// timeout starts now.
+    case retypePosted(seq: UInt32, time: Double)
     /// The system layer did not carry out the retype with this `seq`: the text
     /// before the caret differed from `Retype.expected`.
     case retypeCancelled(seq: UInt32)

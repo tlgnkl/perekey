@@ -66,6 +66,9 @@ public struct InputMachine: Sendable {
     /// Whether user input is being held back right now.
     public var isHolding: Bool { fence != nil }
 
+    /// The retype the fence waits for; post a retype only while this is its `seq`.
+    public var pendingRetypeSeq: UInt32? { fence?.seq }
+
     public mutating func handle(_ event: InputEvent) -> Output {
         var effects: [Effect] = []
         let output = handle(event, effects: &effects)
@@ -136,6 +139,12 @@ public struct InputMachine: Sendable {
             detector.reset()
             buffer.clear()
             swallowedKeyUps.removeAll()
+
+        case let .retypePosted(seq, time):
+            guard fence?.seq == seq else { break }
+            let deadline = time + settings.fenceTimeout
+            fence?.deadline = deadline
+            effects.append(.scheduleDeadline(at: deadline))
 
         case let .retypeCancelled(seq):
             // The text before the caret was not what the buffer expected, so
@@ -298,7 +307,8 @@ public struct InputMachine: Sendable {
                                       expected: expected, seq: seq)))
         buffer.relabel(to: target)
 
-        let deadline = time + settings.fenceTimeout
+        // Long until the retype is posted; `.retypePosted` shortens it.
+        let deadline = time + settings.postTimeout
         fence = Fence(seq: seq, awaitedLayout: target == confirmedLayout ? nil : target, deadline: deadline,
                       layoutBefore: layoutBefore)
         effects.append(.scheduleDeadline(at: deadline))

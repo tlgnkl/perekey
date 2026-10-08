@@ -93,8 +93,17 @@ final class InputController {
         case let .tapState(state):
             tapState = state
         case let .select(id, then):
-            sources.select(id)
-            if let then { engine.post(then) }
+            let selected = sources.select(id)
+            guard let then else { break }
+            guard selected else {
+                log.error("Cannot select \(id.rawValue, privacy: .public); retype cancelled")
+                engine.cancel(then)
+                break
+            }
+            // Selecting the layout that is already current sends no
+            // notification, and the fence would wait its full timeout.
+            if LayoutReader.currentLayoutID() == id { engine.send(.layoutChanged(id)) }
+            engine.post(then)
         case let .autoswitchChanged(on):
             store.update { $0.autoswitch = on }
         case let .refused(refusal):

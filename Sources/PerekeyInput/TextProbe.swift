@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import ApplicationServices
 import Foundation
+import os
 import PerekeyCore
 
 /// Reads and replaces text of the focused element through the accessibility
@@ -82,6 +84,13 @@ public final class TextProbe: Sendable {
 
     private static func checkBeforeCaret(expected: String) -> CaretCheck.Verdict {
         guard let element = focusedElement() else { return .unavailable }
+        // Chromium and Electron update their AX text after the keystroke has
+        // already been typed, so a correct word can read as a mismatch there.
+        // A false cancel breaks the shortcut; skip the check in those apps.
+        var pid: pid_t = 0
+        if AXUIElementGetPid(element, &pid) == .success, LaggingAXApps.contains(pid: pid) {
+            return .unavailable
+        }
         var rangeValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue)
             == .success, let rangeValue, CFGetTypeID(rangeValue) == AXValueGetTypeID()
@@ -166,5 +175,34 @@ public enum CaretCheck {
     /// Browsers turn a trailing space of contenteditable text into a no-break space.
     private static func normalized(_ text: String) -> String {
         text.replacingOccurrences(of: "\u{00A0}", with: " ")
+    }
+}
+
+/// Apps whose AX text lags behind typing: Chromium-based browsers and
+/// Electron apps, found by the framework inside the app bundle. Cached per
+/// process, because the check runs before every retype.
+enum LaggingAXApps {
+    private static let cache = OSAllocatedUnfairLock<[pid_t: Bool]>(initialState: [:])
+
+    private static let frameworks = [
+        "Electron Framework.framework", "Chromium Embedded Framework.framework",
+        "Google Chrome Framework.framework", "Microsoft Edge Framework.framework",
+        "Brave Browser Framework.framework", "Arc Framework.framework", "Vivaldi Framework.framework",
+        "Opera Framework.framework", "Chromium Framework.framework",
+    ]
+
+    static func contains(pid: pid_t) -> Bool {
+        if let known = cache.withLock({ $0[pid] }) { return known }
+        let lagging = isLagging(bundleURL: NSRunningApplication(processIdentifier: pid)?.bundleURL)
+        cache.withLock { $0[pid] = lagging }
+        return lagging
+    }
+
+    static func isLagging(bundleURL: URL?) -> Bool {
+        guard let bundleURL else { return false }
+        let frameworksURL = bundleURL.appending(path: "Contents/Frameworks", directoryHint: .isDirectory)
+        return frameworks.contains { name in
+            FileManager.default.fileExists(atPath: frameworksURL.appending(path: name).path)
+        }
     }
 }

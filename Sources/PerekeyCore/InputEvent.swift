@@ -70,7 +70,9 @@ public struct Focus: Hashable, Sendable {
 
 /// Everything the input logic reacts to. Times are seconds of
 /// `CLOCK_UPTIME_RAW`, taken when the event reached the tap.
-public enum InputEvent: Hashable, Sendable {
+///
+/// Not `Hashable`: `.classifierChanged` carries a memory-mapped model.
+public enum InputEvent: Sendable {
     case key(KeyEvent, time: Double)
     /// A modifier changed. Carries the raw flags and the key that changed.
     case flagsChanged(keyCode: UInt16, flags: UInt64, origin: EventOrigin, time: Double)
@@ -104,4 +106,14 @@ public enum InputEvent: Hashable, Sendable {
     case inputLost
     /// A deadline requested with `Effect.scheduleDeadline` has passed.
     case deadline(time: Double)
+    /// The mode of the frontmost app. Only `.auto` switches by itself; the
+    /// app removes the shortcuts for `.off`.
+    case appModeChanged(AppMode)
+    /// The language model was loaded, replaced or dropped. Without a
+    /// classifier there is no automatic switching.
+    case classifierChanged(Classifier?)
+    /// Undo the last automatic switch, as the hint's Undo button asks. Works
+    /// while the switch is the last thing typed; a click (on the hint) does not
+    /// count as typing. The pre-Backspace check guards a caret that moved.
+    case undoLastCorrection(time: Double)
 }

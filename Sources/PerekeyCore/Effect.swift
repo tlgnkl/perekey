@@ -52,6 +52,36 @@ public struct Retype: Hashable, Sendable {
     public var text: String { keys.map(\.text).joined() }
 }
 
+/// A word automatic switching retyped in the other layout. The app shows it
+/// at the caret (`Effect.corrected`) with an Undo button.
+public struct Correction: Hashable, Sendable {
+    /// The `Retype.seq` that carried it; `Effect.correctionUndone` names it.
+    public var seq: UInt32
+    /// What the user typed, in the layout they typed it in: "ghbdtn". Without
+    /// the key that ended the word. After a switch inside the word
+    /// (impossible prefix) it is the start of the word: "ghb".
+    public var original: String
+    /// What it became: "привет", or "при" inside the word.
+    public var replacement: String
+    /// The layout the word was typed in; undo selects it again.
+    public var source: LayoutID
+    public var target: LayoutID
+    /// False when Return or Tab ended the word: the line is gone (a chat may
+    /// have sent it), so Backspace and the undo action leave it alone.
+    public var undoable: Bool
+
+    public init(seq: UInt32, original: String, replacement: String, source: LayoutID, target: LayoutID,
+                undoable: Bool = true)
+    {
+        self.seq = seq
+        self.original = original
+        self.replacement = replacement
+        self.source = source
+        self.target = target
+        self.undoable = undoable
+    }
+}
+
 /// Why Perekey refused to act on a shortcut.
 public enum Refusal: Hashable, Sendable {
     /// The word was typed with ⌥ or contains a dead key.
@@ -93,6 +123,19 @@ public enum Effect: Hashable, Sendable {
     /// Paste the pasteboard as plain text, on the main thread (`PlainPaste`).
     case pastePlain
     case refused(Refusal)
+    /// An automatic switch was posted: show the hint at the caret. Comes with
+    /// the `.retypePosted` of its `seq`, so a cancelled switch never shows.
+    case corrected(Correction)
+    /// The correction with this `seq` was undone: Backspace right after it,
+    /// `HotkeyAction.undoLastCorrection` or `InputEvent.undoLastCorrection`.
+    /// Hide its hint.
+    case correctionUndone(seq: UInt32)
+    /// The user undid an automatic switch and `Settings.learnFromUndos` is on:
+    /// add the word to the learned exceptions (`WordExceptions.learn`). It is
+    /// normalized, and it is the typed reading where the list takes it
+    /// ("ghbdtn"), else the other one (`InputMachine.learnable`). The next
+    /// settings snapshot carries it in `Settings.exceptions`.
+    case learned(String)
 }
 
 /// What to do with the event that was handled.

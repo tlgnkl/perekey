@@ -94,7 +94,10 @@ public struct AppSettings: Hashable, Sendable {
         if capsLock == .instant {
             hotkeys.append(HotkeyBinding(.key(keyCode: KeyCode.f18, modifiers: []), action: .switchLayout))
         }
-        return Settings(hotkeys: hotkeys, autoswitch: autoswitch)
+        var exceptions = Set(words.mine)
+        for learned in words.learned { exceptions.insert(learned.word) }
+        return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions,
+                        learnFromUndos: words.learnFromUndos)
     }
 }
 

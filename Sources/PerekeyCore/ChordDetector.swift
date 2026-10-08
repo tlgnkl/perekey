@@ -81,13 +81,23 @@ public struct ChordDetector<Action: Hashable & Sendable>: Sendable {
         return action(for: tapped, taps: 1)
     }
 
-    /// Call on any other input: a key press or release that is not a modifier
-    /// (Caps Lock included), a mouse click, a scroll, or a trackpad gesture.
+    /// Call on any other input: a key press that is not a modifier (Caps Lock
+    /// included), a mouse click, a scroll, or a trackpad gesture. Resting
+    /// fingers on the trackpad send gesture events too; those are not input.
     /// Never call it for Perekey's own synthetic events.
     public mutating func otherInput(at time: Double) {
         if sessionStart != nil { interrupted = true }
         lastTap = nil
         lastOtherInput = time
+    }
+
+    /// Call on the release of a non-modifier key. It breaks a chord in
+    /// progress, but the idle time after typing counts from the key press:
+    /// a key comes up ~0.1 s after it goes down, and counting from there made
+    /// Option right after a word miss (spike S0).
+    public mutating func keyReleased() {
+        if sessionStart != nil { interrupted = true }
+        lastTap = nil
     }
 
     /// Forget the current press and the last tap.

@@ -148,4 +148,21 @@ private func detector() -> ChordDetector<Action> {
         _ = d.modifiersChanged(to: [.rightCommand], at: 1)
         #expect(d.modifiersChanged(to: [], at: 1.1) == .english)
     }
+
+    @Test func idleCountsFromKeyPressNotRelease() {
+        // Spike S0: a space goes down at 0, comes up at 0.1, Option goes down
+        // at 0.17. That is 0.17 s after the press: the chord counts.
+        var d = detector()
+        d.otherInput(at: 0)
+        d.keyReleased()
+        #expect(d.modifiersChanged(to: [.rightCommand], at: 0.17) == nil)
+        #expect(d.modifiersChanged(to: [], at: 0.25) == .english)
+    }
+
+    @Test func keyReleaseDuringChordBreaksIt() {
+        var d = detector()
+        _ = d.modifiersChanged(to: [.leftShift], at: 0)
+        d.keyReleased()
+        #expect(d.modifiersChanged(to: [], at: 0.1) == nil)
+    }
 }

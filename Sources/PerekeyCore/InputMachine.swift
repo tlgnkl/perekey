@@ -174,13 +174,14 @@ public struct InputMachine: Sendable {
             if fence != nil { return .hold }
         }
         guard !secureInput else { return .pass }
-        detector.otherInput(at: time)
 
         if key.phase == .up {
+            detector.keyReleased()
             return swallowedKeyUps.remove(key.keyCode) != nil ? .drop : .pass
         }
 
         // F-keys and arrows always carry the fn bit, so fn never takes part.
+        detector.otherInput(at: time)
         let held = ModifierKind.kindMask(inEventFlags: key.flags) & ~ModifierKind.function.maskBit
         if let hotkey = keyHotkeys.first(where: { $0.keyCode == key.keyCode && $0.modifiers == held }) {
             swallowedKeyUps.insert(key.keyCode)

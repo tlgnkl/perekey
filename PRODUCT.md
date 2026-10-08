@@ -40,7 +40,8 @@ after Perekey.
   remembered word and offers "Forget".
 - **Honest about code:** terminals and IDEs default to manual-only switching.
 - **Verifiable privacy:** open code (GPL-3.0-or-later), typed text stays in
-  memory only, the only network request is the update check.
+  memory only, the only network request is the update check, no device or
+  install identifiers.
 - Any shortcut on any action: Shift, Option, ⌥⇧, ⌃⇧, ⌘⇧, right ⌘ / right ⌥.
 
 ## Operating Context
@@ -60,11 +61,12 @@ after Perekey.
 - Per-app modes: auto / manual only / off; per-app default layout; games off
   by default.
 - Word exceptions, password-field and Secure Input awareness; password-like
-  strings are never switched.
+  strings and captcha-like random strings are never switched. The menu bar
+  capsule names why Perekey is paused.
 - Typo correction for Russian and English (off by default until it meets the
   quality bar), with the same one-Backspace undo.
 - Later: ё-fication, double-caps and accidental Caps Lock fix, abbreviations,
-  switch sound, paste without formatting.
+  switch and correction sounds, paste without formatting.
 - Russian and English UI. Layouts: Russian and English first.
 - No subscription, no telemetry, no sending typed words anywhere. The update
   check can be turned off; the language model ships inside app updates.

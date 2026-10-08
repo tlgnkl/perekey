@@ -11,23 +11,17 @@ struct GeneralPane: View {
     let store: SettingsStore
 
     var body: some View {
-        Form {
-            Section("Settings file") {
-                LabeledContent {
-                    HStack {
+        PKPane(title: Text("General")) {
+            PKGroup(header: Text("Settings file")) {
+                PKRow(Text("Back up or move settings"), detail: Text("Shortcuts, apps and words as a JSON file.")) {
+                    HStack(spacing: 8) {
                         Button("Export…", action: export)
                         Button("Import…", action: importFile)
                     }
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Back up or move settings")
-                        Text("Shortcuts, apps and words as a JSON file.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    .buttonStyle(.pkSecondary)
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     private func export() {

@@ -71,62 +71,76 @@ struct AppsPane: View {
                 && (needle.isEmpty || entry.name.localizedStandardContains(needle))
         }
         VStack(alignment: .leading, spacing: 12) {
+            Text("Apps")
+                .font(PK.Font.title)
+                .tracking(-0.33)
+                .foregroundStyle(Color.pkInk)
+                .accessibilityAddTraits(.isHeader)
             Text("In terminals and code editors Perekey fixes only on your command. In games it is off.")
-                .foregroundStyle(.secondary)
+                .font(PK.Font.body)
+                .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
             toolbar(all)
             if shown.isEmpty {
                 Text(all.isEmpty ? "No apps yet. Press + to add one." : "No apps match.")
-                    .foregroundStyle(.secondary)
+                    .font(PK.Font.body)
+                    .foregroundStyle(Color.pkInk2)
                     .frame(maxWidth: .infinity, minHeight: 120)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(shown.enumerated()), id: \.element.id) { index, entry in
-                            if index > 0 { Divider().padding(.leading, 48) }
+                            if index > 0 { PKDivider(leading: 54) }
                             AppRow(entry: entry, store: store, sources: sources)
                         }
                     }
                 }
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08)))
+                .pkCard()
             }
         }
-        .padding(20)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(.top, 20)
+        .padding(.horizontal, PK.Space.pane)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private func toolbar(_ all: [AppEntry]) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 5) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                Image(systemName: "magnifyingglass").foregroundStyle(Color.pkInk2)
                 TextField("Search the list", text: Bindable(pane).search)
                     .textFieldStyle(.plain)
+                    .font(PK.Font.body)
             }
-            .padding(.horizontal, 8)
-            .frame(width: 150, height: 26)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.06)))
-            Picker("Mode", selection: Bindable(pane).modeFilter) {
-                Text("All \(all.count)").tag(AppMode?.none)
-                ForEach(AppMode.allCases, id: \.self) { mode in
-                    Text("\(String(localized: mode.title)) \(all.count { $0.mode == mode })").tag(AppMode?.some(mode))
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            .padding(.horizontal, 9)
+            .frame(width: 160, height: 28)
+            .background(Color.pkPlate, in: RoundedRectangle(cornerRadius: PK.Radius.field, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: PK.Radius.field, style: .continuous).strokeBorder(Color.pkRule, lineWidth: 0.5))
+            PKSegmented(items: [PKSegmented<AppMode?>.Item(value: nil, label: Text("All \(all.count)"))]
+                + AppMode.allCases.map { mode in
+                    PKSegmented<AppMode?>.Item(value: .some(mode), label: Text("\(String(localized: mode.title)) \(all.count { $0.mode == mode })"))
+                }, selection: Bindable(pane).modeFilter, mini: true)
             Button {
                 pane.picker = AppPickerModel()
                 pane.showPicker = true
-            } label: { Image(systemName: "plus") }
-                .accessibilityLabel("Add app")
-                .popover(isPresented: Bindable(pane).showPicker, arrowEdge: .bottom) {
-                    if let picker = pane.picker {
-                        AppPickerView(model: picker, existing: Set(all.map(\.bundleID))) { app in
-                            add(app)
-                            pane.showPicker = false
-                        }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.pkInk)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(Color.pkWashDeep))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add app")
+            .popover(isPresented: Bindable(pane).showPicker, arrowEdge: .bottom) {
+                if let picker = pane.picker {
+                    AppPickerView(model: picker, existing: Set(all.map(\.bundleID))) { app in
+                        add(app)
+                        pane.showPicker = false
                     }
                 }
+            }
         }
     }
 
@@ -155,10 +169,10 @@ private struct AppRow: View {
                 .resizable()
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.name).lineLimit(1)
+                Text(entry.name).font(PK.Font.body).foregroundStyle(Color.pkInk).lineLimit(1)
                 Text(entry.rule == nil ? "Built-in default" : "Your rule")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk2)
             }
             Spacer(minLength: 8)
             Picker("Layout", selection: layoutChoice) {
@@ -170,23 +184,24 @@ private struct AppRow: View {
                 }
             }
             .labelsHidden()
-            .frame(width: 130)
+            .frame(width: 150)
             Picker("Mode", selection: modeBinding) {
                 ForEach(AppMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }
             .labelsHidden()
-            .frame(width: 118)
+            .frame(width: 124)
             Button { store.resetRule(for: entry.bundleID) } label: {
                 Image(systemName: "arrow.uturn.backward")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.pkIndigoInk)
             .help("Remove the rule")
             .accessibilityLabel("Remove the rule")
             .opacity(entry.rule == nil ? 0 : 1)
             .disabled(entry.rule == nil)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, PK.Space.md)
+        .padding(.vertical, 8)
     }
 
     private var modeBinding: Binding<AppMode> {

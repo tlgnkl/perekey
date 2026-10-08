@@ -14,21 +14,35 @@ struct CapsuleModel: Equatable {
     var now = Date()
 }
 
-/// The signature capsule: the layout code in Indigo Ink on an Indigo Mist strip
-/// with a 1pt ring; a pause reason adds its glyph and text before the code.
+/// The signature capsule: the layout code in Indigo Ink on a glass strip with a
+/// 1pt ring; a pause reason adds its glyph and text before the code, and the
+/// hatch ("not counted") lies over the strip while Perekey is held.
 /// Colors come from `dark`, not from the environment, because the image for the
 /// menu bar is rendered outside any view hierarchy.
+///
+/// `animated` is for live views (the menu header): the label slides in from
+/// below and a sheen crosses when the layout changes. The menu bar image is
+/// static, so it cannot play either.
 struct CapsuleView: View {
     let model: CapsuleModel
     let dark: Bool
     var height: CGFloat = 20
     var fontSize: CGFloat = 11.5
+    var animated = false
 
-    private var ink: Color { dark ? Color(red: 0xA9 / 255, green: 0xA7 / 255, blue: 1) : Color(red: 0x46 / 255, green: 0x44 / 255, blue: 0xD0 / 255) }
-    private var mist: Color { dark ? Color(red: 125 / 255, green: 122 / 255, blue: 1).opacity(0.18) : Color(red: 94 / 255, green: 92 / 255, blue: 230 / 255).opacity(0.13) }
-    private var ring: Color { Color(red: 94 / 255, green: 92 / 255, blue: 230 / 255).opacity(dark ? 0.55 : 0.35) }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var held: Bool { model.reason != nil }
+    private var ink: Color {
+        held ? PK.inkPair.resolved(dark: dark) : PK.indigoInkPair.resolved(dark: dark)
+    }
+    private var ring: Color {
+        PK.indigoPair.resolved(dark: dark).opacity(contrast == .increased ? 0.9 : (dark ? 0.55 : 0.35))
+    }
 
     var body: some View {
+        let glowPad = height * 0.1
         HStack(spacing: 4) {
             if let reason = model.reason {
                 Image(systemName: reason.symbol)
@@ -38,18 +52,67 @@ struct CapsuleView: View {
                     .lineLimit(1)
                 Rectangle().fill(ring).frame(width: 1, height: height * 0.45)
             }
-            Text(model.code)
-                .font(.system(size: fontSize, weight: .heavy))
-                .tracking(0.06 * fontSize)
-                .strikethrough(model.struck, color: ink)
-                .opacity(model.struck ? 0.7 : 1)
+            codeLabel
         }
         .foregroundStyle(ink)
         .padding(.horizontal, height * 0.4)
-        .frame(minWidth: height * 2.1, minHeight: height, maxHeight: height)
-        .background(Capsule().fill(mist))
+        .frame(minWidth: height * 2.3, minHeight: height, maxHeight: height)
+        .background {
+            ZStack {
+                StripFill(shape: Capsule(), dark: dark, glowRadius: height * 0.15, glowOffset: height * 0.08)
+                if held {
+                    Hatch(color: PK.inkPair.resolved(dark: dark).opacity(0.11), on: 3, off: 4)
+                        .clipShape(Capsule())
+                }
+            }
+        }
         .overlay(Capsule().strokeBorder(ring, lineWidth: 1))
+        .overlay { if animated && !reduceMotion { Sheen(trigger: model.code, dark: dark).clipShape(Capsule()) } }
+        .padding(glowPad)
         .fixedSize()
+    }
+
+    @ViewBuilder private var codeLabel: some View {
+        let label = Text(model.code)
+            .font(.system(size: fontSize, weight: .heavy))
+            .tracking(0.06 * fontSize)
+            .strikethrough(model.struck, color: ink)
+            .opacity(model.struck ? 0.7 : 1)
+        if animated {
+            label
+                .id(model.code)
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                .frame(height: height)
+                .clipped()
+                .pkAnimation(PK.Motion.settle(0.55), value: model.code)
+        } else {
+            label
+        }
+    }
+}
+
+/// A white band that crosses the strip once each time `trigger` changes.
+private struct Sheen<T: Equatable & Sendable>: View {
+    let trigger: T
+    let dark: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            Color.clear.keyframeAnimator(initialValue: CGFloat(1), trigger: trigger) { _, phase in
+                LinearGradient(colors: [.clear, .white.opacity(dark ? 0.35 : 0.8), .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: width * 0.5)
+                    .offset(x: -width * 0.5 + phase * width * 1.5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .opacity(phase >= 1 ? 0 : 1)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    LinearKeyframe(0, duration: 0.001)
+                    CubicKeyframe(1, duration: 0.85)
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

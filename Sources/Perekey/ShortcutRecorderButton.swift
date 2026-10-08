@@ -3,7 +3,8 @@
 import PerekeyCore
 import SwiftUI
 
-/// Shows the shortcut of one action as keycaps. A click starts recording.
+/// Shows the shortcut of one action as keycaps on a 28pt plate. A click starts
+/// recording: the plate gets a 1.5pt indigo ring and an Indigo Mist shimmer.
 struct ShortcutRecorderButton: View {
     let action: HotkeyAction
     let store: SettingsStore
@@ -11,36 +12,60 @@ struct ShortcutRecorderButton: View {
 
     var body: some View {
         let isRecording = recording.action == action
-        VStack(alignment: .trailing, spacing: 2) {
+        VStack(alignment: .trailing, spacing: 4) {
             Button { recording.toggle(action) } label: {
-                if isRecording {
-                    Text("Press a shortcut…").foregroundStyle(.secondary)
-                } else if let trigger = store.settings.trigger(for: action) {
-                    HStack(spacing: 4) {
-                        ForEach(Array(TriggerText.keycaps(of: trigger).enumerated()), id: \.offset) { _, cap in
-                            Keycap(text: cap)
+                Group {
+                    if isRecording {
+                        Text("Press a shortcut…").font(PK.Font.caption).foregroundStyle(Color.pkIndigoInk)
+                    } else if let trigger = store.settings.trigger(for: action) {
+                        HStack(spacing: 4) {
+                            ForEach(Array(TriggerText.keycaps(of: trigger).enumerated()), id: \.offset) { _, cap in
+                                PKKeycap(text: cap)
+                            }
                         }
+                    } else {
+                        Text("Record").font(PK.Font.caption).foregroundStyle(Color.pkInk2)
                     }
-                } else {
-                    Text("Record")
                 }
+                .padding(.horizontal, 6)
+                .frame(minWidth: 96, minHeight: 28)
+                .background(RecorderPlate(recording: isRecording))
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
-            .tint(isRecording ? .accentColor : nil)
+            .buttonStyle(.plain)
+            .pkAnimation(PK.Motion.easeOut(0.2), value: isRecording)
             if isRecording, let hint = recording.hint {
-                Text(hint).font(.caption).foregroundStyle(.orange)
+                Text(hint).font(PK.Font.caption).foregroundStyle(Color.pkWarn)
             }
         }
     }
 }
 
-struct Keycap: View {
-    let text: String
+private struct RecorderPlate: View {
+    let recording: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let isWord = text.count > 1 && text != "fn"
-        Text(text)
-            .font(isWord ? .caption : .body.monospaced())
-            .foregroundStyle(isWord ? .secondary : .primary)
+        let shape = RoundedRectangle(cornerRadius: PK.Radius.popup + 2, style: .continuous)
+        shape.fill(recording ? Color.pkPlate : Color.pkWash)
+            .overlay {
+                if recording {
+                    if reduceMotion {
+                        shape.fill(Color.pkMist)
+                    } else {
+                        TimelineView(.animation) { timeline in
+                            GeometryReader { proxy in
+                                let phase = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.4) / 1.4
+                                LinearGradient(colors: [.clear, Color.pkMist, .clear], startPoint: .leading, endPoint: .trailing)
+                                    .frame(width: proxy.size.width * 0.6)
+                                    .offset(x: -proxy.size.width * 0.6 + phase * proxy.size.width * 1.6)
+                            }
+                        }
+                        .clipShape(shape)
+                    }
+                }
+            }
+            .overlay(shape.strokeBorder(recording ? Color.pkIndigo : Color.pkRule, lineWidth: recording ? 1.5 : 0.5))
+            .background(shape.fill(Color.pkMist).padding(-3).opacity(recording ? 1 : 0))
     }
 }

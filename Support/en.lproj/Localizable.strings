@@ -193,3 +193,6 @@
 "Transliterate the selection" = "Transliterate the selection";
 "What Perekey did" = "What Perekey did";
 "You see the text before anything is sent." = "You see the text before anything is sent.";
+/* Stage 2: automatic switching */
+"Undo last correction" = "Undo last correction";
+"Backspace right after a correction does the same." = "Backspace right after a correction does the same.";

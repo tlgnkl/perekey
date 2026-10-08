@@ -193,3 +193,6 @@
 "Transliterate the selection" = "Транслитерировать выделение";
 "What Perekey did" = "Что сделал Perekey";
 "You see the text before anything is sent." = "Текст виден до отправки.";
+/* Stage 2: automatic switching */
+"Undo last correction" = "Отменить последнее исправление";
+"Backspace right after a correction does the same." = "Backspace сразу после исправления делает то же.";

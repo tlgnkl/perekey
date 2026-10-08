@@ -32,6 +32,17 @@ final class InputController {
     @ObservationIgnored private var lastSettings: PerekeyCore.Settings
     @ObservationIgnored private var tokens: [(NotificationCenter, any NSObjectProtocol)] = []
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "input")
+    @ObservationIgnored private let hint = HintController()
+    /// The correction the hint shows, so a late undo of an older one leaves it.
+    @ObservationIgnored private var shownCorrection: UInt32?
+
+    /// An automatic switch was posted. The caret hint is shown already; this
+    /// is for anyone else who cares.
+    @ObservationIgnored var onCorrection: ((Correction) -> Void)?
+    /// The correction with this `seq` was undone.
+    @ObservationIgnored var onCorrectionUndone: ((UInt32) -> Void)?
+    /// An undo taught Perekey this word; it is in `AppSettings.words` already.
+    @ObservationIgnored var onLearned: ((String) -> Void)?
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState) {
         self.sources = sources
@@ -47,10 +58,13 @@ final class InputController {
 
         let textProbe = TextProbe()
         selection = SelectionReader(probe: textProbe)
-        engine = InputEngine(
-            machine: InputMachine(settings: lastSettings, layouts: sources.layouts, currentLayout: sources.currentLayout),
-            textProbe: textProbe
-        ) { [weak self] message in self?.receive(message) }
+        // Memory-mapped, so loading is quick; without a model there is no
+        // automatic switching and the reason is in the log.
+        let classifier = ModelStore.classifier()
+        var machine = InputMachine(settings: lastSettings, layouts: sources.layouts,
+                                   currentLayout: sources.currentLayout, classifier: classifier)
+        _ = machine.handle(.appModeChanged(appModes.mode))
+        engine = InputEngine(machine: machine, textProbe: textProbe) { [weak self] message in self?.receive(message) }
 
         let engine = engine!
         sources.onLayoutsChanged = { engine.send(.layoutsChanged($0)) }
@@ -69,6 +83,7 @@ final class InputController {
 
         observeSystem()
         observePause()
+        observeAppMode()
         engine.start()
         focus.start()
     }
@@ -101,6 +116,21 @@ final class InputController {
                 self?.observePause()
             }
         }
+    }
+
+    /// The frontmost app's mode goes to the tap: only `.auto` switches by itself.
+    private func observeAppMode() {
+        let mode = withObservationTracking {
+            appModes.mode
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeAppMode() }
+        }
+        engine.send(.appModeChanged(mode))
+    }
+
+    /// Undoes the last automatic switch, as the hint's Undo button does.
+    func undoLastCorrection() {
+        engine.undoLastCorrection()
     }
 
     private func receive(_ message: EngineMessage) {
@@ -139,7 +169,37 @@ final class InputController {
             plainPaste.paste()
         case .retyped:
             SystemSounds.play(store.settings.correctionSound)
+        case let .corrected(correction):
+            shownCorrection = correction.seq
+            if correction.undoable {
+                let engine = engine!
+                hint.show(original: correction.original, replacement: correction.replacement) {
+                    engine.undoLastCorrection()
+                }
+            }
+            onCorrection?(correction)
+        case let .correctionUndone(seq):
+            if shownCorrection == seq {
+                shownCorrection = nil
+                hint.hide()
+            }
+            onCorrectionUndone?(seq)
+        case let .learned(word):
+            learn(word)
         }
+    }
+
+    /// Puts an undone word on the learned list and says so at the caret, with
+    /// «Forget» to take it back.
+    private func learn(_ word: String) {
+        var added = false
+        store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970) }
+        guard added else { return }
+        hint.showLearned(word: word) { [weak self] in
+            self?.store.update { $0.words.forget(word) }
+            self?.hint.hide()
+        }
+        onLearned?(word)
     }
 
     /// The key that types a shortcut letter such as "c" or "v": ⌘C and ⌘V are

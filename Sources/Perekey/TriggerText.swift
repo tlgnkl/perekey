@@ -57,6 +57,7 @@ enum TriggerText {
         case .changeCase: String(localized: "Change case of the word or selection")
         case .transliterate: String(localized: "Transliterate the selection")
         case .pastePlain: String(localized: "Paste without formatting")
+        case .undoLastCorrection: String(localized: "Undo last correction")
         case let .selectLanguage(code):
             switch code {
             case "en": String(localized: "Select English")

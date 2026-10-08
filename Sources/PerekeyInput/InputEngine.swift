@@ -23,6 +23,12 @@ public enum EngineMessage: Sendable {
     case pastePlain
     /// A retype was posted: the correction sound plays.
     case retyped
+    /// An automatic switch was posted (`Effect.corrected`): show the hint.
+    case corrected(Correction)
+    /// The correction with this `seq` was undone: hide its hint.
+    case correctionUndone(seq: UInt32)
+    /// The user undid an automatic switch: learn the word, as typed.
+    case learned(String)
 }
 
 public enum TapState: Hashable, Sendable {
@@ -114,6 +120,12 @@ public final class InputEngine: @unchecked Sendable {
     /// user typed since.
     public func post(_ retype: Retype) {
         perform { $0.postIfPending(retype) }
+    }
+
+    /// Undoes the last automatic switch, as the hint's Undo button asks.
+    /// Does nothing once the user has typed on.
+    public func undoLastCorrection() {
+        perform { $0.handle(.undoLastCorrection(time: Self.now)) }
     }
 
     /// The main thread could not select the retype's layout.
@@ -445,6 +457,12 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.autoswitchChanged(on))
             case .pastePlain:
                 toMain(.pastePlain)
+            case let .corrected(correction):
+                toMain(.corrected(correction))
+            case let .correctionUndone(seq):
+                toMain(.correctionUndone(seq: seq))
+            case let .learned(word):
+                toMain(.learned(word))
             case let .refused(refusal):
                 toMain(.refused(refusal))
             case let .convertSelection(seq):

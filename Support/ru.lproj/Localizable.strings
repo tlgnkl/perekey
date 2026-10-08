@@ -206,3 +206,13 @@
 /* Stage 2: automatic switching */
 "Undo last correction" = "Отменить последнее исправление";
 "Backspace right after a correction does the same." = "Backspace сразу после исправления делает то же.";
+/* Stage 4: corrections */
+"Corrections" = "Исправления";
+"Retype a phrase" = "Перенабор фразы";
+"Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on." = "Нажмите сочетание перенабора ещё раз: второе нажатие вернёт слово, третье перенаберёт два слова, и так далее.";
+"Double capitals" = "Двойные заглавные";
+"Accidental Caps Lock" = "Нечаянный Caps Lock";
+"Fix the word and turn Caps Lock off" = "Исправить слово и выключить Caps Lock";
+"Abbreviations" = "Аббревиатуры";
+"Letter ё" = "Буква ё";
+"Russian only, where the word with «е» is no other word" = "Только там, где слово с «е» — не другое слово";

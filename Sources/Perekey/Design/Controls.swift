@@ -225,6 +225,36 @@ struct PKStatusPill: View {
     }
 }
 
+/// The example beside a correction's switch, 30pt on Plate with a hairline:
+/// on, "ПРивет → Привет" with the typed text struck through in Indigo;
+/// off, only the typed text, as it stays.
+struct PKExampleChip: View {
+    let from: String
+    let to: String
+    let isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if isOn {
+                Text(verbatim: from).strikethrough(color: Color.pkIndigo.opacity(0.55)).foregroundStyle(Color.pkInk3)
+                Text(verbatim: "→").foregroundStyle(Color.pkInk3).padding(.horizontal, 7)
+                Text(verbatim: to).foregroundStyle(Color.pkInk)
+            } else {
+                Text(verbatim: from).foregroundStyle(Color.pkInk2)
+            }
+        }
+        .font(.system(size: 13.5))
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, 12)
+        .frame(minWidth: 158, minHeight: 30, maxHeight: 30)
+        .background(Color.pkPlate, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.pkRule, lineWidth: 0.5))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: isOn ? "\(from) → \(to)" : from))
+    }
+}
+
 /// A 28pt chip on Wash; the selected one becomes a glass strip with 600 text.
 struct PKChip: View {
     let text: Text

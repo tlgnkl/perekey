@@ -206,3 +206,13 @@
 /* Stage 2: automatic switching */
 "Undo last correction" = "Undo last correction";
 "Backspace right after a correction does the same." = "Backspace right after a correction does the same.";
+/* Stage 4: corrections */
+"Corrections" = "Corrections";
+"Retype a phrase" = "Retype a phrase";
+"Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on." = "Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on.";
+"Double capitals" = "Double capitals";
+"Accidental Caps Lock" = "Accidental Caps Lock";
+"Fix the word and turn Caps Lock off" = "Fix the word and turn Caps Lock off";
+"Abbreviations" = "Abbreviations";
+"Letter ё" = "Letter ё";
+"Russian only, where the word with «е» is no other word" = "Russian only, where the word with «е» is no other word";

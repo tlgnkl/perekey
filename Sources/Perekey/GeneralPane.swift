@@ -24,6 +24,7 @@ struct GeneralPane: View {
 
     var body: some View {
         PKPane(title: Text("General")) {
+            correctionsSection
             soundsSection
             updatesSection
             PKGroup(header: Text("Feedback")) {
@@ -40,6 +41,41 @@ struct GeneralPane: View {
                     }
                     .buttonStyle(.pkSecondary)
                 }
+            }
+        }
+    }
+
+    /// The stage 4 corrections, each with its switch and an example of what it does.
+    private var correctionsSection: some View {
+        PKGroup(header: Text("Corrections")) {
+            correctionRow(Text("Retype a phrase"),
+                          detail: Text("Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on."),
+                          example: ("ghbdtn vbh", "привет мир"), \.phraseRetype)
+            PKDivider()
+            correctionRow(Text("Double capitals"), example: ("ПРивет", "Привет"), \.doubleCapitals)
+            PKDivider()
+            correctionRow(Text("Accidental Caps Lock"), detail: Text("Fix the word and turn Caps Lock off"),
+                          example: ("пРИВЕТ", "Привет"), \.capsLock)
+            PKDivider()
+            correctionRow(Text("Abbreviations"), example: ("мвд", "МВД"), \.abbreviations)
+            PKDivider()
+            correctionRow(Text("Letter ё"), detail: Text("Russian only, where the word with «е» is no other word"),
+                          example: ("еще", "ещё"), \.yo)
+        }
+    }
+
+    private func correctionRow(_ title: Text, detail: Text? = nil, example: (from: String, to: String),
+                               _ key: WritableKeyPath<TextCorrections, Bool>) -> some View
+    {
+        let isOn = store.settings.corrections[keyPath: key]
+        return PKRow(title, detail: detail) {
+            HStack(spacing: 12) {
+                PKExampleChip(from: example.from, to: example.to, isOn: isOn)
+                Toggle(isOn: Binding(get: { isOn }, set: { on in store.update { $0.corrections[keyPath: key] = on } })) {
+                    title
+                }
+                .labelsHidden()
+                .toggleStyle(.pkSwitch)
             }
         }
     }

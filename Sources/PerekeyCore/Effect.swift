@@ -1,5 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+/// A `Classifier.Decision` behind one pointer. Effects are copied on the
+/// per-key path; a decision inline would make every `Effect` as big as it is.
+final class DecisionBox: Hashable, Sendable {
+    let value: Classifier.Decision
+
+    init(_ value: Classifier.Decision) {
+        self.value = value
+    }
+
+    static func == (lhs: DecisionBox, rhs: DecisionBox) -> Bool { lhs.value == rhs.value }
+
+    func hash(into hasher: inout Hasher) { hasher.combine(value) }
+}
+
 /// Text to retype in place of what the user typed.
 public struct Retype: Hashable, Sendable {
     /// One synthetic key: the original key code, so apps that read key codes
@@ -37,10 +51,42 @@ public struct Retype: Hashable, Sendable {
     /// in many apps it breaks ⌘Z and formatting. Posts no key events: send
     /// `.retypePosted` once the text is set, or `.retypeCancelled` if it was not.
     public var viaAccessibility: Bool
+    /// Who asked for it. The system layer passes it on untouched, for the hint.
+    public var origin: Origin
+    /// What automatic switching decided about the word, for «Why?». Set for a
+    /// word retyped by hand while automatic switching was on, and for an
+    /// automatic switch; nil when it did not judge the word.
+    public var decision: Classifier.Decision? {
+        get { decisionBox?.value }
+        set { decisionBox = newValue.map(DecisionBox.init) }
+    }
+
+    private var decisionBox: DecisionBox?
+
+    /// Who asked for a retype.
+    public enum Origin: Hashable, Sendable {
+        /// Automatic switching or a word correction, by its kind.
+        case automatic(Correction.Kind)
+        /// The undo of an automatic correction.
+        case undo
+        /// The user's shortcut on the word or phrase before the caret:
+        /// `convertLastWord` or `changeCase`.
+        case manual(HotkeyAction)
+        /// The user's shortcut on the selection: `convertLastWord`,
+        /// `changeCase` or `transliterate`. The text is no longer selected
+        /// afterwards, so pressing again does not put it back.
+        case manualSelection(HotkeyAction)
+
+        public var isAutomatic: Bool {
+            if case .automatic = self { true } else { false }
+        }
+    }
 
     public init(deleteCount: Int, keys: [Key], target: LayoutID, expected: String, seq: UInt32,
-                viaAccessibility: Bool = false)
+                viaAccessibility: Bool = false, origin: Origin, decision: Classifier.Decision? = nil)
     {
+        self.origin = origin
+        decisionBox = decision.map(DecisionBox.init)
         self.deleteCount = deleteCount
         self.keys = keys
         self.target = target
@@ -71,6 +117,20 @@ public struct Correction: Hashable, Sendable {
     public var undoable: Bool
     /// What was corrected. A typo fixed together with the layout is `.typo`.
     public var kind: Kind
+    /// What the classifier decided, when it switched the layout at the end of
+    /// the word. Nil for a switch inside the word and for corrections that
+    /// stay in their layout.
+    public var decision: Classifier.Decision? {
+        get { decisionBox?.value }
+        set { decisionBox = newValue.map(DecisionBox.init) }
+    }
+
+    private var decisionBox: DecisionBox?
+    /// The switch happened inside the word, at an impossible start ("ghb");
+    /// `decision` then only names the languages.
+    public var insideWord = false
+    /// What a typo correction changed.
+    public var typoChange: TypoCorrector.Change?
 
     /// The corrections of the word-boundary pipeline (docs/PLAN.md, «Этап 4»).
     public enum Kind: Hashable, Sendable {
@@ -125,7 +185,7 @@ public enum Effect: Hashable, Sendable {
     case selectLayout(LayoutID)
     /// Retype a word, or the selection after `.selectionRead`. Usually comes
     /// right after the `.selectLayout` of its target: select first, then post.
-    case retype(Retype)
+    indirect case retype(Retype)
     /// Nothing is buffered: read the selected text, off the tap thread, and
     /// answer with `.selectionRead(seq:text:)`, an empty text if nothing is
     /// selected. The fence holds user input from now on, until the machine
@@ -144,7 +204,7 @@ public enum Effect: Hashable, Sendable {
     case refused(Refusal)
     /// An automatic switch was posted: show the hint at the caret. Comes with
     /// the `.retypePosted` of its `seq`, so a cancelled switch never shows.
-    case corrected(Correction)
+    indirect case corrected(Correction)
     /// The correction with this `seq` was undone: Backspace right after it,
     /// `HotkeyAction.undoLastCorrection` or `InputEvent.undoLastCorrection`.
     /// Comes with the `.retypePosted` of the undo. Hide its hint.

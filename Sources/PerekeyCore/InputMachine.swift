@@ -276,8 +276,10 @@ public struct InputMachine: Sendable {
         let seq = fence.takeSeq()
         var pending = retype.pending
         pending.correction.seq = seq
+        if let decision = retype.decision { pending.correction.decision = decision }
         startRetype((retype.keys, retype.expected), deleteCount: retype.deleteCount, target: retype.target, seq: seq,
-                    purpose: .correction(pending), at: time, effects: &effects)
+                    purpose: .correction(pending), origin: .automatic(pending.correction.kind),
+                    decision: retype.decision, at: time, effects: &effects)
         if retype.dropsLastKey { buffer.deleteBackward() }
         if let word = retype.word {
             buffer.replaceWord(word, in: retype.target)
@@ -299,7 +301,7 @@ public struct InputMachine: Sendable {
               let plan = undo.takeBack(layouts: layouts, learnFromUndos: settings.learnFromUndos, heldKey: heldKey)
         else { return false }
         startRetype((plan.keys, plan.expected), deleteCount: plan.deleteCount, target: plan.source,
-                    seq: fence.takeSeq(), purpose: .undo(plan.inFlight), at: time, effects: &effects)
+                    seq: fence.takeSeq(), purpose: .undo(plan.inFlight), origin: .undo, at: time, effects: &effects)
         buffer.clear()
         for stroke in plan.strokes { buffer.type(stroke, in: plan.source) }
         judge.wordUndone(language: plan.language)
@@ -357,6 +359,9 @@ public struct InputMachine: Sendable {
     private mutating func perform(_ action: HotkeyAction, at time: Double, effects: inout [Effect]) {
         // A shortcut may change the text or the layout (a plain paste, a
         // retype): Backspace after it must not undo a switch from before.
+        // The word the last switch fixed is no word automatic switching
+        // "left alone", whatever the retype does with it.
+        let fixedByAutoswitch = undo.last != nil
         if case .undoLastCorrection = action {} else { undo.forget() }
         if action != .convertLastWord { manual.endPhrase() }
         let isSecureField = focus?.isSecureField == true
@@ -375,14 +380,15 @@ public struct InputMachine: Sendable {
             let plan = manual.retypeWord(buffer: buffer, layouts: layouts,
                                          phrases: settings.corrections.phraseRetype, isSecureField: isSecureField,
                                          classifier: judge.classifier)
-            run(plan, at: time, effects: &effects)
+            run(plan, as: action, fixedByAutoswitch: fixedByAutoswitch, at: time, effects: &effects)
 
         case .changeCase:
             run(ManualActions.changeCase(buffer: buffer, layouts: layouts, isSecureField: isSecureField),
-                at: time, effects: &effects)
+                as: action, at: time, effects: &effects)
 
         case .transliterate:
-            run(isSecureField ? .refuse(.secureField) : .readSelection(.transliterate), at: time, effects: &effects)
+            run(isSecureField ? .refuse(.secureField) : .readSelection(.transliterate), as: action, at: time,
+                effects: &effects)
 
         case .pastePlain:
             effects.append(.pastePlain)
@@ -392,7 +398,9 @@ public struct InputMachine: Sendable {
         }
     }
 
-    private mutating func run(_ plan: ManualActions.Plan, at time: Double, effects: inout [Effect]) {
+    private mutating func run(_ plan: ManualActions.Plan, as action: HotkeyAction, fixedByAutoswitch: Bool = false,
+                              at time: Double, effects: inout [Effect])
+    {
         switch plan {
         case let .refuse(refusal):
             effects.append(.refused(refusal))
@@ -405,8 +413,13 @@ public struct InputMachine: Sendable {
             fence.raise(seq: seq, awaiting: nil, deadline: time + settings.postTimeout,
                         purpose: .readingSelection(action), effects: &effects)
         case let .retype(retype):
+            // The first press on a word: what automatic switching made of it.
+            let decision = retype.explainable && !fixedByAutoswitch
+                ? judge.decisionForManualRetype(buffer: buffer, layouts: layouts, settings: settings, focus: focus,
+                                                secureInput: secureInput, target: retype.target)
+                : nil
             startRetype(retype.word, target: retype.target, awaitsLayout: retype.changesLayout,
-                        seq: fence.takeSeq(), at: time, effects: &effects)
+                        seq: fence.takeSeq(), origin: .manual(action), decision: decision, at: time, effects: &effects)
             switch retype.edit {
             case let .relabel(layout): buffer.relabel(to: layout)
             case let .relabelPhrase(phrase): buffer.relabelPhrase(phrase)
@@ -430,7 +443,7 @@ public struct InputMachine: Sendable {
             let layoutBefore = target == layouts.current ? nil : layouts.current
             select(target, effects: &effects)
             effects.append(.retype(Retype(deleteCount: 0, keys: keys, target: target, expected: text, seq: seq,
-                                          viaAccessibility: viaAccessibility)))
+                                          viaAccessibility: viaAccessibility, origin: .manualSelection(action.hotkeyAction))))
             fence.retypesSelection(into: target, layoutBefore: layoutBefore, viaAccessibility: viaAccessibility)
         }
     }
@@ -446,12 +459,14 @@ public struct InputMachine: Sendable {
     /// `awaitsLayout`: the fence also waits for the system to confirm `target`.
     private mutating func startRetype(_ word: (keys: [Retype.Key], expected: String), deleteCount: Int? = nil,
                                       target: LayoutID, awaitsLayout: Bool = true, seq: UInt32,
-                                      purpose: Fence.Purpose = .retype, at time: Double, effects: inout [Effect])
+                                      purpose: Fence.Purpose = .retype, origin: Retype.Origin,
+                                      decision: Classifier.Decision? = nil, at time: Double,
+                                      effects: inout [Effect])
     {
         let layoutBefore = target == layouts.current ? nil : layouts.current
         select(target, effects: &effects)
         effects.append(.retype(Retype(deleteCount: deleteCount ?? word.keys.count, keys: word.keys, target: target,
-                                      expected: word.expected, seq: seq)))
+                                      expected: word.expected, seq: seq, origin: origin, decision: decision)))
         // Long until the retype is posted; `.retypePosted` shortens it.
         fence.raise(seq: seq, awaiting: awaitsLayout ? target : nil, layoutBefore: layoutBefore,
                     deadline: time + settings.postTimeout, purpose: purpose, effects: &effects)

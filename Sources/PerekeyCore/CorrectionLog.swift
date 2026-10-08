@@ -18,6 +18,10 @@ public struct CorrectionLog: Equatable, Sendable {
         public var original: String
         public var replacement: String
         public var kind: Correction.Kind
+        /// Why it happened: facts the menu's «Why?» puts into words.
+        public var explanation: Explanation
+        /// The classifier's decision as names and numbers, for a report.
+        public var summary: String
         public var date: Date
         public var undone = false
     }
@@ -36,7 +40,9 @@ public struct CorrectionLog: Equatable, Sendable {
     /// Adds a correction at the top and drops the oldest past the limit.
     public mutating func record(_ correction: Correction, at date: Date = Date()) {
         entries.insert(Entry(id: nextID, seq: correction.seq, original: correction.original,
-                             replacement: correction.replacement, kind: correction.kind, date: date), at: 0)
+                             replacement: correction.replacement, kind: correction.kind,
+                             explanation: Explanation(correction: correction),
+                             summary: FalseSwitchReport.summary(of: correction), date: date), at: 0)
         nextID += 1
         if entries.count > Self.limit { entries.removeLast(entries.count - Self.limit) }
     }

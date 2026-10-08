@@ -223,3 +223,41 @@ extension ModelFixture {
                 "the corrector itself handles uk once the language is allowed")
     }
 }
+
+/// «Почему не исправил?» with three layouts: the facts of the reading the user chose.
+@Suite struct ThreeLayoutsExplanationTests {
+    private func keyboard(current: LayoutID) -> Keyboard {
+        let settings = Settings(hotkeys: [HotkeyBinding(.modifiers(.option, taps: .single), action: .convertLastWord)])
+        var kb = Keyboard(settings)
+        kb.machine = InputMachine(settings: settings, layouts: [Fixture.abc, Fixture.russian, Fixture.ukrainianPC],
+                                  currentLayout: current, classifier: UkrainianFixture.classifier)
+        kb.send(.focusChanged(Desk.textEdit))
+        return kb
+    }
+
+    @Test func theCandidatesExplainTheReadingThatWon() {
+        let decision = UkrainianFixture.classifier.classify(
+            Fixture.abc.strokes("ghbdsn"), typed: Fixture.abc, candidates: [Fixture.russian, Fixture.ukrainianPC],
+            explaining: true)
+        #expect(decision.verdict == .switch(to: uk))
+        #expect(decision.typedLanguage == "en" && decision.otherLanguage == "uk")
+        #expect(decision.otherForm == .known)
+    }
+
+    @Test func aManualRetypeExplainsTheReadingItWentTo() throws {
+        var kb = keyboard(current: en)
+        kb.type("ghbdsn", in: Fixture.abc)
+        let retype = try #require(kb.tapOption().retype)
+        #expect(retype.target == uk)
+        let decision = try #require(retype.decision)
+        #expect(decision.otherLanguage == "uk", "the reading chosen, not the first candidate (Russian)")
+    }
+
+    @Test func ruToUkByHandHasNothingToExplain() throws {
+        var kb = keyboard(current: ru)
+        kb.type("привыт", in: Fixture.russian)
+        let retype = try #require(kb.tapOption().retype)
+        #expect(retype.target == uk)
+        #expect(retype.decision == nil, "automatic switching never weighs ru against uk")
+    }
+}

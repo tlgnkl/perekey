@@ -13,6 +13,8 @@ import SwiftUI
 struct ReportWordSheet: View {
     let layouts: [String]
     let version: String
+    /// What the classifier decided, names and numbers; shown in the link.
+    let reason: String
     let onOpen: (URL) -> Void
     let onCancel: () -> Void
 
@@ -21,11 +23,12 @@ struct ReportWordSheet: View {
     private let did: State<String>
     private let mode: State<FalseSwitchReport.Mode>
 
-    init(initialWord: String = "", layouts: [String], version: String, onOpen: @escaping (URL) -> Void,
+    init(initialWord: String = "", reason: String = "", layouts: [String], version: String, onOpen: @escaping (URL) -> Void,
          onCancel: @escaping () -> Void)
     {
         self.layouts = layouts
         self.version = version
+        self.reason = reason
         self.onOpen = onOpen
         self.onCancel = onCancel
         word = State(initialValue: initialWord)
@@ -37,7 +40,7 @@ struct ReportWordSheet: View {
     /// The report as it stands now; the sheet shows it and opens its link.
     var report: FalseSwitchReport {
         FalseSwitchReport(typed: keepWord.wrappedValue ? word.wrappedValue : "", did: did.wrappedValue,
-                          mode: mode.wrappedValue, layouts: layouts, version: version)
+                          reason: reason, mode: mode.wrappedValue, layouts: layouts, version: version)
     }
 
     var body: some View {

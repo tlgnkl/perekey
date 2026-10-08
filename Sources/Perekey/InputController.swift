@@ -193,12 +193,26 @@ final class InputController {
             secureInput.refresh()
         case .pastePlain:
             plainPaste.paste()
-        case let .retyped(original, text, manual):
+        case let .retyped(original, text, origin, decision):
             SystemSounds.play(store.settings.correctionSound)
-            if manual { onManualRetype?() }
-            // An automatic switch has its own hint, from `corrected`.
-            if manual, store.settings.caretHint.shows(automatic: false), original != text {
-                hint.showRetyped(original: original, word: text, shortcut: retypeShortcut())
+            // An automatic switch has its own hint, from `corrected`; an undo hides it.
+            if manualAction(of: origin) != nil { onManualRetype?() }
+            if let manual = manualAction(of: origin), store.settings.caretHint.shows(automatic: false),
+               original != text
+            {
+                var why: HintWhy?
+                if let decision {
+                    let explanation = Explanation(decision: decision, typed: original, other: text)
+                    why = HintWhy(title: ExplanationText.title(switched: explanation.switched),
+                                  lines: ExplanationText.lines(explanation))
+                }
+                var onAlwaysFix: (() -> Void)?
+                if let decision, offersAlwaysFix(decision, original: original, text: text) {
+                    onAlwaysFix = { [weak self] in self?.confirmAlwaysFix(text, typed: original) }
+                }
+                hint.showRetyped(original: original, word: text,
+                                 shortcut: manual.onSelection ? nil : shortcut(of: manual.action), why: why,
+                                 onAlwaysFix: onAlwaysFix)
                 shownCorrection = nil
             }
         case let .corrected(correction):
@@ -236,6 +250,8 @@ final class InputController {
         case let .alwaysFixWithdrawn(word):
             store.update { $0.words.stopFixing(word) }
             onAlwaysFixWithdrawn?(word)
+            // After the `correctionUndone` of the same undo, which hid the old hint.
+            if store.settings.caretHint != .off { hint.showAlwaysFixWithdrawn(word: word) }
         case .capsLockOff:
             CapsLockState.turnOff()
         }
@@ -272,9 +288,41 @@ final class InputController {
         return added
     }
 
-    /// The user's own shortcut for retyping the last word, as keycaps, or nil.
-    private func retypeShortcut() -> String? {
-        guard let trigger = store.settings.trigger(for: .convertLastWord) else { return nil }
+    /// Whether the hint after this manual retype offers «Always fix»
+    /// (`WordRules.offerAlwaysFix`): the word is on no list, in either reading.
+    private func offersAlwaysFix(_ decision: Classifier.Decision, original: String, text: String) -> Bool {
+        let words = store.settings.words
+        let listed = words.section(of: original) != nil || words.section(of: text) != nil
+        return WordRules.offerAlwaysFix(
+            decision: decision,
+            context: WordRules.OfferContext(autoswitch: store.settings.autoswitch, appMode: appModes.mode, listed: listed)
+        )
+    }
+
+    /// «Always fix» was pressed: list the word and say so, with «Undo».
+    private func confirmAlwaysFix(_ word: String, typed: String) {
+        guard alwaysFix(word, typed: typed) else {
+            hint.hide()
+            return
+        }
+        hint.showAlwaysFixed(word: word) { [weak self] in
+            self?.store.update { $0.words.stopFixing(word) }
+        }
+    }
+
+    private func manualAction(of origin: Retype.Origin) -> (action: HotkeyAction, onSelection: Bool)? {
+        switch origin {
+        case let .manual(action): (action, false)
+        case let .manualSelection(action): (action, true)
+        case .automatic, .undo: nil
+        }
+    }
+
+    /// The user's own shortcut, as keycaps, to press again and put the word
+    /// back. Only the retype of a word does that: the next press of the case
+    /// shortcut changes the case again, and a selection is gone once typed over.
+    private func shortcut(of action: HotkeyAction) -> String? {
+        guard action == .convertLastWord, let trigger = store.settings.trigger(for: action) else { return nil }
         return TriggerText.keycaps(of: trigger).joined(separator: " ")
     }
 

@@ -13,8 +13,9 @@ struct MenuActions {
     var showOnboarding: () -> Void = {}
     var showAbout: () -> Void = {}
     var quit: () -> Void = {}
-    /// Opens the report form with this word filled in.
-    var report: (String) -> Void = { _ in }
+    /// Opens the report form with this word and the classifier's decision
+    /// (names and numbers) filled in.
+    var report: (String, String) -> Void = { _, _ in }
     var close: () -> Void = {}
 }
 
@@ -303,7 +304,7 @@ struct MenuContent: View {
                     let latest = recents.log.latestStanding?.id
                     ForEach(recents.log.entries) { entry in
                         CorrectionRow(entry: entry, isLatest: entry.id == latest, store: store, nav: nav,
-                                      onReport: { word in actions.report(word) })
+                                      onReport: { word, reason in actions.report(word, reason) })
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                     }
                 }
@@ -575,15 +576,60 @@ struct CorrectionRow: View {
     let isLatest: Bool
     let store: SettingsStore
     let nav: MenuNav
-    let onReport: (String) -> Void
+    let onReport: (String, String) -> Void
+    /// «Why?» is open: the reasons show under the row.
+    private let explained: State<Bool>
+
+    init(entry: CorrectionLog.Entry, isLatest: Bool, store: SettingsStore, nav: MenuNav,
+         onReport: @escaping (String, String) -> Void, explained: Bool = false)
+    {
+        self.entry = entry
+        self.isLatest = isLatest
+        self.store = store
+        self.nav = nav
+        self.onReport = onReport
+        self.explained = State(initialValue: explained)
+    }
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row
+            Reveal(open: explained.wrappedValue) { reasons }
+        }
+        .background {
+            if isLatest {
+                Color.clear.glassStrip(in: shape)
+            } else {
+                shape.fill(Color.pkRow).overlay(shape.strokeBorder(Color.pkRule, lineWidth: 0.5))
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    /// What the classifier and the correction rules said, line by line.
+    private var reasons: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Array(ExplanationText.lines(entry.explanation).enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line)
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 32)
+        .padding(.trailing, 10)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var row: some View {
         // A switch's other reading is its replacement: never-touch covers both.
         let readings = entry.kind == .layout ? [entry.replacement] : []
         let status = store.settings.words.validate(entry.original, readings: readings)
-        HStack(spacing: 6) {
+        return HStack(spacing: 6) {
             Image(systemName: entry.kind.symbol)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color.pkInk2)
@@ -616,21 +662,17 @@ struct CorrectionRow: View {
             case .empty, .invalid, .neverTouch, .tooShort:
                 EmptyView()
             }
+            RowIconButton(id: "fix-\(entry.id)-why", symbol: "questionmark.circle", title: "Why?", nav: nav,
+                          selected: explained.wrappedValue) {
+                explained.wrappedValue.toggle()
+            }
             RowIconButton(id: "fix-\(entry.id)-report", symbol: "flag", title: "Report a word", nav: nav) {
-                onReport(entry.original)
+                onReport(entry.original, entry.summary)
             }
         }
         .padding(.leading, 10)
         .padding(.trailing, 4)
         .padding(.vertical, 4)
-        .background {
-            if isLatest {
-                Color.clear.glassStrip(in: shape)
-            } else {
-                shape.fill(Color.pkRow).overlay(shape.strokeBorder(Color.pkRule, lineWidth: 0.5))
-            }
-        }
-        .accessibilityElement(children: .contain)
     }
 }
 
@@ -640,6 +682,8 @@ private struct RowIconButton: View {
     let symbol: String
     let title: LocalizedStringKey
     let nav: MenuNav
+    /// A toggle that is on: its glyph wears the accent.
+    var selected = false
     let run: () -> Void
 
     var body: some View {
@@ -647,7 +691,7 @@ private struct RowIconButton: View {
         Button(action: run) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(lit ? Color.pkIndigoInk : Color.pkInk2)
+                .foregroundStyle(lit || selected ? Color.pkIndigoInk : Color.pkInk2)
                 .frame(width: 24, height: 22)
                 .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(lit ? Color.pkMist : .clear))
                 .contentShape(Rectangle())

@@ -76,7 +76,7 @@ public struct Classifier: Sendable {
         case unsure
     }
 
-    public enum Reason: Hashable, Sendable {
+    public enum Reason: Hashable, Sendable, CaseIterable {
         case empty
         /// Languages unknown to the model, or the same language in both layouts.
         case unsupported
@@ -101,6 +101,19 @@ public struct Classifier: Sendable {
         case compared
     }
 
+    /// What a reading is worth as a word of its language, for explaining a
+    /// decision (`Explanation`).
+    public enum Form: Hashable, Sendable {
+        /// Symbols, digits or no letters: no word to measure.
+        case notWord
+        /// Shaped like a word, but not in the dictionary.
+        case unknown
+        /// In the dictionary, rarely.
+        case rare
+        /// A frequent word, or a known form.
+        case known
+    }
+
     public struct Decision: Hashable, Sendable {
         public var verdict: Verdict
         /// Bits in favour of the other reading; `-infinity` when it is no word.
@@ -108,6 +121,30 @@ public struct Classifier: Sendable {
         public var reason: Reason
         /// The language the word is in, if the classifier is sure.
         public var language: String?
+        /// The score the switch needed: the threshold, raised for an unknown
+        /// other reading. Set by every judgement of two readings.
+        public var margin: Double = 0
+        /// What the typed reading and the other one are as words.
+        public var typedForm = Form.notWord
+        public var otherForm = Form.notWord
+        /// The languages of the two layouts, e.g. "en" and "ru".
+        public var typedLanguage: String?
+        public var otherLanguage: String?
+
+        public init(verdict: Verdict, score: Double, reason: Reason, language: String?, margin: Double = 0,
+                    typedForm: Form = .notWord, otherForm: Form = .notWord, typedLanguage: String? = nil,
+                    otherLanguage: String? = nil)
+        {
+            self.verdict = verdict
+            self.score = score
+            self.reason = reason
+            self.language = language
+            self.margin = margin
+            self.typedForm = typedForm
+            self.otherForm = otherForm
+            self.typedLanguage = typedLanguage
+            self.otherLanguage = otherLanguage
+        }
     }
 
     /// A word longer than this is no word.
@@ -125,8 +162,11 @@ public struct Classifier: Sendable {
     /// - Parameters:
     ///   - typed: the layout that was active while typing.
     ///   - other: the layout the word may have been meant for.
+    /// - Parameter explaining: also fill in `margin`, the forms and the
+    ///   languages of the decision, for «why?». Costs a little, so the
+    ///   per-word path leaves it off and asks again when it needs the facts.
     public func classify(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap,
-                         context: Context = Context()) -> Decision
+                         context: Context = Context(), explaining: Bool = false) -> Decision
     {
         let count = Self.wordLength(strokes)
         guard count > 0 else { return Decision(verdict: .keep, score: 0, reason: .empty, language: nil) }
@@ -142,7 +182,8 @@ public struct Classifier: Sendable {
                       let otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
                                                  scalars: scalars[half...], symbols: symbols[half...])
                 else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
-                return decide(typedReading, otherReading, typed: typed, other: other, context: context)
+                return decide(typedReading, otherReading, typed: typed, other: other, context: context,
+                              explaining: explaining)
             }
         }
     }
@@ -155,9 +196,10 @@ public struct Classifier: Sendable {
     /// A candidate competes only when its language has a model and differs
     /// from the typed one, and, in `.automatic` mode, when it is written in
     /// another script (`switchesAutomatically`): ru ↔ uk never switches by
-    /// itself. Of equal readings the earlier candidate wins.
+    /// itself. Of equal readings the earlier candidate wins. `explaining`
+    /// fills in the facts of the reading that won, as for a pair.
     public func classify(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap],
-                         context: Context = Context()) -> Decision
+                         context: Context = Context(), explaining: Bool = false) -> Decision
     {
         let automatic = context.mode == .automatic
         if candidates.count == 1 {
@@ -167,7 +209,7 @@ public struct Classifier: Sendable {
             {
                 return Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
             }
-            return classify(strokes, typed: typed, other: other, context: context)
+            return classify(strokes, typed: typed, other: other, context: context, explaining: explaining)
         }
         let count = Self.wordLength(strokes)
         guard count > 0 else { return Decision(verdict: .keep, score: 0, reason: .empty, language: nil) }
@@ -190,7 +232,8 @@ public struct Classifier: Sendable {
                     guard let otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
                                                      scalars: scalars[half...], symbols: symbols[half...])
                     else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
-                    let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context)
+                    let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context,
+                                          explaining: explaining)
                     if best.map({ Self.isBetter(decision, than: $0) }) ?? true { best = decision }
                 }
                 return best ?? Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
@@ -300,7 +343,26 @@ public struct Classifier: Sendable {
     }
 
     private func decide(_ typed: Reading, _ other: Reading, typed typedLayout: LayoutMap, other otherLayout: LayoutMap,
-                        context: Context) -> Decision
+                        context: Context, explaining: Bool) -> Decision
+    {
+        var decision = compare(typed, other, typed: typedLayout, other: otherLayout, context: context)
+        guard explaining else { return decision }
+        decision.margin = isKnown(other) ? options.threshold : options.threshold + options.unknownWordExtra
+        decision.typedForm = form(of: typed)
+        decision.otherForm = form(of: other)
+        decision.typedLanguage = typedLayout.language
+        decision.otherLanguage = otherLayout.language
+        return decision
+    }
+
+    private func form(of reading: Reading) -> Form {
+        guard reading.isWord else { return .notWord }
+        if isKnown(reading) { return .known }
+        return reading.rank == nil ? .unknown : .rare
+    }
+
+    private func compare(_ typed: Reading, _ other: Reading, typed typedLayout: LayoutMap, other otherLayout: LayoutMap,
+                         context: Context) -> Decision
     {
         let typedCode = typedLayout.language
         let otherCode = otherLayout.language

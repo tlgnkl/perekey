@@ -69,6 +69,16 @@ public struct HintLifetime: Equatable, Sendable {
         }
     }
 
+    /// Keeps the hint at least `seconds` from now: the user opened something
+    /// to read.
+    public mutating func hold(for seconds: Double, at now: Double) {
+        if let left = frozen {
+            frozen = max(left, seconds)
+        } else {
+            deadline = max(deadline, now + seconds)
+        }
+    }
+
     public mutating func setHovering(_ hovering: Bool, at now: Double) {
         if hovering, frozen == nil {
             frozen = max(0, deadline - now)

@@ -525,12 +525,14 @@ public final class InputEngine: @unchecked Sendable {
         // The selection a shortcut asked to convert comes back as this event.
         var manual = false
         if case .selectionRead = event { manual = true }
+        if case let .retypeCancelled(seq) = event { manualRetypes.remove(seq) }
         execute(machine.handle(event).effects, manual: manual)
     }
 
     private func execute(_ effects: [Effect], manual: Bool = false) {
         func note(_ retype: Retype) {
-            if manualRetypes.count > 16 { manualRetypes.removeAll() }
+            // Cancelled retypes are removed in `handle`; this only bounds a leak.
+            if manualRetypes.count > 64, let oldest = manualRetypes.min() { manualRetypes.remove(oldest) }
             if manual { manualRetypes.insert(retype.seq) }
         }
         var index = effects.startIndex

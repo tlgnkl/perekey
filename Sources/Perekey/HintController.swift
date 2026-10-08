@@ -70,7 +70,6 @@ final class HintController {
         generation += 1
         let mine = generation
         currentAction = action
-        startKeyMonitor()
         locator.caretRect { [weak self] rect in
             Task { @MainActor in
                 guard let self, self.generation == mine else { return }
@@ -109,6 +108,7 @@ final class HintController {
             panel.setFrame(stage, display: true)
             withAnimation(nil) { model.bubble = local(oldBubble, in: stage) }
             bubbleScreen = newBubble
+            gliding = true
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, self.remainingGlide == glideRun else { return }
@@ -124,6 +124,9 @@ final class HintController {
         } else {
             bubbleScreen = newBubble
             occupied = newBubble
+            gliding = false
+            // The last scene's button is gone; the new one reports its own place.
+            model.buttonFrame = .zero
             let stage = newBubble.insetBy(dx: -inset, dy: -inset)
             model.content = content
             panel.setFrame(stage, display: true)
@@ -135,11 +138,16 @@ final class HintController {
             model.strip.play(delay: 0.12)
         }
         if wasVisible { lifetime.restart(at: Self.now) } else { lifetime = HintLifetime(now: Self.now) }
+        startKeyMonitor()
         startTimer()
         publishButtonFrame()
     }
 
     private var remainingGlide = 0
+    /// The bubble is moving: its button has no stable place, so it takes no clicks.
+    private var gliding = false {
+        didSet { model.gliding = gliding }
+    }
 
     /// Shrinks the panel to the bubble once it arrived.
     private func settle(after delay: TimeInterval, run: Int) {
@@ -149,6 +157,7 @@ final class HintController {
             let inset = HintMetrics.shadowInset
             let stage = self.bubbleScreen.insetBy(dx: -inset, dy: -inset)
             self.occupied = self.bubbleScreen
+            self.gliding = false
             panel.setFrame(stage, display: true)
             withAnimation(nil) { self.model.bubble = self.local(self.bubbleScreen, in: stage) }
             self.publishButtonFrame()
@@ -162,7 +171,7 @@ final class HintController {
 
     private func publishButtonFrame() {
         var frame: CGRect?
-        if let panel, panel.isVisible, currentAction != nil, model.buttonFrame != .zero,
+        if let panel, panel.isVisible, !gliding, currentAction != nil, model.buttonFrame != .zero,
            let main = NSScreen.screens.first
         {
             // The hosting view fills the panel and has a top-left origin.
@@ -176,6 +185,10 @@ final class HintController {
     }
 
     private func dismiss() {
+        // A glide or a delayed strip still on its way must not run on a hiding panel.
+        remainingGlide += 1
+        gliding = false
+        model.strip.rest(at: 1, style: model.strip.style)
         timer?.invalidate()
         timer = nil
         stopKeyMonitor()
@@ -267,7 +280,7 @@ private final class HintHostingView: NSHostingView<HintView> {
     var model: HintModel?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let model else { return nil }
+        guard let model, !model.gliding else { return nil }
         let local = convert(point, from: superview)
         let y = isFlipped ? local.y : bounds.height - local.y
         guard model.buttonFrame.contains(CGPoint(x: local.x, y: y)) else { return nil }

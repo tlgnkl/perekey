@@ -32,6 +32,8 @@ final class HintModel {
     /// Frame of the button in the hosting view, top-left origin; the panel
     /// takes mouse events only there.
     var buttonFrame: CGRect = .zero
+    /// The bubble is on its way to a new place; its button takes no clicks.
+    var gliding = false
     /// Called after `buttonFrame` changed.
     @ObservationIgnored var onButtonFrameChange: (() -> Void)?
 

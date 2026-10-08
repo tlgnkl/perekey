@@ -11,6 +11,8 @@
 #   BUILD          CFBundleVersion (default: 0)
 #   SIGN_IDENTITY  codesign identity; "-" signs ad hoc
 #                  (default: "Perekey Dev" from scripts/dev-cert.sh if present, else -)
+#   PEREKEY_BINARY a prebuilt executable (a universal one from build-universal.sh)
+#                  to use instead of building the host product
 #   PEREKEY_MODEL  language model file (default: $SCRATCH_PATH/model/perekey.model,
 #                  built by scripts/build-model.sh if missing)
 set -euo pipefail
@@ -31,13 +33,17 @@ if [[ -z "${SIGN_IDENTITY:-}" && -f "$DEV_KEYCHAIN" ]]; then
 fi
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 
-swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --product Perekey
-BIN_DIR="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --show-bin-path)"
+if [[ -n "${PEREKEY_BINARY:-}" ]]; then
+    BINARY="$PEREKEY_BINARY"
+else
+    swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --product Perekey
+    BINARY="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --show-bin-path)/Perekey"
+fi
 
 APP="$OUT/Perekey.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/Perekey" "$APP/Contents/MacOS/Perekey"
+cp "$BINARY" "$APP/Contents/MacOS/Perekey"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" Support/Info.plist > "$APP/Contents/Info.plist"
 # Resources load from Bundle.main; Bundle.module of an executable target would break the signature.
 for lproj in Support/*.lproj; do

@@ -27,6 +27,7 @@ struct GeneralPane: View {
             correctionsSection
             soundsSection
             updatesSection
+            guaranteesSection
             PKGroup(header: Text("Feedback")) {
                 PKRow(Text("A wrong correction?"), detail: Text("You see the text before anything is sent.")) {
                     Button("Report a word…") { reporting.wrappedValue = true }
@@ -92,6 +93,27 @@ struct GeneralPane: View {
                 .labelsHidden()
                 .toggleStyle(.pkSwitch)
             }
+        }
+    }
+
+    /// What Perekey never changes. Statements, not settings: no controls.
+    private var guaranteesSection: some View {
+        PKGroup(header: Text("Perekey does not touch")) {
+            PKGuaranteeRow(symbol: "lock.fill", Text("Password fields"),
+                           detail: Text("Where macOS marks the field as secure, or secure input is on."),
+                           sample: "••••••••")
+            PKDivider()
+            PKGuaranteeRow(symbol: "key.fill", Text("Strings that look like passwords"),
+                           detail: Text("Upper and lower case, digits and symbols mixed together stay as typed."),
+                           sample: "Xk9#mQ2v")
+            PKDivider()
+            PKGuaranteeRow(symbol: "checkmark.shield.fill", Text("Random letters, as in a captcha"),
+                           detail: Text("When neither layout makes a word, Perekey does nothing."),
+                           sample: "qzkvtp")
+            PKDivider()
+            PKGuaranteeRow(symbol: "terminal.fill", Text("Code in terminals and editors"),
+                           detail: Text("There Perekey acts only on your command."),
+                           sample: "git rebase -i")
         }
     }
 

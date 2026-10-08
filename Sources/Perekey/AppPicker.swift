@@ -179,6 +179,7 @@ struct AppPickerView: View {
                         LazyVStack(spacing: 0) {
                             ForEach(Array(results.enumerated()), id: \.element.id) { index, app in
                                 AppPickerRow(app: app, isSelected: index == model.selection, isAdded: existing.contains(app.bundleID))
+                                    .pkCascade(index: index)
                                     .id(app.id)
                                     .onTapGesture { if !existing.contains(app.bundleID) { onPick(app) } }
                                     .onHover { if $0 { model.selection = index } }

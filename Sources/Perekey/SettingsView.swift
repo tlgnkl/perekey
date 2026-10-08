@@ -50,14 +50,16 @@ struct SettingsView: View {
     let recording: ShortcutRecording
     let sources: InputSources
     let updates: Updates
+    let languages: LanguageStatsStore?
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
     /// Material behind the whole window; off for offscreen snapshots.
     private let windowBackground: Bool
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
-         initial: SettingsSection = .general, windowBackground: Bool = true) {
+         languages: LanguageStatsStore? = nil, initial: SettingsSection = .general, windowBackground: Bool = true) {
         self.windowBackground = windowBackground
+        self.languages = languages
         self.updates = updates
         self.store = store
         self.recording = recording
@@ -118,7 +120,7 @@ struct SettingsView: View {
         switch current {
         case .general: GeneralPane(store: store, updates: updates, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
         case .shortcuts: ShortcutsPane(store: store, recording: recording)
-        case .apps: AppsPane(store: store, sources: sources)
+        case .apps: AppsPane(store: store, sources: sources, languages: languages)
         case .sites: SitesPane(store: store, sources: sources)
         case .words: WordsPane(store: store)
         }

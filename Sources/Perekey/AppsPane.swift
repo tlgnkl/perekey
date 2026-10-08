@@ -33,6 +33,8 @@ struct AppEntry: Identifiable {
     var url: URL?
     var mode: AppMode
     var rule: AppRule?
+    /// The language most typed in the app, once there is enough to say.
+    var language: String?
     var id: String { bundleID }
 }
 
@@ -41,17 +43,23 @@ struct AppEntry: Identifiable {
 struct AppsPane: View {
     let store: SettingsStore
     let sources: InputSources
+    /// Language counts; nil hides the language labels.
+    let languages: LanguageStatsStore?
     private let model: State<AppsPaneModel>
 
-    init(store: SettingsStore, sources: InputSources, model: AppsPaneModel? = nil) {
+    init(store: SettingsStore, sources: InputSources, languages: LanguageStatsStore? = nil,
+         model: AppsPaneModel? = nil)
+    {
         self.store = store
         self.sources = sources
+        self.languages = languages
         self.model = State(initialValue: model ?? AppsPaneModel())
     }
 
     private var pane: AppsPaneModel { model.wrappedValue }
 
-    /// Apps with a user rule, then installed apps with a built-in default.
+    /// Apps with a user rule, installed apps with a built-in default, and
+    /// apps whose language is known from what was typed there.
     private var entries: [AppEntry] {
         let apps = store.settings.apps
         var list: [AppEntry] = apps.map { id, rule in
@@ -61,6 +69,15 @@ struct AppsPane: View {
         for app in pane.builtIns where apps[app.bundleID] == nil {
             list.append(AppEntry(bundleID: app.bundleID, name: app.name, url: app.url,
                                  mode: AppModes.builtInMode(bundleID: app.bundleID) ?? .auto, rule: nil))
+        }
+        if let languages {
+            let listed = Set(list.map(\.bundleID))
+            for id in languages.stats.apps.keys where !listed.contains(id) && languages.dominantLanguage(app: id) != nil {
+                guard let url = AppInfo.url(bundleID: id) else { continue }
+                list.append(AppEntry(bundleID: id, name: AppInfo.name(at: url), url: url,
+                                     mode: AppModes.builtInMode(bundleID: id) ?? .auto, rule: nil))
+            }
+            for index in list.indices { list[index].language = languages.dominantLanguage(app: list[index].bundleID) }
         }
         return list.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -98,7 +115,7 @@ struct AppsPane: View {
                                 ForEach(Array(shown.enumerated()), id: \.element.id) { index, entry in
                                     VStack(spacing: 0) {
                                         if index > 0 { PKDivider(leading: 54) }
-                                        AppRow(entry: entry, store: store, sources: sources)
+                                        AppRow(entry: entry, store: store, sources: sources, languages: languages)
                                             .pkFound(entry.bundleID, tracker: pane.found)
                                     }
                                     .pkRowTransition()
@@ -200,6 +217,7 @@ private struct AppRow: View {
     let entry: AppEntry
     let store: SettingsStore
     let sources: InputSources
+    let languages: LanguageStatsStore?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -208,10 +226,27 @@ private struct AppRow: View {
                 .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.name).font(PK.Font.body).foregroundStyle(Color.pkInk).lineLimit(1)
-                Text(entry.rule == nil ? String(localized: "Built-in default") : String(localized: "Your rule"))
-                    .font(PK.Font.caption)
-                    .foregroundStyle(Color.pkInk2)
+                Group {
+                    // An app listed for its language alone has no rule to name.
+                    if entry.rule != nil || AppModes.builtInMode(bundleID: entry.bundleID) != nil {
+                        Text(entry.rule == nil ? String(localized: "Built-in default") : String(localized: "Your rule"))
+                    }
+                    if let language = entry.language {
+                        HStack(spacing: 6) {
+                            Text(Self.mostly(language))
+                            Button("Reset") { languages?.reset(app: entry.bundleID) }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Color.pkIndigoInk)
+                                .help("Forget the languages typed in this app")
+                        }
+                    }
+                }
+                .font(PK.Font.caption)
+                .foregroundStyle(Color.pkInk2)
+                .lineLimit(1)
             }
+            // The captions take the room before the pickers do.
+            .layoutPriority(1)
             Spacer(minLength: 8)
             Picker("Layout", selection: layoutChoice) {
                 Text("Keep layout").tag(LayoutChoice.none)
@@ -241,6 +276,16 @@ private struct AppRow: View {
         }
         .padding(.horizontal, PK.Space.md)
         .padding(.vertical, 8)
+    }
+
+    /// "Mostly Russian": the language most typed in the app.
+    static func mostly(_ language: String) -> String {
+        switch language {
+        case "ru": String(localized: "Mostly Russian")
+        case "en": String(localized: "Mostly English")
+        default:
+            String(localized: "Mostly \(Locale.current.localizedString(forLanguageCode: language) ?? language)")
+        }
     }
 
     private var modeBinding: Binding<AppMode> {

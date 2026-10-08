@@ -157,6 +157,11 @@
 "Off" = "Выкл.";
 "Built-in default" = "По умолчанию";
 "Your rule" = "Ваше правило";
+"Mostly Russian" = "В основном русский";
+"Mostly English" = "В основном английский";
+"Mostly %@" = "В основном %@";
+"Reset" = "Сбросить";
+"Forget the languages typed in this app" = "Забыть, на каких языках здесь писали";
 "The file is not a Perekey settings file." = "Это не файл настроек Perekey.";
 "The file comes from a newer Perekey (format %@). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %@). Обновите Perekey и попробуйте снова.";
 

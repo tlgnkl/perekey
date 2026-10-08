@@ -11,6 +11,8 @@
 #   BUILD          CFBundleVersion (default: 0)
 #   SIGN_IDENTITY  codesign identity; "-" signs ad hoc
 #                  (default: "Perekey Dev" from scripts/dev-cert.sh if present, else -)
+#   PEREKEY_MODEL  language model file (default: $SCRATCH_PATH/model/perekey.model,
+#                  built by scripts/build-model.sh if missing)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -42,6 +44,15 @@ for lproj in Support/*.lproj; do
     cp -R "$lproj" "$APP/Contents/Resources/"
 done
 cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+
+# The language model: PEREKEY_MODEL, or the build of scripts/build-model.sh,
+# made here if missing (needs the data cache of scripts/fetch-data.sh lexicon).
+# The app reads it from Bundle.main as Contents/Resources/perekey.model.
+MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model/perekey.model}"
+if [[ ! -f "$MODEL" ]]; then
+    scripts/build-model.sh --out "$MODEL" >/dev/null
+fi
+cp "$MODEL" "$APP/Contents/Resources/perekey.model"
 
 codesign --force --options runtime --timestamp=none ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} \
     --sign "$SIGN_IDENTITY" "$APP"

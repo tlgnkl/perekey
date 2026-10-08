@@ -206,3 +206,7 @@
 /* Stage 2: automatic switching */
 "Undo last correction" = "Отменить последнее исправление";
 "Backspace right after a correction does the same." = "Backspace сразу после исправления делает то же.";
+/* Stage 4a: typo correction */
+"Corrections" = "Исправления";
+"Correct typos" = "Исправлять опечатки";
+"Russian and English, one key off. Backspace right after a correction puts the word back." = "Русский и английский, одна клавиша мимо. Backspace сразу после исправления возвращает слово.";

@@ -24,6 +24,7 @@ struct GeneralPane: View {
 
     var body: some View {
         PKPane(title: Text("General")) {
+            correctionsSection
             soundsSection
             updatesSection
             PKGroup(header: Text("Feedback")) {
@@ -42,6 +43,39 @@ struct GeneralPane: View {
                 }
             }
         }
+    }
+
+    /// What Perekey corrects by itself besides the layout. Typo correction is
+    /// off until it meets the plan's metric (docs/classifier.md, «Опечатки»).
+    private var correctionsSection: some View {
+        PKGroup(header: Text("Corrections")) {
+            PKRow(Text("Correct typos"),
+                  detail: Text("Russian and English, one key off. Backspace right after a correction puts the word back.")) {
+                HStack(spacing: 10) {
+                    exampleChip(from: "прривет", to: "привет")
+                    Toggle(isOn: Binding(get: { store.settings.typoCorrection },
+                                         set: { on in store.update { $0.typoCorrection = on } })) {
+                        Text("Correct typos")
+                    }
+                    .labelsHidden()
+                    .toggleStyle(.pkSwitch)
+                }
+            }
+        }
+    }
+
+    /// "before → after", the way the hint shows a correction.
+    private func exampleChip(from original: String, to replacement: String) -> some View {
+        HStack(spacing: 5) {
+            Text(verbatim: original).strikethrough().foregroundStyle(Color.pkInk2)
+            Image(systemName: "arrow.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Color.pkInk2)
+            Text(verbatim: replacement).foregroundStyle(Color.pkInk)
+        }
+        .font(PK.Font.caption)
+        .padding(.horizontal, 9)
+        .frame(height: 24)
+        .background(Capsule().fill(Color.pkWash))
+        .accessibilityElement(children: .combine)
     }
 
     private var soundsSection: some View {

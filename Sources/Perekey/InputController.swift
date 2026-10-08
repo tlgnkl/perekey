@@ -43,6 +43,9 @@ final class InputController {
     @ObservationIgnored var onCorrectionUndone: ((UInt32) -> Void)?
     /// An undo taught Perekey this word; it is in `AppSettings.words` already.
     @ObservationIgnored var onLearned: ((String) -> Void)?
+    /// An undo took this word off "Всегда исправлять"; it is gone from
+    /// `AppSettings.words` already. For the hint to say so.
+    @ObservationIgnored var onAlwaysFixWithdrawn: ((String) -> Void)?
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState) {
         self.sources = sources
@@ -208,6 +211,9 @@ final class InputController {
             }
         case let .learned(word):
             learn(word)
+        case let .alwaysFixWithdrawn(word):
+            store.update { $0.words.stopFixing(word) }
+            onAlwaysFixWithdrawn?(word)
         case .capsLockOff:
             CapsLockState.turnOff()
         }

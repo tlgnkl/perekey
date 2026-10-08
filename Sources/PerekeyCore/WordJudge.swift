@@ -241,6 +241,10 @@ struct WordJudge: Sendable {
                                               layouts: layouts, settings: settings)
                 else { return .keep }
                 retype.decision = found
+                if forced {
+                    // An undo of it withdraws the word from the list.
+                    retype.pending.alwaysFix = Self.text(of: buffer.entries, in: auto.other).map(Self.exceptionKey)
+                }
                 previousLanguage = auto.other.language
                 return .retype(retype)
             }

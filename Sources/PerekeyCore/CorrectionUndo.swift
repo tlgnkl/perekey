@@ -41,6 +41,9 @@ struct CorrectionUndo: Sendable {
         var typed: [KeyStroke]?
         /// Turn Caps Lock off once posted (`CapsLockStep`).
         var capsLockOff = false
+        /// The "Всегда исправлять" word that forced the switch over the
+        /// classifier: undoing it withdraws the word instead of learning.
+        var alwaysFix: String?
     }
 
     /// What an undo reports once its retype is posted. Nothing of it happens
@@ -54,6 +57,8 @@ struct CorrectionUndo: Sendable {
         var isOpen: Bool
         /// The word to learn, if `Settings.learnFromUndos`.
         var learn: String?
+        /// The word to take off "Всегда исправлять" (`Pending.alwaysFix`).
+        var withdraw: String?
         /// The Backspace that asked for the undo is the first held event.
         var heldKey: Bool
     }
@@ -175,7 +180,7 @@ struct CorrectionUndo: Sendable {
         // "ghbdtn" from ever switching. A typo undo learns the typed word only.
         // Abbreviations and «ё» are about the word itself, so they learn.
         let learn: String? = switch correction.kind {
-        case _ where last.isOpen || !learnFromUndos: nil
+        case _ where last.isOpen || !learnFromUndos || last.alwaysFix != nil: nil
         case .layout, .abbreviation, .yo: Self.learnable(correction.original, or: correction.replacement)
         case .typo: Self.learnable(correction.original, or: nil)
         case .capsLock, .doubleCapitals: nil
@@ -183,7 +188,7 @@ struct CorrectionUndo: Sendable {
         return Plan(keys: keys, expected: expected, deleteCount: deleteCount, source: source.id,
                     language: source.language, strokes: last.strokes,
                     inFlight: InFlight(seq: correction.seq, reported: last.reported, isOpen: last.isOpen,
-                                       learn: learn, heldKey: heldKey))
+                                       learn: learn, withdraw: last.alwaysFix, heldKey: heldKey))
     }
 
     /// A key typed while a switch inside the word is open, after it went into

@@ -119,12 +119,38 @@ private let ru = Fixture.russian.id
         #expect(desk.text == "Fyz ")
     }
 
-    @Test func undoOfAnAlwaysFixLearnsTheTypedReading() {
-        var desk = Desk(Settings(alwaysFix: ["аня"]))
+    @Test(arguments: [true, false])
+    func undoOfAnAlwaysFixWithdrawsTheWord(learnFromUndos: Bool) {
+        var desk = Desk(Settings(alwaysFix: ["аня"], learnFromUndos: learnFromUndos))
         desk.type("Fyz ")
+        #expect(desk.withdrawn.isEmpty, "only the undo withdraws")
         desk.press(KeyCode.delete)
         #expect(desk.text == "Fyz ")
-        #expect(desk.learned == ["fyz"])
+        #expect(desk.withdrawn == ["аня"])
+        #expect(desk.learned.isEmpty, "the latest signal wins: nothing learned")
+        // The app takes the word off the list; the classifier decides alone.
+        var settings = AppSettings(words: WordRules(always: ["аня"], learnFromUndos: learnFromUndos))
+        settings.words.stopFixing(desk.withdrawn[0])
+        desk.send(.settingsChanged(settings.snapshot))
+        desk.type("Fyz ")
+        #expect(desk.text == "Fyz Fyz ")
+        #expect(desk.corrections.count == 1)
+    }
+
+    @Test func undoOfAnOrdinarySwitchStillLearns() {
+        var desk = Desk(Settings(alwaysFix: ["аня"]))
+        desk.type("ghbdtn ")
+        desk.press(KeyCode.delete)
+        #expect(desk.learned == ["ghbdtn"])
+        #expect(desk.withdrawn.isEmpty)
+    }
+
+    @Test func aCancelledUndoWithdrawsNothing() {
+        var desk = Desk(Settings(alwaysFix: ["аня"]))
+        desk.type("Fyz ")
+        desk.cancelRetypes = true
+        desk.press(KeyCode.delete)
+        #expect(desk.withdrawn.isEmpty)
     }
 
     @Test func emptyListChangesNothing() {

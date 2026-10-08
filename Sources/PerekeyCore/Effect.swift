@@ -162,6 +162,11 @@ public enum Effect: Hashable, Sendable {
     /// ("ghbdtn"), else the other one (`CorrectionUndo.learnable`). The next
     /// settings snapshot carries it in `Settings.exceptions`.
     case learned(String)
+    /// The user undid a switch the "Всегда исправлять" list forced (with the
+    /// undo's `.retypePosted`): take this word off the list
+    /// (`WordRules.stopFixing`). The latest explicit signal wins, so nothing
+    /// is learned; next time the classifier decides alone.
+    case alwaysFixWithdrawn(String)
     /// A correction of a word typed with Caps Lock on by mistake was posted
     /// ("ПРИВЕТ" → "Привет"): turn Caps Lock off, on the main thread.
     case capsLockOff

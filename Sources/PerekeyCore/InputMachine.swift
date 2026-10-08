@@ -315,6 +315,7 @@ public struct InputMachine: Sendable {
             } else if let word = inFlight.learn {
                 effects.append(.learned(word))
             }
+            if let word = inFlight.withdraw { effects.append(.alwaysFixWithdrawn(word)) }
             fence.undoPosted(heldKey: inFlight.heldKey)
         case .retype, .readingSelection:
             break

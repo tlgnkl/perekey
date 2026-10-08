@@ -35,8 +35,8 @@ enum DebugSnapshot {
             try? file.save(item.settings)
             let store = SettingsStore(file: file)
             let view = ShortcutsPane(store: store, recording: ShortcutRecording(store: store))
-                .frame(width: 560, height: 640)
-            render(view, dark: item.dark, size: CGSize(width: 560, height: 640), to: directory.appending(path: "\(item.name).png"))
+                .frame(width: 560, height: 860)
+            render(view, dark: item.dark, size: CGSize(width: 560, height: 860), to: directory.appending(path: "\(item.name).png"))
         }
         renderSettingsWindow(in: directory)
         renderApps(in: directory)
@@ -172,8 +172,18 @@ enum DebugSnapshot {
             render(view, dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
         let general = SettingsStore(file: SettingsFile(url: directory.appending(path: "general.json")))
-        render(GeneralPane(store: general).frame(width: size.width, height: 300), dark: false,
-               size: CGSize(width: size.width, height: 300), to: directory.appending(path: "general-light.png"))
+        render(GeneralPane(store: general).frame(width: size.width, height: 460), dark: false,
+               size: CGSize(width: size.width, height: 460), to: directory.appending(path: "general-light.png"))
+        let soundsFile = SettingsFile(url: directory.appending(path: "general-sounds.json"))
+        try? soundsFile.save(AppSettings(layoutSound: SoundSetting(isOn: true, name: "Pop"),
+                                         correctionSound: SoundSetting(isOn: false, name: "Glass")))
+        render(GeneralPane(store: SettingsStore(file: soundsFile)).frame(width: size.width, height: 460), dark: true,
+               size: CGSize(width: size.width, height: 460), to: directory.appending(path: "general-sounds-dark.png"))
+        for (name, word, dark) in [("report-light", "ghbdtn", false), ("report-nothing-dark", "", true)] {
+            let sheet = ReportWordSheet(initialWord: word, layouts: ["ABC", "Russian"],
+                                        version: "Perekey 0.1 (1), macOS 14.5", onOpen: { _ in }, onCancel: {})
+            render(sheet, dark: dark, size: CGSize(width: 520, height: 640), to: directory.appending(path: "\(name).png"))
+        }
         let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "words-warn.json")))
         let warn = WordsPane(store: store, isFrequent: { _ in true }, initialDraft: "привет")
         render(warn.frame(width: size.width, height: size.height), dark: false, size: size,

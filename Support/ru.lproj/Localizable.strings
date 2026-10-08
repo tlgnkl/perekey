@@ -159,3 +159,28 @@
 "Your rule" = "Ваше правило";
 "The file is not a Perekey settings file." = "Это не файл настроек Perekey.";
 "The file comes from a newer Perekey (format %@). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %@). Обновите Perekey и попробуйте снова.";
+
+/* Stage 4: actions, sounds, report */
+"A wrong correction?" = "Исправление не там?";
+"Change case of the word or selection" = "Сменить регистр слова или выделения";
+"Feedback" = "Обратная связь";
+"Include the word" = "Добавить слово";
+"Leave it out if the text is private." = "Не добавляйте, если текст личный.";
+"Off until you record a key with modifiers, such as ⌃⌥V." = "Выключено, пока вы не запишете клавишу с модификаторами, например ⌃⌥V.";
+"Open on GitHub" = "Открыть на GitHub";
+"Paste without formatting" = "Вставить без форматирования";
+"Perekey sends nothing by itself. The button opens a GitHub form with the text below; you can still change it there." = "Perekey сам ничего не отправляет. Кнопка открывает форму GitHub с текстом ниже; там его ещё можно изменить.";
+"Play" = "Прослушать";
+"Press again to go lower, Title, UPPER." = "Повторное нажатие: нижний, Заглавные, ВЕРХНИЙ.";
+"Report a word" = "Сообщить о слове";
+"Report a word…" = "Сообщить о слове…";
+"Selection only: Cyrillic to Latin and back." = "Только выделение: кириллица в латиницу и обратно.";
+"Sound on correction" = "Звук исправления";
+"Sound on layout switch" = "Звук смены раскладки";
+"Sounds" = "Звуки";
+"The word" = "Слово";
+"This is what the link contains" = "Что содержит ссылка";
+"This one needs a key with modifiers, not modifiers alone." = "Здесь нужна клавиша с модификаторами, а не одни модификаторы.";
+"Transliterate the selection" = "Транслитерировать выделение";
+"What Perekey did" = "Что сделал Perekey";
+"You see the text before anything is sent." = "Текст виден до отправки.";

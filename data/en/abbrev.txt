@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Abbreviations that are never switched. Case matters.
+API
+CEO
+CSS
+FAQ
+GPU
+HTML
+HTTP
+IT
+JSON
+NASA
+PDF
+SQL
+URL
+USB

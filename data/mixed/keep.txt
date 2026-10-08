@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Строки, верные как есть в любой раскладке. Регистр важен.
+Wi-Fi
+iMac
+iOS
+iPad
+iPhone
+macOS

@@ -4,26 +4,32 @@ import AppKit
 import PerekeyInput
 import SwiftUI
 
-/// The hint at the caret: what Perekey just corrected, with «Undo», or what an
-/// undo taught it, with «Forget». A panel that never takes focus and, outside
-/// its button, no mouse events either.
+/// The hint at the caret: what Perekey just corrected, with «Undo», what an
+/// undo taught it, with «Forget», or the user's own retype. A panel that never
+/// takes focus and, outside its button, no mouse events either.
 ///
-/// Self-contained: the engine side calls `show`/`showLearned`/`hide` with
-/// strings and closures.
+/// Self-contained: the engine side calls `show`/`showRetyped`/`showLearned`/
+/// `hide` with strings and closures. A new hint while one shows glides to its
+/// place and morphs; the panel is the union of the two bubbles meanwhile, and
+/// SwiftUI animates the bubble inside it.
 @MainActor
 final class HintController {
-    /// Seconds the hint stays; the timer stands still while the pointer is over it.
-    static let lifetime: TimeInterval = 3
     private static let tick: TimeInterval = 0.1
+    private static let glide: TimeInterval = 0.45
 
     private let locator = CaretLocator()
     private let model = HintModel(content: .learned(word: ""))
     private var panel: HintPanel?
     private var generation = 0
     private var timer: Timer?
-    private var remaining: TimeInterval = 0
+    private var lifetime = HintLifetime(now: 0)
+    private var keyMonitor: Any?
     private var currentAction: (() -> Void)?
     private var publishedButtonFrame: CGRect?
+    /// The bubble's target in screen coordinates (bottom-left origin).
+    private var bubbleScreen: CGRect = .zero
+    /// Everything the bubble may cover while it glides: the panel's content.
+    private var occupied: CGRect = .zero
 
     /// The button's frame in CG global coordinates (top-left origin of the
     /// main display) while the hint shows, nil once it goes. The engine
@@ -40,6 +46,12 @@ final class HintController {
         present(.corrected(original: original, replacement: replacement), action: onUndo)
     }
 
+    /// After the user's own retype: «word · ⌥ — revert». No button.
+    func showRetyped(original: String, word: String, shortcut: String?) {
+        present(.retyped(original: HintMetrics.shortened(original), word: HintMetrics.shortened(word),
+                         shortcut: shortcut), action: nil)
+    }
+
     /// After an undo with learning: «Remembered “word” · Forget».
     func showLearned(word: String, onForget: @escaping () -> Void) {
         present(.learned(word: word), action: onForget)
@@ -52,10 +64,13 @@ final class HintController {
 
     // MARK: -
 
-    private func present(_ content: HintContent, action: @escaping () -> Void) {
+    private static var now: Double { ProcessInfo.processInfo.systemUptime }
+
+    private func present(_ content: HintContent, action: (() -> Void)?) {
         generation += 1
         let mine = generation
         currentAction = action
+        startKeyMonitor()
         locator.caretRect { [weak self] rect in
             Task { @MainActor in
                 guard let self, self.generation == mine else { return }
@@ -68,32 +83,81 @@ final class HintController {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         let wasVisible = panel.isVisible && model.visible
-        model.content = content
 
-        let host = panel.hostingView
-        host.layoutSubtreeIfNeeded()
-        let full = host.fittingSize
-        let inset = HintMetrics.shadowInset
-        let bubble = CGSize(width: full.width - 2 * inset, height: full.height - 2 * inset)
+        // The size the new content needs, from a copy laid out off screen.
+        let size = NSHostingView(rootView: HintBubbleContent(model: HintModel(content: content), action: {})).fittingSize
 
-        let origin: CGPoint
+        let target: CGPoint
         if let caret, let screen = screen(containing: CGPoint(x: caret.midX, y: caret.midY)) {
-            origin = HintPlacement.origin(size: bubble, caret: caret, visible: screen.visibleFrame)
+            target = HintPlacement.origin(size: size, caret: caret, visible: screen.visibleFrame)
         } else {
             let screen = screen(containing: NSEvent.mouseLocation) ?? NSScreen.main ?? NSScreen.screens.first
             guard let screen else { return }
-            origin = HintPlacement.fallbackOrigin(size: bubble, visible: screen.visibleFrame)
+            target = HintPlacement.fallbackOrigin(size: size, visible: screen.visibleFrame)
         }
-        panel.setFrame(NSRect(x: origin.x - inset, y: origin.y - inset, width: full.width, height: full.height), display: true)
+        let newBubble = CGRect(origin: target, size: size)
+        let inset = HintMetrics.shadowInset
+        remainingGlide += 1
+        let glideRun = remainingGlide
 
-        if !panel.isVisible {
+        if wasVisible {
+            // Cover old and new in one panel, keep the bubble where it is, then
+            // let SwiftUI carry it to the new place and morph its content.
+            let oldBubble = bubbleScreen
+            occupied = occupied.union(oldBubble).union(newBubble)
+            let stage = occupied.insetBy(dx: -inset, dy: -inset)
+            panel.setFrame(stage, display: true)
+            withAnimation(nil) { model.bubble = local(oldBubble, in: stage) }
+            bubbleScreen = newBubble
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.remainingGlide == glideRun else { return }
+                    let reduced = Self.reduceMotion
+                    withAnimation(reduced ? .linear(duration: 0.01) : .timingCurve(0.16, 1, 0.3, 1, duration: Self.glide)) {
+                        self.model.content = content
+                        self.model.bubble = self.local(newBubble, in: stage)
+                    }
+                    self.model.strip.play()
+                    self.settle(after: reduced ? 0.05 : Self.glide + 0.05, run: glideRun)
+                }
+            }
+        } else {
+            bubbleScreen = newBubble
+            occupied = newBubble
+            let stage = newBubble.insetBy(dx: -inset, dy: -inset)
+            model.content = content
+            panel.setFrame(stage, display: true)
+            withAnimation(nil) { model.bubble = local(newBubble, in: stage) }
             model.visible = false
+            model.strip.rest(at: 0)
             panel.orderFrontRegardless()
+            setVisible(true)
+            model.strip.play(delay: 0.12)
         }
-        if !wasVisible { setVisible(true) }
-        remaining = Self.lifetime
+        if wasVisible { lifetime.restart(at: Self.now) } else { lifetime = HintLifetime(now: Self.now) }
         startTimer()
         publishButtonFrame()
+    }
+
+    private var remainingGlide = 0
+
+    /// Shrinks the panel to the bubble once it arrived.
+    private func settle(after delay: TimeInterval, run: Int) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, self.remainingGlide == run, let panel = self.panel, panel.isVisible else { return }
+            let inset = HintMetrics.shadowInset
+            let stage = self.bubbleScreen.insetBy(dx: -inset, dy: -inset)
+            self.occupied = self.bubbleScreen
+            panel.setFrame(stage, display: true)
+            withAnimation(nil) { self.model.bubble = self.local(self.bubbleScreen, in: stage) }
+            self.publishButtonFrame()
+        }
+    }
+
+    /// A screen rect (bottom-left origin) in the stage's top-left coordinates.
+    private func local(_ rect: CGRect, in stage: CGRect) -> CGRect {
+        CGRect(x: rect.minX - stage.minX, y: stage.maxY - rect.maxY, width: rect.width, height: rect.height)
     }
 
     private func publishButtonFrame() {
@@ -114,6 +178,7 @@ final class HintController {
     private func dismiss() {
         timer?.invalidate()
         timer = nil
+        stopKeyMonitor()
         currentAction = nil
         publishButtonFrame()
         guard let panel, panel.isVisible else { return }
@@ -139,6 +204,30 @@ final class HintController {
         }
     }
 
+    // MARK: - Lifetime
+
+    /// Key presses elsewhere tell the timer how the user types. Installed only
+    /// while the hint shows. Only the kind of key is kept, in memory, never
+    /// the character.
+    private func startKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let key = HintKey.classify(keyCode: event.keyCode, character: event.characters?.first,
+                                       isShortcut: !event.modifierFlags.intersection([.command, .control]).isEmpty)
+            MainActor.assumeIsolated { self?.keyPressed(key) }
+        }
+    }
+
+    private func stopKeyMonitor() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+    }
+
+    private func keyPressed(_ key: HintKey) {
+        lifetime.record(key, at: Self.now)
+        expireIfDone()
+    }
+
     private func startTimer() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: Self.tick, repeats: true) { [weak self] _ in
@@ -147,16 +236,15 @@ final class HintController {
     }
 
     private func step() {
-        guard let panel else { return }
-        // Paused while hovered.
-        if panel.frame.insetBy(dx: HintMetrics.shadowInset, dy: HintMetrics.shadowInset).contains(NSEvent.mouseLocation) {
-            return
-        }
-        remaining -= Self.tick
-        if remaining <= 0 {
-            generation += 1
-            dismiss()
-        }
+        let now = Self.now
+        lifetime.setHovering(bubbleScreen.contains(NSEvent.mouseLocation), at: now)
+        expireIfDone()
+    }
+
+    private func expireIfDone() {
+        guard lifetime.isExpired(at: Self.now) else { return }
+        generation += 1
+        dismiss()
     }
 
     private func screen(containing point: CGPoint) -> NSScreen? {
@@ -170,8 +258,7 @@ final class HintController {
             self.hide()
             action?()
         }
-        let panel = HintPanel(rootView: view, model: model)
-        return panel
+        return HintPanel(rootView: view, model: model)
     }
 }
 

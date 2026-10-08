@@ -85,7 +85,8 @@ final class MenuBarShell {
             MenuActions(
                 openSettings: {
                     menu.close()
-                    // A menu bar app has no Dock icon: activate, then raise the window.
+                    // A menu bar app has no Dock icon: activate first, then ask for the window.
+                    NSApp.activate()
                     NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                     SettingsFront.raise()
                 },

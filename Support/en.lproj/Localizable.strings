@@ -228,7 +228,7 @@
 "Abbreviation" = "Abbreviation";
 "How to Use Perekey" = "How to Use Perekey";
 "About Perekey" = "About Perekey";
-"%@ — switch layout" = "%@ — switch layout";
-"%@ — retype word" = "%@ — retype word";
+"%@ — switch" = "%@ — switch";
+"%@ — retype" = "%@ — retype";
 "Turn on or off: %@" = "Turn on or off: %@";
 "Opens the Perekey menu" = "Opens the Perekey menu";

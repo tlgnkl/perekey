@@ -51,6 +51,13 @@ final class MenuPanelController {
 
     /// The status item's button in screen coordinates; set by the status item.
     @ObservationIgnored var anchor: () -> NSRect? = { nil }
+    /// The status bar window; a click in it is the status item's business.
+    @ObservationIgnored weak var statusWindow: NSWindow?
+    @ObservationIgnored private var closedAt = Date.distantPast
+
+    /// Open now, or closed a moment ago by the very click that is being handled
+    /// (the panel lost the key first): the click must not open it again.
+    var wasOpenForThisClick: Bool { isOpen || Date().timeIntervalSince(closedAt) < 0.25 }
 
     @ObservationIgnored private let sources: InputSources
     @ObservationIgnored private let store: SettingsStore
@@ -93,6 +100,7 @@ final class MenuPanelController {
     func open() {
         guard !isOpen, anchor() != nil else { return }
         teardown?.cancel()
+        panel?.ignoresMouseEvents = false
         isOpen = true
         nav = MenuNav()
         presentation = MenuPresentation()
@@ -131,6 +139,9 @@ final class MenuPanelController {
     func close() {
         guard isOpen else { return }
         isOpen = false
+        closedAt = Date()
+        // Still on screen while it fades: no keys or clicks may reach it.
+        panel?.ignoresMouseEvents = true
         ticker?.cancel()
         ticker = nil
         removeMonitors()
@@ -181,6 +192,7 @@ final class MenuPanelController {
     // MARK: Keyboard
 
     private func handle(_ event: NSEvent) -> Bool {
+        guard isOpen else { return true }
         let command = event.modifierFlags.contains(.command)
         if command, let key = event.charactersIgnoringModifiers {
             switch key {
@@ -213,7 +225,7 @@ final class MenuPanelController {
         }
         // Clicks in our own windows: the panel itself and the status item are not "outside".
         if let local = NSEvent.addLocalMonitorForEvents(matching: clicks, handler: { [weak self] event in
-            if let self, event.window !== panel, event.window?.className != "NSStatusBarWindow" { close() }
+            if let self, event.window !== panel, event.window !== statusWindow { close() }
             return event
         }) {
             monitors.append(local)

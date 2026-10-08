@@ -131,6 +131,7 @@ final class StatusItemController {
         ])
         fit(width: host.intrinsicContentSize.width)
 
+        menu.statusWindow = button.window
         menu.anchor = { [weak button] in
             guard let button, let window = button.window else { return nil }
             return window.convertToScreen(button.convert(button.bounds, to: nil))
@@ -140,7 +141,12 @@ final class StatusItemController {
 
     private func pressDown() {
         state.pressed = true
-        menu.toggle()
+        // A click that closed the menu by taking its key must not reopen it.
+        if menu.wasOpenForThisClick {
+            menu.close()
+        } else {
+            menu.open()
+        }
     }
 
     /// VoiceOver's "press" lands here; there is no mouse up for it.

@@ -183,7 +183,8 @@ struct MenuContent: View {
                 Text(hintLine)
                     .font(PK.Font.caption)
                     .foregroundStyle(Color.pkInk2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             Spacer(minLength: 0)
         }
@@ -200,10 +201,10 @@ struct MenuContent: View {
     private var hintLine: String {
         var parts: [String] = []
         if let trigger = store.settings.trigger(for: .switchLayout) {
-            parts.append(String(localized: "\(keys(of: trigger)) — switch layout"))
+            parts.append(String(localized: "\(keys(of: trigger)) — switch"))
         }
         if let trigger = store.settings.trigger(for: .convertLastWord) {
-            parts.append(String(localized: "\(keys(of: trigger)) — retype word"))
+            parts.append(String(localized: "\(keys(of: trigger)) — retype"))
         }
         if parts.isEmpty {
             return store.settings.autoswitch ? String(localized: "Automatic switching is on") : String(localized: "Automatic switching is off")

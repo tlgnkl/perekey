@@ -228,7 +228,7 @@
 "Abbreviation" = "Аббревиатура";
 "How to Use Perekey" = "Как пользоваться";
 "About Perekey" = "О Perekey";
-"%@ — switch layout" = "%@ — сменить раскладку";
-"%@ — retype word" = "%@ — перенабрать слово";
+"%@ — switch" = "%@ — смена";
+"%@ — retype" = "%@ — перенабор";
 "Turn on or off: %@" = "Вкл. и выкл.: %@";
 "Opens the Perekey menu" = "Открывает меню Perekey";

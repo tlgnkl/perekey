@@ -152,6 +152,8 @@ private struct FoundHighlight: ViewModifier {
     }
 
     private func play() async {
+        // Also when the row goes away mid-way: the mark must not stay.
+        defer { tracker.consume(id) }
         if reduceMotion {
             end.wrappedValue = 1
             withAnimation(.easeOut(duration: 0.2)) { opacity.wrappedValue = 1 }
@@ -172,7 +174,6 @@ private struct FoundHighlight: ViewModifier {
             start.wrappedValue = 0
             end.wrappedValue = 0
         }
-        tracker.consume(id)
     }
 }
 

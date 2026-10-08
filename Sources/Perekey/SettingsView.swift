@@ -69,7 +69,7 @@ struct SettingsView: View {
 
     /// 640pt, but never taller than the visible screen minus 150pt, and never under 560pt.
     private var height: CGFloat {
-        Self.windowHeight(visibleScreen: NSScreen.main?.visibleFrame.height)
+        Self.windowHeight(visibleScreen: (SettingsFront.window?.screen ?? NSScreen.main)?.visibleFrame.height)
     }
 
     static func windowHeight(visibleScreen: CGFloat?) -> CGFloat {

@@ -37,12 +37,15 @@ final class AppModeController {
     @ObservationIgnored private var lastLayouts: [String: LayoutID] = [:]
     @ObservationIgnored private var appliedOff = false
     @ObservationIgnored private var tokens: [any NSObjectProtocol] = []
+    /// Site rules in browsers; they override the browser's app rule.
+    @ObservationIgnored private var sites: SiteLayoutController?
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, live: Bool = true) {
         self.sources = sources
         self.store = store
         self.pause = pause
         guard live else { return }
+        sites = SiteLayoutController(sources: sources, store: store)
         pause.onTurnOnHere = { [weak self] in self?.turnOnHere() }
         tokens.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
@@ -74,6 +77,7 @@ final class AppModeController {
         guard let app, app.processIdentifier != getpid(), let bundleID = app.bundleIdentifier else { return }
         guard bundleID != frontmost?.bundleID else { return }
         if let left = frontmost, let layout = sources.currentLayout { lastLayouts[left.bundleID] = layout }
+        sites?.appLeft()
         let category = app.bundleURL.flatMap { Bundle(url: $0) }?
             .object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String
         frontmost = FrontApp(

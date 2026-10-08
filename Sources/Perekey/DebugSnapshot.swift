@@ -40,6 +40,7 @@ enum DebugSnapshot {
         }
         renderSettingsWindow(in: directory)
         renderApps(in: directory)
+        renderSites(in: directory)
         renderWordsAndGeneral(in: directory)
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
@@ -155,6 +156,27 @@ enum DebugSnapshot {
                 .background(Color(nsColor: .windowBackgroundColor)),
                 dark: false, size: CGSize(width: 360, height: 360), to: directory.appending(path: "apps-\(name).png"))
         }
+    }
+
+    /// The Sites pane: filled (light and dark), empty, and with an invalid draft.
+    private static func renderSites(in directory: URL) {
+        let sources = InputSources()
+        let file = SettingsFile(url: directory.appending(path: "sites.json"))
+        var settings = AppSettings()
+        settings.sites["github.com"] = SiteRule(defaultLayout: sources.layouts.first?.id)
+        settings.sites["habr.com"] = SiteRule(defaultLayout: sources.layouts.last?.id)
+        settings.sites["mail.example.org"] = SiteRule(rememberLastLayout: true)
+        try? file.save(settings)
+        let store = SettingsStore(file: file)
+        let size = CGSize(width: 560, height: 560)
+        for dark in [false, true] {
+            render(SitesPane(store: store, sources: sources).background(Color(nsColor: .windowBackgroundColor)),
+                   dark: dark, size: size, to: directory.appending(path: "sites-\(dark ? "dark" : "light").png"))
+        }
+        let emptyStore = SettingsStore(file: SettingsFile(url: directory.appending(path: "sites-empty.json")))
+        render(SitesPane(store: emptyStore, sources: sources, initialDraft: "not a host!")
+            .background(Color(nsColor: .windowBackgroundColor)),
+            dark: false, size: size, to: directory.appending(path: "sites-empty.png"))
     }
 
     /// The Words pane with sample words (and a frequent-word warning), and the General pane.

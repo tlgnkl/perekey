@@ -123,6 +123,24 @@ private func detector() -> ChordDetector<Action> {
         #expect(d.modifiersChanged(to: [], at: 1.25) == .switchLayout)
     }
 
+    @Test func resetDropsLostRelease() {
+        // The tap was disabled while Shift was down; its release never arrived.
+        var d = detector()
+        _ = d.modifiersChanged(to: [.leftShift], at: 0)
+        d.reset()
+        _ = d.modifiersChanged(to: [.rightCommand], at: 5)
+        #expect(d.modifiersChanged(to: [], at: 5.1) == .english)
+    }
+
+    @Test func resetForgetsFirstTap() {
+        var d = detector()
+        _ = d.modifiersChanged(to: [.leftShift], at: 0)
+        _ = d.modifiersChanged(to: [], at: 0.05)
+        d.reset()
+        _ = d.modifiersChanged(to: [.leftShift], at: 0.2)
+        #expect(d.modifiersChanged(to: [], at: 0.25) == .switchLayout)
+    }
+
     @Test func rightCommandOnly() {
         var d = detector()
         _ = d.modifiersChanged(to: [.leftCommand], at: 0)

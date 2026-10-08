@@ -81,12 +81,27 @@ public struct ChordDetector<Action: Hashable & Sendable>: Sendable {
         return action(for: tapped, taps: 1)
     }
 
-    /// Call on any other input: a non-modifier key press, a mouse click,
-    /// a scroll, or a trackpad gesture.
+    /// Call on any other input: a key press or release that is not a modifier
+    /// (Caps Lock included), a mouse click, a scroll, or a trackpad gesture.
+    /// Never call it for Perekey's own synthetic events.
     public mutating func otherInput(at time: Double) {
         if sessionStart != nil { interrupted = true }
         lastTap = nil
         lastOtherInput = time
+    }
+
+    /// Forget the current press and the last tap.
+    ///
+    /// Call when events may have been lost: the event tap was disabled by the
+    /// system, or Secure Input started. While Secure Input is on, key presses do
+    /// not reach the tap but modifier changes do, so every capital letter of a
+    /// password would look like a clean Shift tap; keep the detector reset and
+    /// unused until Secure Input ends.
+    public mutating func reset() {
+        sessionStart = nil
+        peak = []
+        interrupted = false
+        lastTap = nil
     }
 
     private func action(for keys: Set<ModifierKey>, taps: Int) -> Action? {

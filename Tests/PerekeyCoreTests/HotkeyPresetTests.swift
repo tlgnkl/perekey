@@ -15,6 +15,14 @@ import Testing
         #expect(ModifierKey.pressed(inEventFlags: 0x0000_0100).isEmpty)
     }
 
+    @Test func keyCodesRoundTrip() {
+        for key in ModifierKey.allCases {
+            #expect(ModifierKey(keyCode: key.keyCode) == key)
+        }
+        #expect(ModifierKey(keyCode: 57) == nil) // Caps Lock
+        #expect(ModifierKey(keyCode: 0) == nil) // A
+    }
+
     @Test func masksAreDistinct() {
         let masks = ModifierKey.allCases.map(\.eventFlagMask)
         #expect(Set(masks).count == masks.count)
@@ -46,6 +54,16 @@ import Testing
         #expect(d.modifiersChanged(to: [], at: 0.1) == .switchLayout)
         _ = d.modifiersChanged(to: [.rightOption], at: 1)
         #expect(d.modifiersChanged(to: [], at: 1.1) == .convertLastWord)
+    }
+
+    @Test func doubleShiftFiresSingleThenDouble() {
+        // The first tap switches the layout at once; the second retypes the word.
+        // Retyping must select the word's target layout, not toggle again.
+        var d = ChordDetector(bindings: HotkeyPreset.doubleShift.bindings)
+        _ = d.modifiersChanged(to: [.leftShift], at: 0)
+        #expect(d.modifiersChanged(to: [], at: 0.1) == .switchLayout)
+        _ = d.modifiersChanged(to: [.leftShift], at: 0.2)
+        #expect(d.modifiersChanged(to: [], at: 0.3) == .convertLastWord)
     }
 
     @Test func altShiftIsNotOption() {

@@ -16,6 +16,11 @@ import PerekeyInput
 final class InputController {
     private(set) var tapState: TapState = .waitingForAccess
 
+    /// Follows the frontmost app and its mode. The autoswitch decision reads
+    /// `appModes.mode`: `.auto` fixes by itself, `.manualOnly` only on command,
+    /// `.off` never (shortcuts are already off then, see `effectiveSettings`).
+    let appModes: AppModeController
+
     @ObservationIgnored private let sources: InputSources
     @ObservationIgnored private let store: SettingsStore
     @ObservationIgnored private let pause: PauseState
@@ -30,6 +35,7 @@ final class InputController {
         self.sources = sources
         self.store = store
         self.pause = pause
+        appModes = AppModeController(sources: sources, store: store, pause: pause)
         lastSettings = store.snapshot
         lastSettings = effectiveSettings
 

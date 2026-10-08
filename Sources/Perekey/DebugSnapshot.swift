@@ -35,6 +35,7 @@ enum DebugSnapshot {
                 .frame(width: 560, height: 640)
             render(view, dark: item.dark, size: CGSize(width: 560, height: 640), to: directory.appending(path: "\(item.name).png"))
         }
+        renderApps(in: directory)
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
         exit(0)
@@ -78,12 +79,52 @@ enum DebugSnapshot {
             for menu in menus {
                 let file = SettingsFile(url: directory.appending(path: "menu-\(menu.name).json"))
                 try? file.save(AppSettings(autoswitch: menu.autoswitch))
-                let view = MenuContent(sources: sources, store: SettingsStore(file: file),
-                                       pause: PauseState(frozen: menu.pause, now: now), launch: menu.launch)
+                let store = SettingsStore(file: file)
+                let pause = PauseState(frozen: menu.pause, now: now)
+                let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+                appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", isGame: false))
+                let view = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch, appModes: appModes)
                     .background(Color(nsColor: .windowBackgroundColor))
                 render(view, dark: dark, size: CGSize(width: 318, height: 520),
                        to: directory.appending(path: "menu-\(menu.name)-\(suffix).png"))
             }
+        }
+    }
+
+    /// The Apps pane (light and dark, filtered) and the picker.
+    private static func renderApps(in directory: URL) {
+        let sources = InputSources()
+        let file = SettingsFile(url: directory.appending(path: "apps.json"))
+        var settings = AppSettings()
+        settings.apps["com.apple.Notes"] = AppRule(mode: .auto, rememberLastLayout: true)
+        settings.apps["com.apple.Safari"] = AppRule(mode: .auto, defaultLayout: sources.layouts.last?.id)
+        settings.apps["com.apple.Terminal"] = AppRule(mode: .auto)
+        settings.apps["com.apple.Chess"] = AppRule(mode: .off)
+        try? file.save(settings)
+        let store = SettingsStore(file: file)
+        func model() -> AppsPaneModel {
+            let url = URL(fileURLWithPath: "/System/Applications")
+            let ids = ["com.apple.Terminal": "Terminal", "com.apple.dt.Xcode": "Xcode", "com.microsoft.VSCode": "Visual Studio Code"]
+            return AppsPaneModel(builtIns: ids.map {
+                AppCandidate(bundleID: $0.key, name: $0.value, url: AppInfo.url(bundleID: $0.key) ?? url, isRunning: false)
+            })
+        }
+        let size = CGSize(width: 560, height: 560)
+        for dark in [false, true] {
+            render(AppsPane(store: store, sources: sources, model: model()).background(Color(nsColor: .windowBackgroundColor)),
+                   dark: dark, size: size, to: directory.appending(path: "apps-\(dark ? "dark" : "light").png"))
+        }
+        let filtered = model()
+        filtered.modeFilter = .manualOnly
+        render(AppsPane(store: store, sources: sources, model: filtered).background(Color(nsColor: .windowBackgroundColor)),
+               dark: false, size: size, to: directory.appending(path: "apps-filtered.png"))
+        for (name, query) in [("picker", ""), ("picker-search", "ter")] {
+            let picker = AppPickerModel(spotlight: false)
+            picker.query = query
+            picker.selection = 1
+            render(AppPickerView(model: picker, existing: ["com.apple.Notes"]) { _ in }
+                .background(Color(nsColor: .windowBackgroundColor)),
+                dark: false, size: CGSize(width: 360, height: 360), to: directory.appending(path: "apps-\(name).png"))
         }
     }
 

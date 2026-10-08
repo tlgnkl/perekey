@@ -22,10 +22,13 @@ public struct AppSettings: Hashable, Sendable {
     public var autoswitch: Bool
     /// Whether the user has been through the onboarding window. It opens once, on first launch.
     public var onboardingDone: Bool
+    /// The user's rules per app, keyed by bundle ID. Apps without a rule use `AppModes`.
+    public var apps: [String: AppRule]
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
-                autoswitch: Bool = true, onboardingDone: Bool = false)
+                autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:])
     {
+        self.apps = apps
         self.hotkeys = hotkeys
         self.capsLock = capsLock
         self.autoswitch = autoswitch
@@ -49,6 +52,11 @@ public struct AppSettings: Hashable, Sendable {
         hotkeys.first { $0.action == action }?.trigger
     }
 
+    /// The mode in force for an app: see `AppModes.effectiveMode`.
+    public func effectiveMode(bundleID: String, isGame: Bool) -> AppMode {
+        AppModes.effectiveMode(bundleID: bundleID, isGame: isGame, rules: apps)
+    }
+
     /// The snapshot for the event tap. In `.instant` mode Caps Lock arrives as
     /// F18, which switches the layout.
     public var snapshot: Settings {
@@ -62,7 +70,7 @@ public struct AppSettings: Hashable, Sendable {
 
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
-        case hotkeys, capsLock, autoswitch, onboardingDone
+        case hotkeys, capsLock, autoswitch, onboardingDone, apps
     }
 
     public init(from decoder: any Decoder) throws {
@@ -72,5 +80,6 @@ extension AppSettings: Codable {
         capsLock = (try? container.decodeIfPresent(CapsLockMode.self, forKey: .capsLock)) ?? defaults.capsLock
         autoswitch = try container.decodeIfPresent(Bool.self, forKey: .autoswitch) ?? defaults.autoswitch
         onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
+        apps = (try? container.decodeIfPresent([String: AppRule].self, forKey: .apps)) ?? defaults.apps
     }
 }

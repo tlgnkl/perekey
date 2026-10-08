@@ -36,6 +36,7 @@ struct MenuContent: View {
     let store: SettingsStore
     let pause: PauseState
     let launch: LaunchAtLogin
+    let appModes: AppModeController
     /// Opens the onboarding window again; `nil` hides the row (snapshots).
     var onShowOnboarding: (() -> Void)?
 
@@ -65,6 +66,12 @@ struct MenuContent: View {
                         set: { $0 ? pause.pauseForOneHour() : pause.resumeTimed() }
                     )
                 )
+                if let app = appModes.frontmost {
+                    switchRow(
+                        title: "Don't switch in \(app.name)",
+                        isOn: Binding(get: { appModes.mode == .off }, set: { appModes.setOff($0) })
+                    )
+                }
                 LaunchAtLoginRow(launch: launch)
             }
             .padding(.vertical, 6)

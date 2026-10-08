@@ -37,6 +37,11 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Perekey" "$APP/Contents/MacOS/Perekey"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" Support/Info.plist > "$APP/Contents/Info.plist"
+# Resources load from Bundle.main; Bundle.module of an executable target would break the signature.
+for lproj in Support/*.lproj; do
+    cp -R "$lproj" "$APP/Contents/Resources/"
+done
+cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 codesign --force --options runtime --timestamp=none ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} \
     --sign "$SIGN_IDENTITY" "$APP"

@@ -13,6 +13,7 @@ jobs:
         with:
           fetch-depth: 0 # the benchmark builds the base commit too
       - run: swift --version
+      - run: scripts/check-strings.sh
       - run: swift build
       - run: scripts/test.sh
       - run: scripts/bundle.sh

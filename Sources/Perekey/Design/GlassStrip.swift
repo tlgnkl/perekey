@@ -50,6 +50,7 @@ struct GlassStripWord: View, Animatable {
     /// How far the strip reaches past the text.
     var inset = EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
     var radius: CGFloat = 8
+    var tracking: CGFloat = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -59,15 +60,39 @@ struct GlassStripWord: View, Animatable {
     }
 
     var body: some View {
-        let frame = GlassStripTimeline.frame(at: progress, reducedMotion: reduceMotion)
+        GlassStripFrameWord(before: before, after: after,
+                            frame: GlassStripTimeline.frame(at: progress, reducedMotion: reduceMotion),
+                            style: style, font: font, color: color, beforeColor: beforeColor, underline: underline,
+                            inset: inset, radius: radius, tracking: tracking)
+    }
+}
+
+/// `GlassStripWord` for a caller with its own clock, such as the onboarding
+/// hero's 6 s loop: it draws the `GlassStripTimeline.Frame` it is given.
+struct GlassStripFrameWord: View {
+    var before: String
+    var after: String
+    var frame: GlassStripTimeline.Frame
+    var style: GlassStripStyle = .fix
+    var font: Font = .system(size: 13)
+    var color: Color = .pkInk
+    var beforeColor: Color?
+    var underline = true
+    var inset = EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
+    var radius: CGFloat = 8
+    var tracking: CGFloat = 0
+
+    var body: some View {
         Text(verbatim: after)
             .font(font)
+            .tracking(tracking)
             .foregroundStyle(color)
             .opacity(frame.swap)
             .blur(radius: (1 - frame.swap) * 6)
             .overlay(alignment: .leading) {
                 Text(verbatim: before)
                     .font(font)
+                    .tracking(tracking)
                     .foregroundStyle(beforeColor ?? color)
                     .fixedSize()
                     .opacity(1 - frame.swap)
@@ -79,12 +104,54 @@ struct GlassStripWord: View, Animatable {
                         .opacity(frame.peel)
                 }
             }
-            .overlay { strip(frame) }
+            .overlay { GlassStripBand(frame: frame, style: style, radius: radius, inset: inset) }
             .accessibilityElement()
             .accessibilityLabel(Text(verbatim: frame.swap < 0.5 ? before : after))
     }
+}
 
-    private func strip(_ frame: GlassStripTimeline.Frame) -> some View {
+/// Only the strip, over one word of a field: it wipes over the word and peels
+/// off, as in the hint. For a field whose text the system changes, such as the
+/// onboarding demo; the words are already swapped, so there is nothing to blur.
+/// The strip is sized from `word` set in `font`, and starts `leading` points
+/// from the field's left edge. Animatable like `GlassStripWord`.
+struct GlassStripSweep: View, Animatable {
+    var progress: Double
+    var style: GlassStripStyle = .fix
+    var word: String
+    var font: NSFont
+    /// The field's leading inset.
+    var leading: CGFloat = 10
+    var radius: CGFloat = 8
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    nonisolated var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let width = ceil((word as NSString).size(withAttributes: [.font: font]).width)
+        let height = ceil(font.ascender - font.descender)
+        // Reduce Motion has no strip: the field's own text just changes.
+        GlassStripBand(frame: GlassStripTimeline.frame(at: progress, reducedMotion: reduceMotion), style: style,
+                       radius: radius, inset: EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
+            .frame(width: width, height: height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.leading, leading)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The strip itself, between the `peel` and `cover` edges of its container.
+struct GlassStripBand: View {
+    var frame: GlassStripTimeline.Frame
+    var style: GlassStripStyle
+    var radius: CGFloat
+    var inset: EdgeInsets
+
+    var body: some View {
         GeometryReader { proxy in
             let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
             let width = proxy.size.width + inset.leading + inset.trailing

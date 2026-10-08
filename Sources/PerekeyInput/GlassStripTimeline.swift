@@ -48,6 +48,12 @@ public enum GlassStripTimeline {
         /// 0 shows the old word, 1 the new one.
         public var swap: Double
 
+        public init(cover: Double, peel: Double, swap: Double) {
+            self.cover = cover
+            self.peel = peel
+            self.swap = swap
+        }
+
         public var stripVisible: Bool { cover - peel > 0.001 }
     }
 

@@ -45,6 +45,7 @@ enum DebugSnapshot {
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
         renderHint(in: directory)
+        renderStrips(in: directory)
         exit(0)
     }
 
@@ -261,6 +262,46 @@ enum DebugSnapshot {
                 let tag = "\(style == .undo ? "undo" : "fix")-\(Int(progress * 100))"
                 render(HintView(model: model) {}, dark: dark, size: CGSize(width: 320, height: 90),
                        to: directory.appending(path: "hint-strip-\(tag)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    /// The glass strip in the settings chip, the demo field and the hero.
+    private static func renderStrips(in directory: URL) {
+        for dark in [false, true] {
+            let suffix = dark ? "dark" : "light"
+            let chips: [(String, Bool, Double, GlassStripStyle)] = [
+                ("off", false, 1, .fix), ("on", true, 1, .fix), ("fix-30", true, 0.3, .fix),
+                ("fix-50", true, 0.5, .fix), ("fix-75", true, 0.75, .fix), ("undo-30", false, 0.3, .undo),
+                ("undo-50", false, 0.5, .undo),
+            ]
+            let column = VStack(alignment: .leading, spacing: 8) {
+                ForEach(chips, id: \.0) { chip in
+                    PKExampleChip(from: "прривет", to: "привет", isOn: chip.1, phase: (chip.2, chip.3))
+                }
+            }
+            .padding(16)
+            render(column.fixedSize(), dark: dark, size: CGSize(width: 240, height: 330),
+                   to: directory.appending(path: "strip-chip-\(suffix).png"))
+            for (tag, progress, style) in [("fix-35", 0.35, GlassStripStyle.fix), ("fix-60", 0.6, .fix),
+                                           ("undo-45", 0.45, .undo)]
+            {
+                let field = Text(verbatim: tag.hasPrefix("undo") ? "ghbdtn" : "привет")
+                    .font(.system(size: 20))
+                    .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .background(Color.pkPlate, in: RoundedRectangle(cornerRadius: PK.Radius.field, style: .continuous))
+                    .overlay {
+                        GlassStripSweep(progress: progress, style: style,
+                                        word: tag.hasPrefix("undo") ? "ghbdtn" : "привет", font: .systemFont(ofSize: 20))
+                    }
+                    .padding(16)
+                render(field, dark: dark, size: CGSize(width: 360, height: 72),
+                       to: directory.appending(path: "strip-demo-\(tag)-\(suffix).png"))
+            }
+            for phase in [0.5, 1.5, 2.0, 3.5, 4.5] {
+                render(GlassStripHero(phase: phase).padding(20), dark: dark, size: CGSize(width: 420, height: 130),
+                       to: directory.appending(path: "strip-hero-\(Int(phase * 10))-\(suffix).png"))
             }
         }
     }

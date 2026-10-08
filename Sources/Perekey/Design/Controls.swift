@@ -248,21 +248,69 @@ private struct PillShimmer: View {
 
 /// The example beside a correction's switch, 30pt on Plate with a hairline:
 /// on, "ПРивет → Привет" with the typed text struck through in Indigo;
-/// off, only the typed text, as it stays.
+/// off, only the typed text, as it stays. Turning the switch on replays the
+/// glass strip correction inside the chip, turning it off plays the undo (rose
+/// glow) back to the typed text, and hovering an "on" chip replays it. At rest
+/// nothing runs.
 struct PKExampleChip: View {
     let from: String
     let to: String
     let isOn: Bool
 
+    /// Whether the typed text and the arrow come in or go out with the strip.
+    private enum Prefix { case steady, appearing, vanishing }
+
+    /// What the chip shows now. It follows `isOn` together with the player, so
+    /// the new words never flash before the animation starts.
+    private let shownState: State<Bool>
+    private let prefixState: State<Prefix>
+    private let playerState: State<GlassStripPlayer>
+    private var shown: Bool { shownState.wrappedValue }
+    private var player: GlassStripPlayer { playerState.wrappedValue }
+
+    /// `phase` freezes the chip mid-correction, for snapshots.
+    init(from: String, to: String, isOn: Bool, phase: (progress: Double, style: GlassStripStyle)? = nil) {
+        self.from = from
+        self.to = to
+        self.isOn = isOn
+        shownState = State(initialValue: isOn)
+        playerState = State(initialValue: GlassStripPlayer(progress: phase?.progress ?? 1, style: phase?.style ?? .fix))
+        var prefix = Prefix.steady
+        if let phase, phase.progress < 1 {
+            prefix = phase.style == .undo ? .vanishing : (isOn ? .steady : .appearing)
+        }
+        prefixState = State(initialValue: prefix)
+    }
+
+    /// How much of the struck original and the arrow shows, 0 ... 1. It
+    /// follows the strip's progress so both play as one.
+    private var prefixShare: Double {
+        switch prefixState.wrappedValue {
+        case .steady: shown ? 1 : 0
+        case .appearing: player.progress
+        case .vanishing: 1 - player.progress
+        }
+    }
+
+    private var prefixWidth: CGFloat {
+        let font = NSFont.systemFont(ofSize: 13.5)
+        func width(_ text: String) -> CGFloat { (text as NSString).size(withAttributes: [.font: font]).width }
+        return ceil(width(from) + width("→")) + 14
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            if isOn {
+            HStack(spacing: 0) {
                 Text(verbatim: from).strikethrough(color: Color.pkIndigo.opacity(0.55)).foregroundStyle(Color.pkInk3)
                 Text(verbatim: "→").foregroundStyle(Color.pkInk3).padding(.horizontal, 7)
-                Text(verbatim: to).foregroundStyle(Color.pkInk)
-            } else {
-                Text(verbatim: from).foregroundStyle(Color.pkInk2)
             }
+            .fixedSize()
+            .frame(width: prefixWidth * prefixShare, alignment: .leading)
+            .clipped()
+            .opacity(prefixShare)
+            GlassStripWord(before: shown ? from : to, after: shown ? to : from, progress: player.progress,
+                           style: player.style, font: .system(size: 13.5), color: shown ? .pkInk : .pkInk2,
+                           beforeColor: shown ? .pkInk2 : .pkInk, underline: shown, radius: 7)
         }
         .font(.system(size: 13.5))
         .lineLimit(1)
@@ -271,6 +319,17 @@ struct PKExampleChip: View {
         .frame(minWidth: 158, minHeight: 30, maxHeight: 30)
         .background(Color.pkPlate, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.pkRule, lineWidth: 0.5))
+        .onChange(of: isOn) { _, on in
+            shownState.wrappedValue = on
+            prefixState.wrappedValue = on ? .appearing : .vanishing
+            player.play(on ? .fix : .undo)
+        }
+        .onHover { inside in
+            if inside, shown {
+                prefixState.wrappedValue = .steady
+                player.play(.fix)
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: isOn ? "\(from) → \(to)" : from))
     }

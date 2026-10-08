@@ -14,6 +14,9 @@ import SwiftUI
 /// that do not touch the keyboard.
 @MainActor
 enum DebugSnapshot {
+    /// `PEREKEY_SNAPSHOT_GLASS=1` draws Liquid Glass (if the SDK has it); the default is the fallback look.
+    private static let liquidGlass = ProcessInfo.processInfo.environment["PEREKEY_SNAPSHOT_GLASS"] == "1"
+
     static func runIfRequested() {
         guard let path = ProcessInfo.processInfo.environment["PEREKEY_SNAPSHOT"] else { return }
         let directory = URL(fileURLWithPath: path, isDirectory: true)
@@ -35,6 +38,7 @@ enum DebugSnapshot {
                 .frame(width: 560, height: 640)
             render(view, dark: item.dark, size: CGSize(width: 560, height: 640), to: directory.appending(path: "\(item.name).png"))
         }
+        renderSettingsWindow(in: directory)
         renderApps(in: directory)
         renderWordsAndGeneral(in: directory)
         renderOnboarding(in: directory)
@@ -88,6 +92,30 @@ enum DebugSnapshot {
                     .background(Color(nsColor: .windowBackgroundColor))
                 render(view, dark: dark, size: CGSize(width: 318, height: 520),
                        to: directory.appending(path: "menu-\(menu.name)-\(suffix).png"))
+            }
+        }
+    }
+
+    /// The whole Settings window, every section, light and dark.
+    private static func renderSettingsWindow(in directory: URL) {
+        let sources = InputSources()
+        var settings = AppSettings(words: {
+            var words = WordExceptions(mine: ["перекей", "kubectl"])
+            words.learned = [LearnedWord(word: "дедлайн", learnedAt: Date().addingTimeInterval(-86_400 * 2).timeIntervalSince1970)]
+            return words
+        }())
+        settings.apps["com.apple.Notes"] = AppRule(mode: .auto, rememberLastLayout: true)
+        settings.apps["com.apple.Terminal"] = AppRule(mode: .manualOnly)
+        settings.apps["com.apple.Chess"] = AppRule(mode: .off)
+        let file = SettingsFile(url: directory.appending(path: "window.json"))
+        try? file.save(settings)
+        let store = SettingsStore(file: file)
+        let recording = ShortcutRecording(store: store)
+        for dark in [false, true] {
+            for section in SettingsSection.allCases {
+                let view = SettingsView(store: store, recording: recording, sources: sources, initial: section, windowBackground: false)
+                render(view, dark: dark, size: CGSize(width: 840, height: 640),
+                       to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
             }
         }
     }
@@ -161,7 +189,7 @@ enum DebugSnapshot {
         let size = NSSize(width: 640, height: 580)
         for step in OnboardingModel.Step.allCases {
             let model = OnboardingModel(store: store, sources: sources, step: step, live: false)
-            render(OnboardingView(model: model), dark: false, size: size,
+            render(OnboardingView(model: model, heroPhase: 4.5), dark: false, size: size,
                    to: directory.appending(path: "onboarding-\(step.rawValue + 1)-\(step).png"))
         }
         let solved = OnboardingModel(store: store, sources: sources, step: .demo, live: false)
@@ -171,7 +199,9 @@ enum DebugSnapshot {
     }
 
     private static func render(_ view: some View, dark: Bool, size: NSSize = NSSize(width: 560, height: 640), to url: URL) {
-        let host = NSHostingView(rootView: view)
+        let host = NSHostingView(rootView: view
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.pkLiquidGlass, liquidGlass))
         host.frame = NSRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

@@ -174,9 +174,11 @@ final class InputController {
 
     private var languageContext: LanguageContext {
         // The onboarding demo types its own words: they count for no app.
-        guard !appModes.isDemoFront, let app = appModes.frontmost?.bundleID else { return LanguageContext() }
+        guard !appModes.isDemoFront, let app = appModes.frontmost?.bundleID else {
+            return LanguageContext(generation: languages.stats.generation)
+        }
         let site = SiteObserver.browserBundleIDs.contains(app) ? appModes.frontHost : nil
-        return LanguageContext(app: app, site: site, prior: languages.prior(app: app, site: site))
+        return languages.context(app: app, site: site)
     }
 
     /// Undoes the automatic switch the hint shows, as its Undo button does.

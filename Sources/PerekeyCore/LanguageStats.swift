@@ -132,11 +132,17 @@ public struct LanguageContext: Hashable, Sendable {
     /// Normalized host of the page in a browser (`SiteRules.normalized`).
     public var site: String?
     public var prior: LanguagePrior
+    /// `LanguageStats.generation` when the context was made: a tally counted
+    /// under it before an erase is dropped.
+    public var generation: UInt32
 
-    public init(app: String? = nil, site: String? = nil, prior: LanguagePrior = LanguagePrior()) {
+    public init(app: String? = nil, site: String? = nil, prior: LanguagePrior = LanguagePrior(),
+                generation: UInt32 = 0)
+    {
         self.app = app
         self.site = site
         self.prior = prior
+        self.generation = generation
     }
 }
 
@@ -147,11 +153,14 @@ public struct LanguageTally: Hashable, Sendable {
     public var app: String?
     public var site: String?
     public var words: [String: Int]
+    /// The `LanguageContext.generation` the words were counted under.
+    public var generation: UInt32
 
-    public init(app: String?, site: String?, words: [String: Int]) {
+    public init(app: String?, site: String?, words: [String: Int], generation: UInt32 = 0) {
         self.app = app
         self.site = site
         self.words = words
+        self.generation = generation
     }
 }
 
@@ -168,6 +177,11 @@ public struct LanguageStats: Hashable, Sendable, Codable {
     /// By normalized host. Never encoded.
     public private(set) var sites: [String: LanguageCounts] = [:]
 
+    /// Bumped by every reset, in memory only. Words the tap counted before
+    /// a reset come in later under the old number and are dropped, so an
+    /// erased app does not come straight back.
+    public private(set) var generation: UInt32 = 0
+
     /// Sites kept at most, in memory: the least recently counted go first.
     public static let maxSites = 200
     /// Counts below this many words are forgotten.
@@ -177,7 +191,7 @@ public struct LanguageStats: Hashable, Sendable, Codable {
 
     /// A tally counts for its app and, in a browser, for its site too.
     public mutating func record(_ tally: LanguageTally, at time: Double) {
-        guard !tally.words.isEmpty else { return }
+        guard !tally.words.isEmpty, tally.generation == generation else { return }
         if let app = tally.app { apps[app, default: LanguageCounts(updated: time)].add(tally.words, at: time) }
         if let site = tally.site { sites[site, default: LanguageCounts(updated: time)].add(tally.words, at: time) }
     }
@@ -202,6 +216,14 @@ public struct LanguageStats: Hashable, Sendable, Codable {
     public mutating func reset(app: String, sites resetSites: Bool = false) {
         apps[app] = nil
         if resetSites { sites.removeAll() }
+        generation &+= 1
+    }
+
+    /// Forgets every app and site.
+    public mutating func resetAll() {
+        apps.removeAll()
+        sites.removeAll()
+        generation &+= 1
     }
 
     /// Drops faded counts and the least recently counted sites over `maxSites`.

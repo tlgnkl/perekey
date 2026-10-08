@@ -156,6 +156,23 @@ private let ru = Fixture.russian.id
         #expect(stats.sites["site0.example"] == nil, "the oldest site goes first")
     }
 
+    @Test func wordsCountedBeforeAResetAreDropped() {
+        var stats = LanguageStats()
+        let before = LanguageTally(app: "com.apple.Safari", site: "mail.ru", words: ["ru": 300])
+        stats.record(before, at: 0)
+        stats.reset(app: "com.apple.Safari", sites: true)
+        // The tap's pending tally arrives after the reset, counted under the old context.
+        stats.record(before, at: 1)
+        #expect(stats.apps.isEmpty)
+        #expect(stats.sites.isEmpty)
+        stats.record(LanguageTally(app: "com.apple.Safari", site: nil, words: ["en": 5],
+                                   generation: stats.generation), at: 2)
+        #expect(stats.apps["com.apple.Safari"]?.words == ["en": 5])
+        stats.resetAll()
+        stats.record(LanguageTally(app: "com.apple.Safari", site: nil, words: ["en": 5], generation: 1), at: 3)
+        #expect(stats.apps.isEmpty)
+    }
+
     @Test func roundTripsAndReadsWithoutAVersion() throws {
         var stats = LanguageStats()
         stats.record(LanguageTally(app: "com.apple.TextEdit", site: nil, words: ["ru": 3, "en": 1]), at: 5)
@@ -193,6 +210,14 @@ private let ru = Fixture.russian.id
         #expect(tally.words == ["en": 2, "ru": 1])
         desk.send(.languageContextChanged(Self.textEdit))
         #expect(tallies(desk).count == 1, "nothing counted on the site")
+    }
+
+    @Test func aTallyCarriesTheGenerationItWasCountedUnder() throws {
+        var desk = Desk()
+        desk.send(.languageContextChanged(LanguageContext(app: "com.apple.TextEdit", generation: 4)))
+        desk.type("hello ")
+        desk.send(.languageContextChanged(LanguageContext(app: "com.apple.TextEdit", generation: 5)))
+        #expect(try #require(tallies(desk).first).generation == 4)
     }
 
     @Test func anUndoMovesTheWordToItsLayout() throws {

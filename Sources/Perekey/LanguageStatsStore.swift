@@ -33,8 +33,12 @@ final class LanguageStatsStore {
         save()
     }
 
-    func prior(app: String?, site: String?) -> LanguagePrior {
-        stats.prior(app: app, site: site, at: Self.now)
+    /// The context for the tap: the prior of the app and site, and the
+    /// generation of the counts. Every reset changes it, so the observer
+    /// sends a new one, and the words the tap counted before it are dropped.
+    func context(app: String?, site: String?) -> LanguageContext {
+        LanguageContext(app: app, site: site, prior: stats.prior(app: app, site: site, at: Self.now),
+                        generation: stats.generation)
     }
 
     /// The language most typed in the app, once there is enough to say.
@@ -50,7 +54,7 @@ final class LanguageStatsStore {
 
     /// Forgets every app and site (Settings → Privacy).
     func resetAll() {
-        stats = LanguageStats()
+        stats.resetAll()
         save()
     }
 

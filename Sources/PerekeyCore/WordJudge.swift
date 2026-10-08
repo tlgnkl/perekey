@@ -280,7 +280,8 @@ struct WordJudge: Sendable {
             tallied = 0
         }
         guard tally.contains(where: { $0.value != 0 }) else { return nil }
-        return LanguageTally(app: languageContext.app, site: languageContext.site, words: tally)
+        return LanguageTally(app: languageContext.app, site: languageContext.site, words: tally,
+                             generation: languageContext.generation)
     }
 
     // MARK: - At the word's end

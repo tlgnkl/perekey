@@ -22,6 +22,14 @@ import Testing
         #expect(settings.capsLock == .untouched)
     }
 
+    @Test func onboardingIsNotDoneByDefault() throws {
+        #expect(!AppSettings().onboardingDone)
+        let old = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"autoswitch":true}"#.utf8))
+        #expect(!old.onboardingDone)
+        let done = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"onboardingDone":true}"#.utf8))
+        #expect(done.onboardingDone)
+    }
+
     @Test func presetFollowsShortcuts() {
         var settings = AppSettings()
         #expect(settings.preset == .standard)

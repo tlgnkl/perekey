@@ -35,12 +35,31 @@ enum DebugSnapshot {
                 .frame(width: 560, height: 640)
             render(view, dark: item.dark, to: directory.appending(path: "\(item.name).png"))
         }
+        renderOnboarding(in: directory)
         exit(0)
     }
 
-    private static func render(_ view: some View, dark: Bool, to url: URL) {
+    /// Each onboarding step, plus the demo as solved in dark mode.
+    private static func renderOnboarding(in directory: URL) {
+        let file = SettingsFile(url: directory.appending(path: "onboarding.json"))
+        try? file.save(AppSettings())
+        let store = SettingsStore(file: file)
+        let sources = InputSources()
+        let size = NSSize(width: 640, height: 580)
+        for step in OnboardingModel.Step.allCases {
+            let model = OnboardingModel(store: store, sources: sources, step: step, live: false)
+            render(OnboardingView(model: model), dark: false, size: size,
+                   to: directory.appending(path: "onboarding-\(step.rawValue + 1)-\(step).png"))
+        }
+        let solved = OnboardingModel(store: store, sources: sources, step: .demo, live: false)
+        solved.fakeSolvedDemo()
+        render(OnboardingView(model: solved).background(Color(nsColor: .windowBackgroundColor)), dark: true, size: size,
+               to: directory.appending(path: "onboarding-4-demo-solved-dark.png"))
+    }
+
+    private static func render(_ view: some View, dark: Bool, size: NSSize = NSSize(width: 560, height: 640), to url: URL) {
         let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: 560, height: 640)
+        host.frame = NSRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = host

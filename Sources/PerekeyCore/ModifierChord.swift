@@ -75,6 +75,8 @@ public struct ModifierChord: Hashable, Sendable, Codable {
 public extension ModifierChord {
     static let shift = ModifierChord([.shift: .either])
     static let bothShifts = ModifierChord([.shift: .both])
+    static let option = ModifierChord([.option: .either])
+    static let leftOption = ModifierChord([.option: .left])
     static let optionShift = ModifierChord([.option: .either, .shift: .either])
     static let controlShift = ModifierChord([.control: .either, .shift: .either])
     static let commandShift = ModifierChord([.command: .either, .shift: .either])

@@ -3,8 +3,10 @@
 /// Turns a stream of modifier-state changes into shortcut actions.
 ///
 /// A chord fires on release, and only when:
-/// - no other key or mouse button was used while modifiers were held
-///   (so ⌘⇧4 never counts as ⌘⇧);
+/// - no other input happened while modifiers were held
+///   (so ⌘⇧4 never counts as ⌘⇧, and ⌘-scroll never counts as ⌘);
+/// - the press started at least `minIdleAfterTyping` after the last other input
+///   (a Shift tapped mid-word while typing fast is not a shortcut);
 /// - the press was shorter than `maxHoldDuration`.
 ///
 /// A double-tap binding fires when the same chord is tapped twice within
@@ -27,25 +29,34 @@ public struct ChordDetector<Action: Hashable & Sendable>: Sendable {
     public var bindings: [Binding]
     public var maxHoldDuration: Double
     public var doubleTapInterval: Double
+    public var minIdleAfterTyping: Double
 
     private var sessionStart: Double?
     private var peak: Set<ModifierKey> = []
     private var interrupted = false
     private var lastTap: (keys: Set<ModifierKey>, time: Double)?
+    private var lastOtherInput = -Double.infinity
 
-    public init(bindings: [Binding], maxHoldDuration: Double = 0.8, doubleTapInterval: Double = 0.4) {
+    public init(
+        bindings: [Binding],
+        maxHoldDuration: Double = 0.5,
+        doubleTapInterval: Double = 0.4,
+        minIdleAfterTyping: Double = 0.15
+    ) {
         self.bindings = bindings
         self.maxHoldDuration = maxHoldDuration
         self.doubleTapInterval = doubleTapInterval
+        self.minIdleAfterTyping = minIdleAfterTyping
     }
 
     /// Call on every modifier change with the full set of modifiers held now.
+    /// Build the set from the event flags with `ModifierKey.pressed(inEventFlags:)`.
     public mutating func modifiersChanged(to pressed: Set<ModifierKey>, at time: Double) -> Action? {
         guard let start = sessionStart else {
             if !pressed.isEmpty {
                 sessionStart = time
                 peak = pressed
-                interrupted = false
+                interrupted = time - lastOtherInput < minIdleAfterTyping
             }
             return nil
         }
@@ -70,10 +81,12 @@ public struct ChordDetector<Action: Hashable & Sendable>: Sendable {
         return action(for: tapped, taps: 1)
     }
 
-    /// Call on any non-modifier key press or mouse click.
-    public mutating func otherInput() {
+    /// Call on any other input: a non-modifier key press, a mouse click,
+    /// a scroll, or a trackpad gesture.
+    public mutating func otherInput(at time: Double) {
         if sessionStart != nil { interrupted = true }
         lastTap = nil
+        lastOtherInput = time
     }
 
     private func action(for keys: Set<ModifierKey>, taps: Int) -> Action? {

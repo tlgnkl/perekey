@@ -15,26 +15,38 @@ public struct Retype: Hashable, Sendable {
         }
     }
 
-    /// How many Backspaces to send first.
+    /// How many Backspaces to send first. Zero when the retype replaces a
+    /// selection: typing replaces selected text by itself.
     public var deleteCount: Int
     public var keys: [Key]
     public var target: LayoutID
-    /// The text expected before the caret. Where the accessibility API can
-    /// read it, compare first; on mismatch (autocomplete, autocorrect,
-    /// auto-closed brackets) post nothing and send `.retypeCancelled(seq:)`.
+    /// The text expected before the caret: the word typed in the wrong layout.
+    /// Before the Backspaces, where the accessibility API can read it, compare
+    /// it with the text before the caret; on mismatch (autocomplete,
+    /// autocorrect, auto-closed brackets) post nothing and send
+    /// `.retypeCancelled(seq:)`. For a selection it is the selected text, and
+    /// there is nothing to compare: no Backspaces are sent.
     public var expected: String
     /// Mark every posted event `.own(seq:)`, and the last one with `last: true`.
     /// Post only while `InputMachine.pendingRetypeSeq` is this `seq`, then
     /// send `.retypePosted`: a retype posted after the fence was released
     /// would erase what the user typed since.
     public var seq: UInt32
+    /// Replace the selection through the accessibility API instead of typing
+    /// (`kAXSelectedTextAttribute`). Only for apps where the user turned it on:
+    /// in many apps it breaks ⌘Z and formatting. Posts no key events: send
+    /// `.retypePosted` once the text is set, or `.retypeCancelled` if it was not.
+    public var viaAccessibility: Bool
 
-    public init(deleteCount: Int, keys: [Key], target: LayoutID, expected: String, seq: UInt32) {
+    public init(deleteCount: Int, keys: [Key], target: LayoutID, expected: String, seq: UInt32,
+                viaAccessibility: Bool = false)
+    {
         self.deleteCount = deleteCount
         self.keys = keys
         self.target = target
         self.expected = expected
         self.seq = seq
+        self.viaAccessibility = viaAccessibility
     }
 
     public var text: String { keys.map(\.text).joined() }
@@ -50,15 +62,29 @@ public enum Refusal: Hashable, Sendable {
     case missingKeys
     /// A password field has focus.
     case secureField
+    /// Nothing was typed and nothing is selected.
+    case nothingSelected
+    /// The selection has line breaks or control characters (typing Return
+    /// could send a message), is longer than `SelectionConversion.maxLength`,
+    /// or no enabled layout types it differently.
+    case unsupportedSelection
 }
 
 /// What the input logic asks the system layer to do.
 public enum Effect: Hashable, Sendable {
     /// Select this layout. Select, never toggle: toggling twice would undo it.
     case selectLayout(LayoutID)
+    /// Retype a word, or the selection after `.selectionRead`. Usually comes
+    /// right after the `.selectLayout` of its target: select first, then post.
     case retype(Retype)
-    /// Nothing is buffered: convert the selected text, if any, into the other layout.
-    case convertSelection
+    /// Nothing is buffered: read the selected text, off the tap thread, and
+    /// answer with `.selectionRead(seq:text:)`, an empty text if nothing is
+    /// selected. The fence holds user input from now on, until the machine
+    /// either refuses or emits a `.retype` with this `seq`; that retype is
+    /// answered like a word's: `.retypePosted` or `.retypeCancelled`.
+    /// Synthetic keys posted to read the selection (⌘C) must be marked
+    /// `.own(seq:last: false)`, so the tap lets them through.
+    case convertSelection(seq: UInt32)
     /// Post again, marked `.replayed`, the user events held back so far, in order.
     case releaseHeld
     /// Send `.deadline` once this time has passed. A new deadline replaces the old one.

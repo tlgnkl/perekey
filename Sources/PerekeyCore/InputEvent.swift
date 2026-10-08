@@ -91,8 +91,14 @@ public enum InputEvent: Hashable, Sendable {
     /// timeout starts now.
     case retypePosted(seq: UInt32, time: Double)
     /// The system layer did not carry out the retype with this `seq`: the text
-    /// before the caret differed from `Retype.expected`.
+    /// before the caret differed from `Retype.expected`, or the layout could
+    /// not be selected.
     case retypeCancelled(seq: UInt32)
+    /// The answer to `Effect.convertSelection`: the selected text, empty if
+    /// nothing is selected. `viaAccessibility` asks to replace it through the
+    /// accessibility API (`Retype.viaAccessibility`); the system layer sets it
+    /// only for apps where the user turned that on and AX read the text.
+    case selectionRead(seq: UInt32, text: String, viaAccessibility: Bool = false)
     /// Events may have been lost: the tap was disabled, the Mac woke up, or the
     /// user session changed.
     case inputLost

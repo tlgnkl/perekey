@@ -14,7 +14,10 @@ public enum EngineMessage: Sendable {
     case select(LayoutID, then: Retype?)
     case autoswitchChanged(Bool)
     case refused(Refusal)
-    case convertSelection
+    /// Read the selection (`SelectionReader`) and answer with
+    /// `send(.selectionRead(seq:text:viaAccessibility:))`, empty if nothing is
+    /// selected. User input is held until then.
+    case convertSelection(seq: UInt32)
     case secureInputChanged(Bool)
 }
 
@@ -35,11 +38,16 @@ public enum TapState: Hashable, Sendable {
 ///   thread holds. A hung callback freezes the whole system's keyboard.
 /// - **Into the tap thread:** `CFRunLoopPerformBlock` + `CFRunLoopWakeUp`.
 /// - **Out:** `DispatchQueue.main.async` with an `EngineMessage`.
+/// - **Pre-Backspace check:** a word retype asks `TextProbe`, on its AX thread,
+///   whether the text before the caret is the word, while the main thread
+///   selects the target layout. The retype is posted once both are done, or
+///   cancelled on a mismatch. No AX answer means post anyway (`CaretCheck`).
 ///
 /// State below the `// Tap thread` mark is touched only on the tap thread,
 /// hence `@unchecked Sendable`.
 public final class InputEngine: @unchecked Sendable {
     private let onMessage: @MainActor @Sendable (EngineMessage) -> Void
+    private let textProbe: TextProbe?
     private let started = DispatchSemaphore(value: 0)
     private let log = Logger(subsystem: "app.perekey", category: "engine")
 
@@ -56,13 +64,29 @@ public final class InputEngine: @unchecked Sendable {
     private var secureInput = false
     private var disables: [Double] = []
     private var resumeTimer: CFRunLoopTimer?
+    private var check: CaretCheckState?
+
+    /// The pre-Backspace check of the retype with `seq`.
+    private struct CaretCheckState {
+        var seq: UInt32
+        var started: Double
+        var verdict: CaretCheck.Verdict?
+        /// The retype, once its layout is selected, waiting for the verdict.
+        var waiting: Retype?
+    }
 
     /// Disables within a minute that make Perekey step aside, and for how long.
     private static let disablesBeforeSuspend = 3
     private static let suspendSeconds: Double = 30
 
-    public init(machine: InputMachine, onMessage: @escaping @MainActor @Sendable (EngineMessage) -> Void) {
+    /// - Parameter textProbe: checks the text before the caret before a
+    ///   word's Backspaces, and replaces selections for `Retype.viaAccessibility`.
+    ///   Without it, retypes are posted unchecked.
+    public init(machine: InputMachine, textProbe: TextProbe? = nil,
+                onMessage: @escaping @MainActor @Sendable (EngineMessage) -> Void)
+    {
         self.machine = machine
+        self.textProbe = textProbe
         self.onMessage = onMessage
     }
 
@@ -324,8 +348,60 @@ public final class InputEngine: @unchecked Sendable {
             handle(.inputLost)
             return
         }
+        if let pending = check, pending.seq == retype.seq {
+            guard let verdict = pending.verdict else {
+                check?.waiting = retype
+                return
+            }
+            check = nil
+            if verdict == .mismatch {
+                log.info("Retype \(retype.seq, privacy: .public) cancelled: the text before the caret differs")
+                handle(.retypeCancelled(seq: retype.seq))
+                return
+            }
+        }
+        if retype.viaAccessibility, let textProbe {
+            textProbe.replaceSelection(with: retype.text) { [self] done in
+                perform { $0.replacedViaAccessibility(retype, done: done) }
+            }
+            return
+        }
         TextSink.post(retype)
         handle(.retypePosted(seq: retype.seq, time: Self.now))
+    }
+
+    private func replacedViaAccessibility(_ retype: Retype, done: Bool) {
+        guard machine.pendingRetypeSeq == retype.seq else { return }
+        if done {
+            handle(.retypePosted(seq: retype.seq, time: Self.now))
+        } else {
+            log.error("Retype \(retype.seq, privacy: .public): AX did not replace the selection")
+            handle(.retypeCancelled(seq: retype.seq))
+        }
+    }
+
+    /// Starts the pre-Backspace check of a word retype on the AX thread. Runs
+    /// alongside the layout selection on main, so it adds latency only when AX
+    /// answers slower than TIS.
+    private func beginCheck(_ retype: Retype) {
+        guard retype.deleteCount > 0, !retype.expected.isEmpty, let textProbe else { return }
+        let seq = retype.seq
+        check = CaretCheckState(seq: seq, started: Self.now)
+        textProbe.checkBeforeCaret(expected: retype.expected) { [self] verdict in
+            perform { $0.checkFinished(seq: seq, verdict: verdict) }
+        }
+    }
+
+    private func checkFinished(seq: UInt32, verdict: CaretCheck.Verdict) {
+        guard let pending = check, pending.seq == seq else { return }
+        // Numbers only: the text never reaches the log.
+        let ms = (Self.now - pending.started) * 1000
+        log.info("Caret check \(seq, privacy: .public): \(String(describing: verdict), privacy: .public) in \(ms, format: .fixed(precision: 1), privacy: .public) ms")
+        check?.verdict = verdict
+        if let waiting = pending.waiting {
+            check?.waiting = nil
+            postIfPending(waiting)
+        }
     }
 
     private func handle(_ event: InputEvent) {
@@ -343,9 +419,11 @@ public final class InputEngine: @unchecked Sendable {
                 if index + 1 < effects.endIndex, case let .retype(retype) = effects[index + 1] {
                     then = retype
                     index += 1
+                    beginCheck(retype)
                 }
                 toMain(.select(id, then: then))
             case let .retype(retype):
+                beginCheck(retype)
                 postIfPending(retype)
             case .releaseHeld:
                 let events = held
@@ -361,8 +439,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.autoswitchChanged(on))
             case let .refused(refusal):
                 toMain(.refused(refusal))
-            case .convertSelection:
-                toMain(.convertSelection)
+            case let .convertSelection(seq):
+                toMain(.convertSelection(seq: seq))
             }
             index += 1
         }

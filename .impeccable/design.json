@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-08T14:00:00Z",
+  "title": "Design System: Perekey",
+  "extensions": {
+    "colorMeta": {
+      "accent": { "role": "primary", "displayName": "Correction Indigo", "canonical": "#5E5CE6", "tonalRamp": ["#1B1A5C", "#2B2A8A", "#3A38B5", "#4644D0", "#5E5CE6", "#7D7AFF", "#A9A7FF", "#D9D8FF"] },
+      "accent-fill": { "role": "primary", "displayName": "Solid Indigo Fill", "canonical": "#5E5CE6", "tonalRamp": ["#1B1A5C", "#2B2A8A", "#3A38B5", "#4644D0", "#5E5CE6", "#7D7AFF", "#A9A7FF", "#D9D8FF"] },
+      "accent-ink": { "role": "primary", "displayName": "Indigo Ink", "canonical": "#4644D0", "tonalRamp": ["#1B1A5C", "#2B2A8A", "#3A38B5", "#4644D0", "#5E5CE6", "#7D7AFF", "#A9A7FF", "#D9D8FF"] },
+      "warn": { "role": "secondary", "displayName": "Caution Amber", "canonical": "#C26A00", "tonalRamp": ["#3D2100", "#6B3A00", "#965200", "#C26A00", "#E58A10", "#FFB340", "#FFD08A", "#FFEBC7"] },
+      "ok": { "role": "secondary", "displayName": "Granted Green", "canonical": "#1F9D47", "tonalRamp": ["#0A3A19", "#10592A", "#177A38", "#1F9D47", "#32D74B", "#6BE37D", "#A6EFB1", "#D8F8DD"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#1D1D1F", "tonalRamp": ["#1D1D1F", "#38383C", "#55555A", "#66666C", "#8A8A90", "#A1A1A8", "#D1D1D6", "#F5F5F7"] },
+      "window-solid": { "role": "neutral", "displayName": "Solid Plate", "canonical": "#FFFFFF", "tonalRamp": ["#26262C", "#3A3A42", "#6C6C74", "#A1A1A8", "#D1D1D6", "#E9E9EE", "#F5F5F7", "#FFFFFF"] }
+    },
+    "typographyMeta": {
+      "large-title": { "displayName": "Large title", "purpose": "Onboarding step titles." },
+      "title": { "displayName": "Title", "purpose": "Settings pane titles." },
+      "headline": { "displayName": "Headline", "purpose": "Menu header language name, group headings." },
+      "body": { "displayName": "Body", "purpose": "Rows, menu items, controls." },
+      "callout": { "displayName": "Callout", "purpose": "Chat messages and onboarding lead." },
+      "caption": { "displayName": "Caption", "purpose": "Descriptions under row titles, section labels, tags." },
+      "capsule-label": { "displayName": "Capsule label", "purpose": "Layout code (EN/RU) in the menu bar capsule." },
+      "hero-word": { "displayName": "Hero word", "purpose": "Onboarding demo word under the glass strip." }
+    },
+    "shadows": [
+      { "name": "strip-rim", "value": "inset 0 0 0 .5px rgba(255,255,255,.95), inset 0 -1px 1px rgba(94,92,230,.10)", "purpose": "Light edge on every glass strip. Dark: .5px rgba(255,255,255,.22), inset 0 -1px 1px rgba(0,0,0,.2)." },
+      { "name": "strip-glow", "value": "0 6px 16px -6px rgba(94,92,230,.45)", "purpose": "Indigo under-glow beneath strips, thumbs and selected presets." },
+      { "name": "window", "value": "0 30px 80px -20px rgba(20,20,60,.42), 0 3px 10px rgba(20,20,60,.12), inset 0 0 0 .5px rgba(255,255,255,.6)", "purpose": "Floating windows. Dark: rgba(0,0,0,.75) / .35 / white .12 rim." },
+      { "name": "popover", "value": "inset 0 0 0 .5px rgba(255,255,255,.9), 0 24px 60px -18px rgba(30,25,90,.45), 0 2px 6px rgba(0,0,0,.08)", "purpose": "Menu, caret hint, dock tooltips. Dark: white .14 rim, black .7 / .3." },
+      { "name": "keycap-edge", "value": "0 1.5px 0 rgba(0,0,0,.08)", "purpose": "Physical lower edge of a keycap only (2.5px on the big key)." }
+    ],
+    "materials": [
+      { "name": "bar", "swiftui": ".ultraThinMaterial", "css": "background: rgba(255,255,255,.40) (dark rgba(20,20,26,.40)); backdrop-filter: blur(30px) saturate(1.8)", "purpose": "Menu bar and dock." },
+      { "name": "window", "swiftui": ".regularMaterial", "css": "background: rgba(251,251,253,.80) (dark rgba(32,32,38,.80)); backdrop-filter: blur(50px) saturate(1.9)", "purpose": "App windows." },
+      { "name": "popover", "swiftui": ".thickMaterial", "css": "linear-gradient(180deg, rgba(255,255,255,.84), rgba(250,250,255,.70)) (dark rgba(48,48,58,.86) to rgba(36,36,44,.76)); backdrop-filter: blur(40px) saturate(1.9)", "purpose": "Menu popover; caret hint uses blur(20px) saturate(1.8)." },
+      { "name": "strip", "swiftui": ".thinMaterial + indigo gradient overlay", "css": "linear-gradient(180deg, rgba(255,255,255,.78), rgba(222,222,255,.50)) (dark rgba(255,255,255,.20) to rgba(140,138,255,.16)); backdrop-filter: blur(8px) saturate(1.8)", "purpose": "The signature glass strip." }
+    ],
+    "motion": [
+      { "name": "spring", "value": "cubic-bezier(.2,1.3,.3,1)", "purpose": "Switch knob (.4s), capsule press (.3s); segment thumb uses (.2,1.25,.3,1) at .5s. Only these three may overshoot." },
+      { "name": "ease-out-soft", "value": "cubic-bezier(.16,1,.3,1)", "purpose": "Popovers, hint, sidebar selection, dock lift (.35 to .55s)." },
+      { "name": "ease-out-panel", "value": "cubic-bezier(.2,1,.3,1)", "purpose": "Window open, pane and step transitions, capsule label slide (.45 to .6s)." },
+      { "name": "strip-wipe", "value": "cubic-bezier(.3,.7,.2,1)", "purpose": "Cover, retype, peel of the correction strip (.95s; 6s hero loop; capsule sheen .85s)." },
+      { "name": "quick", "value": "ease, .15 to .28s", "purpose": "Opacity, color and press feedback." }
+    ],
+    "breakpoints": [
+      { "name": "narrow-window", "value": "1100px" },
+      { "name": "sheet", "value": "760px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Menu Bar Capsule",
+      "kind": "custom",
+      "refersTo": "capsule",
+      "description": "Glass strip in the menu bar showing the current layout; springs on press.",
+      "html": "<button class=\"ds-capsule\"><span>EN</span></button>",
+      "css": ".ds-capsule { height: 22px; min-width: 46px; padding: 0 11px; border: 0; border-radius: 11px; color: #4644D0; font: 800 11.5px/1 -apple-system, system-ui, sans-serif; letter-spacing: .06em; background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(222,222,255,.50)); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.95), inset 0 -1px 1px rgba(94,92,230,.10), inset 0 0 0 1px rgba(94,92,230,.35), 0 3px 10px -3px rgba(94,92,230,.45); transition: transform .3s cubic-bezier(.2,1.3,.3,1); } .ds-capsule:active { transform: scale(.94); } .ds-capsule:focus-visible { outline: 3px solid rgba(94,92,230,.55); outline-offset: 2px; }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Solid indigo pill with white text.",
+      "html": "<button class=\"ds-btn-primary\">Продолжить</button>",
+      "css": ".ds-btn-primary { height: 30px; padding: 0 16px; border: 0; border-radius: 15px; background: #5E5CE6; color: #fff; font: 500 13px -apple-system, system-ui, sans-serif; box-shadow: 0 6px 16px -6px rgba(94,92,230,.45), inset 0 .5px 0 rgba(255,255,255,.35); transition: transform .15s; } .ds-btn-primary:active { transform: scale(.97); } .ds-btn-primary:focus-visible { outline: 3px solid rgba(94,92,230,.55); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Neutral wash pill for non-primary actions.",
+      "html": "<button class=\"ds-btn-secondary\">Экспорт…</button>",
+      "css": ".ds-btn-secondary { height: 30px; padding: 0 16px; border: 0; border-radius: 15px; background: rgba(0,0,0,.08); color: #1D1D1F; font: 500 13px -apple-system, system-ui, sans-serif; transition: transform .15s; } .ds-btn-secondary:active { transform: scale(.97); } .ds-btn-secondary:focus-visible { outline: 3px solid rgba(94,92,230,.55); outline-offset: 2px; }"
+    },
+    {
+      "name": "Switch",
+      "kind": "custom",
+      "refersTo": "switch",
+      "description": "Spring switch, indigo when on.",
+      "html": "<button class=\"ds-switch\" role=\"switch\" aria-checked=\"true\"></button>",
+      "css": ".ds-switch { position: relative; width: 38px; height: 22px; border: 0; border-radius: 11px; background: #5E5CE6; transition: background .25s; } .ds-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transform: translateX(16px); transition: transform .4s cubic-bezier(.2,1.3,.3,1); } .ds-switch[aria-checked='false'] { background: rgba(0,0,0,.08); } .ds-switch[aria-checked='false']::after { transform: none; } .ds-switch:focus-visible { outline: 3px solid rgba(94,92,230,.55); outline-offset: 2px; }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "nav",
+      "refersTo": "segmented",
+      "description": "Wash track whose thumb is a glass strip.",
+      "html": "<div class=\"ds-seg\"><span class=\"ds-seg-thumb\"></span><button class=\"on\">Светлое</button><button>Тёмное</button></div>",
+      "css": ".ds-seg { position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 2px; border-radius: 10px; background: rgba(0,0,0,.045); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.08); font: 13px -apple-system, system-ui, sans-serif; } .ds-seg-thumb { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: 8px; background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.76)); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.95), inset 0 -1px 1px rgba(94,92,230,.10), 0 2px 8px -2px rgba(94,92,230,.45); transition: transform .5s cubic-bezier(.2,1.25,.3,1); } .ds-seg button { position: relative; border: 0; background: none; padding: 4px 12px; color: #66666C; } .ds-seg button.on { color: #1D1D1F; font-weight: 600; } .ds-seg button:focus-visible { outline: 3px solid rgba(94,92,230,.55); border-radius: 8px; }"
+    },
+    {
+      "name": "Settings Group",
+      "kind": "card",
+      "refersTo": "settings-row",
+      "description": "Inset grouped card with title/description rows and trailing controls.",
+      "html": "<div class=\"ds-group\"><div class=\"ds-row\"><div>Автопереключение<small>Исправлять слово по пробелу</small></div><span>●</span></div><div class=\"ds-row\"><div>Звук</div><span>○</span></div></div>",
+      "css": ".ds-group { border-radius: 14px; background: rgba(255,255,255,.66); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.08); font: 13px/1.4 -apple-system, system-ui, sans-serif; color: #1D1D1F; } .ds-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; min-height: 44px; } .ds-row + .ds-row { border-top: 1px solid rgba(0,0,0,.08); } .ds-row small { display: block; color: #66666C; font-size: 12px; margin-top: 1px; }"
+    },
+    {
+      "name": "Latest Fix Row",
+      "kind": "custom",
+      "refersTo": "capsule",
+      "description": "Menu list row for the most recent correction, rendered as a glass strip.",
+      "html": "<div class=\"ds-fix\"><span class=\"ds-from\">ghbdtn</span><b>привет</b><span class=\"ds-when\">сейчас</span></div>",
+      "css": ".ds-fix { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; font: 13px -apple-system, system-ui, sans-serif; color: #1D1D1F; background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(222,222,255,.50)); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.95), inset 0 -1px 1px rgba(94,92,230,.10), 0 6px 16px -6px rgba(94,92,230,.45); } .ds-from { color: #A1A1A8; text-decoration: line-through; text-decoration-color: rgba(94,92,230,.55); } .ds-when { margin-left: auto; color: #A1A1A8; font-size: 12px; }"
+    },
+    {
+      "name": "Timing Bar",
+      "kind": "custom",
+      "refersTo": "segmented",
+      "description": "Shift timing track: indigo zone counted, hatched zone not counted.",
+      "html": "<div class=\"ds-track\"><div class=\"ds-zone\"></div><div class=\"ds-late\"></div><div class=\"ds-bar\"></div></div>",
+      "css": ".ds-track { position: relative; width: 320px; height: 30px; border-radius: 10px; background: rgba(0,0,0,.045); overflow: hidden; } .ds-zone { position: absolute; top: 0; bottom: 0; left: 0; width: 76.9%; background: rgba(94,92,230,.13); } .ds-late { position: absolute; top: 0; bottom: 0; left: 76.9%; right: 0; background: repeating-linear-gradient(135deg, rgba(0,0,0,.08) 0 4px, transparent 4px 9px); } .ds-bar { position: absolute; top: 5px; bottom: 5px; left: 5px; width: 40%; border-radius: 6px; background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(222,222,255,.50)); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.95), 0 6px 16px -6px rgba(94,92,230,.45); }"
+    },
+    {
+      "name": "Keycap",
+      "kind": "custom",
+      "refersTo": "keycap",
+      "description": "Physical key with a lower edge; the big variant presses down and fills indigo.",
+      "html": "<span class=\"ds-key\">⌥</span>",
+      "css": ".ds-key { display: inline-grid; place-items: center; min-width: 26px; height: 24px; padding: 0 7px; border-radius: 7px; background: #fff; color: #1D1D1F; font: 600 12.5px/1 -apple-system, system-ui, sans-serif; box-shadow: 0 1.5px 0 rgba(0,0,0,.08), inset 0 0 0 .5px rgba(0,0,0,.08); }"
+    },
+    {
+      "name": "Caret Hint",
+      "kind": "custom",
+      "refersTo": "capsule",
+      "description": "Popover by the caret: struck-out original, new word, undo action.",
+      "html": "<div class=\"ds-hint\"><span class=\"ds-from\">ghbdtn</span> привет <span class=\"ds-act\">Отменить</span></div>",
+      "css": ".ds-hint { display: inline-flex; align-items: center; gap: 10px; padding: 6px 6px 6px 12px; border-radius: 13px; font: 12.5px -apple-system, system-ui, sans-serif; color: #1D1D1F; background: linear-gradient(180deg, rgba(255,255,255,.84), rgba(250,250,255,.70)); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.9), 0 24px 60px -18px rgba(30,25,90,.45), 0 2px 6px rgba(0,0,0,.08); } .ds-hint .ds-from { color: #A1A1A8; text-decoration: line-through; text-decoration-color: rgba(94,92,230,.55); } .ds-act { padding: 3px 8px; border-radius: 8px; background: rgba(94,92,230,.13); color: #4644D0; font-weight: 600; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Стеклянная правка",
+    "overview": "Every correction is a strip of frosted glass laid over a word, like correction tape: it wipes on, rests while the word is retyped, and peels off on Backspace. The interface is a native macOS 26 window system (translucent windows, SF Pro, system-style controls) in which that one object recurs everywhere a thing is chosen, fixed or measured.\n\nThe system is quiet. Windows are large, soft glass planes over a colored wallpaper; content sits in inset grouped rows. One indigo accent carries every active, selected and corrected state, so a viewer can find what changed by looking for indigo glass.",
+    "keyCharacteristics": [
+      "Frosted strip surface (gradient + 0.5px light rim + indigo under-glow) as the single signature material.",
+      "One accent: indigo, with a lighter dark-mode value and a solid fill kept for white-on-accent.",
+      "Native structure: traffic lights, menu bar, grouped rows, sidebar selection, popovers, dock.",
+      "Hatched diagonal fill means time or zone that is not counted.",
+      "Springs only on switches, segment thumbs and the menu bar capsule; everything else eases out.",
+      "Light and dark are both first-class and follow the system by default."
+    ],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "Indigo is the only accent hue. Warning amber and permission green are status colors, never decoration. Per-section sidebar icon tiles use macOS-style multi-hue gradients as a native System Settings idiom and do not extend to any other element.", "section": "colors" },
+      { "name": "The White-on-Fill Rule", "body": "White text sits only on Solid Indigo Fill (#5E5CE6). Text on translucent indigo or glass uses Indigo Ink.", "section": "colors" },
+      { "name": "The No-Second-Face Rule", "body": "One family. Emphasis is weight (400/600/700/800), never a different typeface.", "section": "typography" },
+      { "name": "The Rim-and-Glow Rule", "body": "Every raised glass surface carries both the light rim and a tinted (never black-only) under-glow. Grey drop shadows alone are wrong.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do express any new selected / corrected / measured state as a glass strip (gradient, .5px rim, indigo glow) before inventing another highlight.",
+      "Do use Solid Indigo Fill (#5E5CE6) for anything carrying white text, in both appearances; use Indigo Ink for text on glass.",
+      "Do ship every surface in light and dark with the paired values, and follow the system appearance by default.",
+      "Do reserve springs for switches, segment thumbs and the capsule; use ease-out for everything else.",
+      "Do use the hatch (135deg stripes) only for time or zones that are not counted.",
+      "Do honor reduced motion: collapse all durations to near zero."
+    ],
+    "donts": [
+      "Don't add a second accent hue, or use amber/green as decoration.",
+      "Don't use keyboard icons, flags or toggle grids as the brand device.",
+      "Don't put black-only drop shadows on glass or rely on solid 1px borders for grouping.",
+      "Don't bounce anything outside the three spring components.",
+      "Don't set essential information in Quiet Ink (#A1A1A8); it is for placeholders and struck-out originals."
+    ]
+  }
+}

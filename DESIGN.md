@@ -235,7 +235,25 @@ Generous continuous-curve corners that nest: window 20, menu 18, grouped card 14
 ## Components
 
 ### Menu bar capsule (signature)
-A 22pt-tall, 46pt-min glass strip with the layout code in Indigo Ink, 1px indigo ring (35%), rim and 3pt-radius glow. On press it scales to .94 with a spring (`cubic-bezier(.2,1.3,.3,1)`, .3s). On a layout change the label slides up out and the new one in from below (.55s `cubic-bezier(.2,1,.3,1)`) and a white sheen crosses (.85s). Paused: 55% opacity. Off: label struck through. Open: 3pt Indigo Mist halo. A beacon ring (14pt, 1.6s, 3x) draws attention once.
+A 22pt-tall, 46pt-min glass strip with the layout code in Indigo Ink, 1px indigo ring (35%), rim and 3pt-radius glow. On press it scales to .94 with a spring (`cubic-bezier(.2,1.3,.3,1)`, .3s). On a layout change the label slides up out and the new one in from below (.55s `cubic-bezier(.2,1,.3,1)`) and a white sheen crosses (.85s). Held (Perekey is not acting): the hatch wipes over the strip left to right (.6s clip-path), the label turns Ink, and the reason slides out to the left of the code with a width spring (.55s `cubic-bezier(.2,1.2,.3,1)`, from blur 3px): pause icon + minutes left, key + «пароль», lock + the app holding Secure Input, slashed circle + «выкл. здесь». A changed reason ticks in from below. Off: label struck through. Open: 3pt Indigo Mist halo. A beacon ring (14pt, 1.6s, 3x) draws attention once.
+
+### Held-state card and status hero
+The same reason appears twice more. In the menu: a card under the header with a hatched icon tile, title, one-line cause and an optional action (`Продолжить`, `Включить здесь`) that wraps under the text; it opens with a grid-rows reveal (.45s). In Settings → Основные: a status hero (radius 18) with a 46pt capsule replica, title, cause and one action; running it is a strip with indigo glow, held it turns to a plain row fill and the hatch fades out behind the capsule (mask 18% → 46%). Title changes rise 6pt from blur 4px (.38s). Timer ticks update text only and never rebuild a focused button.
+
+### Correction example chip
+A 30pt Solid Plate chip beside a correction setting: `from → to`, the original in Quiet Ink struck through with an indigo line, the result with the fixed-word underline. Turning the setting on replays the glass strip correction inside the chip; turning it off plays the undo (rose glow) back to the original; hover replays it. Planned features show the chip at 60% with a disabled switch and a `скоро` tag; never animate a feature that does not ship.
+
+### Hatched guarantee row
+For things Perekey never touches (password fields, password-like strings, captcha, code): a row with a 28pt hatched icon tile and a monospace sample on the right. No control: it is a statement, not a setting.
+
+### Picker tiles
+Appearance and indicator choices are 78x50 previews (wallpaper + mini window or mini menu bar with a capsule) with the label under them. Selected: 2.5pt indigo ring and glow, label 600 Ink; press scales .95 with a spring.
+
+### Spotlight picker and filtered lists
+`+` opens a popover (radius 15, popover material) anchored under it: a 36pt search field, a source line, results with icon, path, a green dot for running apps and the default mode for that app's category. Results enter with a 22ms stagger (cap 6). Arrow keys and hover move a Solid Indigo Fill selection; Return adds. A new row expands (grid rows 0fr → 1fr) and a strip wipes over it. Filtered rows collapse the same way; the mode filter shows counts in Quiet Ink.
+
+### Found highlight
+Search results, a newly added app or a newly learned word get a strip that wipes over the row, rests and peels off (1.7s) behind the row's content. Forgetting a word is the reverse: the hatch wipes over its chip, the row collapses.
 
 ### Glass strip correction (signature interaction)
 Cover (clip-path wipe in), retype (old word blurs out, new blurs in under the strip), peel (wipe out). 0.95s `cubic-bezier(.3,.7,.2,1)` in text fields, 6s loop in the onboarding hero. Fixed words keep a 1.5pt indigo 50% underline (4pt offset). An undone fix swaps the glow for a rose one. Shared by chat, the demo field and the caret hint.
@@ -256,7 +274,7 @@ Wash track with rim, 2pt padding, radius 10. The thumb is a strip (thumb gradien
 Glass inset panel. One selection strip (32pt) slides behind the current item (`.5s cubic-bezier(.16,1,.3,1)`), current label 600. Each item has a 22pt rounded-square icon tile with a white glyph.
 
 ### Settings group and row
-Card radius 14 on a faint white row fill with rim; row 44pt min with title, optional 12pt description and a trailing control. Contents of a pane cross-fade and rise 8pt (.25s ease, .45s out).
+Card radius 14 on a faint white row fill with rim; row 44pt min with title, optional 12pt description and a trailing control. A new pane arrives from the direction of travel in the sidebar: 14pt offset and 3px blur to rest in .32s ease-out. Sidebar search dims sections without matches to 38%, shows match counts in Indigo Ink, and Return walks the matches with the found highlight.
 
 ### Menu popover
 318pt wide, radius 18, popover material. Header: 40pt strip with layout code plus language and a hint line; a card with the auto-switch and mode rows; "Последние правки" list where the latest fix is itself a strip and reverted fixes strike through "to"; a command list whose hover is Solid Indigo Fill with white text and shortcut hints (Quiet Ink, 80% white on hover). Enters with scale .92 from top right (.45s `cubic-bezier(.16,1,.3,1)`).
@@ -283,7 +301,8 @@ Floating glass bar, radius 24, 54pt icons that lift 6pt and scale 1.08 on hover 
 - **Do** use Solid Indigo Fill (#5E5CE6) for anything carrying white text, in both appearances; use Indigo Ink for text on glass.
 - **Do** ship every surface in light and dark with the paired values above, and follow the system appearance by default.
 - **Do** reserve springs (`cubic-bezier(.2,1.3,.3,1)` family) for switches, segment thumbs and the capsule; use ease-out (`cubic-bezier(.16,1,.3,1)` or `(.2,1,.3,1)`) for everything else.
-- **Do** use the hatch (135deg stripes) only for time or zones that are not counted.
+- **Do** use the hatch (135deg stripes) only for time, zones or text that Perekey does not count: the ignored timing zone, the held capsule, the never-touched rows, a forgotten word.
+- **Do** name the cause wherever Perekey is held: capsule, menu card and status hero say the same reason.
 - **Do** honor reduced motion: collapse all durations to near zero.
 
 ### Don't:

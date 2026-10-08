@@ -9,8 +9,9 @@ related_targets: []
 
 Scope: one interactive HTML page that imitates the native macOS app on a live
 desktop: menu bar indicator and dropdown, caret hint with undo, onboarding
-(3 steps), settings window (General, Shortcuts, Apps, Exceptions, Privacy,
-About), a chat window for typing. Mode: Operate.
+(3 steps), settings window (General, Corrections, Shortcuts, Apps, Words,
+Privacy, About), a chat window for typing, and a mock-only control that
+drives the pause reasons. Mode: Operate.
 
 Audience: the founder judging the visual direction; later contributors.
 Task: show how Perekey looks and behaves in every touchpoint, in Russian.

@@ -128,13 +128,14 @@ svg { display: block; flex: none; }
 /* the capsule: Perekey's face */
 .capsule {
   position: relative; height: 22px; min-width: 46px; padding: 0 11px; border: 0; border-radius: 11px;
-  display: grid; place-items: center; overflow: hidden; color: var(--accent-ink);
+  display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--accent-ink);
   font: 800 11.5px/1 -apple-system, system-ui, sans-serif; letter-spacing: .06em;
   background: var(--strip); box-shadow: var(--strip-rim), inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent), 0 3px 10px -3px var(--accent-glow);
-  transition: transform .3s cubic-bezier(.2,1.3,.3,1);
+  transition: transform .3s cubic-bezier(.2,1.3,.3,1), color .35s, box-shadow .35s;
 }
 .capsule:active { transform: scale(.94); }
 .capsule[aria-expanded="true"] { box-shadow: var(--strip-rim), 0 0 0 3px var(--accent-soft); }
+.code { position: relative; z-index: 1; display: grid; place-items: center; }
 .capsule .lbl { grid-area: 1 / 1; transition: transform .55s cubic-bezier(.2,1,.3,1), opacity .3s; }
 .capsule .lbl.out { transform: translateY(-130%); opacity: 0; }
 .capsule .lbl.below { transform: translateY(130%); opacity: 0; }
@@ -143,8 +144,22 @@ svg { display: block; flex: none; }
   background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.9) 50%, transparent 70%); transform: translateX(-130%);
 }
 .capsule.sheen::after { animation: sheen .85s cubic-bezier(.3,.7,.2,1); }
-.capsule.paused { opacity: .55; }
 .capsule.off .lbl { text-decoration: line-through; text-decoration-thickness: 1.5px; }
+/* held: Perekey is not acting. The hatch ("not counted") wipes over the strip, the reason slides out of the code */
+.held-hatch::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink) 11%, transparent) 0 3px, transparent 3px 7px);
+  clip-path: inset(0 100% 0 0); transition: clip-path .6s cubic-bezier(.3,.7,.2,1);
+}
+.held-hatch.held::before { clip-path: inset(0 0 0 0); }
+.capsule.held { color: var(--ink); box-shadow: var(--strip-rim), inset 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent), 0 3px 10px -5px rgba(20,20,60,.25); }
+.why { position: relative; z-index: 1; width: 0; overflow: hidden; opacity: 0; filter: blur(3px); letter-spacing: 0; font-weight: 700;
+  transition: width .55s cubic-bezier(.2,1.2,.3,1), margin .55s cubic-bezier(.2,1.2,.3,1), opacity .25s, filter .35s; }
+.why .wi { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.held > .why { opacity: 1; filter: none; margin-right: 6px; }
+.why .wt { display: inline-block; }
+.why .wt.tick { animation: tick .45s cubic-bezier(.16,1,.3,1); }
+@keyframes tick { from { transform: translateY(70%); opacity: 0; filter: blur(2px); } }
 @keyframes sheen { to { transform: translateX(130%); } }
 .capsule.beacon { animation: beacon 1.6s cubic-bezier(.2,.8,.2,1) 3; }
 @keyframes beacon { 0% { box-shadow: var(--strip-rim), 0 0 0 0 var(--accent-glow); } 100% { box-shadow: var(--strip-rim), 0 0 0 14px transparent; } }
@@ -235,9 +250,9 @@ svg { display: block; flex: none; }
   opacity: 0; transform: translateY(4px) scale(.96); transform-origin: 14px 100%;
   transition: opacity .18s ease, transform .2s ease;
 }
-.hint.show { opacity: 1; transform: none; transition: opacity .25s cubic-bezier(.2,.9,.2,1), transform .55s cubic-bezier(.16,1,.3,1); }
+.hint.show { pointer-events: auto; opacity: 1; transform: none; transition: opacity .25s cubic-bezier(.2,.9,.2,1), transform .55s cubic-bezier(.16,1,.3,1); }
 .hint .from { color: var(--ink-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-.hint .act { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.hint .act { border: 0; font: inherit; display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
 
 /* ===================== Perekey menu ===================== */
 .pmenu {
@@ -359,15 +374,23 @@ svg { display: block; flex: none; }
 #w-set .tbar { position: absolute; z-index: 3; left: 0; top: 0; padding: 18px 20px; }
 .set { flex: 1; display: grid; grid-template-columns: 216px 1fr; min-height: 0; }
 .side { margin: 8px; padding: 46px 8px 8px; border-radius: 15px; background: var(--sidebar); box-shadow: inset 0 0 0 .5px var(--rule), 0 6px 20px -12px rgba(0,0,0,.25); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); display: flex; flex-direction: column; gap: 2px; position: relative; overflow: hidden; }
-.side .search { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; margin: 0 2px 8px; border-radius: 8px; background: var(--fill); color: var(--ink-3); }
-.nav { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 8px; border: 0; border-radius: 9px; background: none; text-align: left; transition: color .2s; }
+.side .search { position: relative; z-index: 2; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; margin: 0 2px 8px; border-radius: 8px; background: var(--fill); color: var(--ink-3); transition: background .2s, box-shadow .2s; }
+.side .search:focus-within { background: var(--win-solid); box-shadow: inset 0 0 0 .5px var(--rule), 0 0 0 3px var(--accent-soft); }
+.side .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--ink); padding: 0; }
+.side .search input::placeholder { color: var(--ink-3); }
+.nav.dim { opacity: .38; }
+.nav .badge { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--accent-fill); box-shadow: 0 3px 8px -3px var(--accent-glow); }
+.nav .badge.pop { animation: pop .5s cubic-bezier(.2,1.3,.3,1); }
+@keyframes pop { from { transform: scale(.4); opacity: 0; } }
+.nav .hits { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--accent-ink); }
+.nav { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 8px; border: 0; border-radius: 9px; background: none; text-align: left; transition: color .2s, opacity .25s; }
 .nav .ni { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: #fff; flex: none; }
 .nav[aria-current="page"] { font-weight: 600; }
 .side .sel { position: absolute; z-index: 0; left: 8px; right: 8px; height: 32px; top: 0; border-radius: 9px; background: var(--thumb); box-shadow: var(--strip-rim), 0 4px 14px -6px var(--accent-glow); transition: transform .5s cubic-bezier(.16,1,.3,1); }
 .side .foot { margin-top: auto; padding: 10px 8px 4px; color: var(--ink-3); font-size: 12px; }
 .pane-wrap { position: relative; min-width: 0; overflow: hidden; }
 .pane { position: absolute; inset: 0; overflow: auto; padding: 20px 26px 40px 18px; -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent); transition: opacity .25s ease, transform .45s cubic-bezier(.2,1,.3,1); }
-.pane[hidden] { display: block !important; opacity: 0; transform: translateY(8px); pointer-events: none; }
+.pane[hidden] { display: none !important; }
 .pane h2 { margin: 2px 0 4px; font-size: 22px; letter-spacing: -.015em; }
 .pane .sub { margin: 0 0 18px; color: var(--ink-2); max-width: 60ch; }
 .group { border-radius: 14px; background: var(--row); box-shadow: inset 0 0 0 .5px var(--rule); margin-bottom: 16px; }
@@ -443,6 +466,165 @@ svg { display: block; flex: none; }
 .about h2 { margin: 6px 0 0; }
 .about p { margin: 0; color: var(--ink-2); max-width: 46ch; }
 
+/* ===================== held state: menu card + settings hero ===================== */
+.pm-why { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .45s cubic-bezier(.16,1,.3,1); }
+.pm-why.show { grid-template-rows: 1fr; }
+.pm-why > div { min-height: 0; overflow: hidden; }
+.why-card { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; padding: 10px 10px 10px 11px; border-radius: 13px; background: var(--panel); box-shadow: inset 0 0 0 .5px var(--rule); overflow: hidden; }
+.why-card > * { position: relative; z-index: 1; }
+.why-card .wico { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none; background: var(--fill-2); color: var(--ink-2); }
+.why-card b { display: block; font-size: 13px; }
+.why-card small { display: block; color: var(--ink-2); font-size: 12px; line-height: 1.35; }
+.why-card > div { flex: 1 1 200px; min-width: 0; } /* the action wraps under the text instead of squeezing it */
+.why-card .btn { margin-left: 38px; flex: none; }
+
+.status { position: relative; display: flex; align-items: center; gap: 16px; padding: 16px 16px 16px 18px; margin-bottom: 16px; border-radius: 18px; overflow: hidden;
+  background: var(--strip); box-shadow: var(--strip-rim), 0 16px 36px -20px var(--accent-glow); transition: background .4s, box-shadow .4s; }
+.status > * { position: relative; z-index: 1; }
+.status.held { background: var(--row); box-shadow: inset 0 0 0 .5px var(--rule); }
+.status::before, .why-card::before { -webkit-mask-image: linear-gradient(90deg, #000 0 18%, transparent 46%); mask-image: linear-gradient(90deg, #000 0 18%, transparent 46%); }
+.why-card::before { -webkit-mask-image: linear-gradient(90deg, #000 0 10%, transparent 30%); mask-image: linear-gradient(90deg, #000 0 10%, transparent 30%); }
+.st-cap { position: relative; height: 46px; min-width: 76px; padding: 0 16px; border-radius: 23px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex: none;
+  font: 700 19px/1 -apple-system, system-ui, sans-serif; letter-spacing: .04em; color: var(--accent-ink);
+  background: var(--win-solid); box-shadow: inset 0 0 0 .5px var(--rule), 0 8px 20px -10px var(--accent-glow); transition: color .35s, box-shadow .35s; }
+.st-cap .lbl { grid-area: 1/1; transition: transform .55s cubic-bezier(.2,1,.3,1), opacity .3s; }
+.st-cap .lbl.out { transform: translateY(-130%); opacity: 0; } .st-cap .lbl.below { transform: translateY(130%); opacity: 0; }
+.st-cap .why { font-size: 13px; }
+.st-cap.held { color: var(--ink-2); box-shadow: inset 0 0 0 .5px var(--rule); }
+.st-cap.held > .why { margin-right: 8px; }
+.st-text { flex: 1; min-width: 0; }
+.st-text b { display: block; font-size: 15px; letter-spacing: -.005em; }
+.st-text small { display: block; margin-top: 2px; color: var(--ink-2); font-size: 12.5px; max-width: 48ch; }
+.st-act { flex: none; }
+
+/* ===================== settings: pickers ===================== */
+.row.top { align-items: flex-start; }
+.tiles { display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.tile { border: 0; background: none; padding: 0; display: grid; justify-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); transition: color .2s; }
+.tile .pv { position: relative; width: 78px; height: 50px; border-radius: 9px; overflow: hidden; box-shadow: inset 0 0 0 .5px var(--rule), 0 3px 8px -4px rgba(20,20,60,.35); transition: box-shadow .3s, transform .35s cubic-bezier(.2,1.3,.3,1); }
+.tile:active .pv { transform: scale(.95); }
+.tile[aria-checked="true"] { color: var(--ink); font-weight: 600; }
+.tile[aria-checked="true"] .pv { box-shadow: 0 0 0 2.5px var(--accent), 0 8px 18px -8px var(--accent-glow); }
+.pv.light { background: radial-gradient(80% 90% at 10% 0%, #AFC0FF, transparent 70%), radial-gradient(70% 80% at 100% 100%, #F7B2CF, transparent 70%), #DAD6F3; }
+.pv.dark { background: radial-gradient(80% 90% at 10% 0%, #29306E, transparent 70%), radial-gradient(70% 80% at 100% 100%, #5B1E4A, transparent 70%), #14132A; }
+.pv.auto { background: linear-gradient(135deg, transparent 50%, #14132A 50%), radial-gradient(80% 90% at 10% 0%, #AFC0FF, transparent 70%), #DAD6F3; }
+.pv .mw { position: absolute; left: 12px; top: 13px; right: 12px; bottom: -6px; border-radius: 5px; background: rgba(255,255,255,.82); box-shadow: 0 2px 6px -2px rgba(0,0,0,.25); }
+.pv.dark .mw { background: rgba(40,40,48,.9); }
+.pv.auto .mw { background: linear-gradient(135deg, rgba(255,255,255,.85) 50%, rgba(40,40,48,.92) 50%); }
+.pv .mw::before { content: ""; position: absolute; left: 7px; top: 8px; width: 26px; height: 5px; border-radius: 3px; background: #5E5CE6; opacity: .85; }
+.pv .mw::after { content: ""; position: absolute; left: 7px; top: 17px; width: 38px; height: 4px; border-radius: 2px; background: currentColor; opacity: .18; }
+.pv.mb { background: var(--wall); }
+.pv.mb::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 16px; background: var(--bar); }
+.pv .mcap { position: absolute; right: 9px; top: 2px; height: 12px; min-width: 22px; padding: 0 5px; border-radius: 6px; display: grid; place-items: center; font: 800 7.5px/1 -apple-system, system-ui, sans-serif; letter-spacing: .05em; color: var(--accent-ink); background: var(--strip); box-shadow: var(--strip-rim), inset 0 0 0 .7px color-mix(in srgb, var(--accent) 35%, transparent); }
+.pv .mdots { position: absolute; right: 38px; top: 6px; width: 18px; height: 4px; border-radius: 2px; background: var(--bar-ink); opacity: .35; }
+
+/* ===================== settings: corrections ===================== */
+.ex { display: inline-flex; align-items: center; justify-content: center; min-width: 158px; height: 30px; padding: 0 12px; border-radius: 9px; flex: none;
+  background: var(--win-solid); box-shadow: inset 0 0 0 .5px var(--rule); font-size: 13.5px; white-space: nowrap; }
+.ex .raw { color: var(--ink-2); }
+.ex .from { color: var(--ink-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.ex .arr { margin: 0 7px; color: var(--ink-3); }
+.ex .note { margin-left: 6px; font-size: 11px; font-weight: 600; color: var(--accent-ink); animation: drop .45s cubic-bezier(.16,1,.3,1); }
+.tag.beta { background: var(--warn-soft); color: var(--warn); }
+.tag.soon { background: var(--fill-2); color: var(--ink-2); }
+.switch[aria-disabled="true"] { opacity: .4; pointer-events: none; }
+.ex.quiet { opacity: .6; }
+.nv .nvi { position: relative; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex: none; overflow: hidden; background: var(--fill); color: var(--ink-2); }
+.nv .nvi::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, var(--fill-2) 0 3px, transparent 3px 7px); }
+.nv .nvi svg { position: relative; }
+.nv code { font: 500 12.5px/1.3 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-2); white-space: nowrap; }
+.group > .gnote { margin: 0; padding: 4px 14px 0; color: var(--ink-2); font-size: 12px; }
+.snd { display: flex; align-items: center; gap: 8px; flex: none; }
+.select { appearance: none; -webkit-appearance: none; height: 24px; padding: 0 24px 0 10px; border: 0; border-radius: 7px; background: var(--win-solid) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='10' fill='none' stroke='%23888' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m1.5 3.5 2.5-2.5 2.5 2.5M1.5 6.5 4 9l2.5-2.5'/%3E%3C/svg%3E") right 8px center/8px 10px no-repeat; box-shadow: 0 .5px 1px rgba(0,0,0,.12), inset 0 0 0 .5px var(--rule); color: var(--ink); font: inherit; transition: opacity .25s; }
+.select:disabled, .play:disabled { opacity: .45; }
+.play { width: 26px; height: 26px; border: 0; border-radius: 50%; display: grid; place-items: center; background: var(--fill-2); color: var(--ink); transition: background .2s, color .2s, transform .15s, opacity .25s; }
+.play:active { transform: scale(.9); }
+.play .eq { display: none; align-items: flex-end; gap: 2px; height: 10px; }
+.play .eq i { width: 2px; height: 10px; border-radius: 1px; background: currentColor; transform-origin: bottom; animation: eq .42s ease-in-out infinite alternate; }
+.play .eq i:nth-child(2) { animation-delay: -.18s; } .play .eq i:nth-child(3) { animation-delay: -.3s; }
+.play.on { background: var(--accent-fill); color: #fff; }
+.play.on .eq { display: flex; } .play.on .tri { display: none; }
+@keyframes eq { from { transform: scaleY(.3); } }
+
+/* "found" / "just added": a strip wipes over the row, rests, peels off */
+.row { position: relative; }
+.row > * { position: relative; z-index: 1; }
+.found { position: relative; }
+.found::after { content: ""; position: absolute; z-index: 0; inset: 3px 4px; border-radius: 11px; pointer-events: none;
+  background: var(--strip); box-shadow: var(--strip-rim), var(--strip-glow); animation: found 1.7s cubic-bezier(.3,.7,.2,1) both; }
+@keyframes found { 0% { clip-path: inset(0 100% 0 0 round 11px); } 24%, 70% { clip-path: inset(0 0 0 0 round 11px); } 100% { clip-path: inset(0 0 0 100% round 11px); } }
+
+/* ===================== settings: apps ===================== */
+.toolbar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
+.sfield { position: relative; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border-radius: 8px; background: var(--fill); box-shadow: inset 0 0 0 .5px var(--rule); color: var(--ink-3); transition: box-shadow .2s, background .2s; }
+.sfield:focus-within { background: var(--win-solid); box-shadow: inset 0 0 0 .5px var(--rule), 0 0 0 3px var(--accent-soft); }
+.sfield input { flex: 1; min-width: 0; border: 0; padding: 0; background: none; outline: none; color: var(--ink); }
+.sfield input::placeholder { color: var(--ink-3); }
+.toolbar .sfield { flex: 1; min-width: 140px; }
+.iconbtn { width: 28px; height: 28px; padding: 0; border-radius: 50%; flex: none; }
+.seg .cnt { margin-left: 5px; font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.arow { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .4s cubic-bezier(.16,1,.3,1), opacity .25s; }
+.arow > div { min-height: 0; overflow: hidden; }
+.arow.gone { grid-template-rows: 0fr; opacity: 0; pointer-events: none; }
+.arow + .arow:not(.first) .row { border-top: 1px solid var(--rule); }
+.arow .row + .row { border-top: 0; }
+#appList .row small { transition: opacity .2s; }
+.empty-note { display: none; padding: 22px 14px; text-align: center; color: var(--ink-2); }
+.empty-note.show { display: block; animation: drop .4s cubic-bezier(.16,1,.3,1); }
+
+.spot { position: absolute; z-index: 30; width: 360px; padding: 8px; border-radius: 15px; background: var(--pop);
+  -webkit-backdrop-filter: blur(40px) saturate(1.9); backdrop-filter: blur(40px) saturate(1.9); box-shadow: var(--pop-sh);
+  transform-origin: 92% 0; transition: opacity .18s ease, transform .42s cubic-bezier(.16,1,.3,1); }
+.spot[hidden] { display: block !important; opacity: 0; transform: scale(.94) translateY(-6px); pointer-events: none; }
+.spot .sfield { height: 36px; font-size: 15px; border-radius: 10px; background: var(--win-solid); }
+.spot .src { display: flex; justify-content: space-between; margin: 9px 8px 4px; font-size: 11px; font-weight: 600; color: var(--ink-3); }
+.spot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; max-height: 300px; overflow: auto; }
+.res { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 9px; }
+.res .app-ico { width: 28px; height: 28px; }
+.res .t { flex: 1; min-width: 0; }
+.res .t small { display: block; color: var(--ink-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res .def { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.res .run { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+.res[aria-selected="true"] { background: var(--accent-fill); color: #fff; }
+.res[aria-selected="true"] small, .res[aria-selected="true"] .def { color: rgba(255,255,255,.78); }
+.res.enter { animation: resIn .35s cubic-bezier(.16,1,.3,1) both; }
+@keyframes resIn { from { opacity: 0; transform: translateY(5px); } }
+.spot .none { padding: 14px 8px; color: var(--ink-2); text-align: center; }
+
+/* ===================== settings: words ===================== */
+.addbox { padding: 12px 14px; }
+.addbox .sfield { height: 30px; }
+.warnbox { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .4s cubic-bezier(.16,1,.3,1); }
+.warnbox.show { grid-template-rows: 1fr; }
+.warnbox > div { min-height: 0; overflow: hidden; }
+.warn-in { display: flex; gap: 10px; align-items: flex-start; margin: 0 14px 12px; padding: 10px 12px; border-radius: 11px; background: var(--warn-soft); font-size: 12.5px; }
+.warn-in svg { color: var(--warn); margin-top: 1px; }
+.warn-in b { font-weight: 600; }
+.warn-in .acts { display: flex; gap: 6px; margin-top: 8px; }
+.wrow { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .35s cubic-bezier(.16,1,.3,1); }
+.wrow > div { min-height: 0; overflow: hidden; }
+.wrow.gone { grid-template-rows: 0fr; }
+.wrow + .wrow .row { border-top: 1px solid var(--rule); }
+.wchip { position: relative; display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border-radius: 9px; font-weight: 600; font-size: 13.5px; overflow: hidden;
+  background: var(--strip); box-shadow: var(--strip-rim), 0 4px 12px -6px var(--accent-glow); }
+.wchip::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: repeating-linear-gradient(135deg, var(--fill-2) 0 4px, transparent 4px 9px), var(--row); clip-path: inset(0 100% 0 0); }
+.wrow.peel .wchip::after { animation: peel .45s cubic-bezier(.3,.7,.2,1) forwards; }
+@keyframes peel { to { clip-path: inset(0 0 0 0); } }
+.wrow.peel .row > .t, .wrow.peel .row > .btn { transition: opacity .25s .2s; opacity: 0; }
+.wrow.fresh .row::before { content: ""; position: absolute; z-index: 0; inset: 3px 4px; border-radius: 11px; background: var(--strip); box-shadow: var(--strip-rim), var(--strip-glow); animation: found 1.7s cubic-bezier(.3,.7,.2,1) both; }
+.group > h3 .cnt { margin-left: 6px; font-weight: 400; color: var(--ink-3); }
+.group > h3 { display: flex; align-items: center; }
+.group > h3 .h-act { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.group > h3 .h-act small { font-weight: 400; font-size: 12px; color: var(--ink-2); }
+.mywords { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 14px; }
+.mywords .word { height: 30px; }
+
+/* ===================== mock-only scene control ===================== */
+.mockctl { position: absolute; z-index: 870; left: 14px; bottom: 14px; display: grid; gap: 7px; padding: 10px 10px 10px 12px; border-radius: 14px;
+  background: var(--pop); -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8);
+  box-shadow: var(--pop-sh); outline: 1px dashed color-mix(in srgb, var(--ink) 25%, transparent); outline-offset: -4px; }
+.mockctl b { font-size: 11px; font-weight: 600; color: var(--ink-2); }
+
 /* ===================== dock ===================== */
 .dock {
   position: absolute; z-index: 880; left: 50%; bottom: 10px; transform: translateX(-50%);
@@ -484,6 +666,11 @@ svg { display: block; flex: none; }
   .pmenu { left: 8px !important; right: 8px; width: auto; }
   .dock button { width: 48px; height: 48px; } .dock svg { width: 48px; height: 48px; }
   .row { flex-wrap: wrap; }
+  .status { flex-wrap: wrap; }
+  .tiles { justify-content: flex-start; }
+  .mockctl { display: none; }
+  .ex { min-width: 0; }
+  .spot { left: 8px !important; right: 8px; width: auto; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -499,7 +686,7 @@ svg { display: block; flex: none; }
     <span class="app" id="appname">Perekey</span>
     <span class="menus"><span>Файл</span><span>Правка</span><span>Вид</span><span>Окно</span><span>Справка</span></span>
     <span class="tray">
-      <button class="capsule" id="capsule" aria-haspopup="true" aria-expanded="false" aria-label="Perekey: раскладка EN"><span class="lbl">EN</span></button>
+      <button class="capsule held-hatch" id="capsule" aria-haspopup="true" aria-expanded="false" aria-label="Perekey: раскладка EN"><span class="why"><span class="wi"></span></span><span class="code"><span class="lbl">EN</span></span></button>
       <svg class="hide-s" width="16" height="12" viewBox="0 0 15 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M1 3.6a9.5 9.5 0 0 1 13 0"/><path d="M3.3 6a6.2 6.2 0 0 1 8.4 0"/><circle cx="7.5" cy="9" r="1.1" fill="currentColor" stroke="none"/></svg>
       <svg width="24" height="12" viewBox="0 0 23 11" fill="none" aria-hidden="true"><rect x=".6" y=".6" width="19" height="9.8" rx="2.6" stroke="currentColor" stroke-opacity=".5"/><rect x="2.2" y="2.2" width="13" height="6.6" rx="1.4" fill="currentColor"/><path d="M21.2 3.8v3.4" stroke="currentColor" stroke-opacity=".5" stroke-width="1.4" stroke-linecap="round"/></svg>
       <svg class="hide-s" width="15" height="13" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x=".7" y=".7" width="12.6" height="4.2" rx="2.1"/><rect x=".7" y="7.1" width="12.6" height="4.2" rx="2.1"/><circle cx="3.6" cy="2.8" r="1.2" fill="currentColor"/><circle cx="10.4" cy="9.2" r="1.2" fill="currentColor"/></svg>
@@ -513,6 +700,7 @@ svg { display: block; flex: none; }
       <div class="pm-big strip" id="pmbig"><span class="lbl">EN</span></div>
       <div><b id="pmlang">English</b><span id="pmhow">⇧ — сменить · ⌥ — перенабрать слово</span></div>
     </div>
+    <div class="pm-why" id="pmWhy"><div><div class="why-card held-hatch held" id="pmWhyCard"></div></div></div>
     <div class="pm-card">
       <div class="pm-row">
         <div><b>Автопереключение</b><small>Вкл. и выкл.: левый ⇧ + правый ⇧</small></div>
@@ -554,34 +742,79 @@ svg { display: block; flex: none; }
     <div class="set">
       <nav class="side" aria-label="Разделы">
         <span class="sel" id="navsel"></span>
-        <div class="search"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="5" r="3.8"/><path d="m8 8 3 3"/></svg>Поиск</div>
+        <label class="search"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="5" r="3.8"/><path d="m8 8 3 3"/></svg><input id="setSearch" placeholder="Поиск" aria-label="Поиск по настройкам" autocomplete="off" spellcheck="false"></label>
         <button class="nav" data-pane="general" aria-current="page"><span class="ni" style="background:linear-gradient(160deg,#8E8E93,#636366)"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h10M2 10h10"/><circle cx="5" cy="4" r="1.6" fill="currentColor"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/></svg></span>Основные</button>
+        <button class="nav" data-pane="fixes"><span class="ni" style="background:linear-gradient(160deg,#DA8FFF,#AF52DE)"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="4" width="11" height="6" rx="3" fill="currentColor" fill-opacity=".35"/><path d="M4 7h6" stroke-linecap="round"/></svg></span>Исправления</button>
         <button class="nav" data-pane="keys"><span class="ni" style="background:linear-gradient(160deg,#7D7AFF,#5E5CE6)"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 5V3.5A1.5 1.5 0 1 0 3.5 5H5Zm0 0h4m-4 0v4m4-4V3.5A1.5 1.5 0 1 1 10.5 5H9Zm0 0v4m0 0h1.5A1.5 1.5 0 1 1 9 10.5V9Zm0 0H5m0 0v1.5A1.5 1.5 0 1 1 3.5 9H5Z"/></svg></span>Сочетания</button>
         <button class="nav" data-pane="apps"><span class="ni" style="background:linear-gradient(160deg,#40C8E0,#0A84FF)"><svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1.2"/><rect x="8" y="1.5" width="4.5" height="4.5" rx="1.2"/><rect x="1.5" y="8" width="4.5" height="4.5" rx="1.2"/><rect x="8" y="8" width="4.5" height="4.5" rx="1.2"/></svg></span>Программы</button>
-        <button class="nav" data-pane="words"><span class="ni" style="background:linear-gradient(160deg,#FFB340,#FF9500)"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h10M2 7.5h6M2 11h8"/><path d="M9.5 8.5 12.5 11.5M12.5 8.5 9.5 11.5"/></svg></span>Исключения</button>
+        <button class="nav" data-pane="words"><span class="ni" style="background:linear-gradient(160deg,#FFB340,#FF9500)"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h10M2 7.5h6M2 11h8"/><path d="M9.5 8.5 12.5 11.5M12.5 8.5 9.5 11.5"/></svg></span>Слова</button>
         <button class="nav" data-pane="privacy"><span class="ni" style="background:linear-gradient(160deg,#34C759,#248A3D)"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M7 1.5 2.5 3.2v3.4c0 2.9 2 4.9 4.5 5.9 2.5-1 4.5-3 4.5-5.9V3.2L7 1.5Z"/></svg></span>Приватность</button>
         <button class="nav" data-pane="about"><span class="ni" style="background:linear-gradient(160deg,#AEAEB2,#8E8E93)"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><path d="M7 6.3V10M7 4.2v.1"/></svg></span>О программе</button>
         <div class="foot">Perekey 0.1 · мокап</div>
       </nav>
 
-      <div class="pane-wrap">
+      <div class="pane-wrap" id="paneWrap">
         <!-- general -->
         <div class="pane" data-pane="general">
           <h2>Основные</h2>
           <p class="sub">Perekey живёт в строке меню и исправляет слова, набранные не в той раскладке.</p>
+          <div class="status held-hatch" id="status">
+            <div class="st-cap held-hatch" id="stCap"><span class="why"><span class="wi"></span></span><span class="code"><span class="lbl">EN</span></span></div>
+            <div class="st-text" id="stText"><b></b><small></small></div>
+            <div class="st-act" id="stAct"></div>
+          </div>
           <div class="group">
             <div class="row"><div class="t">Автопереключение<small>Исправлять слово, когда вы нажимаете пробел</small></div><button class="switch" role="switch" aria-checked="true" data-bind="auto" aria-label="Автопереключение"></button></div>
             <div class="row"><div class="t">Подсказка у курсора<small>Показывать, что исправлено, и кнопку «Отменить»</small></div><button class="switch" role="switch" aria-checked="true" data-bind="hint" aria-label="Подсказка у курсора"></button></div>
-            <div class="row"><div class="t">Звук при исправлении</div><button class="switch" role="switch" aria-checked="false" aria-label="Звук при исправлении"></button></div>
-          </div>
-          <div class="group">
-            <div class="row"><div class="t">Индикатор в строке меню</div><div class="seg" data-seg="indstyle"><span class="thumb"></span><button aria-pressed="true">EN · RU</button><button aria-pressed="false">A · Б</button></div></div>
-            <div class="row"><div class="t">Оформление</div><div class="seg" data-seg="theme"><span class="thumb"></span><button aria-pressed="true" data-theme-set="auto">Как в системе</button><button aria-pressed="false" data-theme-set="light">Светлое</button><button aria-pressed="false" data-theme-set="dark">Тёмное</button></div></div>
             <div class="row"><div class="t">Открывать при входе в систему</div><button class="switch" role="switch" aria-checked="true" aria-label="Открывать при входе"></button></div>
           </div>
           <div class="group">
-            <div class="row"><div class="t">Пауза<small>Perekey ничего не исправляет и не меняет раскладку</small></div><button class="btn small" data-pause>Приостановить на 1 час</button></div>
-            <div class="row"><div class="t">Экспорт настроек<small>Сочетания, программы и исключения в одном JSON-файле</small></div><button class="btn small">Экспорт…</button><button class="btn small">Импорт…</button></div>
+            <div class="row top"><div class="t">Индикатор в строке меню<small>Код раскладки или первая буква алфавита</small></div>
+              <div class="tiles" role="radiogroup" aria-label="Индикатор">
+                <button class="tile" role="radio" aria-checked="true" data-ind="EN · RU"><span class="pv mb" aria-hidden="true"><span class="mdots"></span><span class="mcap">EN</span></span>EN · RU</button>
+                <button class="tile" role="radio" aria-checked="false" data-ind="A · Б"><span class="pv mb" aria-hidden="true"><span class="mdots"></span><span class="mcap">A</span></span>A · Б</button>
+              </div></div>
+            <div class="row top"><div class="t">Оформление</div>
+              <div class="tiles" role="radiogroup" aria-label="Оформление">
+                <button class="tile" role="radio" aria-checked="true" data-theme-set="auto"><span class="pv auto" aria-hidden="true"><span class="mw"></span></span>Как в системе</button>
+                <button class="tile" role="radio" aria-checked="false" data-theme-set="light"><span class="pv light" aria-hidden="true"><span class="mw"></span></span>Светлое</button>
+                <button class="tile" role="radio" aria-checked="false" data-theme-set="dark"><span class="pv dark" aria-hidden="true"><span class="mw"></span></span>Тёмное</button>
+              </div></div>
+          </div>
+          <div class="group">
+            <div class="row"><div class="t">Экспорт настроек<small>Сочетания, программы и слова в одном JSON-файле</small></div><button class="btn small">Экспорт…</button><button class="btn small">Импорт…</button></div>
+          </div>
+        </div>
+
+        <!-- corrections -->
+        <div class="pane" data-pane="fixes" hidden>
+          <h2>Исправления</h2>
+          <p class="sub">Что Perekey исправляет сам. Любую правку отменяет Backspace сразу после неё.</p>
+          <div class="group">
+            <h3>Раскладка</h3>
+            <div class="row"><div class="t">Автопереключение<small>Слово в неверной раскладке, на пробеле</small></div><span class="ex" data-ex="ghbdtn|привет"></span><button class="switch" role="switch" aria-checked="true" data-bind="auto" aria-label="Автопереключение"></button></div>
+            <div class="row"><div class="t">Учиться на отменах<small>Отменённое слово попадает в «Выученные» и больше не исправляется</small></div><span class="ex" data-ex="jr|ок|learn"></span><button class="switch" role="switch" aria-checked="true" data-bind="learn" aria-label="Учиться на отменах"></button></div>
+          </div>
+          <div class="group">
+            <h3>Текст</h3>
+            <div class="row"><div class="t">Опечатки<span class="tag beta">бета</span><small>Русский и английский. Выключено, пока доля неверных правок не станет меньше 0,1 %</small></div><span class="ex" data-ex="прривет|привет"></span><button class="switch" role="switch" aria-checked="false" aria-label="Опечатки"></button></div>
+            <div class="row soon"><div class="t">Двойные заглавные<span class="tag soon">скоро</span></div><span class="ex" data-ex="ПРивет|Привет"></span><button class="switch" role="switch" aria-checked="false" aria-disabled="true" title="Появится в следующих версиях" aria-label="Двойные заглавные"></button></div>
+            <div class="row soon"><div class="t">Нечаянный Caps Lock<span class="tag soon">скоро</span><small>Исправить слово и выключить Caps Lock</small></div><span class="ex" data-ex="пРИВЕТ|Привет"></span><button class="switch" role="switch" aria-checked="false" aria-disabled="true" title="Появится в следующих версиях" aria-label="Нечаянный Caps Lock"></button></div>
+            <div class="row soon"><div class="t">Аббревиатуры<span class="tag soon">скоро</span></div><span class="ex" data-ex="мвд|МВД"></span><button class="switch" role="switch" aria-checked="false" aria-disabled="true" title="Появится в следующих версиях" aria-label="Аббревиатуры"></button></div>
+            <div class="row soon"><div class="t">Буква ё<span class="tag soon">скоро</span><small>Только там, где без «ё» слово не прочесть</small></div><span class="ex" data-ex="еще|ещё"></span><button class="switch" role="switch" aria-checked="false" aria-disabled="true" title="Появится в следующих версиях" aria-label="Буква ё"></button></div>
+          </div>
+          <div class="group">
+            <h3>Никогда не трогает</h3>
+            <p class="gnote">Это не настройки: здесь Perekey молчит всегда.</p>
+            <div class="row nv"><span class="nvi"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="10" height="7" rx="2"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg></span><div class="t">Поля паролей</div><code>••••••••</code></div>
+            <div class="row nv"><span class="nvi"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5.5" cy="10.5" r="3"/><path d="m7.6 8.4 5.4-5.4M11 5l1.5 1.5"/></svg></span><div class="t">Похоже на пароль</div><code>Pa55w0rd!</code></div>
+            <div class="row nv"><span class="nvi"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="3.5" width="12" height="9" rx="2"/><path d="m4.5 10 2-3 2 2 3-4"/></svg></span><div class="t">Капча и случайные строки</div><code>xK7mQp</code></div>
+            <div class="row nv"><span class="nvi"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m5.5 4.5-3.5 3.5 3.5 3.5M10.5 4.5 14 8l-3.5 3.5"/></svg></span><div class="t">Код, ссылки, почта</div><code>git push · a@b.ru</code></div>
+          </div>
+          <div class="group" id="sounds">
+            <h3>Звуки</h3>
+            <div class="row"><div class="t">Смена раскладки</div><div class="snd" data-snd="layout"><select class="select" aria-label="Звук смены раскладки"><option value="tick">Щелчок</option><option value="glass">Стекло</option><option value="drop">Капля</option></select><button class="play" aria-label="Прослушать"><svg class="tri" width="9" height="10" viewBox="0 0 9 10"><path d="M1 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L1.9.7a.6.6 0 0 0-.9.5Z" fill="currentColor"/></svg><span class="eq"><i></i><i></i><i></i></span></button></div><button class="switch" role="switch" aria-checked="false" data-snd-on="layout" aria-label="Звук смены раскладки"></button></div>
+            <div class="row"><div class="t">Исправление</div><div class="snd" data-snd="fix"><select class="select" aria-label="Звук исправления"><option value="glass">Стекло</option><option value="tick">Щелчок</option><option value="drop">Капля</option></select><button class="play" aria-label="Прослушать"><svg class="tri" width="9" height="10" viewBox="0 0 9 10"><path d="M1 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L1.9.7a.6.6 0 0 0-.9.5Z" fill="currentColor"/></svg><span class="eq"><i></i><i></i><i></i></span></button></div><button class="switch" role="switch" aria-checked="false" data-snd-on="fix" aria-label="Звук исправления"></button></div>
           </div>
         </div>
 
@@ -597,6 +830,8 @@ svg { display: block; flex: none; }
             <div class="row"><div class="t">Сменить раскладку</div><button class="rec" data-act="switch"></button></div>
             <div class="row"><div class="t">Перенабрать последнее слово или выделение</div><button class="rec" data-act="convert"></button></div>
             <div class="row"><div class="t">Включить и выключить автопереключение</div><button class="rec" data-act="toggle"></button></div>
+            <div class="row"><div class="t">Отменить последнее исправление<small>Backspace сразу после правки работает всегда</small></div><button class="rec" data-act="undo"></button></div>
+            <div class="row"><div class="t">Сменить регистр слова или выделения</div><button class="rec" data-act="case"></button></div>
             <div class="row"><div class="t">Включить English</div><button class="rec" data-act="en"></button></div>
             <div class="row"><div class="t">Включить русскую</div><button class="rec" data-act="ru"></button></div>
             <div class="conflict" id="conflict"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M7 1.8 12.8 12H1.2L7 1.8Z" stroke-linejoin="round"/><path d="M7 5.5v3M7 10.2v.1"/></svg><span id="conflictText"></span></div>
@@ -619,18 +854,31 @@ svg { display: block; flex: none; }
         <!-- apps -->
         <div class="pane" data-pane="apps" hidden>
           <h2>Программы</h2>
-          <p class="sub">Режим для каждой программы. В терминалах и редакторах кода Perekey по умолчанию исправляет только по вашей команде.</p>
+          <p class="sub">Режим для каждой программы. В терминалах и редакторах кода Perekey исправляет только по вашей команде, в играх выключен.</p>
+          <div class="toolbar">
+            <label class="sfield"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5" cy="5" r="3.8"/><path d="m8 8 3 3"/></svg><input id="appFilter" placeholder="Найти в списке" aria-label="Найти программу в списке" autocomplete="off" spellcheck="false"></label>
+            <div class="seg mini" data-seg="appview" id="appView"><span class="thumb"></span><button aria-pressed="true" data-v="-1">Все<span class="cnt"></span></button><button aria-pressed="false" data-v="0">Авто<span class="cnt"></span></button><button aria-pressed="false" data-v="1">Вручную<span class="cnt"></span></button><button aria-pressed="false" data-v="2">Выкл.<span class="cnt"></span></button></div>
+            <button class="btn primary iconbtn" id="appAdd" aria-haspopup="dialog" aria-label="Добавить программу" title="Добавить программу"><svg width="11" height="11" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 1v8M1 5h8"/></svg></button>
+          </div>
           <div class="group" id="appList"></div>
-          <button class="btn small">Добавить программу…</button>
         </div>
 
-        <!-- exceptions -->
+        <!-- words -->
         <div class="pane" data-pane="words" hidden>
-          <h2>Исключения</h2>
-          <p class="sub">Эти слова Perekey не исправляет. Если вы отменили правку, слово попадает сюда само.</p>
+          <h2>Слова</h2>
+          <p class="sub">Эти слова Perekey не исправляет ни в какой раскладке.</p>
           <div class="group">
-            <div class="words" id="words"></div>
-            <div class="addrow"><input class="input" id="wordInput" placeholder="Добавить слово" aria-label="Добавить слово"><button class="btn small primary" id="wordAdd">Добавить</button></div>
+            <div class="addbox"><label class="sfield"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg><input id="wordInput" placeholder="Добавить слово и нажать Return" aria-label="Добавить слово" autocomplete="off" spellcheck="false"></label></div>
+            <div class="warnbox" id="warnbox"><div><div class="warn-in"><svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M7 1.8 12.8 12H1.2L7 1.8Z" stroke-linejoin="round"/><path d="M7 5.5v3M7 10.2v.1"/></svg><div><div id="warnText"></div><div class="acts"><button class="btn small" id="warnYes">Всё равно добавить</button><button class="btn small" id="warnNo">Не добавлять</button></div></div></div></div></div>
+          </div>
+          <div class="group">
+            <h3>Выученные<span class="cnt" id="learnedCnt"></span><span class="h-act"><small>Учиться на отменах</small><button class="switch" role="switch" aria-checked="true" data-bind="learn" aria-label="Учиться на отменах"></button></span></h3>
+            <p class="gnote">Слова, правку которых вы отменили. Perekey называет такое слово в подсказке сразу.</p>
+            <div id="learned"></div>
+          </div>
+          <div class="group">
+            <h3>Мои<span class="cnt" id="mineCnt"></span></h3>
+            <div class="mywords" id="mine"></div>
           </div>
         </div>
 
@@ -641,12 +889,16 @@ svg { display: block; flex: none; }
           <div class="group">
             <div class="flowline"><span>Клавиатура</span><svg width="22" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6h19M15 1l5 5-5 5"/></svg><span class="me strip">Perekey · одно слово в памяти</span><svg width="22" height="12" viewBox="0 0 22 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6h19M15 1l5 5-5 5"/></svg><span>Программа</span></div>
             <div class="row"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="14" height="10" rx="2"/><path d="M6 12h3"/></svg><div class="t">Диск<small>Набранный текст не записывается</small></div></div>
-            <div class="row"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2.5 2.5 2.5 11.5 0 14M10 3c-2.5 2.5-2.5 11.5 0 14"/></svg><div class="t">Сеть<small>Только проверка обновлений, без текста и статистики</small></div></div>
+            <div class="row"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2.5 2.5 2.5 11.5 0 14M10 3c-2.5 2.5-2.5 11.5 0 14"/></svg><div class="t">Сеть<small>Только проверка обновлений: без текста и статистики</small></div></div>
+            <div class="row"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6.5 15.5c-1-1.6-1.5-3.4-1.5-5.5a5 5 0 0 1 10 0v1M10 10v1.5c0 2 .6 3.6 1.6 4.8M7.6 7.4A3.2 3.2 0 0 1 12.8 10"/></svg><div class="t">Идентификаторы<small>Нет: ни ID устройства, ни ID установки</small></div></div>
+          </div>
+          <div class="group">
+            <div class="row"><div class="t">Проверять обновления<small>Раз в день — один запрос к списку версий. Если выключить, Perekey не ходит в сеть совсем</small></div><button class="switch" role="switch" aria-checked="true" aria-label="Проверять обновления"></button></div>
           </div>
           <div class="group" style="padding-top:12px">
             <ul class="list">
               <li><b>Универсальный доступ</b> — чтобы видеть нажатия и вводить исправленное слово.</li>
-              <li><b>Поля паролей</b> Perekey пропускает. Пока система защищает ввод пароля, Perekey на паузе.</li>
+              <li><b>Поля паролей</b> Perekey пропускает. Пока система защищает ввод пароля, Perekey на паузе, и капсула в строке меню называет причину.</li>
               <li><b>«Последние правки»</b> в меню живут в памяти и исчезают при выходе.</li>
             </ul>
           </div>
@@ -662,6 +914,13 @@ svg { display: block; flex: none; }
             <p>Свободный переключатель раскладки для macOS. Лицензия GPL-3.0. Без подписки и без телеметрии.</p>
             <div style="display:flex;gap:8px;margin-top:10px"><button class="btn small">GitHub</button><button class="btn small">Сообщить о проблеме</button></div>
           </div>
+        </div>
+
+        <!-- Spotlight picker for "Добавить программу" -->
+        <div class="spot" id="spot" role="dialog" aria-label="Добавить программу" hidden>
+          <label class="sfield"><svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="5" cy="5" r="3.8"/><path d="m8 8 3 3"/></svg><input id="spotInput" placeholder="Программа" aria-label="Найти программу через Spotlight" autocomplete="off" spellcheck="false"></label>
+          <div class="src"><span id="spotSrc">Запущенные и /Applications</span><span>Spotlight</span></div>
+          <ul id="spotList" role="listbox"></ul>
         </div>
       </div>
     </div>
@@ -727,6 +986,12 @@ svg { display: block; flex: none; }
       <svg viewBox="0 0 54 54" aria-hidden="true"><defs><linearGradient id="gSet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C7C7CC"/><stop offset="1" stop-color="#8E8E93"/></linearGradient></defs><rect width="54" height="54" rx="12.5" fill="url(#gSet)"/><circle cx="27" cy="27" r="16.5" fill="none" stroke="#3A3A3C" stroke-width="5" stroke-dasharray="4.2 4.4"/><circle cx="27" cy="27" r="12" fill="#3A3A3C"/><circle cx="27" cy="27" r="5" fill="#C7C7CC"/></svg></button>
   </nav>
 
+  <!-- mock-only: drive the capsule through every pause reason -->
+  <aside class="mockctl" aria-label="Мокап: причина паузы">
+    <b>Мокап · причина паузы</b>
+    <div class="seg mini" data-seg="why" id="whySeg"><span class="thumb"></span><button aria-pressed="true" data-why="">Работает</button><button aria-pressed="false" data-why="hour">Пауза 1 ч</button><button aria-pressed="false" data-why="password">Пароль</button><button aria-pressed="false" data-why="secure">Secure Input</button><button aria-pressed="false" data-why="appoff">Выкл. здесь</button></div>
+  </aside>
+
   <div class="hint" id="hint" role="status" aria-live="polite"></div>
 </div>
 
@@ -747,7 +1012,7 @@ svg { display: block; flex: none; }
     <rect x="12" y="36" width="60" height="24" rx="9" fill="url(#aiStrip)"/>
     <rect x="12.5" y="36.5" width="59" height="23" rx="8.5" fill="none" stroke="#fff" stroke-width="1"/>
     <rect x="76" y="31" width="5" height="34" rx="2.5" fill="#fff"/>`;
-  $$('[data-appicon]').forEach(s => { s.setAttribute('viewBox', '0 0 96 96'); s.innerHTML = APPICON; });
+  $$('[data-appicon]').forEach((s, i) => { s.setAttribute('viewBox', '0 0 96 96'); s.innerHTML = APPICON.replace(/ai(Bg|Strip)/g, `ai$1${i}`); });
 
   /* ---------------- clock ---------------- */
   const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -758,8 +1023,12 @@ svg { display: block; flex: none; }
   function setTheme(v) {
     if (v === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.dataset.theme = v;
     try { localStorage.setItem('pk-theme', v); } catch (_) {}
+    document.querySelectorAll('[data-theme-set]').forEach(x => x.setAttribute('aria-checked', String(x.dataset.themeSet === v)));
   }
-  try { const v = localStorage.getItem('pk-theme'); if (v) { setTheme(v); const b = $(`[data-theme-set="${v}"]`); if (b) { $$('[data-theme-set]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); } } } catch (_) {}
+  const pickTile = b => b.closest('[role="radiogroup"]').querySelectorAll('.tile').forEach(x => x.setAttribute('aria-checked', String(x === b)));
+  try { const v = localStorage.getItem('pk-theme'); if (v) { setTheme(v); const b = $(`[data-theme-set="${v}"]`); if (b) pickTile(b); } } catch (_) {}
+  $$('[data-theme-set]').forEach(b => b.addEventListener('click', () => { pickTile(b); setTheme(b.dataset.themeSet); }));
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 
   /* ---------------- segmented controls ---------------- */
   function moveThumb(seg) {
@@ -773,16 +1042,20 @@ svg { display: block; flex: none; }
       moveThumb(seg); onPick && onPick(b, i);
     }));
   }
-  $$('.seg').forEach(s => wireSeg(s, (b) => { if (b.dataset.themeSet) setTheme(b.dataset.themeSet); }));
+  $$('.seg').forEach(s => wireSeg(s));
   const refreshThumbs = () => $$('.seg').forEach(moveThumb);
 
   /* ---------------- state ---------------- */
   const S = {
-    layout: 'EN', auto: true, hint: true, paused: false, ind: 'EN · RU',
+    layout: 'EN', auto: true, hint: true, learn: true, ind: 'EN · RU',
+    why: null, until: 0, // pause reason: null | 'hour' | 'password' | 'secure' | 'appoff'
     preset: 'standard',
-    exceptions: [{ w: 'iPhone', how: 'добавлено вручную' }, { w: 'ok', how: 'добавлено вручную' }, { w: 'GitHub', how: 'добавлено вручную' }],
+    snd: { layout: { on: false, name: 'tick' }, fix: { on: false, name: 'glass' } },
+    learned: [{ w: 'ок', from: 'Сообщения', when: 'сегодня, 9:12' }, { w: 'pls', from: 'Telegram', when: 'вчера' }, { w: 'nvm', from: 'Slack', when: '2 октября' }],
+    mine: ['iPhone', 'GitHub', 'Wi-Fi'],
     fixes: [],
   };
+  const held = () => S.why != null;
 
   /* ---------------- switches bound to state ---------------- */
   $$('.switch').forEach(sw => sw.addEventListener('click', () => {
@@ -793,7 +1066,8 @@ svg { display: block; flex: none; }
   function setFlag(key, on) {
     S[key] = on;
     $$(`.switch[data-bind="${key}"]`).forEach(x => x.setAttribute('aria-checked', String(on)));
-    if (key === 'auto') { capsule.classList.toggle('off', !on); flashCapsule(); }
+    if (key === 'auto') { capsule.classList.toggle('off', !on); flashCapsule(); renderWhy(); }
+    if (key === 'auto' || key === 'learn') $$(`.ex[data-ex]`).forEach(ex => { const sw = ex.parentElement.querySelector(`[data-bind="${key}"]`); if (sw) playEx(ex, on); });
   }
 
   /* ---------------- layouts ---------------- */
@@ -803,7 +1077,7 @@ svg { display: block; flex: none; }
   const RU_WORDS = new Set('привет как дела давай созвонимся вечером завтра сегодня спасибо будет хорошо отлично релиз мы ты да нет это что можно потом встреча обсудить удобно успеваем пятницу после обеда в на и или ну вот уже тогда конечно супер круто'.split(' '));
   const EN_WORDS = new Set('zoom meet slack github ok hello release call deploy'.split(' '));
   const CODE2KEY = { BracketLeft:'[', BracketRight:']', Semicolon:';', Quote:"'", Comma:',', Period:'.', Backquote:'`' };
-  const isException = w => S.exceptions.some(e => e.w.toLowerCase() === w.toLowerCase());
+  const isException = w => [...S.mine, ...S.learned.map(e => e.w)].some(x => x.toLowerCase() === w.toLowerCase());
 
   /* ---------------- capsule + menu ---------------- */
   const capsule = $('#capsule'), pmenu = $('#pmenu');
@@ -816,16 +1090,17 @@ svg { display: block; flex: none; }
     setTimeout(() => old && old.remove(), 600);
   }
   function flashCapsule() { capsule.classList.remove('sheen'); void capsule.offsetWidth; capsule.classList.add('sheen'); }
-  function setLayout(L) {
+  function setLayout(L, quiet) {
     if (S.layout === L) return;
     S.layout = L;
-    swapLabel(capsule, indText(L)); swapLabel($('#pmbig'), indText(L));
+    swapLabel(capsule.querySelector('.code'), indText(L)); swapLabel($('#pmbig'), indText(L)); swapLabel($('#stCap .code'), indText(L));
     $('#pmlang').textContent = L === 'EN' ? 'English' : 'Русская';
     capsule.setAttribute('aria-label', `Perekey: раскладка ${L}`);
     flashCapsule();
+    if (!quiet && S.snd.layout.on) playSound(S.snd.layout.name);
   }
-  function refreshIndicator() { capsule.querySelector('.lbl').textContent = indText(S.layout); $('#pmbig .lbl').textContent = indText(S.layout); }
-  wireSeg($('[data-seg="indstyle"]'), b => { S.ind = b.textContent; refreshIndicator(); });
+  function refreshIndicator() { ['#capsule', '#pmbig', '#stCap'].forEach(s => { $(s + ' .lbl').textContent = indText(S.layout); }); }
+  $$('[data-ind]').forEach(b => b.addEventListener('click', () => { pickTile(b); S.ind = b.dataset.ind; refreshIndicator(); flashCapsule(); }));
 
   function openMenu(open) {
     pmenu.hidden = !open; capsule.setAttribute('aria-expanded', String(open));
@@ -840,14 +1115,77 @@ svg { display: block; flex: none; }
   pmenu.addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) { openMenu(false); openWin(b.dataset.open, b.dataset.pane); } });
   $('#quit').addEventListener('click', () => { openMenu(false); toast('Это мокап: выходить некуда'); });
 
-  function setPaused(p) {
-    S.paused = p; capsule.classList.toggle('paused', p);
-    $('#pauseLbl').textContent = p ? 'Продолжить работу' : 'Пауза на 1 час';
-    $$('[data-pause]').forEach(b => b.textContent = p ? 'Продолжить' : 'Приостановить на 1 час');
-    flashCapsule();
+  /* ---------------- pause reasons: capsule, menu card, settings status ---------------- */
+  const ICO = {
+    hour: '<svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2" width="2.5" height="8" rx="1"/><rect x="7" y="2" width="2.5" height="8" rx="1"/></svg>',
+    password: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="5.5" cy="10.5" r="3"/><path d="m7.6 8.4 5.4-5.4M11 5l1.5 1.5"/></svg>',
+    secure: '<svg width="11" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="10" height="7" rx="2"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>',
+    appoff: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6" cy="6" r="4.6"/><path d="M2.8 9.2 9.2 2.8"/></svg>',
+  };
+  const frontApp = () => S.lastApp || 'Сообщения'; // settings and onboarding are Perekey itself
+  const minsLeft = () => Math.max(1, Math.ceil((S.until - Date.now()) / 60000));
+  const WHY = {
+    hour:     { cap: () => `${minsLeft()} мин`, title: () => `На паузе ещё ${minsLeft()} мин`, sub: () => 'Perekey ничего не исправляет и не меняет раскладку.', act: 'Продолжить' },
+    password: { cap: () => 'пароль', title: () => 'Пауза: поле пароля', sub: () => 'Safari, вход на github.com. Продолжу, когда курсор уйдёт из поля.' },
+    secure:   { cap: () => '1Password', title: () => 'Пауза: защищённый ввод', sub: () => '1Password включил Secure Input. Пока он включён, macOS прячет нажатия от всех программ.' },
+    appoff:   { cap: () => 'выкл. здесь', title: () => `Выключен в «${S.offApp || frontApp()}»`, sub: () => 'Так задано в режимах программ. Здесь Perekey не исправляет и не меняет раскладку.', act: 'Включить здесь' },
+  };
+  function setWhy(w) {
+    if (w === 'hour' && S.why !== 'hour') S.until = Date.now() + 3600e3;
+    if (w === 'appoff') S.offApp = frontApp();
+    const seg = $('[data-seg="appmode"]'), segBtns = [...seg.querySelectorAll('button')];
+    const setMode = m => { segBtns.forEach((b, i) => b.setAttribute('aria-pressed', String(i === m))); moveThumb(seg); };
+    if (S.why === 'appoff' && w !== 'appoff' && segBtns[2].getAttribute('aria-pressed') === 'true') setMode(0);
+    if (w === 'appoff') setMode(2);
+    S.why = w || null; renderWhy(true);
   }
-  $('#pause').addEventListener('click', () => { setPaused(!S.paused); openMenu(false); });
-  $$('[data-pause]').forEach(b => b.addEventListener('click', () => setPaused(!S.paused)));
+  // capsule-like hosts: the hatch wipes in, the reason slides out of the layout code with a spring
+  function setHeld(host, on, text, ico) {
+    const why = host.querySelector('.why'), wi = why.querySelector('.wi');
+    const was = host.classList.contains('held'), prevText = wi.dataset.t;
+    if (on) {
+      wi.innerHTML = `${ico}<span class="wt${was && prevText !== text ? ' tick' : ''}">${esc(text)}</span>`; wi.dataset.t = text;
+      why.style.width = wi.scrollWidth + 'px';
+    } else { why.style.width = '0px'; }
+    host.classList.toggle('held', on);
+  }
+  let lastWhyKey = '';
+  function renderWhy(changed) {
+    const w = S.why, d = w && WHY[w];
+    setHeld(capsule, !!w, d ? d.cap() : '', ICO[w] || '');
+    setHeld($('#stCap'), !!w, d ? d.cap() : '', ICO[w] || '');
+    capsule.setAttribute('aria-label', `Perekey: раскладка ${S.layout}${d ? '. ' + d.title() : ''}`);
+    // menu card
+    const card = $('#pmWhyCard');
+    if (d && changed === 'tick' && card.dataset.w === w) { card.querySelector('b').textContent = d.title(); card.querySelector('small').textContent = d.sub(); }
+    else if (d) {
+      card.dataset.w = w;
+      card.innerHTML = `<span class="wico">${ICO[w]}</span><div><b>${esc(d.title())}</b><small>${esc(d.sub())}</small></div>${d.act ? `<button class="btn small" data-resume>${d.act}</button>` : ''}`;
+      if (changed) { card.classList.remove('held'); void card.offsetWidth; card.classList.add('held'); }
+    }
+    $('#pmWhy').classList.toggle('show', !!d);
+    $('#pauseLbl').textContent = w === 'hour' ? 'Продолжить работу' : 'Пауза на 1 час';
+    // settings status
+    const st = $('#status'); st.classList.toggle('held', !!d);
+    const title = d ? d.title() : S.auto ? 'Perekey работает' : 'Автопереключение выключено';
+    const sub = d ? d.sub() : S.auto ? `Исправляю слово на пробеле. ⌥ перенабирает последнее слово вручную.` : 'Слова исправляются только по ⌥. Включить снова: левый ⇧ + правый ⇧.';
+    const key = title + sub;
+    const tx = $('#stText'); tx.querySelector('b').textContent = title; tx.querySelector('small').textContent = sub;
+    if (key !== lastWhyKey && lastWhyKey && !reduced.matches && changed !== 'tick') tx.animate([{ opacity: 0, transform: 'translateY(6px)', filter: 'blur(4px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 380, easing: 'cubic-bezier(.16,1,.3,1)' });
+    lastWhyKey = key;
+    const actHTML = d ? (d.act ? `<button class="btn small primary" data-resume>${d.act}</button>` : '') : '<button class="btn small" data-pause-hour>Пауза на 1 час</button>';
+    if ($('#stAct').dataset.h !== actHTML) { $('#stAct').innerHTML = actHTML; $('#stAct').dataset.h = actHTML; }
+    // mock scene control
+    const ws = $('#whySeg'); ws.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.why || null) === w))); moveThumb(ws);
+  }
+  document.addEventListener('click', e => {
+    if (e.target.closest('[data-resume]')) { setWhy(null); flashCapsule(); }
+    else if (e.target.closest('[data-pause-hour]')) setWhy('hour');
+  });
+  $('#pause').addEventListener('click', () => { setWhy(S.why === 'hour' ? null : 'hour'); openMenu(false); });
+  $$('#whySeg button').forEach(b => b.addEventListener('click', () => setWhy(b.dataset.why || null)));
+  wireSeg($('[data-seg="appmode"]'), (b, i) => { if (i === 2) setWhy('appoff'); else if (S.why === 'appoff') setWhy(null); });
+  setInterval(() => { if (S.why === 'hour') { if (Date.now() > S.until) setWhy(null); else renderWhy('tick'); } }, 5000);
 
   function renderFixes() {
     const box = $('#fixes');
@@ -885,7 +1223,7 @@ svg { display: block; flex: none; }
     key(k, shift) { let ch = S.layout === 'RU' ? conv(k, EN2RU) : k; if (shift) ch = ch.toUpperCase(); this.cur += ch; this.last = null; hideHint(); this.render(); }
     space() {
       this.words.push({ text: this.cur, orig: null, anim: null, t: 0 }); const i = this.words.length - 1; this.cur = '';
-      if (S.auto && !S.paused && this.words[i].text) this.autoFix(i);
+      if (S.auto && !held() && this.words[i].text) this.autoFix(i);
       this.render();
     }
     backspace() {
@@ -896,7 +1234,7 @@ svg { display: block; flex: none; }
       this.last = null; this.render();
     }
     convertLast() {
-      if (S.paused) return;
+      if (held()) return;
       if (this.cur) { this.words.push({ text: this.cur, orig: null }); this.cur = ''; this.flip(this.words.length - 1); const w = this.words.pop(); this.cur = w.text; this.render(); return; }
       for (let i = this.words.length - 1; i >= 0; i--) if (this.words[i].text) { this.flip(i); return; }
     }
@@ -911,7 +1249,8 @@ svg { display: block; flex: none; }
       const target = to || (/[a-z]/i.test(w.text) ? 'RU' : 'EN');
       const next = conv(w.text, target === 'RU' ? EN2RU : RU2EN);
       w.orig = w.text; w.text = next; w.anim = 'fix'; w.t = performance.now();
-      this.last = i; setLayout(target); this.render();
+      this.last = i; setLayout(target, true); this.render();
+      if (S.snd.fix.on) playSound(S.snd.fix.name);
       const d = new Date();
       S.fixes.push({ id: ++fixId, from: w.orig, to: w.text, when: `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`, field: this, idx: i });
       showHint(() => this.el.querySelector(`[data-i="${i}"]`), `<span class="from">${esc(w.orig)}</span><span>→ ${esc(w.text)}</span>`, true);
@@ -921,10 +1260,10 @@ svg { display: block; flex: none; }
       const w = this.words[i]; if (!w || !w.orig) return;
       const back = w.orig; w.orig = w.text; w.text = back; w.anim = 'undo'; w.t = performance.now();
       const f = [...S.fixes].reverse().find(x => x.field === this && x.idx === i && !x.reverted); if (f) f.reverted = true;
-      addException(back, 'выучено из отмены');
+      if (S.learn) learnWord(back);
       setLayout(/[a-z]/i.test(back) ? 'EN' : 'RU');
       this.last = null; this.render();
-      showHint(() => this.el.querySelector(`[data-i="${i}"]`), `<span>Вернул «${esc(back)}». Больше не исправляю это слово</span>`, false);
+      showHint(() => this.el.querySelector(`[data-i="${i}"]`), S.learn ? `<span>Вернул. Запомнил «${esc(back)}»</span><button class="act" data-forget="${esc(back)}">Забыть</button>` : `<span>Вернул «${esc(back)}»</span>`, false);
       this.hooks.onUndo && this.hooks.onUndo(w);
     }
     render() {
@@ -952,19 +1291,65 @@ svg { display: block; flex: none; }
   $('#chatField').addEventListener('pointerdown', e => { e.stopPropagation(); stopDemo(); focusField(chat); });
   $('#demoField').addEventListener('pointerdown', e => { e.stopPropagation(); focusField(demo); });
 
-  /* exceptions list */
-  function addException(w, how) {
+  /* ---------------- words: learned + mine ---------------- */
+  // stand-in for the frequency rank in the model: the most frequent word forms
+  const TOP = new Set(('как что это все он она так его но да ты к у же вы за бы по только ее её мне было вот от меня еще ещё нет о из ему теперь когда даже ну ли если уже или ни быть был до вас опять вам ведь там потом себя ничего ей может они тут где есть надо для мы тебя их чем была сам без чего раз тоже себе под будет тогда кто этот того потому какой совсем здесь один почти мой тем чтобы сейчас были куда зачем всех никогда можно при два об другой хоть после над больше тот через эти нас про всего них много три хорошо перед лучше нельзя такой всегда конечно привет спасибо ' +
+    'the of and to in is you that it he was for on are as with his they at be this have from or one had by but not what all were we when your can said there an each which she do how their if will up other about out many then them so some her would make like him into time has two more go see no way could my than first been call who its now find long down day did get come made may part').split(' '));
+  const RU_OF = w => /[а-яё]/i.test(w);
+  function learnWord(w) {
     if (isException(w)) return;
-    S.exceptions.push({ w, how, fresh: true }); renderWords();
+    S.learned.unshift({ w, from: frontApp(), when: 'только что', fresh: true });
+    renderWords(); bumpBadge();
   }
+  function forgetWord(w) {
+    const row = $(`#learned .wrow[data-w="${CSS.escape(w)}"]`);
+    const drop = () => { S.learned = S.learned.filter(e => e.w !== w); renderWords(); };
+    if (row && !reduced.matches && row.offsetParent) {
+      row.classList.add('peel');
+      setTimeout(() => row.classList.add('gone'), 420);
+      setTimeout(drop, 800);
+    } else drop();
+  }
+  let badgeN = 0;
+  function bumpBadge() {
+    if (!$('#w-set').hidden && $('.pane[data-pane="words"]').hidden === false) return;
+    badgeN++; const nav = $('.nav[data-pane="words"]');
+    let b = nav.querySelector('.badge'); if (!b) { b = document.createElement('span'); b.className = 'badge'; nav.appendChild(b); }
+    b.textContent = badgeN; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
+  }
+  function clearBadge() { badgeN = 0; const b = $('.nav[data-pane="words"] .badge'); b && b.remove(); }
   function renderWords() {
-    $('#words').innerHTML = S.exceptions.map((e, i) => `<span class="word strip${e.fresh ? ' new' : ''}">${esc(e.w)} <small>${esc(e.how)}</small><button data-rm="${i}" aria-label="Убрать «${esc(e.w)}»"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m2 2 6 6M8 2 2 8"/></svg></button></span>`).join('') || '<span style="color:var(--ink-3)">Исключений пока нет.</span>';
-    S.exceptions.forEach(e => e.fresh = false);
+    $('#learned').innerHTML = S.learned.map(e => `<div class="wrow${e.fresh ? ' fresh' : ''}" data-w="${esc(e.w)}"><div><div class="row">
+        <span class="wchip">${esc(e.w)}</span>
+        <div class="t"><small style="margin:0">Отменили правку в «${esc(e.from)}» · ${esc(e.when)}</small></div>
+        <button class="btn small" data-forget="${esc(e.w)}">Забыть</button></div></div></div>`).join('')
+      || '<div class="row"><div class="t"><small style="margin:0">Пока ничего. Если отменить правку Backspace, слово появится здесь.</small></div></div>';
+    $('#mine').innerHTML = S.mine.map((w, i) => `<span class="word strip${S.mineFresh === w ? ' new' : ''}">${esc(w)}<button data-rm="${i}" aria-label="Убрать «${esc(w)}»"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m2 2 6 6M8 2 2 8"/></svg></button></span>`).join('')
+      || '<span style="color:var(--ink-2)">Своих слов пока нет.</span>';
+    $('#learnedCnt').textContent = S.learned.length || ''; $('#mineCnt').textContent = S.mine.length || '';
+    S.learned.forEach(e => e.fresh = false); S.mineFresh = null;
   }
-  $('#words').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) { S.exceptions.splice(+b.dataset.rm, 1); renderWords(); } });
-  const addWord = () => { const v = $('#wordInput').value.trim(); if (v) { addException(v, 'добавлено вручную'); $('#wordInput').value = ''; } };
-  $('#wordAdd').addEventListener('click', addWord);
-  $('#wordInput').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') addWord(); });
+  document.addEventListener('click', e => {
+    const f = e.target.closest('[data-forget]');
+    if (f) { const w = f.dataset.forget; forgetWord(w); if (f.closest('#hint')) { hideHint(); toast(`Забыл «${w}»: снова исправляю`); } }
+  });
+  $('#mine').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) { S.mine.splice(+b.dataset.rm, 1); renderWords(); } });
+  const wordInput = $('#wordInput'), warnbox = $('#warnbox');
+  function commitWord(v) { S.mine.push(v); S.mineFresh = v; wordInput.value = ''; warnbox.classList.remove('show'); renderWords(); }
+  function tryAdd() {
+    const v = wordInput.value.trim(); if (!v) return;
+    if (isException(v)) { wordInput.value = ''; return; }
+    if (TOP.has(v.toLowerCase())) {
+      const other = conv(v.toLowerCase(), RU_OF(v) ? RU2EN : EN2RU);
+      $('#warnText').innerHTML = `<b>«${esc(v)}» — одно из самых частых слов.</b> Perekey перестанет исправлять его везде: набранное «${esc(other)}» тоже останется как есть.`;
+      warnbox.classList.add('show'); return;
+    }
+    commitWord(v);
+  }
+  wordInput.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') tryAdd(); if (e.key === 'Escape') warnbox.classList.remove('show'); });
+  wordInput.addEventListener('input', () => warnbox.classList.remove('show'));
+  $('#warnYes').addEventListener('click', () => commitWord(wordInput.value.trim()));
+  $('#warnNo').addEventListener('click', () => { warnbox.classList.remove('show'); wordInput.select(); });
   renderWords();
 
   /* ---------------- presets & chords ---------------- */
@@ -1052,7 +1437,8 @@ svg { display: block; flex: none; }
     $$('.win').forEach(w => w.classList.toggle('front', w === win));
     win.style.zIndex = ++z;
     $('#appname').textContent = win.dataset.app;
-    $('#pmapp').textContent = win.dataset.app === 'Сообщения' ? 'Сообщения' : 'Perekey';
+    if (win.dataset.app !== 'Perekey') S.lastApp = win.dataset.app;
+    $('#pmapp').textContent = S.lastApp || 'Сообщения';
   }
   function openWin(id, pane) {
     const w = $('#' + id); w.hidden = false; front(w);
@@ -1077,35 +1463,228 @@ svg { display: block; flex: none; }
   });
   $$('.dock [data-open]').forEach(b => b.addEventListener('click', () => openWin(b.dataset.open)));
 
-  /* settings nav */
+  /* settings nav: the selection strip slides, the pane arrives from the direction of travel */
   function moveNavSel() {
     const on = $('.nav[aria-current="page"]'); const sel = $('#navsel');
     if (on && sel) sel.style.transform = `translateY(${on.offsetTop}px)`;
   }
+  const paneOrder = $$('.nav').map(n => n.dataset.pane);
+  let curPane = 'general';
   function showPane(id) {
+    const dir = Math.sign(paneOrder.indexOf(id) - paneOrder.indexOf(curPane));
     $$('.nav').forEach(n => { if (n.dataset.pane === id) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
     $$('.pane').forEach(p => p.hidden = p.dataset.pane !== id);
-    moveNavSel(); requestAnimationFrame(refreshThumbs);
+    const pane = $(`.pane[data-pane="${id}"]`);
+    if (id !== curPane && !reduced.matches && pane.offsetParent) {
+      pane.animate([{ opacity: 0, transform: `translateY(${dir * 14}px)`, filter: 'blur(3px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 320, easing: 'cubic-bezier(.16,1,.3,1)' });
+    }
+    curPane = id; closeSpot();
+    if (id === 'words') clearBadge();
+    if (id === 'general') renderWhy('tick'); // the status capsule can only measure its reason once visible
+    moveNavSel(); requestAnimationFrame(() => { refreshThumbs(); if (id === 'fixes') $$('.row:not(.soon) .ex[data-ex]').forEach(ex => playEx(ex, exOn(ex), true)); });
   }
   $$('.nav').forEach(n => n.addEventListener('click', () => showPane(n.dataset.pane)));
+  function flashRow(row) {
+    const pane = row.closest('.pane');
+    const top = row.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop - pane.clientHeight / 3;
+    pane.scrollTo({ top: Math.max(0, top), behavior: reduced.matches ? 'auto' : 'smooth' });
+    row.classList.remove('found'); void row.offsetWidth; row.classList.add('found');
+    setTimeout(() => row.classList.remove('found'), 1800);
+  }
 
-  /* apps list */
+  /* settings search: dims sections without matches, Return jumps to the first match and wipes a strip over it */
+  const searchIndex = () => $$('.pane').flatMap(p => $$('.row, .group > h3, .list li', p).map(el => {
+    const t = el.matches('h3') ? el.firstChild.textContent : el.matches('li') ? el.textContent : (el.querySelector('.t') ? el.querySelector('.t').textContent : '');
+    return { pane: p.dataset.pane, el, text: (t + ' ' + (el.querySelector('[aria-label]')?.getAttribute('aria-label') || '')).toLowerCase() };
+  }).filter(x => x.text.trim()));
+  const setSearch = $('#setSearch');
+  setSearch.addEventListener('input', () => {
+    const q = setSearch.value.trim().toLowerCase();
+    const stem = q.length >= 5 ? q.slice(0, -1) : q; // «пароль» finds «паролей»
+    const hits = q ? searchIndex().filter(x => x.text.includes(stem)) : [];
+    $$('.nav').forEach(n => {
+      const c = hits.filter(h => h.pane === n.dataset.pane).length;
+      n.classList.toggle('dim', !!q && !c);
+      let h = n.querySelector('.hits'); if (h) h.remove();
+      if (q && c) { h = document.createElement('span'); h.className = 'hits num'; h.textContent = c; n.appendChild(h); }
+    });
+    setSearch._hits = hits;
+  });
+  setSearch.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { setSearch.value = ''; setSearch.dispatchEvent(new Event('input')); }
+    if (e.key === 'Enter' && setSearch._hits && setSearch._hits.length) {
+      const i = (setSearch._i = ((setSearch._i ?? -1) + 1) % setSearch._hits.length), h = setSearch._hits[i];
+      if (h.pane !== curPane) showPane(h.pane);
+      setTimeout(() => flashRow(h.el.matches('h3') ? h.el.parentElement.querySelector('.row') || h.el : h.el), 60);
+    }
+  });
+  setSearch.addEventListener('input', () => { setSearch._i = -1; });
+  $$('.nav').forEach(n => n.addEventListener('click', () => {
+    const hits = (setSearch._hits || []).filter(h => h.pane === n.dataset.pane);
+    if (setSearch.value.trim() && hits.length) setTimeout(() => flashRow(hits[0].el.matches('h3') ? hits[0].el.parentElement.querySelector('.row') : hits[0].el), 120);
+  }));
+
+  /* correction examples: the same glass strip that fixes words in text fields */
+  const exOn = ex => ex.parentElement.querySelector('.switch').getAttribute('aria-checked') === 'true';
+  const exStatic = (from, to, kind, on, justNow) => !on ? `<span class="raw">${esc(from)}</span>`
+    : kind === 'learn' ? `<span class="w">${esc(to)}</span><span class="note"${justNow ? '' : ' style="animation:none"'}>запомнил</span>`
+    : `<span class="from">${esc(from)}</span><span class="arr">→</span><span class="w fixed">${esc(to)}</span>`;
+  function playEx(ex, on, still) {
+    const [from, to, kind] = ex.dataset.ex.split('|');
+    clearTimeout(ex._t);
+    if (still || reduced.matches) { ex.innerHTML = exStatic(from, to, kind, on); return; }
+    const a = on ? from : to, b = on ? to : from;
+    ex.innerHTML = `<span class="w anim${on && !kind ? '' : ' undo'}"><span class="old">${esc(a)}</span><span class="new">${esc(b)}</span><span class="rib"></span></span>`;
+    ex._t = setTimeout(() => {
+      ex.innerHTML = exStatic(from, to, kind, on, true);
+    }, 980);
+  }
+  $$('.ex[data-ex]').forEach(ex => {
+    const row = ex.closest('.row'), sw = row.querySelector('.switch');
+    if (row.classList.contains('soon')) { const [f, t, k] = ex.dataset.ex.split('|'); ex.innerHTML = exStatic(f, t, k, true); ex.classList.add('quiet'); return; }
+    playEx(ex, exOn(ex), true);
+    if (!sw.dataset.bind) sw.addEventListener('click', () => playEx(ex, exOn(ex)));
+    row.addEventListener('pointerenter', () => { if (exOn(ex) && !ex._t) { playEx(ex, true); setTimeout(() => { ex._t = null; }, 1200); } });
+  });
+
+  /* sounds: a short synthesized cue, only on the listener's click or when the switch is on */
+  let actx = null;
+  function playSound(name) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const t = actx.currentTime + .01, o = actx.createOscillator(), g = actx.createGain();
+      o.connect(g); g.connect(actx.destination); g.gain.setValueAtTime(.0001, t);
+      const shape = { tick: ['triangle', 1100, 900, .12, .06], glass: ['sine', 1760, 1320, .14, .5], drop: ['sine', 1300, 420, .16, .28] }[name];
+      o.type = shape[0]; o.frequency.setValueAtTime(shape[1], t); o.frequency.exponentialRampToValueAtTime(shape[2], t + shape[4] * .6);
+      g.gain.exponentialRampToValueAtTime(shape[3], t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + shape[4]);
+      o.start(t); o.stop(t + shape[4] + .05);
+      return shape[4] * 1000;
+    } catch (_) { return 300; }
+  }
+  $$('[data-snd]').forEach(box => {
+    const k = box.dataset.snd, sel = box.querySelector('select'), play = box.querySelector('.play'), sw = box.parentElement.querySelector('[data-snd-on]');
+    const sync = () => { const on = S.snd[k].on; sel.disabled = play.disabled = !on; };
+    sel.addEventListener('change', () => { S.snd[k].name = sel.value; play.click(); });
+    play.addEventListener('click', () => { const ms = playSound(S.snd[k].name); play.classList.add('on'); clearTimeout(play._t); play._t = setTimeout(() => play.classList.remove('on'), Math.max(ms, 380)); });
+    sw.addEventListener('click', () => { S.snd[k].on = sw.getAttribute('aria-checked') === 'true'; sync(); if (S.snd[k].on) play.click(); });
+    sync();
+  });
+
+  /* apps: filter by mode, search the list, add through a Spotlight picker */
+  const ICON = {
+    msg: ['#6EE07A', '#22B33A', '<path d="M8 3.5c-3.3 0-6 2.2-6 4.9 0 1.5.8 2.9 2.2 3.8-.2.8-.6 1.4-1.2 1.9 1.2 0 2.3-.5 3.1-1.2.6.2 1.3.3 1.9.3 3.3 0 6-2.2 6-4.8S11.3 3.5 8 3.5Z" fill="#fff"/>'],
+    tg: ['#5AC8FA', '#1C8ADB', '<path d="m2.5 7.6 10-4-1.7 9-3.2-2.6-1.6 1.6-.2-2.6 4.4-4-5.6 3.4-2.1-.8Z" fill="#fff"/>'],
+    safari: ['#64D2FF', '#0A84FF', '<circle cx="8" cy="8" r="5.5" fill="none" stroke="#fff" stroke-width="1.2"/><path d="m10.5 5.5-1.6 3.4-3.4 1.6 1.6-3.4 3.4-1.6Z" fill="#fff"/>'],
+    term: ['#48484A', '#1C1C1E', '<path d="m4 5.5 2.5 2.5L4 10.5M8 10.5h4" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'],
+    vsc: ['#3FA0F2', '#0065A9', '<path d="M11.5 2.8 6 8l5.5 5.2V2.8ZM6 8 3.6 6.1 2.5 6.8v2.4l1.1.7L6 8Z" fill="#fff"/>'],
+    xcode: ['#5AC8FA', '#147EFB', '<path d="M5 12.5 10.5 3.5M7 6.5h4.5M5.5 9.5h5" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>'],
+    pw: ['#4FA3FF', '#0572EC', '<circle cx="8" cy="8" r="5" fill="none" stroke="#fff" stroke-width="1.3"/><rect x="7.2" y="5" width="1.6" height="6" rx=".8" fill="#fff"/>'],
+    game: ['#FF6B6B', '#C2185B', '<path d="M4.5 6h7a2.5 2.5 0 0 1 2.4 3.2l-.6 2a1.4 1.4 0 0 1-2.4.5L9.7 10.5H6.3l-1.2 1.2a1.4 1.4 0 0 1-2.4-.5l-.6-2A2.5 2.5 0 0 1 4.5 6Z" fill="#fff"/>'],
+    figma: ['#A259FF', '#6E2BD9', '<circle cx="9.5" cy="8" r="2" fill="#fff"/><path d="M6.5 2.5h3a2 2 0 0 1 0 4h-3a2 2 0 0 1 0-4Zm0 4h1V10h-1a2 2 0 0 1 0-4Zm0 3.5h1v1.5a2 2 0 1 1-1-1.5Z" fill="#fff"/>'],
+    slack: ['#E01E5A', '#7C1C68', '<path d="M6 2.5v5M10 8.5v5M2.5 10h5M8.5 6h5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'],
+    notion: ['#5B5B5F', '#2C2C2E', '<path d="M5 4.5v7M5 4.5l6 7M11 4.5v7" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'],
+    mail: ['#5AC8FA', '#0A84FF', '<rect x="2.5" y="4" width="11" height="8" rx="1.5" fill="#fff"/><path d="m3 4.8 5 3.7 5-3.7" fill="none" stroke="#0A84FF" stroke-width="1.2"/>'],
+    notes: ['#FFE066', '#FFB800', '<path d="M4 6h8M4 8.5h8M4 11h5" stroke="#7A5A00" stroke-width="1.2" stroke-linecap="round"/>'],
+    zed: ['#3A3A3C', '#111113', '<path d="M4.5 5h7l-7 6h7" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'],
+    word: ['#4A8BF5', '#185ABD', '<path d="m4 5 1.3 6 1.4-4.5h.6L8.7 11 10 5" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>'],
+  };
+  const MODE_TXT = ['Исправлять во время набора', 'Только по сочетанию: так безопаснее для кода', 'Perekey выключен в этой программе'];
+  const CAT_TXT = { 'код': 'Только по сочетанию: так безопаснее для кода', 'игра': 'Игра: выключен, чтобы клавиши не мешали', 'пароли': 'Perekey выключен в этой программе' };
   const APPS = [
-    { n: 'Сообщения', sub: '', mode: 0, lay: 'Последняя', ico: ['#6EE07A', '#22B33A', '<path d="M8 3.5c-3.3 0-6 2.2-6 4.9 0 1.5.8 2.9 2.2 3.8-.2.8-.6 1.4-1.2 1.9 1.2 0 2.3-.5 3.1-1.2.6.2 1.3.3 1.9.3 3.3 0 6-2.2 6-4.8S11.3 3.5 8 3.5Z" fill="#fff"/>'] },
-    { n: 'Telegram', sub: '', mode: 0, lay: 'Последняя', ico: ['#5AC8FA', '#1C8ADB', '<path d="m2.5 7.6 10-4-1.7 9-3.2-2.6-1.6 1.6-.2-2.6 4.4-4-5.6 3.4-2.1-.8Z" fill="#fff"/>'] },
-    { n: 'Safari', sub: '', mode: 0, lay: 'Последняя', ico: ['#64D2FF', '#0A84FF', '<circle cx="8" cy="8" r="5.5" fill="none" stroke="#fff" stroke-width="1.2"/><path d="m10.5 5.5-1.6 3.4-3.4 1.6 1.6-3.4 3.4-1.6Z" fill="#fff"/>'] },
-    { n: 'Terminal', sub: 'код', mode: 1, lay: 'English', ico: ['#48484A', '#1C1C1E', '<path d="m4 5.5 2.5 2.5L4 10.5M8 10.5h4" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'] },
-    { n: 'Visual Studio Code', sub: 'код', mode: 1, lay: 'English', ico: ['#3FA0F2', '#0065A9', '<path d="M11.5 2.8 6 8l5.5 5.2V2.8ZM6 8 3.6 6.1 2.5 6.8v2.4l1.1.7L6 8Z" fill="#fff"/>'] },
-    { n: 'Xcode', sub: 'код', mode: 1, lay: 'English', ico: ['#5AC8FA', '#147EFB', '<path d="M5 12.5 10.5 3.5M7 6.5h4.5M5.5 9.5h5" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>'] },
-    { n: '1Password', sub: 'пароли', mode: 2, lay: 'English', ico: ['#4FA3FF', '#0572EC', '<circle cx="8" cy="8" r="5" fill="none" stroke="#fff" stroke-width="1.3"/><rect x="7.2" y="5" width="1.6" height="6" rx=".8" fill="#fff"/>'] },
+    { n: 'Сообщения', mode: 0, lay: 'Последняя', ico: 'msg' },
+    { n: 'Telegram', mode: 0, lay: 'Последняя', ico: 'tg' },
+    { n: 'Safari', mode: 0, lay: 'Последняя', ico: 'safari' },
+    { n: 'Terminal', cat: 'код', mode: 1, lay: 'English', ico: 'term' },
+    { n: 'Visual Studio Code', cat: 'код', mode: 1, lay: 'English', ico: 'vsc' },
+    { n: 'Xcode', cat: 'код', mode: 1, lay: 'English', ico: 'xcode' },
+    { n: '1Password', cat: 'пароли', mode: 2, lay: 'English', ico: 'pw' },
+    { n: 'Hades II', cat: 'игра', mode: 2, lay: 'English', ico: 'game' },
   ];
-  $('#appList').innerHTML = APPS.map((a, i) => `<div class="row">
-      <span class="app-ico" style="background:linear-gradient(160deg,${a.ico[0]},${a.ico[1]})"><svg width="18" height="18" viewBox="0 0 16 16">${a.ico[2]}</svg></span>
-      <div class="t">${esc(a.n)}${a.sub === 'код' ? '<span class="tag">код</span>' : a.sub === 'пароли' ? '<span class="tag">пароли</span>' : ''}<small>${a.mode === 1 ? 'Только по сочетанию: так безопаснее для кода' : a.mode === 2 ? 'Perekey выключен в этой программе' : 'Исправлять во время набора'}</small></div>
+  const CATALOG = [
+    { n: 'Figma', path: '/Applications/Figma.app', run: true, ico: 'figma' },
+    { n: 'Slack', path: '/Applications/Slack.app', run: true, ico: 'slack' },
+    { n: 'Notion', path: '/Applications/Notion.app', ico: 'notion' },
+    { n: 'Почта', path: '/System/Applications/Mail.app', run: true, ico: 'mail' },
+    { n: 'Заметки', path: '/System/Applications/Notes.app', ico: 'notes' },
+    { n: 'Zed', path: '/Applications/Zed.app', cat: 'код', ico: 'zed' },
+    { n: 'iTerm', path: '/Applications/iTerm.app', cat: 'код', ico: 'term' },
+    { n: 'Microsoft Word', path: '/Applications/Microsoft Word.app', ico: 'word' },
+    { n: 'Stardew Valley', path: '~/Applications/Stardew Valley.app', cat: 'игра', ico: 'game' },
+  ];
+  const icoHTML = (k, size = 18) => { const c = ICON[k]; return `<span class="app-ico" style="background:linear-gradient(160deg,${c[0]},${c[1]})"><svg width="${size}" height="${size}" viewBox="0 0 16 16">${c[2]}</svg></span>`; };
+  const defMode = cat => cat === 'код' ? 1 : cat === 'игра' || cat === 'пароли' ? 2 : 0;
+  let appView = -1;
+  function appRow(a, i) {
+    return `<div class="arow" data-i="${i}"><div><div class="row">
+      ${icoHTML(a.ico)}
+      <div class="t">${esc(a.n)}${a.cat ? `<span class="tag">${a.cat}</span>` : ''}<small>${a.mode === defMode(a.cat) && a.cat ? CAT_TXT[a.cat] : MODE_TXT[a.mode]}</small></div>
       <div class="seg mini" data-seg><span class="thumb"></span>${['Авто', 'Вручную', 'Выкл.'].map((t, j) => `<button aria-pressed="${j === a.mode}">${t}</button>`).join('')}</div>
       <button class="popup">${esc(a.lay)}<svg width="8" height="10" viewBox="0 0 8 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m1.5 3.5 2.5-2.5 2.5 2.5M1.5 6.5 4 9l2.5-2.5"/></svg></button>
-    </div>`).join('');
-  $$('#appList .seg').forEach(s => wireSeg(s, (b, j) => { const sm = s.closest('.row').querySelector('small'); sm.textContent = ['Исправлять во время набора', 'Только по сочетанию', 'Perekey выключен в этой программе'][j]; }));
+    </div></div></div>`;
+  }
+  function renderApps() {
+    $('#appList').innerHTML = APPS.map(appRow).join('') + '<div class="empty-note" id="appEmpty">Ничего не нашлось. Добавьте программу кнопкой «+».</div>';
+    $$('#appList .seg').forEach(s => wireSeg(s, (b, j) => {
+      const a = APPS[+s.closest('.arow').dataset.i]; a.mode = j;
+      const sm = s.closest('.row').querySelector('small');
+      sm.animate && !reduced.matches && sm.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220 });
+      sm.textContent = j === defMode(a.cat) && a.cat ? CAT_TXT[a.cat] : MODE_TXT[j];
+      filterApps();
+    }));
+    filterApps(); requestAnimationFrame(refreshThumbs);
+  }
+  function filterApps() {
+    const q = $('#appFilter').value.trim().toLowerCase(); let first = true, shown = 0;
+    $$('#appList .arow').forEach(r => {
+      const a = APPS[+r.dataset.i]; const ok = (appView < 0 || a.mode === appView) && (!q || a.n.toLowerCase().includes(q));
+      r.classList.toggle('gone', !ok); r.classList.toggle('first', ok && first); if (ok) { first = false; shown++; }
+    });
+    $('#appEmpty').classList.toggle('show', !shown);
+    $$('#appView button').forEach(b => { const v = +b.dataset.v; b.querySelector('.cnt').textContent = v < 0 ? APPS.length : APPS.filter(a => a.mode === v).length; });
+    moveThumb($('#appView'));
+  }
+  wireSeg($('#appView'), b => { appView = +b.dataset.v; filterApps(); });
+  $('#appFilter').addEventListener('input', filterApps);
+  $('#appFilter').addEventListener('keydown', e => e.stopPropagation());
+  renderApps();
+
+  const spot = $('#spot'), spotInput = $('#spotInput'); let spotSel = 0, spotRes = [];
+  function openSpot() {
+    const b = $('#appAdd').getBoundingClientRect(), w = $('#paneWrap').getBoundingClientRect();
+    spot.style.left = Math.max(8, b.right - w.left - 360) + 'px'; spot.style.top = (b.bottom - w.top + 8) + 'px';
+    spot.hidden = false; spotInput.value = ''; renderSpot(true); setTimeout(() => spotInput.focus(), 30);
+  }
+  function closeSpot() { spot.hidden = true; }
+  function renderSpot(enter) {
+    const q = spotInput.value.trim().toLowerCase();
+    spotRes = CATALOG.filter(c => !APPS.some(a => a.n === c.n) && (!q || c.n.toLowerCase().includes(q))).sort((a, b) => (b.run ? 1 : 0) - (a.run ? 1 : 0));
+    spotSel = Math.min(spotSel, Math.max(0, spotRes.length - 1));
+    $('#spotSrc').textContent = q ? `Найдено: ${spotRes.length}` : 'Запущенные и /Applications';
+    $('#spotList').innerHTML = spotRes.map((c, i) => `<li class="res${enter ? ' enter' : ''}" role="option" aria-selected="${i === spotSel}" data-k="${i}" style="animation-delay:${Math.min(i, 6) * 22}ms">
+      ${icoHTML(c.ico, 16)}<div class="t">${esc(c.n)}<small>${esc(c.path)}</small></div>${c.run ? '<span class="run" title="Запущена"></span>' : ''}<span class="def">${['авто', 'вручную', 'выкл.'][defMode(c.cat)]}</span></li>`).join('')
+      || '<li class="none">Spotlight не нашёл такой программы</li>';
+  }
+  function addFromSpot(i) {
+    const c = spotRes[i]; if (!c) return;
+    APPS.unshift({ n: c.n, cat: c.cat, mode: defMode(c.cat), lay: c.cat ? 'English' : 'Последняя', ico: c.ico });
+    closeSpot(); appView = -1; $$('#appView button').forEach((b, j) => b.setAttribute('aria-pressed', String(j === 0))); $('#appFilter').value = '';
+    renderApps();
+    const row = $('#appList .arow[data-i="0"]');
+    if (!reduced.matches) { row.classList.add('gone'); requestAnimationFrame(() => requestAnimationFrame(() => row.classList.remove('gone'))); }
+    setTimeout(() => flashRow(row.querySelector('.row')), 200);
+  }
+  $('#appAdd').addEventListener('click', e => { e.stopPropagation(); spot.hidden ? openSpot() : closeSpot(); });
+  spotInput.addEventListener('input', () => { spotSel = 0; renderSpot(false); });
+  spotInput.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); spotSel = (spotSel + (e.key === 'ArrowDown' ? 1 : -1) + spotRes.length) % Math.max(1, spotRes.length); renderSpot(false); }
+    if (e.key === 'Enter') addFromSpot(spotSel);
+    if (e.key === 'Escape') closeSpot();
+  });
+  $('#spotList').addEventListener('pointermove', e => { const r = e.target.closest('[data-k]'); if (r && +r.dataset.k !== spotSel) { spotSel = +r.dataset.k; $$('#spotList .res').forEach(x => x.setAttribute('aria-selected', String(+x.dataset.k === spotSel))); } });
+  $('#spotList').addEventListener('click', e => { const r = e.target.closest('[data-k]'); if (r) addFromSpot(+r.dataset.k); });
+  document.addEventListener('pointerdown', e => { if (!spot.hidden && !spot.contains(e.target) && !e.target.closest('#appAdd')) closeSpot(); });
 
   /* ---------------- onboarding ---------------- */
   let step = 0; const steps = $$('.step'); const onbNext = $('#onbNext'), onbBack = $('#onbBack');
@@ -1235,6 +1814,7 @@ svg { display: block; flex: none; }
 
   /* ---------------- boot ---------------- */
   applyPreset('standard');
+  renderWhy();
   goStep(0);
   front($('#w-onb'));
   addEventListener('resize', () => { refreshThumbs(); moveNavSel(); });
@@ -1251,6 +1831,9 @@ svg { display: block; flex: none; }
   if (q.get('scene') === 'menu') { $('#w-onb').hidden = true; openMenu(true); }
   if (q.get('scene') === 'chat') { $('#w-onb').hidden = true; if (q.get('type')) chatTouched = true; openWin('w-chat'); }
   if (q.get('step')) { granted = true; goStep(+q.get('step')); }
+  if (q.get('why')) setWhy(q.get('why'));
+  if (q.get('search')) { setSearch.value = q.get('search'); setSearch.dispatchEvent(new Event('input')); }
+  if (q.get('spot')) setTimeout(openSpot, 400);
   if (q.get('type')) { const f = q.get('scene') === 'chat' ? chat : demo; focusField(f); stopDemo(); f.reset(); setTimeout(() => { [...q.get('type')].forEach(ch => ch === '_' ? f.space() : f.key(ch)); if (q.get('undo')) setTimeout(() => f.backspace(), +q.get('undo')); }, 300); }
 })();
 </script>

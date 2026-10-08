@@ -22,11 +22,11 @@ public enum EngineMessage: Sendable {
     /// Paste the pasteboard as plain text (`PlainPaste`), on the main thread.
     case pastePlain
     /// A retype was posted: the correction sound plays. `original` is the text
-    /// it replaced and `text` the new one, for the hint; `manual` is true for
-    /// the user's own retype (a shortcut, or a selection), false for an
-    /// automatic switch, whose `corrected` message has its own hint. Never
-    /// stored or logged.
-    case retyped(original: String, text: String, manual: Bool)
+    /// it replaced and `text` the new one, for the hint. `origin` says who
+    /// asked: an automatic switch has its own hint (`corrected`), a manual
+    /// retype names the shortcut that ran. `decision` is what automatic
+    /// switching made of the word, for «why?». Never stored or logged.
+    case retyped(original: String, text: String, origin: Retype.Origin, decision: Classifier.Decision?)
     /// An automatic switch was posted (`Effect.corrected`): show the hint.
     case corrected(Correction)
     /// The correction with this `seq` was undone: hide its hint.
@@ -93,8 +93,6 @@ public final class InputEngine: @unchecked Sendable {
     private var replayTimer: CFRunLoopTimer?
     /// The hint's button in CG global coordinates, while the hint shows.
     private var hintButton: CGRect?
-    /// Retypes the user asked for, by `seq`, until they are posted.
-    private var manualRetypes = Set<UInt32>()
 
     /// The pre-Backspace check of the retype with `seq`.
     private struct CaretCheckState {
@@ -354,11 +352,7 @@ public final class InputEngine: @unchecked Sendable {
             result = nil
         }
         // The disposition first: a held event may be released by the same output.
-        // A modifier chord or a swallowed shortcut key is the user's own retype;
-        // a swallowed Backspace is the undo of a correction.
-        var manual = type == .flagsChanged
-        if case .drop = output.disposition, type == .keyDown, keyCode != KeyCode.delete { manual = true }
-        execute(output.effects, manual: manual)
+        execute(output.effects)
         if origin == .replayed { postReplayed(replays.takeReady(), at: time) }
         return result
     }
@@ -483,7 +477,8 @@ public final class InputEngine: @unchecked Sendable {
     }
 
     private func toMainRetyped(_ retype: Retype) {
-        toMain(.retyped(original: retype.expected, text: retype.text, manual: manualRetypes.remove(retype.seq) != nil))
+        toMain(.retyped(original: retype.expected, text: retype.text, origin: retype.origin,
+                        decision: retype.decision))
     }
 
     private func replacedViaAccessibility(_ retype: Retype, done: Bool) {
@@ -522,19 +517,10 @@ public final class InputEngine: @unchecked Sendable {
     }
 
     private func handle(_ event: InputEvent) {
-        // The selection a shortcut asked to convert comes back as this event.
-        var manual = false
-        if case .selectionRead = event { manual = true }
-        if case let .retypeCancelled(seq) = event { manualRetypes.remove(seq) }
-        execute(machine.handle(event).effects, manual: manual)
+        execute(machine.handle(event).effects)
     }
 
-    private func execute(_ effects: [Effect], manual: Bool = false) {
-        func note(_ retype: Retype) {
-            // Cancelled retypes are removed in `handle`; this only bounds a leak.
-            if manualRetypes.count > 64, let oldest = manualRetypes.min() { manualRetypes.remove(oldest) }
-            if manual { manualRetypes.insert(retype.seq) }
-        }
+    private func execute(_ effects: [Effect]) {
         var index = effects.startIndex
         while index < effects.endIndex {
             switch effects[index] {
@@ -544,13 +530,11 @@ public final class InputEngine: @unchecked Sendable {
                 var then: Retype?
                 if index + 1 < effects.endIndex, case let .retype(retype) = effects[index + 1] {
                     then = retype
-                    note(retype)
                     index += 1
                     beginCheck(retype)
                 }
                 toMain(.select(id, then: then))
             case let .retype(retype):
-                note(retype)
                 beginCheck(retype)
                 postIfPending(retype)
             case .releaseHeld:

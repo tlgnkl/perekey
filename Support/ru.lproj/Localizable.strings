@@ -2,7 +2,12 @@
 /* Keys are the English text. scripts/check-strings.sh keeps both files in step with the sources. */
 
 "%@ turned on Secure Input. While it is on, macOS hides keystrokes from every app." = "%@ включил Secure Input. Пока он включён, macOS прячет нажатия от всех программ.";
+"%lld bit" = "%lld бит";
+"%lld bits" = "%lld бит";
+"%lld bits (few)" = "%lld бита";
 "%lld min" = "%lld мин";
+"A known abbreviation: it goes in capitals" = "Известная аббревиатура: пишется заглавными";
+"A short word: the dictionary and the word before it decide" = "Короткое слово: решают словарь и предыдущее слово";
 "Access granted" = "Доступ есть";
 "Accessibility" = "Универсальный доступ";
 "All edits" = "Все правки";
@@ -17,6 +22,7 @@
 "Automatic switching is on" = "Автопереключение включено";
 "Back" = "Назад";
 "Cancel" = "Отмена";
+"Capitals inside the word and no common word to switch to: a name, a code or a captcha" = "Заглавные внутри слова и нет частого слова, на которое переключить: имя, код или капча";
 "Caps Lock" = "Caps Lock";
 "Caps Lock is already remapped on this Mac. Instant mode will replace that remapping." = "Caps Lock на этом Mac уже переназначен. Режим «Мгновенно» заменит это переназначение.";
 "Click here and type" = "Щёлкните здесь и наберите";
@@ -28,6 +34,8 @@
 "Done" = "Готово";
 "Double Shift" = "Двойной Shift";
 "Drag Perekey into the Accessibility list in System Settings" = "Перетащите Perekey в список «Универсальный доступ» в Системных настройках";
+"Edge of %@ at a threshold of %lld" = "Перевес %@ при пороге %lld";
+"Edge of %@, but it needed %lld" = "Перевес %@, а нужно %lld";
 "General" = "Основные";
 "Hint" = "Подсказка";
 "Hint at the caret" = "Подсказка у курсора";
@@ -36,11 +44,17 @@
 "How to use Caps Lock" = "Как использовать Caps Lock";
 "Instant" = "Мгновенно";
 "Instant switch; Option retypes" = "Мгновенная смена; ⌥ перенабирает";
+"It looks like a password, so Perekey leaves it alone" = "Похоже на пароль, поэтому Perekey его не трогает";
 "Karabiner-Elements is running. Its rules may override this." = "Запущен Karabiner-Elements. Его правила могут перебить это.";
 "Key %lld" = "Клавиша %lld";
 "Launch at login" = "Открывать при входе в систему";
 "Let Perekey see the keys" = "Дайте Perekey видеть нажатия";
 "Like Alt+Shift on Windows" = "Как Alt+Shift в Windows";
+"Neither reading is a word: it looks like code, a link or a path" = "Ни одно прочтение не слово: похоже на код, ссылку или путь";
+"Neither reading is likely: it looks like a random string" = "Ни одно прочтение не вероятно: похоже на случайный набор букв";
+"One letter too many, and the fixed word is a known one" = "Лишняя буква, а исправленное слово есть в словаре";
+"One letter was missing, and the fixed word is a known one" = "Не хватало буквы, а исправленное слово есть в словаре";
+"One letter was wrong, and the fixed word is a known one" = "Одна буква не та, а исправленное слово есть в словаре";
 "Shift alone, Option retypes" = "Один Shift, Option перенабирает";
 "Like Ctrl+Shift on Windows" = "Как Ctrl+Shift в Windows";
 "Like macOS" = "Как в macOS";
@@ -86,22 +100,39 @@
 "Step %lld of %lld" = "Шаг %1$lld из %2$lld";
 "Switch layout" = "Сменить раскладку";
 "The app modes say so. Perekey does not fix words or change the layout here." = "Так задано в режимах программ. Здесь Perekey не исправляет и не меняет раскладку.";
+"The dictionary spells this word with «ё»" = "В словаре это слово пишется с «ё»";
 "The fn / 🌐 key also runs its own macOS action, which can switch the input source." = "Клавиша fn / 🌐 запускает и своё действие macOS, которое может сменить источник ввода.";
 "The same shortcut brought ghbdtn back" = "То же сочетание вернуло ghbdtn";
 "The shortcut turned ghbdtn into привет" = "Сочетание превратило ghbdtn в привет";
+"The two layouts are not two languages Perekey knows" = "Две раскладки — не два языка, которые знает Perekey";
+"The typed word is the better one, by %@" = "Набранное слово лучше на %@";
+"The typed word reads fine in its own language, and the other one is unknown" = "Набранное читается как слово своего языка, а второе слово незнакомо";
+"The word has digits, and Perekey leaves such words alone" = "В слове цифры, а такие слова Perekey не трогает";
+"The word is on a never-switch list" = "Слово в списке «не трогать»";
+"There was no word" = "Слова не было";
 "This window notices the change by itself." = "Окно само заметит изменение.";
+"Too long to be a word" = "Слишком длинное для слова";
 "Try it yourself" = "Попробуйте сами";
 "Turn automatic switching on or off" = "Включить и выключить автопереключение";
 "Turn on here" = "Включить здесь";
+"Two capitals at the start: Shift was held a key too long" = "Две заглавные в начале: Shift держали на клавишу дольше";
 "Two keys" = "Две клавиши";
+"Two letters were swapped, and the fixed word is a known one" = "Две буквы переставлены, а исправленное слово есть в словаре";
 "Type" = "Наберите";
 "Typed in the wrong layout? Perekey fixes it." = "Набрали не в той раскладке? Perekey исправит.";
+"Typed with Caps Lock on by mistake" = "Набрано с нечаянным Caps Lock";
 "Uses the macOS setting “Use Caps Lock to switch to and from ABC”. macOS adds a short delay." = "Работает через настройку macOS «Переключать ABC клавишей Caps Lock». macOS добавляет небольшую задержку.";
 "Waiting for access…" = "Ждём доступ…";
 "Welcome to Perekey" = "Добро пожаловать в Perekey";
+"Why didn't Perekey fix it?" = "Почему не исправил?";
+"Why?" = "Почему?";
 "Works in the installed app only." = "Работает только в установленной программе.";
 "and press" = "и нажмите";
 "fn twice starts Dictation in macOS." = "Двойное fn запускает диктовку в macOS.";
+"in English" = "в английском";
+"in Russian" = "в русском";
+"in Ukrainian" = "в украинском";
+"in this layout" = "в этой раскладке";
 "left" = "левый";
 "macOS refused to change Caps Lock." = "macOS не дала изменить Caps Lock.";
 "macOS switches the input source on this shortcut too. The layout would change twice." = "macOS тоже меняет источник ввода по этому сочетанию. Раскладка сменится дважды.";
@@ -112,6 +143,11 @@
 "twice" = "дважды";
 "your retype shortcut" = "ваше сочетание для перенабора";
 "— revert" = "— вернуть";
+"“%@” cannot start a word %@" = "«%@» не может быть началом слова %@";
+"“%@” is a common word %@" = "«%@» — частое слово %@";
+"“%@” is a rare word %@" = "«%@» — редкое слово %@";
+"“%@” is not a word" = "«%@» — не слово";
+"“%@” is not a word %@" = "«%@» — такого слова %@ нет";
 "⌘Space also opens Spotlight. Both will run." = "⌘Пробел открывает ещё и Spotlight. Сработают оба.";
 
 /* Apps, Words, General (stage 2) */

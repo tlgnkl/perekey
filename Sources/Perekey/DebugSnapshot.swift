@@ -45,6 +45,7 @@ enum DebugSnapshot {
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
         renderHint(in: directory)
+        renderReasons(in: directory)
         renderStrips(in: directory)
         exit(0)
     }
@@ -238,12 +239,54 @@ enum DebugSnapshot {
                to: directory.appending(path: "words-warning-light.png"))
     }
 
+    /// An explanation as the hint shows it after a manual retype.
+    private static var sampleWhy: HintWhy {
+        let decision = Classifier.Decision(verdict: .keep, score: 4.2, reason: .compared, language: "en", margin: 10,
+                                           typedForm: .rare, otherForm: .known, typedLanguage: "en",
+                                           otherLanguage: "ru")
+        let explanation = Explanation(decision: decision, typed: "Fyz", other: "Аня")
+        return HintWhy(title: ExplanationText.title(switched: explanation.switched),
+                       lines: ExplanationText.lines(explanation))
+    }
+
+    /// A «Recent corrections» row with its reasons open.
+    private static func renderReasons(in directory: URL) {
+        var log = CorrectionLog()
+        let en = LayoutID("en"), ru = LayoutID("ru")
+        var layout = Correction(seq: 1, original: "ghbdtn", replacement: "привет", source: en, target: ru)
+        layout.decision = Classifier.Decision(verdict: .switch(to: ru), score: 38.4, reason: .compared, language: "ru",
+                                              margin: 10, typedForm: .unknown, otherForm: .known, typedLanguage: "en",
+                                              otherLanguage: "ru")
+        var typo = Correction(seq: 2, original: "прривет", replacement: "привет", source: ru, target: ru, kind: .typo)
+        typo.typoChange = .delete
+        var inside = Correction(seq: 3, original: "ghb", replacement: "при", source: en, target: ru)
+        inside.insideWord = true
+        inside.sourceLanguage = "en"
+        for correction in [inside, typo, layout] { log.record(correction) }
+        let file = SettingsFile(url: directory.appending(path: "reasons.json"))
+        try? file.save(AppSettings())
+        let store = SettingsStore(file: file)
+        let nav = MenuNav()
+        for dark in [false, true] {
+            let rows = VStack(spacing: 4) {
+                ForEach(log.entries) { entry in
+                    CorrectionRow(entry: entry, isLatest: false, store: store, nav: nav, onReport: { _, _ in },
+                                  explained: true)
+                }
+            }
+            .padding(12)
+            render(rows, dark: dark, size: CGSize(width: 318, height: 330),
+                   to: directory.appending(path: "reasons-rows-\(dark ? "dark" : "light").png"))
+        }
+    }
+
     /// The caret hint in every state, light and dark, and the glass strip
     /// correction in key frames.
     private static func renderHint(in directory: URL) {
         let states: [(String, HintContent)] = [
             ("corrected", .corrected(original: "ghbdtn", replacement: "привет")),
-            ("retyped", .retyped(original: "ghbdtn", word: "привет", shortcut: "⌥")),
+            ("retyped", .retyped(original: "ghbdtn", word: "привет", shortcut: "⌥", why: nil)),
+            ("retyped-why", .retyped(original: "Fyz", word: "Аня", shortcut: "⌥", why: Self.sampleWhy)),
             ("learned", .learned(word: "дедлайн")),
         ]
         for (name, content) in states {
@@ -252,6 +295,12 @@ enum DebugSnapshot {
                 render(HintView(model: model) {}, dark: dark, size: CGSize(width: 320, height: 90),
                        to: directory.appending(path: "hint-\(name)-\(dark ? "dark" : "light").png"))
             }
+        }
+        for dark in [false, true] {
+            let model = HintModel(content: .retyped(original: "Fyz", word: "Аня", shortcut: "⌥", why: Self.sampleWhy),
+                                  visible: true, expanded: true)
+            render(HintView(model: model) {}, dark: dark, size: CGSize(width: 360, height: 190),
+                   to: directory.appending(path: "hint-retyped-why-open-\(dark ? "dark" : "light").png"))
         }
         for (progress, style) in [(0.0, GlassStripStyle.fix), (0.25, .fix), (0.45, .fix), (0.7, .fix), (1, .fix),
                                   (0.45, .undo)]

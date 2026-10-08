@@ -16,6 +16,8 @@ import SwiftUI
 final class HintController {
     private static let tick: TimeInterval = 0.1
     private static let glide: TimeInterval = 0.45
+    /// How long an opened explanation stays after the press.
+    private static let explanationSeconds: TimeInterval = 10
 
     private let locator = CaretLocator()
     private let model = HintModel(content: .learned(word: ""))
@@ -47,9 +49,9 @@ final class HintController {
     }
 
     /// After the user's own retype: «word · ⌥ — revert». No button.
-    func showRetyped(original: String, word: String, shortcut: String?) {
+    func showRetyped(original: String, word: String, shortcut: String?, why: HintWhy?) {
         present(.retyped(original: HintMetrics.shortened(original), word: HintMetrics.shortened(word),
-                         shortcut: shortcut), action: nil)
+                         shortcut: shortcut, why: why), action: nil)
     }
 
     /// After an undo with learning: «Remembered “word” · Forget».
@@ -73,18 +75,32 @@ final class HintController {
         locator.caretRect { [weak self] rect in
             Task { @MainActor in
                 guard let self, self.generation == mine else { return }
-                self.place(content, caret: rect)
+                self.place(content, caret: rect, expanded: false)
             }
         }
     }
 
-    private func place(_ content: HintContent, caret: CGRect?) {
+    /// «Why?» was pressed: the explanation opens under the line, and the hint
+    /// stays a while longer.
+    private func explain() {
+        guard model.visible, !model.expanded, model.content.hasButton, case .retyped = model.content else { return }
+        lifetime.hold(for: Self.explanationSeconds, at: Self.now)
+        place(model.content, caret: lastCaret, expanded: true)
+    }
+
+    private func place(_ content: HintContent, caret: CGRect?, expanded: Bool) {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         let wasVisible = panel.isVisible && model.visible
+        // The same hint, grown: no new strip, no new clock.
+        let opens = expanded && wasVisible
+        lastCaret = caret
+        buttonActive = true
 
         // The size the new content needs, from a copy laid out off screen.
-        let size = NSHostingView(rootView: HintBubbleContent(model: HintModel(content: content), action: {})).fittingSize
+        let measured = HintModel(content: content)
+        measured.expanded = expanded
+        let size = NSHostingView(rootView: HintBubbleContent(model: measured, action: {})).fittingSize
 
         let target: CGPoint
         if let caret, let screen = screen(containing: CGPoint(x: caret.midX, y: caret.midY)) {
@@ -115,9 +131,10 @@ final class HintController {
                     let reduced = Self.reduceMotion
                     withAnimation(reduced ? .linear(duration: 0.01) : .timingCurve(0.16, 1, 0.3, 1, duration: Self.glide)) {
                         self.model.content = content
+                        self.model.expanded = expanded
                         self.model.bubble = self.local(newBubble, in: stage)
                     }
-                    self.model.strip.play()
+                    if !opens { self.model.strip.play() }
                     self.settle(after: reduced ? 0.05 : Self.glide + 0.05, run: glideRun)
                 }
             }
@@ -129,6 +146,7 @@ final class HintController {
             model.buttonFrame = .zero
             let stage = newBubble.insetBy(dx: -inset, dy: -inset)
             model.content = content
+            model.expanded = expanded
             panel.setFrame(stage, display: true)
             withAnimation(nil) { model.bubble = local(newBubble, in: stage) }
             model.visible = false
@@ -137,13 +155,22 @@ final class HintController {
             setVisible(true)
             model.strip.play(delay: 0.12)
         }
-        if wasVisible { lifetime.restart(at: Self.now) } else { lifetime = HintLifetime(now: Self.now) }
+        if opens {
+            // Keep the clock the press set.
+        } else if wasVisible {
+            lifetime.restart(at: Self.now)
+        } else {
+            lifetime = HintLifetime(now: Self.now)
+        }
         startKeyMonitor()
         startTimer()
         publishButtonFrame()
     }
 
     private var remainingGlide = 0
+    private var lastCaret: CGRect?
+    /// The hint is showing and its buttons take clicks.
+    private var buttonActive = false
     /// The bubble is moving: its button has no stable place, so it takes no clicks.
     private var gliding = false {
         didSet { model.gliding = gliding }
@@ -171,7 +198,8 @@ final class HintController {
 
     private func publishButtonFrame() {
         var frame: CGRect?
-        if let panel, panel.isVisible, !gliding, currentAction != nil, model.buttonFrame != .zero,
+        if let panel, panel.isVisible, !gliding, buttonActive, model.content.hasButton, !model.expanded,
+           model.buttonFrame != .zero,
            let main = NSScreen.screens.first
         {
             // The hosting view fills the panel and has a top-left origin.
@@ -193,6 +221,7 @@ final class HintController {
         timer = nil
         stopKeyMonitor()
         currentAction = nil
+        buttonActive = false
         publishButtonFrame()
         guard let panel, panel.isVisible else { return }
         setVisible(false)
@@ -265,12 +294,12 @@ final class HintController {
     }
 
     private func makePanel() -> HintPanel {
-        let view = HintView(model: model) { [weak self] in
+        let view = HintView(model: model, action: { [weak self] in
             guard let self else { return }
             let action = self.currentAction
             self.hide()
             action?()
-        }
+        }, explain: { [weak self] in self?.explain() })
         return HintPanel(rootView: view, model: model)
     }
 }

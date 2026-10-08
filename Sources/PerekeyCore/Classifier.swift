@@ -130,6 +130,21 @@ public struct Classifier: Sendable {
         /// The languages of the two layouts, e.g. "en" and "ru".
         public var typedLanguage: String?
         public var otherLanguage: String?
+
+        public init(verdict: Verdict, score: Double, reason: Reason, language: String?, margin: Double = 0,
+                    typedForm: Form = .notWord, otherForm: Form = .notWord, typedLanguage: String? = nil,
+                    otherLanguage: String? = nil)
+        {
+            self.verdict = verdict
+            self.score = score
+            self.reason = reason
+            self.language = language
+            self.margin = margin
+            self.typedForm = typedForm
+            self.otherForm = otherForm
+            self.typedLanguage = typedLanguage
+            self.otherLanguage = otherLanguage
+        }
     }
 
     /// A word longer than this is no word.

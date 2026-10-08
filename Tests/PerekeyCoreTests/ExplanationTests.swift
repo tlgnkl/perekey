@@ -76,6 +76,41 @@ import Testing
         }
     }
 
+    @Test func theReportSummaryHasNamesAndNumbersOnly() {
+        let ru = LayoutID("ru")
+        let won = decision(.compared, verdict: .switch(to: ru), score: 38.24)
+        #expect(FalseSwitchReport.summary(of: won) == "reason=compared score=38.2 threshold=10 typed=unknown other=known")
+        let none = decision(.codeLike, score: -.infinity, margin: 0)
+        #expect(FalseSwitchReport.summary(of: none) == "reason=codeLike typed=unknown other=known")
+
+        var correction = Correction(seq: 1, original: "ghbdtn", replacement: "привет", source: LayoutID("en"),
+                                    target: ru)
+        #expect(FalseSwitchReport.summary(of: correction) == "kind=layout")
+        correction.decision = won
+        #expect(FalseSwitchReport.summary(of: correction).hasPrefix("reason=compared"))
+        correction.insideWord = true
+        #expect(FalseSwitchReport.summary(of: correction) == "kind=layout inside-word")
+        // The word itself is never in it.
+        #expect(!FalseSwitchReport.summary(of: correction).contains("ghbdtn"))
+    }
+
+    @Test func theReportCarriesTheReason() throws {
+        let report = FalseSwitchReport(typed: "ghbdtn", reason: "reason=compared score=38.2 threshold=10")
+        #expect(report.fields.first { $0.id == "reason" }?.value == "reason=compared score=38.2 threshold=10")
+        #expect(report.url.absoluteString.contains("reason=reason%3Dcompared"))
+        #expect(FalseSwitchReport(typed: "a").fields.allSatisfy { $0.id != "reason" })
+    }
+
+    @Test func theLogKeepsWhyForEveryEntry() {
+        var log = CorrectionLog()
+        var correction = Correction(seq: 7, original: "прривет", replacement: "привет", source: LayoutID("ru"),
+                                    target: LayoutID("ru"), kind: .typo)
+        correction.typoChange = .delete
+        log.record(correction)
+        #expect(log.entries[0].explanation.statements == [.typo(.delete)])
+        #expect(log.entries[0].summary == "kind=typo typo=delete")
+    }
+
     @Test func aLayoutSwitchWithATypoShowsBoth() {
         let ru = LayoutID("ru")
         var both = Correction(seq: 1, original: "ghbdtn", replacement: "привет", source: LayoutID("en"), target: ru,

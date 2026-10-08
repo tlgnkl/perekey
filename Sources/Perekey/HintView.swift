@@ -6,14 +6,21 @@ import SwiftUI
 /// What the caret hint says.
 enum HintContent: Equatable {
     case corrected(original: String, replacement: String)
-    /// The user's own retype: «привет · ⌥ — вернуть». `shortcut` is their real
-    /// retype shortcut, nil if they have none. No button.
-    case retyped(original: String, word: String, shortcut: String?)
+    /// The user's own retype: «привет · ⌥ — вернуть». `shortcut` is the key of
+    /// the action that ran, nil if it has none. A small «Почему?» when `why`
+    /// is there; otherwise no button.
+    case retyped(original: String, word: String, shortcut: String?, why: HintWhy?)
     case learned(word: String)
 
     var hasButton: Bool {
-        if case .retyped = self { false } else { true }
+        if case let .retyped(_, _, _, why) = self { why != nil } else { true }
     }
+}
+
+/// The explanation a «Why?» in the hint opens, already in words.
+struct HintWhy: Equatable {
+    var title: String
+    var lines: [String]
 }
 
 /// State the hint view draws. The controller changes `visible` inside
@@ -34,12 +41,15 @@ final class HintModel {
     var buttonFrame: CGRect = .zero
     /// The bubble is on its way to a new place; its button takes no clicks.
     var gliding = false
+    /// «Why?» was pressed: the explanation shows under the line.
+    var expanded = false
     /// Called after `buttonFrame` changed.
     @ObservationIgnored var onButtonFrameChange: (() -> Void)?
 
     init(content: HintContent, visible: Bool = false, bubble: CGRect? = nil, stripProgress: Double = 1,
-         stripStyle: GlassStripStyle = .fix)
+         stripStyle: GlassStripStyle = .fix, expanded: Bool = false)
     {
+        self.expanded = expanded
         self.content = content
         self.visible = visible
         self.bubble = bubble
@@ -49,9 +59,11 @@ final class HintModel {
 
 private struct ButtonFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
+    /// The buttons of one hint sit side by side: the click area is their union.
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
-        if next != .zero { value = next }
+        guard next != .zero else { return }
+        value = value == .zero ? next : value.union(next)
     }
 }
 
@@ -72,26 +84,64 @@ enum HintMetrics {
 struct HintBubbleContent: View {
     let model: HintModel
     let action: () -> Void
+    var explain: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 10) {
-            switch model.content {
-            case let .corrected(original, replacement):
-                correction(original: original, replacement: replacement)
-                chip(Text("Undo"), keycap: "⌫")
-            case let .retyped(original, word, shortcut):
-                retyped(original: original, word: word, shortcut: shortcut)
-            case let .learned(word):
-                Text("Remembered “\(word)”")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Color.pkInk)
-                chip(Text("Forget"), keycap: nil)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                switch model.content {
+                case let .corrected(original, replacement):
+                    correction(original: original, replacement: replacement)
+                    chip(Text("Undo"), keycap: "⌫")
+                case let .retyped(original, word, shortcut, why):
+                    retyped(original: original, word: word, shortcut: shortcut)
+                    if why != nil, !model.expanded { whyChip }
+                case let .learned(word):
+                    Text("Remembered “\(word)”")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.pkInk)
+                    chip(Text("Forget"), keycap: nil)
+                }
+            }
+            if model.expanded, case let .retyped(_, _, _, why?) = model.content {
+                explanation(why)
             }
         }
         .padding(.leading, 12)
         .padding(.trailing, model.content.hasButton ? 6 : 12)
         .padding(.vertical, model.content.hasButton ? 6 : 9)
         .fixedSize()
+    }
+
+    private func explanation(_ why: HintWhy) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(verbatim: why.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.pkInk)
+            ForEach(Array(why.lines.enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.pkInk2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(width: 280, alignment: .leading)
+        .padding(.bottom, 2)
+    }
+
+    /// A small «Why?»: it opens the explanation, and keeps the hint open.
+    private var whyChip: some View {
+        Button(action: explain) {
+            Text("Why?")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.pkIndigoInk)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.pkMist))
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: ButtonFrameKey.self, value: proxy.frame(in: .named("hint")))
+        })
     }
 
     private func slot(before: String, after: String) -> some View {
@@ -165,6 +215,7 @@ struct HintBubbleContent: View {
 struct HintView: View {
     let model: HintModel
     let action: () -> Void
+    var explain: () -> Void = {}
     @Environment(\.colorScheme) private var scheme
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 13, style: .continuous) }
@@ -189,7 +240,7 @@ struct HintView: View {
 
     private func bubble(size: CGSize?) -> some View {
         let dark = scheme == .dark
-        return HintBubbleContent(model: model, action: action)
+        return HintBubbleContent(model: model, action: action, explain: explain)
             .frame(width: size?.width, height: size?.height, alignment: .leading)
             .clipShape(shape)
             .pkGlass(in: shape)

@@ -81,7 +81,12 @@ public struct InputMachine: Sendable {
             buffer.clear()
             manual.endPhrase()
             undo.clicked(onHint: onHint)
-            if !onHint { fence.clickedDuringCorrection() }
+            if !onHint {
+                fence.clickedDuringCorrection()
+                // The caret may be in another paragraph: the words before
+                // it are no longer the ones judged last.
+                judge.forgetContext(newField: false)
+            }
 
         case let .scroll(time):
             shortcuts.otherInput(at: time)
@@ -246,7 +251,9 @@ public struct InputMachine: Sendable {
             || KeyCode.navigation.contains(key.keyCode)
             || focus?.isSecureField == true
         {
+            // The caret may have moved: the word and the words before it go.
             buffer.clear()
+            judge.forgetContext(newField: false)
             return
         }
         if key.keyCode == KeyCode.delete {

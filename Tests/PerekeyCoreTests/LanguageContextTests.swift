@@ -260,6 +260,42 @@ private let ru = Fixture.russian.id
     }
 }
 
+@Suite struct ContextAfterTheCaretMovesTests {
+    // A lone "f" after an English word stays "f"; without context it is "а".
+
+    @Test func theWordsBeforeStillCount() {
+        var desk = Desk()
+        desk.type("hello f ")
+        #expect(desk.text == "hello f ")
+    }
+
+    @Test func aClickForgetsThem() {
+        var desk = Desk()
+        desk.type("hello ")
+        desk.time += 0.1
+        desk.send(.click(time: desk.time))
+        desk.type("f ")
+        #expect(desk.text == "hello а ")
+    }
+
+    @Test func anArrowForgetsThem() {
+        var desk = Desk()
+        desk.type("hello ")
+        desk.press(KeyCode.leftArrow)
+        desk.type("f ")
+        #expect(desk.text == "hello а ")
+    }
+
+    @Test func aClickOnTheHintKeepsThem() {
+        var desk = Desk()
+        desk.type("hello ")
+        desk.time += 0.1
+        desk.send(.click(time: desk.time, onHint: true))
+        desk.type("f ")
+        #expect(desk.text == "hello f ")
+    }
+}
+
 @Suite struct WordJudgeContextTests {
     let layouts = LayoutState([Fixture.abc, Fixture.russian], current: en)
 

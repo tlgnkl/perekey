@@ -351,6 +351,28 @@ private struct DemoStep: View {
     let model: OnboardingModel
     private let focus = FocusState<OnboardingModel.DemoField?>()
     private static let backspaceKey = "⌫"
+    /// The strip that sweeps a demo field when its word is fixed or undone.
+    private let shortcutState = State(initialValue: GlassStripPlayer(progress: 1))
+    private let autoState = State(initialValue: GlassStripPlayer(progress: 1))
+    private var shortcutStrip: GlassStripPlayer { shortcutState.wrappedValue }
+    private var autoStrip: GlassStripPlayer { autoState.wrappedValue }
+
+    /// Whether a demo field holds the fixed word, the typed one, or neither.
+    private enum Word { case fixed, typed, other }
+
+    private func word(in text: String) -> Word {
+        if text.hasPrefix("привет") { return .fixed }
+        if text.hasPrefix("ghbdtn") { return .typed }
+        return .other
+    }
+
+    private func sweep(_ player: GlassStripPlayer, from old: String, to new: String) {
+        switch (word(in: old), word(in: new)) {
+        case (.typed, .fixed): player.play(.fix)
+        case (.fixed, .typed): player.play(.undo)
+        default: break
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -373,6 +395,8 @@ private struct DemoStep: View {
                     .focused(focus.projectedValue, equals: .shortcut)
                     .pkField(font: .system(size: 20), height: 40)
                     .overlay { solvedRing(model.demoSolved) }
+                    .overlay { GlassStripSweep(progress: shortcutStrip.progress, style: shortcutStrip.style) }
+                    .onChange(of: model.demoText) { old, new in sweep(shortcutStrip, from: old, to: new) }
             } checks: {
                 Check(done: model.didRetype, text: "The shortcut turned ghbdtn into привет")
                 Check(done: model.didUndo, text: "The same shortcut brought ghbdtn back")
@@ -391,6 +415,8 @@ private struct DemoStep: View {
                     .focused(focus.projectedValue, equals: .auto)
                     .pkField(font: .system(size: 20), height: 40)
                     .overlay { solvedRing(model.didAutoSwitch && model.didAutoUndo) }
+                    .overlay { GlassStripSweep(progress: autoStrip.progress, style: autoStrip.style) }
+                    .onChange(of: model.autoText) { old, new in sweep(autoStrip, from: old, to: new) }
                     .disabled(model.autoSwitchOff)
                     .opacity(model.autoSwitchOff ? 0.5 : 1)
             } checks: {

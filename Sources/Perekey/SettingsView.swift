@@ -67,6 +67,17 @@ struct SettingsView: View {
 
     private var current: SettingsSection { selection.wrappedValue }
 
+    /// 640pt, but never taller than the visible screen minus 150pt, and never under 560pt.
+    private var height: CGFloat {
+        Self.windowHeight(visibleScreen: NSScreen.main?.visibleFrame.height)
+    }
+
+    static func windowHeight(visibleScreen: CGFloat?) -> CGFloat {
+        let preferred: CGFloat = 640, floor: CGFloat = 560, margin: CGFloat = 150
+        guard let visibleScreen else { return preferred }
+        return max(floor, min(preferred, visibleScreen - margin))
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             SettingsSidebar(selection: Binding(
@@ -91,7 +102,7 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
         }
-        .frame(width: 840, height: 640)
+        .frame(width: 840, height: height)
         .background(SettingsWindowReader())
         .modifier(WindowGlass(enabled: windowBackground))
         .onDisappear { recording.stop() }

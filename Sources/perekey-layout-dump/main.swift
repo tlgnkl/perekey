@@ -17,6 +17,7 @@ let defaultIDs = [
     "com.apple.keylayout.Russian",
     "com.apple.keylayout.RussianWin",
     "com.apple.keylayout.Ukrainian-PC",
+    "com.apple.keylayout.Ukrainian",
 ]
 
 let arguments = CommandLine.arguments.dropFirst()

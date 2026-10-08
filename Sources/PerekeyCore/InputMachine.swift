@@ -373,7 +373,8 @@ public struct InputMachine: Sendable {
 
         case .convertLastWord:
             let plan = manual.retypeWord(buffer: buffer, layouts: layouts,
-                                         phrases: settings.corrections.phraseRetype, isSecureField: isSecureField)
+                                         phrases: settings.corrections.phraseRetype, isSecureField: isSecureField,
+                                         classifier: judge.classifier)
             run(plan, at: time, effects: &effects)
 
         case .changeCase:

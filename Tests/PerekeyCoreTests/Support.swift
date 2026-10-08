@@ -11,6 +11,7 @@ enum Fixture {
     static let russian = layout("Russian")
     static let russianPC = layout("RussianWin")
     static let ukrainianPC = layout("Ukrainian-PC")
+    static let ukrainian = layout("Ukrainian")
 
     static func layout(_ name: String) -> LayoutMap {
         let url = Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures")!

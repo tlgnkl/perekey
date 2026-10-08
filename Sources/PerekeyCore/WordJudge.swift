@@ -79,7 +79,12 @@ struct WordJudge: Sendable {
     private struct AutoContext {
         var classifier: Classifier
         var typed: LayoutMap
+        /// The layout the word goes to: the first candidate until the
+        /// classifier picks one.
         var other: LayoutMap
+        /// Every layout the word may go to, `other` first
+        /// (`LayoutState.automaticCandidates`).
+        var candidates: [LayoutMap]
     }
 
     private(set) var classifier: Classifier?
@@ -227,12 +232,23 @@ struct WordJudge: Sendable {
         // end the line, so there is nothing to undo after them.
         let boundary: KeyStroke? = endsLine ? nil : stroke
         var decision: Classifier.Decision?
-        if let auto {
-            let found = auto.classifier.classify(
-                buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
-                context: Classifier.Context(previousLanguage: previousLanguage)
-            )
+        if var auto {
+            let strokes = buffer.entries.lazy.map(\.stroke)
+            let context = Classifier.Context(previousLanguage: previousLanguage)
+            // The candidates passed the rule of automatic switching in
+            // `LayoutState`: one of them is the plain pair.
+            let found = auto.candidates.count == 1
+                ? auto.classifier.classify(strokes, typed: auto.typed, other: auto.other, context: context)
+                : auto.classifier.classify(strokes, typed: auto.typed, candidates: auto.candidates, context: context)
             decision = found
+            // The reading the classifier picked, or one on "Всегда исправлять".
+            if case let .switch(to: id) = found.verdict, let map = layouts[id] {
+                auto.other = map
+            } else if auto.candidates.count > 1,
+                      let listed = auto.candidates.first(where: { alwaysFixSpelling(buffer, in: $0, settings) != nil })
+            {
+                auto.other = listed
+            }
             let switches = found.verdict == .switch(to: auto.other.id)
             // The other reading is on "Всегда исправлять": its spelling there.
             let listed = alwaysFixSpelling(buffer, in: auto.other, settings)
@@ -288,11 +304,12 @@ struct WordJudge: Sendable {
     {
         let count = buffer.entries.count
         guard mayActInsideWord(buffer: buffer, settings: settings),
-              let context = autoContext(layouts: layouts, settings: settings, focus: focus, secureInput: secureInput),
+              var context = autoContext(layouts: layouts, settings: settings, focus: focus, secureInput: secureInput),
               wordIsPlain(buffer, layouts: layouts),
-              context.classifier.impossiblePrefix(buffer.entries.lazy.map(\.stroke), typed: context.typed,
-                                                  other: context.other),
-              !isExceptionPrefix(buffer, context, settings), !isAlwaysFixPrefix(buffer, in: context.typed, settings)
+              let other = Self.onlyPossibleStart(buffer, context)
+        else { return nil }
+        context.other = other
+        guard !isExceptionPrefix(buffer, context, settings), !isAlwaysFixPrefix(buffer, in: context.typed, settings)
         else { return nil }
         let trigger = buffer.entries[count - 1].stroke
         guard var retype = autoRetype(context, buffer.entries.dropLast(), held: trigger, heldKeyCode: trigger.keyCode,
@@ -324,11 +341,24 @@ struct WordJudge: Sendable {
     {
         guard settings.autoswitch, appMode == .auto, !secureInput, let classifier,
               let focus, focus.isKnown, !focus.isSecureField,
-              let current = layouts.current, let typed = layouts.currentMap,
-              let otherID = layouts.counterpart(of: current), let other = layouts[otherID],
-              typed.language != other.language
+              let typed = layouts.currentMap, let other = layouts.automaticCandidates.first
         else { return nil }
-        return AutoContext(classifier: classifier, typed: typed, other: other)
+        return AutoContext(classifier: classifier, typed: typed, other: other, candidates: layouts.automaticCandidates)
+    }
+
+    /// The one candidate whose language can start a word with the strokes so
+    /// far while the typed one cannot ("ghb" → "при"). With two that can
+    /// (ru and uk share most starts) the end of the word decides.
+    private static func onlyPossibleStart(_ buffer: WordBuffer, _ context: AutoContext) -> LayoutMap? {
+        var found: LayoutMap?
+        for other in context.candidates
+            where context.classifier.impossiblePrefix(buffer.entries.lazy.map(\.stroke), typed: context.typed,
+                                                      other: other)
+        {
+            guard found == nil else { return nil }
+            found = other
+        }
+        return found
     }
 
     /// The current layout, if some word correction may act in it now. The

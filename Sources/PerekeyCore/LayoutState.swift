@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /// The enabled layouts, the one Perekey believes is selected and the one
-/// before it. Decides which layout a word goes to (`counterpart(of:)`).
+/// before it. Decides which layouts a word may go to (`candidates(of:)`) and
+/// which one first (`counterpart(of:)`).
 struct LayoutState: Sendable {
     private(set) var maps: [LayoutID: LayoutMap] = [:]
     /// The layouts in the order the system lists them.
@@ -14,11 +15,20 @@ struct LayoutState: Sendable {
     /// The table of `current`, looked up once per change, not per key.
     private(set) var currentMap: LayoutMap?
     private var previous: LayoutID?
+    /// What automatic switching weighs a word of `current` against:
+    /// `candidates(of: current)` of another script
+    /// (`Classifier.switchesAutomatically`). Kept per change, not per word.
+    private(set) var automaticCandidates: [LayoutMap] = []
+    /// The layouts in `order` with the script of their language, looked up
+    /// once per set of layouts: `updateCandidates` runs on every layout
+    /// change and hashes nothing.
+    private var scripted: [(map: LayoutMap, script: Classifier.Script?)] = []
 
     init(_ maps: [LayoutMap], current: LayoutID?) {
         set(maps)
         self.current = current
         currentMap = current.flatMap { self.maps[$0] }
+        updateCandidates()
     }
 
     subscript(id: LayoutID) -> LayoutMap? { maps[id] }
@@ -26,7 +36,9 @@ struct LayoutState: Sendable {
     mutating func set(_ newMaps: [LayoutMap]) {
         order = newMaps.map(\.id)
         maps = Dictionary(newMaps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        scripted = order.compactMap { id in maps[id].map { ($0, $0.language.flatMap(Classifier.Script.init)) } }
         currentMap = current.flatMap { maps[$0] }
+        updateCandidates()
     }
 
     /// Makes `id` the current layout; the current one, if known, becomes the
@@ -36,6 +48,7 @@ struct LayoutState: Sendable {
         guard id != current else { return false }
         if let current, maps[current] != nil { previous = current }
         current = id
+        updateCandidates()
         return true
     }
 
@@ -53,21 +66,78 @@ struct LayoutState: Sendable {
         order.first { maps[$0]?.language == language }
     }
 
-    /// The layout a word typed in `source` should be retyped into.
+    /// The layout a word typed in `source` should be retyped into: the first
+    /// of `candidates(of:)`. With only layouts of the source's language, the
+    /// one the user switched to, the one before, or the first of them.
     ///
-    /// With two layouts it is simply the other one. With more, prefer the
-    /// layout the user just switched to (double Shift switches first, then
-    /// retypes), then the one used before, then another language.
+    /// With two layouts it is simply the other one.
     func counterpart(of source: LayoutID) -> LayoutID? {
-        if let current, current != source, maps[current] != nil { return current }
-        if let previous, previous != source, maps[previous] != nil { return previous }
-        let language = maps[source]?.language
+        let language = scripted.first { $0.map.id == source }?.map.language
+        var found: LayoutID?
         var fallback: LayoutID?
-        for id in order where id != source {
-            if maps[id]?.language != language { return id }
-            if fallback == nil { fallback = id }
+        visitPreferred { map in
+            guard map.id != source else { return true }
+            if fallback == nil { fallback = map.id }
+            guard language == nil || map.language != language else { return true }
+            found = map.id
+            return false
         }
-        return fallback
+        return found ?? fallback
+    }
+
+    /// The layouts a word typed in `source` may have been meant for, one per
+    /// language other than the source's: layouts of one language (ABC and US
+    /// Extended) type the same letters and never compete. The layout the
+    /// user just switched to comes first (double Shift switches first, then
+    /// retypes), then the one used before, then the system order. A layout
+    /// of no known language stands for itself.
+    func candidates(of source: LayoutID) -> [LayoutID] {
+        let sourceLanguage = scripted.first { $0.map.id == source }?.map.language
+        var candidates: [LayoutMap] = []
+        visitPreferred { map in
+            guard map.id != source else { return true }
+            if let language = map.language {
+                guard language != sourceLanguage, !candidates.contains(where: { $0.language == language }) else {
+                    return true
+                }
+            }
+            candidates.append(map)
+            return true
+        }
+        return candidates.map(\.id)
+    }
+
+    /// `current`, `previous`, then the system order, no layout twice, until
+    /// `body` returns false. Linear over a handful of layouts: no hashing on
+    /// the way of a retype.
+    private func visitPreferred(_ body: (LayoutMap) -> Bool) {
+        let first = current.flatMap { id in scripted.firstIndex { $0.map.id == id } }
+        let second = previous.flatMap { id in scripted.firstIndex { $0.map.id == id } }
+        if let first, !body(scripted[first].map) { return }
+        if let second, second != first, !body(scripted[second].map) { return }
+        for index in scripted.indices where index != first && index != second {
+            if !body(scripted[index].map) { return }
+        }
+    }
+
+    /// `candidates(of: current)` of another script, without the arrays of
+    /// `candidates`: it runs on every layout change, a few times a second
+    /// while typing.
+    private mutating func updateCandidates() {
+        automaticCandidates.removeAll(keepingCapacity: true)
+        guard let current, let script = scripted.first(where: { $0.map.id == current })?.script else { return }
+        if let previous, let index = scripted.firstIndex(where: { $0.map.id == previous }) {
+            consider(index, against: script)
+        }
+        for index in scripted.indices { consider(index, against: script) }
+    }
+
+    private mutating func consider(_ index: Int, against script: Classifier.Script) {
+        let (map, other) = scripted[index]
+        guard let other, other != script,
+              !automaticCandidates.contains(where: { $0.language == map.language })
+        else { return }
+        automaticCandidates.append(map)
     }
 
     /// The layouts a selection may be typed in: the current one first.

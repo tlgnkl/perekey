@@ -51,20 +51,29 @@ struct ManualActions: Sendable {
         case retype(target: LayoutID, keys: [Retype.Key])
     }
 
-    /// Repeated presses of the retype shortcut (`TextCorrections.phraseRetype`).
+    /// Repeated presses of the retype shortcut.
     ///
-    /// Odd presses retype, even ones put the text back: the first press
-    /// retypes the last word, the second puts it back (as without phrases),
-    /// the third retypes the last two words, the fourth puts them back, and
-    /// so on, up to `WordBuffer.historyWords` words before the last one.
+    /// With more than one candidate layout (docs/PLAN.md, stage 8, «Ручной
+    /// перенабор при N раскладках») the presses first walk the readings of
+    /// the word, most plausible first, and then put it back. With phrases
+    /// on (`TextCorrections.phraseRetype`) odd presses after that retype,
+    /// even ones put the text back: the first press retypes the last word,
+    /// the second puts it back (as without phrases), the third retypes the
+    /// last two words, the fourth puts them back, and so on, up to
+    /// `WordBuffer.historyWords` words before the last one. Two layouts
+    /// have one reading to walk, so nothing changes for them.
     private struct PhraseRetype: Sendable {
         /// How many words the last press took.
         var words: Int
         /// The words are retyped now; the next press puts them back.
         var retyped: Bool
-        /// The layout the phrase is retyped into: the counterpart of the
-        /// last word's own layout.
+        /// The layout the phrase is retyped into: the first reading of the
+        /// last word.
         var target: LayoutID
+        /// The layouts the word goes through, press by press, and which of
+        /// them it is in now.
+        var walk: [LayoutID]
+        var step = 0
         /// The keys of those words as the user typed them, spaces included.
         /// `nil` after the first press: the last word, all in `source`. The
         /// tap thread then keeps no copy of the buffer for a single retype.
@@ -86,45 +95,90 @@ struct ManualActions: Sendable {
     /// The retype shortcut: the word in the other layout, the phrase on
     /// repeated presses, or the selection when nothing is typed.
     mutating func retypeWord(buffer: WordBuffer, layouts: LayoutState, phrases: Bool,
-                             isSecureField: Bool) -> Plan
+                             isSecureField: Bool, classifier: Classifier? = nil) -> Plan
     {
         if isSecureField { return .refuse(.secureField) }
         let previous = phrase
         phrase = nil
-        if phrases, let previous, let plan = continuePhrase(previous, buffer: buffer, layouts: layouts) {
+        if let previous, let plan = continuePhrase(previous, buffer: buffer, layouts: layouts, phrases: phrases) {
             return plan
         }
         guard let source = buffer.wordLayout else { return .readSelection(.convertLayout) }
         guard let current = layouts.current, layouts[current] != nil,
-              let target = layouts.counterpart(of: source), let targetMap = layouts[target]
+              let walk = Self.walk(of: buffer, from: source, layouts: layouts, classifier: classifier),
+              let target = walk.first, let targetMap = layouts[target]
         else { return .refuse(.unsupportedLayout) }
         switch layouts.retypeKeys(for: buffer.entries, into: targetMap) {
         case let .refused(refusal):
             return .refuse(refusal)
         case let .keys(word):
             let original = buffer.entries.allSatisfy { $0.layout == source } ? nil : buffer.entries
-            phrase = PhraseRetype(words: 1, retyped: true, target: target, original: original, source: source)
+            phrase = PhraseRetype(words: 1, retyped: true, target: target, walk: walk, original: original,
+                                  source: source)
             return .retype(ManualRetype(word: word, target: target, edit: .relabel(target), changesLayout: true))
         }
+    }
+
+    /// The layouts the word typed in `source` goes through on repeated
+    /// presses: the layout the user switched to first, it is their choice;
+    /// the other candidates by how plausible the word reads in them
+    /// (`Classifier.ranked`), in `LayoutState` order without a model. Only
+    /// layouts of the source's language: the one `counterpart` names.
+    private static func walk(of buffer: WordBuffer, from source: LayoutID, layouts: LayoutState,
+                             classifier: Classifier?) -> [LayoutID]?
+    {
+        let candidates = layouts.candidates(of: source)
+        guard candidates.count > 1 else {
+            return candidates.isEmpty ? layouts.counterpart(of: source).map { [$0] } : candidates
+        }
+        var fixed: [LayoutID] = []
+        var rest = candidates
+        if let current = layouts.current, current == candidates[0], current != source {
+            fixed = [current]
+            rest.removeFirst()
+        }
+        guard rest.count > 1, let classifier, let typed = layouts[source] else { return fixed + rest }
+        let ranked = classifier.ranked(buffer.entries.lazy.map(\.stroke), typed: typed,
+                                       candidates: rest.compactMap { layouts[$0] })
+        return fixed + ranked.map(\.id)
     }
 
     /// The next press of the retype shortcut on a phrase: put the words
     /// back, or retype them and one word more. Nil when the buffer no
     /// longer holds them; the press then works as a first one.
-    private mutating func continuePhrase(_ state: PhraseRetype, buffer: WordBuffer, layouts: LayoutState) -> Plan? {
+    private mutating func continuePhrase(_ state: PhraseRetype, buffer: WordBuffer, layouts: LayoutState,
+                                         phrases: Bool) -> Plan?
+    {
+        // Without phrases and with one reading, a press is a first one: it
+        // retypes the word from where it is now, back to the source.
+        guard phrases || state.walk.count > 1 else { return nil }
         guard let shown = buffer.phrase(words: state.words) else { return nil }
         let original = state.original ?? shown.map { WordBuffer.Entry($0.stroke, in: state.source) }
         guard shown.count == original.count else { return nil }
+        if state.retyped, state.words == 1, state.step + 1 < state.walk.count {
+            // The next reading of the word.
+            let target = state.walk[state.step + 1]
+            let next = shown.map { WordBuffer.Entry($0.stroke, in: target) }
+            guard let keys = Self.phraseKeys(shown, becoming: next, layouts: layouts) else {
+                return .refuse(.unconvertibleWord)
+            }
+            var walked = state
+            walked.step += 1
+            walked.original = original
+            phrase = walked
+            return .retype(ManualRetype(word: keys, target: target, edit: .relabelPhrase(next), changesLayout: true))
+        }
         if state.retyped {
             // Even press: the words as the user typed them.
             guard let keys = Self.phraseKeys(shown, becoming: original, layouts: layouts),
                   let layout = original.last(where: { !$0.isSpace })?.layout
             else { return nil }
-            phrase = PhraseRetype(words: state.words, retyped: false, target: state.target, original: original,
-                                  source: state.source)
+            phrase = PhraseRetype(words: state.words, retyped: false, target: state.target, walk: state.walk,
+                                  original: original, source: state.source)
             return .retype(ManualRetype(word: keys, target: layout, edit: .relabelPhrase(original),
                                         changesLayout: true))
         }
+        guard phrases else { return nil }
         // Odd press: one word more, all in the target layout. With no word
         // before, the same words again.
         let words = state.words < WordBuffer.historyWords + 1 && buffer.phrase(words: state.words + 1) != nil
@@ -134,7 +188,8 @@ struct ManualActions: Sendable {
         guard let keys = Self.phraseKeys(span, becoming: retyped, layouts: layouts) else {
             return .refuse(.unconvertibleWord)
         }
-        phrase = PhraseRetype(words: words, retyped: true, target: state.target, original: span, source: state.source)
+        phrase = PhraseRetype(words: words, retyped: true, target: state.target, walk: [state.target], original: span,
+                              source: state.source)
         return .retype(ManualRetype(word: keys, target: state.target, edit: .relabelPhrase(retyped),
                                     changesLayout: true))
     }

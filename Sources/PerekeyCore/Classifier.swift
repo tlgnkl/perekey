@@ -147,6 +147,119 @@ public struct Classifier: Sendable {
         }
     }
 
+    /// Judges a word against every layout it may have been meant for and
+    /// answers for the best reading: a switch with the highest score, else
+    /// the most plausible reading that stayed `unsure` or `keep`. With one
+    /// candidate it is `classify(_:typed:other:context:)`.
+    ///
+    /// A candidate competes only when its language has a model and differs
+    /// from the typed one, and, in `.automatic` mode, when it is written in
+    /// another script (`switchesAutomatically`): ru ↔ uk never switches by
+    /// itself. Of equal readings the earlier candidate wins.
+    public func classify(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap],
+                         context: Context = Context()) -> Decision
+    {
+        let automatic = context.mode == .automatic
+        if candidates.count == 1 {
+            let other = candidates[0]
+            if automatic, let typedCode = typed.language, let otherCode = other.language,
+               !Self.switchesAutomatically(from: typedCode, to: otherCode)
+            {
+                return Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
+            }
+            return classify(strokes, typed: typed, other: other, context: context)
+        }
+        let count = Self.wordLength(strokes)
+        guard count > 0 else { return Decision(verdict: .keep, score: 0, reason: .empty, language: nil) }
+        guard let typedCode = typed.language, let typedLanguage = model.language(typedCode) else {
+            return Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
+        }
+        return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: 2 * Self.maxScalars) { scalars in
+            withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 2 * Self.maxScalars) { symbols in
+                let half = Self.maxScalars
+                guard let typedReading = Reading(strokes, count: count, in: typed, language: typedLanguage,
+                                                 scalars: scalars[0..<half], symbols: symbols[0..<half])
+                else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
+                var best: Decision?
+                for other in candidates {
+                    guard let otherCode = other.language, otherCode != typedCode,
+                          !automatic || Self.switchesAutomatically(from: typedCode, to: otherCode),
+                          let otherLanguage = model.language(otherCode)
+                    else { continue }
+                    // The other half is reused: a decision keeps no pointer into it.
+                    guard let otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
+                                                     scalars: scalars[half...], symbols: symbols[half...])
+                    else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
+                    let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context)
+                    if best.map({ Self.isBetter(decision, than: $0) }) ?? true { best = decision }
+                }
+                return best ?? Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
+            }
+        }
+    }
+
+    /// The candidates in the order a manual retype walks them: the most
+    /// plausible reading first (`.manual` scores), a candidate without a
+    /// model after the scored ones, ties in the given order.
+    public func ranked(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap]) -> [LayoutMap] {
+        guard candidates.count > 1 else { return candidates }
+        let context = Context(mode: .manual)
+        let scored = candidates.enumerated().map { index, other -> (index: Int, score: Double) in
+            guard other.language != typed.language, let code = other.language, model.language(code) != nil else {
+                return (index, -.infinity)
+            }
+            let decision = classify(strokes, typed: typed, other: other, context: context)
+            return (index, decision.reason == .compared ? decision.score : -.infinity)
+        }
+        return scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.index < $1.index }
+            .map { candidates[$0.index] }
+    }
+
+    /// The better of two decisions on one word: a switch over the rest, then
+    /// `unsure` over `keep`, then the higher score.
+    private static func isBetter(_ new: Decision, than old: Decision) -> Bool {
+        func rank(_ verdict: Verdict) -> Int {
+            switch verdict {
+            case .switch: 2
+            case .unsure: 1
+            case .keep: 0
+            }
+        }
+        let (a, b) = (rank(new.verdict), rank(old.verdict))
+        return a != b ? a > b : new.score > old.score
+    }
+
+    /// The script of a language's alphabet, for the rule of automatic switching.
+    public enum Script: Hashable, Sendable {
+        case latin, cyrillic
+
+        static let cyrillicLanguages: Set<String> = ["ru", "uk", "be", "bg", "kk", "ky", "mk", "mn", "sr", "tg", "tt"]
+        static let latinLanguages: Set<String> = [
+            "en", "de", "fr", "es", "it", "pt", "nl", "pl", "cs", "sk", "sl", "hr", "ro", "hu", "sv", "nb", "nn",
+            "no", "da", "fi", "et", "lv", "lt", "tr", "az", "uz", "ca", "ga", "is", "mt", "sq", "id", "ms", "vi",
+        ]
+
+        public init?(language: String) {
+            if Self.cyrillicLanguages.contains(language) {
+                self = .cyrillic
+            } else if Self.latinLanguages.contains(language) {
+                self = .latin
+            } else {
+                return nil
+            }
+        }
+    }
+
+    /// Whether automatic switching may go from a word in `typed` to `other`:
+    /// only between a Latin and a Cyrillic language (docs/PLAN.md, stage 8,
+    /// «ru ↔ uk автоматически»). ru and uk differ in a few keys (ы/і, э/є,
+    /// ъ/ї); telling them apart is language detection, not a wrong layout.
+    /// A manual retype goes between any two.
+    public static func switchesAutomatically(from typed: String, to other: String) -> Bool {
+        guard let from = Script(language: typed), let to = Script(language: other) else { return false }
+        return from != to
+    }
+
     /// Whether the word so far cannot start a word in the active layout's
     /// language, but can in the other's: "ghb" is no English start, "при" is a
     /// Russian one. Cheap enough for every key stroke; needs 3 or 4 letters.

@@ -25,6 +25,7 @@ struct GeneralPane: View {
     var body: some View {
         PKPane(title: Text("General")) {
             correctionsSection
+            hintSection
             soundsSection
             updatesSection
             PKGroup(header: Text("Feedback")) {
@@ -91,6 +92,20 @@ struct GeneralPane: View {
                 }
                 .labelsHidden()
                 .toggleStyle(.pkSwitch)
+            }
+        }
+    }
+
+    private var hintSection: some View {
+        PKGroup(header: Text("Hint")) {
+            PKRow(Text("Hint at the caret"), detail: Text("Shows what Perekey changed, a moment after the word.")) {
+                PKSegmented(items: [
+                    .init(value: CaretHintMode.all, label: Text("All edits")),
+                    .init(value: .automatic, label: Text("Automatic only")),
+                    .init(value: .off, label: Text("Off")),
+                ], selection: Binding(get: { store.settings.caretHint }, set: { mode in
+                    store.update { $0.caretHint = mode }
+                }), mini: true)
             }
         }
     }

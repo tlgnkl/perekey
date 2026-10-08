@@ -7,11 +7,13 @@
 "2. Switch Perekey on in the Accessibility list. If it is missing, drag the icon below into the list." = "2. Включите Perekey в списке «Универсальный доступ». Если его нет, перетащите значок ниже в список.";
 "Access granted" = "Доступ есть";
 "Accessibility" = "Универсальный доступ";
+"All edits" = "Все правки";
 "Allow access first" = "Сначала дайте доступ";
 "Already remapped. Use Settings." = "Уже переназначен. Откройте настройки.";
 "Also runs “%@”." = "Запускает и «%@».";
 "An app turned on Secure Input. While it is on, macOS hides keystrokes from every app." = "Программа включила Secure Input. Пока он включён, macOS прячет нажатия от всех программ.";
 "Approve Perekey in Login Items." = "Разрешите Perekey в «Объектах входа».";
+"Automatic only" = "Только автоматические";
 "Automatic switching" = "Автопереключение";
 "Automatic switching is off" = "Автопереключение выключено";
 "Automatic switching is on" = "Автопереключение включено";
@@ -30,6 +32,8 @@
 "Drag Perekey into the Accessibility list in System Settings" = "Перетащите Perekey в список «Универсальный доступ» в Системных настройках";
 "Drag me into the list" = "Перетащите меня в список";
 "General" = "Основные";
+"Hint" = "Подсказка";
+"Hint at the caret" = "Подсказка у курсора";
 "Hold a modifier key together with it." = "Добавьте клавишу-модификатор.";
 "How do you switch layouts now?" = "Как вы привыкли менять раскладку?";
 "How to use Caps Lock" = "Как использовать Caps Lock";
@@ -82,6 +86,7 @@
 "Shift twice retypes" = "Двойной Shift перенабирает";
 "Shortcuts" = "Сочетания";
 "Show Onboarding…" = "Как пользоваться…";
+"Shows what Perekey changed, a moment after the word." = "Показывает, что Perekey изменил, сразу после слова.";
 "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal." = "Запускайте Perekey командой «open Perekey.app», а не самим файлом. Иначе macOS выдаст доступ Терминалу.";
 "Step %lld of %lld" = "Шаг %1$lld из %2$lld";
 "Switch layout" = "Сменить раскладку";
@@ -111,6 +116,7 @@
 "secure" = "защита";
 "twice" = "дважды";
 "your retype shortcut" = "ваше сочетание для перенабора";
+"— revert" = "— вернуть";
 "⌘Space also opens Spotlight. Both will run." = "⌘Пробел открывает ещё и Spotlight. Сработают оба.";
 
 /* Apps, Words, General (stage 2) */

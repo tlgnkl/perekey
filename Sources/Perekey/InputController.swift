@@ -169,10 +169,17 @@ final class InputController {
             secureInput.refresh()
         case .pastePlain:
             plainPaste.paste()
-        case .retyped:
+        case let .retyped(original, text, manual):
             SystemSounds.play(store.settings.correctionSound)
+            // An automatic switch has its own hint, from `corrected`.
+            if manual, store.settings.caretHint.shows(automatic: false), original != text {
+                hint.showRetyped(original: original, word: text, shortcut: retypeShortcut())
+                shownCorrection = nil
+            }
         case let .corrected(correction):
-            if correction.undoable {
+            if !store.settings.caretHint.shows(automatic: true) {
+                // Hint off: Backspace still undoes it.
+            } else if correction.undoable {
                 shownCorrection = correction.seq
                 let engine = engine!
                 let seq = correction.seq
@@ -212,11 +219,18 @@ final class InputController {
         var added = false
         store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970) }
         guard added else { return }
+        onLearned?(word)
+        guard store.settings.caretHint != .off else { return }
         hint.showLearned(word: word) { [weak self] in
             self?.store.update { $0.words.forget(word) }
             self?.hint.hide()
         }
-        onLearned?(word)
+    }
+
+    /// The user's own shortcut for retyping the last word, as keycaps, or nil.
+    private func retypeShortcut() -> String? {
+        guard let trigger = store.settings.trigger(for: .convertLastWord) else { return nil }
+        return TriggerText.keycaps(of: trigger).joined(separator: " ")
     }
 
     /// The key that types a shortcut letter such as "c" or "v": ⌘C and ⌘V are

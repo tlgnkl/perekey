@@ -230,10 +230,12 @@ enum DebugSnapshot {
                to: directory.appending(path: "words-warning-light.png"))
     }
 
-    /// The caret hint in both states, light and dark.
+    /// The caret hint in every state, light and dark, and the glass strip
+    /// correction in key frames.
     private static func renderHint(in directory: URL) {
         let states: [(String, HintContent)] = [
             ("corrected", .corrected(original: "ghbdtn", replacement: "привет")),
+            ("retyped", .retyped(original: "ghbdtn", word: "привет", shortcut: "⌥")),
             ("learned", .learned(word: "дедлайн")),
         ]
         for (name, content) in states {
@@ -241,6 +243,17 @@ enum DebugSnapshot {
                 let model = HintModel(content: content, visible: true)
                 render(HintView(model: model) {}, dark: dark, size: CGSize(width: 320, height: 90),
                        to: directory.appending(path: "hint-\(name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+        for (progress, style) in [(0.0, GlassStripStyle.fix), (0.25, .fix), (0.45, .fix), (0.7, .fix), (1, .fix),
+                                  (0.45, .undo)]
+        {
+            for dark in [false, true] {
+                let model = HintModel(content: .corrected(original: "ghbdtn", replacement: "привет"), visible: true,
+                                      stripProgress: progress, stripStyle: style)
+                let tag = "\(style == .undo ? "undo" : "fix")-\(Int(progress * 100))"
+                render(HintView(model: model) {}, dark: dark, size: CGSize(width: 320, height: 90),
+                       to: directory.appending(path: "hint-strip-\(tag)-\(dark ? "dark" : "light").png"))
             }
         }
     }

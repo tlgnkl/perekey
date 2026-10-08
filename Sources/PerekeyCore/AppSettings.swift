@@ -12,6 +12,24 @@ public enum CapsLockMode: String, CaseIterable, Hashable, Sendable, Codable {
     case instant
 }
 
+/// Which edits the hint at the caret reports.
+public enum CaretHintMode: String, CaseIterable, Hashable, Sendable, Codable {
+    /// Automatic switches and manual retypes.
+    case all
+    /// Only what Perekey did by itself.
+    case automatic
+    case off
+
+    /// Whether the hint shows for an edit that is `automatic` or the user's own retype.
+    public func shows(automatic: Bool) -> Bool {
+        switch self {
+        case .all: true
+        case .automatic: automatic
+        case .off: false
+        }
+    }
+}
+
 /// A sound for one event: on or off, and the name of a system sound
 /// (a file in /System/Library/Sounds, without the extension).
 public struct SoundSetting: Hashable, Sendable, Codable {
@@ -56,14 +74,17 @@ public struct AppSettings: Hashable, Sendable {
     /// Typo correction (Settings → General, «Correct typos»). Off by default
     /// until it meets the plan's metric (docs/classifier.md, «Опечатки»).
     public var typoCorrection: Bool
+    /// Which edits the hint at the caret reports (Settings → General).
+    public var caretHint: CaretHintMode
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
                 words: WordExceptions = WordExceptions(), sites: [String: SiteRule] = [:],
                 layoutSound: SoundSetting = .layoutSwitch, correctionSound: SoundSetting = .correction,
                 checkForUpdates: Bool = true, typoCorrection: Bool = true,
-                corrections: TextCorrections = TextCorrections())
+                corrections: TextCorrections = TextCorrections(), caretHint: CaretHintMode = .all)
     {
+        self.caretHint = caretHint
         self.checkForUpdates = checkForUpdates
         self.corrections = corrections
         self.typoCorrection = typoCorrection
@@ -118,7 +139,7 @@ public struct AppSettings: Hashable, Sendable {
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
-        case checkForUpdates, typoCorrection, corrections
+        case checkForUpdates, typoCorrection, corrections, caretHint
     }
 
     public init(from decoder: any Decoder) throws {
@@ -138,5 +159,6 @@ extension AppSettings: Codable {
         corrections = (try? container.decodeIfPresent(TextCorrections.self, forKey: .corrections))
             ?? defaults.corrections
         typoCorrection = (try? container.decodeIfPresent(Bool.self, forKey: .typoCorrection)) ?? defaults.typoCorrection
+        caretHint = (try? container.decodeIfPresent(CaretHintMode.self, forKey: .caretHint)) ?? defaults.caretHint
     }
 }

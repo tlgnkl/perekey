@@ -7,11 +7,13 @@
 "2. Switch Perekey on in the Accessibility list. If it is missing, drag the icon below into the list." = "2. Switch Perekey on in the Accessibility list. If it is missing, drag the icon below into the list.";
 "Access granted" = "Access granted";
 "Accessibility" = "Accessibility";
+"All edits" = "All edits";
 "Allow access first" = "Allow access first";
 "Already remapped. Use Settings." = "Already remapped. Use Settings.";
 "Also runs “%@”." = "Also runs “%@”.";
 "An app turned on Secure Input. While it is on, macOS hides keystrokes from every app." = "An app turned on Secure Input. While it is on, macOS hides keystrokes from every app.";
 "Approve Perekey in Login Items." = "Approve Perekey in Login Items.";
+"Automatic only" = "Automatic only";
 "Automatic switching" = "Automatic switching";
 "Automatic switching is off" = "Automatic switching is off";
 "Automatic switching is on" = "Automatic switching is on";
@@ -30,6 +32,8 @@
 "Drag Perekey into the Accessibility list in System Settings" = "Drag Perekey into the Accessibility list in System Settings";
 "Drag me into the list" = "Drag me into the list";
 "General" = "General";
+"Hint" = "Hint";
+"Hint at the caret" = "Hint at the caret";
 "Hold a modifier key together with it." = "Hold a modifier key together with it.";
 "How do you switch layouts now?" = "How do you switch layouts now?";
 "How to use Caps Lock" = "How to use Caps Lock";
@@ -82,6 +86,7 @@
 "Shift twice retypes" = "Shift twice retypes";
 "Shortcuts" = "Shortcuts";
 "Show Onboarding…" = "Show Onboarding…";
+"Shows what Perekey changed, a moment after the word." = "Shows what Perekey changed, a moment after the word.";
 "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal." = "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal.";
 "Step %lld of %lld" = "Step %1$lld of %2$lld";
 "Switch layout" = "Switch layout";
@@ -111,6 +116,7 @@
 "secure" = "secure";
 "twice" = "twice";
 "your retype shortcut" = "your retype shortcut";
+"— revert" = "— revert";
 "⌘Space also opens Spotlight. Both will run." = "⌘Space also opens Spotlight. Both will run.";
 
 /* Apps, Words, General (stage 2) */

@@ -67,7 +67,7 @@ public final class TextProbe: Sendable {
 
     // MARK: - AX thread
 
-    private static func focusedElement() -> AXUIElement? {
+    static func focusedElement() -> AXUIElement? {
         guard AXIsProcessTrusted() else { return nil }
         let systemWide = AXUIElementCreateSystemWide()
         // On the system-wide element this sets the default for the whole

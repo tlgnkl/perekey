@@ -44,6 +44,7 @@ enum DebugSnapshot {
         renderWordsAndGeneral(in: directory)
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
+        renderHint(in: directory)
         exit(0)
     }
 
@@ -200,6 +201,21 @@ enum DebugSnapshot {
         let warn = WordsPane(store: store, isFrequent: { _ in true }, initialDraft: "привет")
         render(warn.frame(width: size.width, height: size.height), dark: false, size: size,
                to: directory.appending(path: "words-warning-light.png"))
+    }
+
+    /// The caret hint in both states, light and dark.
+    private static func renderHint(in directory: URL) {
+        let states: [(String, HintContent)] = [
+            ("corrected", .corrected(original: "ghbdtn", replacement: "привет")),
+            ("learned", .learned(word: "дедлайн")),
+        ]
+        for (name, content) in states {
+            for dark in [false, true] {
+                let model = HintModel(content: content, visible: true)
+                render(HintView(model: model) {}, dark: dark, size: CGSize(width: 320, height: 90),
+                       to: directory.appending(path: "hint-\(name)-\(dark ? "dark" : "light").png"))
+            }
+        }
     }
 
     /// Each onboarding step, plus the demo as solved in dark mode.

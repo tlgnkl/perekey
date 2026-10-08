@@ -167,3 +167,5 @@
 "No sites yet. Subdomains follow their parent site." = "Сайтов пока нет. Поддомены берут правило родительского сайта.";
 "Enter a site address like github.com." = "Введите адрес сайта, например github.com.";
 "This site already has a rule." = "У этого сайта уже есть правило.";
+"Undo" = "Отменить";
+"Remembered “%@”" = "Запомнил «%@»";

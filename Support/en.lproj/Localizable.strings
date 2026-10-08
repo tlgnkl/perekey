@@ -167,3 +167,5 @@
 "No sites yet. Subdomains follow their parent site." = "No sites yet. Subdomains follow their parent site.";
 "Enter a site address like github.com." = "Enter a site address like github.com.";
 "This site already has a rule." = "This site already has a rule.";
+"Undo" = "Undo";
+"Remembered “%@”" = "Remembered “%@”";

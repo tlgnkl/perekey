@@ -22,6 +22,22 @@ import Testing
         #expect(settings.capsLock == .untouched)
     }
 
+    @Test func caretHintDefaultsToAllEdits() throws {
+        #expect(AppSettings().caretHint == .all)
+        let old = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"autoswitch":true}"#.utf8))
+        #expect(old.caretHint == .all)
+        let unknown = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"caretHint":"loud"}"#.utf8))
+        #expect(unknown.caretHint == .all)
+        let automatic = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"caretHint":"automatic"}"#.utf8))
+        #expect(automatic.caretHint == .automatic)
+    }
+
+    @Test func caretHintModesDecideWhichEditsShow() {
+        #expect(CaretHintMode.all.shows(automatic: true) && CaretHintMode.all.shows(automatic: false))
+        #expect(CaretHintMode.automatic.shows(automatic: true) && !CaretHintMode.automatic.shows(automatic: false))
+        #expect(!CaretHintMode.off.shows(automatic: true) && !CaretHintMode.off.shows(automatic: false))
+    }
+
     @Test func onboardingIsNotDoneByDefault() throws {
         #expect(!AppSettings().onboardingDone)
         let old = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"autoswitch":true}"#.utf8))

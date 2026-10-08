@@ -32,7 +32,7 @@ public enum SettingsTransfer {
     public struct Summary: Equatable, Sendable {
         public var shortcuts: Int
         public var words: Int
-        /// Apps with their own mode; filled in once settings carry per-app modes.
+        /// Apps with a rule of their own.
         public var apps: Int
 
         public init(shortcuts: Int, words: Int, apps: Int = 0) {
@@ -42,7 +42,7 @@ public enum SettingsTransfer {
         }
 
         public init(_ settings: AppSettings) {
-            self.init(shortcuts: settings.hotkeys.count, words: settings.words.count)
+            self.init(shortcuts: settings.hotkeys.count, words: settings.words.count, apps: settings.apps.count)
         }
     }
 

@@ -96,6 +96,12 @@ SPARKLE_ED_PRIVATE_KEY=<закрытый> scripts/appcast.sh .build/dmg/Perekey-
 - Описание изменений не встраивается в appcast и не грузится отдельным
   запросом: проверка остаётся одним GET. Кнопка «История версий» в окне
   Sparkle открывает страницу релиза в браузере.
+- В бандл идёт модель — файл на язык: `Contents/Resources/ru.pklm` и
+  `en.pklm` (`PEREKEY_LANGUAGES` в `scripts/bundle.sh`). `release.yml`
+  собирает их из кэша `scripts/fetch-data.sh lexicon`; хэш каждого файла
+  сверен с `data/model.sha256` в CI того же коммита. Приложение, которое
+  ждёт прежний `perekey.model`, новую модель не найдёт: старые сборки и
+  новые файлы не смешивать.
 - Подписывать все выпуски одной подписью. С Developer ID Sparkle проверяет и
   EdDSA, и совпадение Team ID у старой и новой версии.
 - Если у последнего релиза нет `appcast.xml` (не было секрета),

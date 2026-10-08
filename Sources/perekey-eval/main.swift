@@ -10,7 +10,13 @@
 //                    [--prior-scale S] [--prior-limit L] [--prior-sweep]
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
 //                     [--previous ru,en,...]
+//   perekey-eval coverage --model <file> --language <code> [--cache <dir>]
 //
+// `--model` is a model file or a directory of them (`<language>.pklm`);
+// `run` and `word` map ru and en from a directory.
+// `coverage` prints the share of Tatoeba tokens of one language that its
+// model knows as word forms: for a language without a word-form dictionary
+// (uk, data/SOURCES.md).
 // `word` explains one decision: both readings, their costs and ranks, typed
 // in the word's own layout and in the other one, and what the typo corrector
 // makes of the word in its own layout.
@@ -42,8 +48,8 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word"].contains(command) else {
-    fail("usage: perekey-eval corpus|run|word ... (see the source header)")
+guard let command = arguments.next(), ["corpus", "run", "word", "coverage"].contains(command) else {
+    fail("usage: perekey-eval corpus|run|word|coverage ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
@@ -83,7 +89,7 @@ do {
         guard let modelPath = flags["--model"], let corpusPath = flags["--corpus"], let layouts = flags["--layouts"] else {
             fail("--model, --corpus and --layouts are required")
         }
-        let model = try ModelFile.load(modelPath)
+        let model = try ModelFile.load(modelPath, languages: ["ru", "en"])
         let items = try Corpus.read(corpusPath)
         var options = Classifier.Options()
         if let threshold = flags["--threshold"].flatMap(Double.init) { options.threshold = threshold }
@@ -225,11 +231,20 @@ do {
             exit(1)
         }
 
+    case "coverage":
+        guard let modelPath = flags["--model"], let code = flags["--language"] else {
+            fail("--model and --language are required")
+        }
+        let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
+        let model = try ModelFile.load(modelPath, languages: [code])
+        guard let language = model.language(code) else { fail("no \(code) in \(modelPath)") }
+        print(try Coverage.measure(language, cache: cache).report)
+
     case "word":
         guard let modelPath = flags["--model"], let layouts = flags["--layouts"], let text = flags["--text"],
               let language = flags["--language"], language == "ru" || language == "en"
         else { fail("--model, --layouts, --text and --language are required") }
-        let model = try ModelFile.load(modelPath)
+        let model = try ModelFile.load(modelPath, languages: ["ru", "en"])
         let maps = ["ru": layout("Russian", in: layouts), "en": layout("ABC", in: layouts)]
         let own = maps[language]!
         let other = maps[language == "ru" ? "en" : "ru"]!

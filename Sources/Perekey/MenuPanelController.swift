@@ -66,6 +66,7 @@ final class MenuPanelController {
     @ObservationIgnored private let appModes: AppModeController
     @ObservationIgnored private let recents: RecentCorrections
     @ObservationIgnored private let updates: Updates
+    @ObservationIgnored private let usage: UsageRecorder?
     @ObservationIgnored private let actions: (MenuPanelController) -> MenuActions
 
     @ObservationIgnored private var panel: MenuPanel?
@@ -82,7 +83,7 @@ final class MenuPanelController {
     private static let gap: CGFloat = 4
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin,
-         appModes: AppModeController, recents: RecentCorrections, updates: Updates,
+         appModes: AppModeController, recents: RecentCorrections, usage: UsageRecorder? = nil, updates: Updates,
          actions: @escaping (MenuPanelController) -> MenuActions)
     {
         self.sources = sources
@@ -92,6 +93,7 @@ final class MenuPanelController {
         self.appModes = appModes
         self.recents = recents
         self.updates = updates
+        self.usage = usage
         self.actions = actions
     }
 
@@ -109,7 +111,7 @@ final class MenuPanelController {
         menuActions.close = { [weak self] in self?.close() }
         let root = MenuRoot(
             content: MenuContent(sources: sources, store: store, pause: pause, launch: launch, appModes: appModes,
-                                 recents: recents, nav: nav, actions: menuActions, updates: updates),
+                                 recents: recents, usage: usage, nav: nav, actions: menuActions, updates: updates),
             presentation: presentation, inset: Self.inset)
         let host = SizingHost(rootView: AnyView(root))
         host.sizingOptions = [.intrinsicContentSize]

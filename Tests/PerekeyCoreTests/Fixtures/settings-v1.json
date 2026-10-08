@@ -1,0 +1,31 @@
+{
+  "apps" : {
+    "com.apple.Terminal" : {
+      "mode" : "manualOnly",
+      "rememberLastLayout" : false
+    }
+  },
+  "autoswitch" : true,
+  "capsLock" : "untouched",
+  "caretHint" : "all",
+  "checkForUpdates" : true,
+  "onboardingDone" : true,
+  "typoCorrection" : false,
+  "words" : {
+    "learnFromUndos" : true,
+    "learned" : [
+      {
+        "learnedAt" : 1790000000,
+        "word" : "ghbdtn"
+      },
+      {
+        "learnedAt" : 1790086400.5,
+        "word" : "дедлайн"
+      }
+    ],
+    "mine" : [
+      "kubectl",
+      "перекей"
+    ]
+  }
+}

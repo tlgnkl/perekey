@@ -60,8 +60,8 @@ public struct AppSettings: Hashable, Sendable {
     /// The user's rules per site in Safari and Chromium browsers, keyed by normalized host.
     /// A site rule wins over the browser's app rule.
     public var sites: [String: SiteRule]
-    /// Words never corrected: the user's own and the learned ones.
-    public var words: WordExceptions
+    /// The word lists: never touched (the user's own and the learned ones) and always fixed.
+    public var words: WordRules
     /// Played on the main thread when a shortcut selects a layout. Off by default.
     public var layoutSound: SoundSetting
     /// Played after a successful retype. Off by default.
@@ -76,10 +76,12 @@ public struct AppSettings: Hashable, Sendable {
     public var typoCorrection: Bool
     /// Which edits the hint at the caret reports (Settings → General).
     public var caretHint: CaretHintMode
+    /// Opt-in counters of corrections per day (`UsageStats`). Off by default.
+    public var statistics = false
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
-                words: WordExceptions = WordExceptions(), sites: [String: SiteRule] = [:],
+                words: WordRules = WordRules(), sites: [String: SiteRule] = [:],
                 layoutSound: SoundSetting = .layoutSwitch, correctionSound: SoundSetting = .correction,
                 checkForUpdates: Bool = true, typoCorrection: Bool = true,
                 corrections: TextCorrections = TextCorrections(), caretHint: CaretHintMode = .all)
@@ -130,7 +132,11 @@ public struct AppSettings: Hashable, Sendable {
         }
         var exceptions = Set(words.mine)
         for learned in words.learned { exceptions.insert(learned.word) }
-        return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions,
+        // Never-touch wins: an imported file may have a word on both kinds of list.
+        let alwaysFix = words.alwaysFixTable.filter { key, spelling in
+            !exceptions.contains(key) && !exceptions.contains(spelling)
+        }
+        return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions, alwaysFix: alwaysFix,
                         learnFromUndos: words.learnFromUndos, corrections: corrections,
                         typoCorrection: typoCorrection)
     }
@@ -139,7 +145,7 @@ public struct AppSettings: Hashable, Sendable {
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
-        case checkForUpdates, typoCorrection, corrections, caretHint
+        case checkForUpdates, typoCorrection, corrections, caretHint, statistics
     }
 
     public init(from decoder: any Decoder) throws {
@@ -150,7 +156,7 @@ extension AppSettings: Codable {
         autoswitch = try container.decodeIfPresent(Bool.self, forKey: .autoswitch) ?? defaults.autoswitch
         onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
         apps = (try? container.decodeIfPresent([String: AppRule].self, forKey: .apps)) ?? defaults.apps
-        words = (try? container.decodeIfPresent(WordExceptions.self, forKey: .words)) ?? defaults.words
+        words = (try? container.decodeIfPresent(WordRules.self, forKey: .words)) ?? defaults.words
         sites = (try? container.decodeIfPresent([String: SiteRule].self, forKey: .sites)) ?? defaults.sites
         layoutSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .layoutSound)) ?? defaults.layoutSound
         correctionSound = (try? container.decodeIfPresent(SoundSetting.self, forKey: .correctionSound))
@@ -160,5 +166,6 @@ extension AppSettings: Codable {
             ?? defaults.corrections
         typoCorrection = (try? container.decodeIfPresent(Bool.self, forKey: .typoCorrection)) ?? defaults.typoCorrection
         caretHint = (try? container.decodeIfPresent(CaretHintMode.self, forKey: .caretHint)) ?? defaults.caretHint
+        statistics = (try? container.decodeIfPresent(Bool.self, forKey: .statistics)) ?? defaults.statistics
     }
 }

@@ -106,7 +106,7 @@ private let ru = Fixture.russian.id
 
     @Test(arguments: ["ghbdtn", "привет", "GHBDTN"])
     func exceptionsInEitherReadingAreKept(word: String) {
-        let exception = WordExceptions.normalize(word)
+        let exception = WordRules.normalize(word)
         var desk = Desk(Settings(exceptions: [exception]))
         desk.type("ghbdtn ")
         #expect(desk.text == "ghbdtn ")

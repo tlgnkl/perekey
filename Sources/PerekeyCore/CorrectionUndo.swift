@@ -41,6 +41,9 @@ struct CorrectionUndo: Sendable {
         var typed: [KeyStroke]?
         /// Turn Caps Lock off once posted (`CapsLockStep`).
         var capsLockOff = false
+        /// The "Всегда исправлять" word that forced the switch over the
+        /// classifier: undoing it withdraws the word instead of learning.
+        var alwaysFix: String?
     }
 
     /// What an undo reports once its retype is posted. Nothing of it happens
@@ -54,6 +57,8 @@ struct CorrectionUndo: Sendable {
         var isOpen: Bool
         /// The word to learn, if `Settings.learnFromUndos`.
         var learn: String?
+        /// The word to take off "Всегда исправлять" (`Pending.alwaysFix`).
+        var withdraw: String?
         /// The Backspace that asked for the undo is the first held event.
         var heldKey: Bool
     }
@@ -175,7 +180,7 @@ struct CorrectionUndo: Sendable {
         // "ghbdtn" from ever switching. A typo undo learns the typed word only.
         // Abbreviations and «ё» are about the word itself, so they learn.
         let learn: String? = switch correction.kind {
-        case _ where last.isOpen || !learnFromUndos: nil
+        case _ where last.isOpen || !learnFromUndos || last.alwaysFix != nil: nil
         case .layout, .abbreviation, .yo: Self.learnable(correction.original, or: correction.replacement)
         case .typo: Self.learnable(correction.original, or: nil)
         case .capsLock, .doubleCapitals: nil
@@ -183,13 +188,16 @@ struct CorrectionUndo: Sendable {
         return Plan(keys: keys, expected: expected, deleteCount: deleteCount, source: source.id,
                     language: source.language, strokes: last.strokes,
                     inFlight: InFlight(seq: correction.seq, reported: last.reported, isOpen: last.isOpen,
-                                       learn: learn, heldKey: heldKey))
+                                       learn: learn, withdraw: last.alwaysFix, heldKey: heldKey))
     }
 
     /// A key typed while a switch inside the word is open, after it went into
     /// `buffer`: a letter joins the word, a key that ends the word closes the
-    /// correction and reports it.
-    mutating func extend(with key: KeyEvent, buffer: WordBuffer, layouts: LayoutState, effects: inout [Effect]) {
+    /// correction and reports it. A word it closes on `alwaysFix`
+    /// (`Settings.alwaysFix`) is withdrawn from the list by its undo.
+    mutating func extend(with key: KeyEvent, buffer: WordBuffer, layouts: LayoutState, alwaysFix: [String: String],
+                         effects: inout [Effect])
+    {
         guard var last, last.isOpen else { return }
         self.last = nil
         let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
@@ -212,6 +220,9 @@ struct CorrectionUndo: Sendable {
         last.isOpen = false
         last.extended = false
         last.reported = true
+        if !alwaysFix.isEmpty {
+            last.alwaysFix = alwaysFix[WordRules.matchKey(WordJudge.exceptionKey(last.correction.replacement))]
+        }
         effects.append(.corrected(last.correction))
         self.last = last
     }
@@ -232,16 +243,16 @@ struct CorrectionUndo: Sendable {
     }
 
     /// The word to put on the learned list: the typed reading if
-    /// `WordExceptions` takes it ("ghbdtn"), else the same without the
+    /// `WordRules` takes it ("ghbdtn"), else the same without the
     /// punctuation around it ("[jhjij" gives "jhjij"), else the other reading
     /// ("ds,jh" gives "выбор"). Either reading keeps the word: the check
     /// looks at both.
     static func learnable(_ typed: String?, or other: String?) -> String? {
-        let list = WordExceptions()
+        let list = WordRules()
         for candidate in [typed, typed.map(WordJudge.exceptionKey), other.map(WordJudge.exceptionKey)] {
             guard let candidate else { continue }
             switch list.validate(candidate) {
-            case .ok, .frequent: return WordExceptions.normalize(candidate)
+            case .ok, .frequent: return WordRules.normalize(candidate)
             default: continue
             }
         }

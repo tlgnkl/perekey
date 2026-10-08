@@ -280,3 +280,37 @@ import Testing
         #expect(Evaluation.report(results).contains("typo correction"))
     }
 }
+
+/// The Ukrainian model: built without a word-form dictionary, not switched yet.
+@Suite struct UkrainianModelTests {
+    @Test func alphabetHoldsTheUkrainianLettersAndTheApostrophe() throws {
+        let alphabet = try #require(ModelBuild.alphabets["uk"])
+        for letter in "ґєії'-" { #expect(alphabet.contains(letter)) }
+        for letter in "ёъыэ" { #expect(!alphabet.contains(letter)) }
+        #expect(ModelBuild.languages == ["ru", "en", "uk"])
+    }
+
+    @Test func apostrophesBecomeTheJoiner() {
+        #expect(ModelBuild.apostrophes("пʼять") == "п'ять")
+        #expect(ModelBuild.apostrophes("п’ять") == "п'ять")
+        #expect(ModelBuild.apostrophes("п'ять") == "п'ять")
+    }
+
+    @Test func aWordTypedWithTheLayoutApostropheIsKnown() throws {
+        var builder = ModelBuilder()
+        builder.addLanguage("uk", alphabet: ModelBuild.alphabets["uk"]!)
+        for word in ["п'ять", "ґанок", "їжак", "європа"] {
+            let added = builder.addForm(ModelBuild.apostrophes(word), language: "uk", rank: 150, weight: 10)
+            #expect(added)
+        }
+        let language = try #require(try LanguageModel(bytes: builder.build()).language("uk"))
+        // Ukrainian layouts type U+02BC; the text may have U+2019 (Coverage reads it as ').
+        #expect(language.rank(of: ModelFormat.Fingerprint.of("ПʼЯТЬ".unicodeScalars, folded: true)) == 150)
+        #expect(language.rank(of: ModelFormat.Fingerprint.of("Ґанок".unicodeScalars, folded: true)) == 150)
+        #expect(language.isLetter(0x2BC) && language.isLetter(0x491) && !language.isLetter(0x44B))
+    }
+
+    @Test func coverageSplitsWordsWithApostrophesInside() {
+        #expect(Coverage.words(of: "«П’ять» котів-м'ячів, 12 — так!") == ["П’ять", "котів-м'ячів", "12", "так"])
+    }
+}

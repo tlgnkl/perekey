@@ -44,6 +44,7 @@ enum DebugSnapshot {
         renderWordsAndGeneral(in: directory)
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
+        renderStatistics(in: directory)
         renderHint(in: directory)
         renderStrips(in: directory)
         exit(0)
@@ -113,13 +114,15 @@ enum DebugSnapshot {
     private static func renderSettingsWindow(in directory: URL) {
         let sources = InputSources()
         var settings = AppSettings(words: {
-            var words = WordExceptions(mine: ["перекей", "kubectl"])
+            var words = WordRules(mine: ["перекей", "kubectl"])
             words.learned = [LearnedWord(word: "дедлайн", learnedAt: Date().addingTimeInterval(-86_400 * 2).timeIntervalSince1970)]
             return words
         }())
         settings.apps["com.apple.Notes"] = AppRule(mode: .auto, rememberLastLayout: true)
         settings.apps["com.apple.Terminal"] = AppRule(mode: .manualOnly)
         settings.apps["com.apple.Chess"] = AppRule(mode: .off)
+        settings.statistics = true
+        let usage = sampleUsage(in: directory, name: "window")
         let file = SettingsFile(url: directory.appending(path: "window.json"))
         try? file.save(settings)
         let store = SettingsStore(file: file)
@@ -130,7 +133,7 @@ enum DebugSnapshot {
             for section in SettingsSection.allCases {
                 let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
                                       lastCheck: Date().addingTimeInterval(-3_600 * 5))
-                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates,
+                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                         languages: languages, initial: section, windowBackground: false)
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
@@ -201,15 +204,62 @@ enum DebugSnapshot {
             dark: false, size: size, to: directory.appending(path: "sites-empty.png"))
     }
 
+    /// A recorder with a week of made-up counts, in a file of its own.
+    private static func sampleUsage(in directory: URL, name: String) -> UsageRecorder {
+        var clock = Date()
+        let file = UsageStatsFile(url: directory.appending(path: "\(name).stats.json"))
+        file.erase()
+        let recorder = UsageRecorder(file: file, interval: 0, now: { clock }) { true }
+        let kinds: [Correction.Kind] = [.layout, .layout, .layout, .typo, .yo, .abbreviation, .capsLock]
+        let perDay = [4, 11, 7, 0, 19, 9, 23]
+        for (index, count) in perDay.enumerated() {
+            clock = Calendar.current.date(byAdding: .day, value: index - 6, to: Date()) ?? Date()
+            for n in 0..<count { recorder.recordCorrection(kinds[n % kinds.count]) }
+            if count > 8 { recorder.recordUndo() }
+        }
+        recorder.recordUndo()
+        clock = Date()
+        return recorder
+    }
+
+    /// Settings → General with statistics off and on, and the menu line.
+    private static func renderStatistics(in directory: URL) {
+        let size = CGSize(width: 560, height: 1500)
+        for (name, on, dark) in [("statistics-off-light", false, false), ("statistics-on-light", true, false), ("statistics-on-dark", true, true)] {
+            let file = SettingsFile(url: directory.appending(path: "\(name).json"))
+            var settings = AppSettings()
+            settings.statistics = on
+            try? file.save(settings)
+            let store = SettingsStore(file: file)
+            let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil)
+            let usage = on ? sampleUsage(in: directory, name: name) : UsageRecorder(file: UsageStatsFile(url: directory.appending(path: "\(name).stats.json"))) { false }
+            render(PrivacyPane(store: store, usage: usage).frame(width: size.width, height: size.height),
+                   dark: dark, size: size, to: directory.appending(path: "\(name).png"))
+        }
+        let sources = InputSources()
+        let file = SettingsFile(url: directory.appending(path: "menu-statistics.json"))
+        var settings = AppSettings()
+        settings.statistics = true
+        try? file.save(settings)
+        let store = SettingsStore(file: file)
+        let pause = PauseState(frozen: PauseSet(), now: Date())
+        let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+        let view = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+                               appModes: appModes, recents: RecentCorrections(),
+                               usage: sampleUsage(in: directory, name: "menu-statistics"))
+        render(view, dark: false, size: CGSize(width: 318, height: 560), to: directory.appending(path: "menu-statistics.png"))
+    }
+
     /// The Words pane with sample words (and a frequent-word warning), and the General pane.
     private static func renderWordsAndGeneral(in directory: URL) {
-        var words = WordExceptions(mine: ["перекей", "kubectl", "ё-моё"])
+        var words = WordRules(mine: ["перекей", "kubectl", "ё-моё"], always: ["аня", "гошан"])
         words.learned = [
             LearnedWord(word: "дедлайн", learnedAt: Date().addingTimeInterval(-86_400 * 2).timeIntervalSince1970),
-            LearnedWord(word: "ghbdtn", learnedAt: Date().addingTimeInterval(-86_400 * 20).timeIntervalSince1970),
+            LearnedWord(word: "ghbdtn", learnedAt: Date().addingTimeInterval(-86_400 * 20).timeIntervalSince1970,
+                        undoCount: 3, lastUndoneAt: Date().addingTimeInterval(-86_400 * 4).timeIntervalSince1970),
         ]
-        let size = CGSize(width: 560, height: 560)
-        for (name, sample, dark) in [("words-light", words, false), ("words-empty-dark", WordExceptions(), true)] {
+        let size = CGSize(width: 560, height: 800)
+        for (name, sample, dark) in [("words-light", words, false), ("words-empty-dark", WordRules(), true)] {
             let file = SettingsFile(url: directory.appending(path: "\(name).json"))
             try? file.save(AppSettings(words: sample))
             let view = WordsPane(store: SettingsStore(file: file)).frame(width: size.width, height: size.height)

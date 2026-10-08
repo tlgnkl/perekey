@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/// A language model file, read in place from a raw buffer.
+/// The language model: one or more model files, each read in place from a
+/// raw buffer. The app ships a file per language (`ru.pklm`, `en.pklm`) and
+/// maps only the languages of the installed layouts (`init(combining:)`,
+/// `keeping(languages:)`); a model built in memory may hold several
+/// languages in one file.
 ///
-/// The buffer must stay alive and unchanged as long as the model is used:
+/// A buffer must stay alive and unchanged as long as the model is used:
 /// `owner` holds whatever keeps it mapped (`ModelFile` for a file on disk, an
 /// array for a model built in memory). Loading validates the header, the
 /// checksum and every section bound, so lookups never range-check again.
@@ -126,20 +130,47 @@ public struct LanguageModel: @unchecked Sendable {
         }
     }
 
+    /// One model file: what keeps it mapped, and its sections that are not
+    /// per language. The never-switch list and the fixed-case words travel in
+    /// every file (docs/classifier.md, «Файл на язык»), so a lookup asks each.
+    struct File: @unchecked Sendable {
+        let bytes: UnsafeRawBufferPointer
+        let owner: AnyObject?
+        let meta: String
+        let languages: [Language]
+        let keepHashes: UnsafePointer<UInt64>
+        let keepCount: Int
+        let cased: CasedForms?
+
+        func isKept(_ fingerprint: UInt64) -> Bool {
+            var low = 0
+            var high = keepCount
+            while low < high {
+                let mid = (low + high) / 2
+                let value = keepHashes[mid]
+                if value == fingerprint { return true }
+                if value < fingerprint { low = mid + 1 } else { high = mid }
+            }
+            return false
+        }
+    }
+
     static let symbolTableSize = 0x500
 
-    public let bytes: UnsafeRawBufferPointer
-    private let owner: AnyObject?
-    public let meta: String
+    private let files: [File]
+    /// Every language of every file, in file order; of two files with one
+    /// language the first wins.
     public let languages: [Language]
-    private let keepHashes: UnsafePointer<UInt64>
-    private let keepCount: Int
-    private let cased: CasedForms?
 
-    /// Reads a model from `bytes`. `owner` is retained for the life of the model.
+    /// The builder notes of every file.
+    public var meta: String { files.map(\.meta).joined(separator: "\n\n") }
+    /// Bytes mapped for this model, all files together.
+    public var byteCount: Int { files.reduce(0) { $0 + $1.bytes.count } }
+    /// The codes of `languages`.
+    public var codes: Set<String> { Set(languages.map(\.code)) }
+
+    /// Reads a model file from `bytes`. `owner` is retained for the life of the model.
     public init(bytes: UnsafeRawBufferPointer, owner: AnyObject?) throws {
-        self.bytes = bytes
-        self.owner = owner
         var reader = ByteReader(bytes)
         guard bytes.count >= ModelFormat.headerSize else { throw Error.truncated }
         guard reader.u32() == ModelFormat.magic else { throw Error.badMagic }
@@ -202,12 +233,8 @@ public struct LanguageModel: @unchecked Sendable {
                 continue // unknown sections are for newer readers
             }
         }
-        self.meta = meta
         guard let keep else { throw Error.badSection("keep") }
-        keepHashes = keep.0
-        keepCount = keep.1
-        self.cased = cased
-        languages = try order.map { code in
+        let languages = try order.map { code in
             let parts = partial[code]!
             guard let ngram = parts.ngram, let dict = parts.dict, let prefix = parts.prefix else {
                 throw Error.languageIncomplete(code)
@@ -215,6 +242,32 @@ public struct LanguageModel: @unchecked Sendable {
             return try Language(code: code, ngram: ngram, dictionary: dict, prefix: prefix,
                                 yo: yo[code].map { try FingerprintTable($0, name: "yo") })
         }
+        self.init(files: [File(bytes: bytes, owner: owner, meta: meta, languages: languages, keepHashes: keep.0,
+                               keepCount: keep.1, cased: cased)])
+    }
+
+    private init(files: [File]) {
+        self.files = files
+        var languages: [Language] = []
+        for file in files {
+            for language in file.languages where !languages.contains(where: { $0.code == language.code }) {
+                languages.append(language)
+            }
+        }
+        self.languages = languages
+    }
+
+    /// One model of the files of several: `ru.pklm` and `en.pklm` together.
+    public init(combining models: [LanguageModel]) {
+        self.init(files: models.flatMap(\.files))
+    }
+
+    /// The files of this model that hold one of `languages`; nil when none
+    /// does. The others are released with the last model that holds them,
+    /// and with them their mapping.
+    public func keeping(languages codes: Set<String>) -> LanguageModel? {
+        let kept = files.filter { file in file.languages.contains { codes.contains($0.code) } }
+        return kept.isEmpty ? nil : LanguageModel(files: kept)
     }
 
     /// Reads a model from an array, which the model keeps alive.
@@ -227,23 +280,28 @@ public struct LanguageModel: @unchecked Sendable {
         languages.first { $0.code == code }
     }
 
-    /// Whether this exact string is on the never-switch list.
+    /// Whether this exact string is on the never-switch list of some file.
     public func isKept(_ fingerprint: UInt64) -> Bool {
-        var low = 0
-        var high = keepCount
-        while low < high {
-            let mid = (low + high) / 2
-            let value = keepHashes[mid]
-            if value == fingerprint { return true }
-            if value < fingerprint { low = mid + 1 } else { high = mid }
-        }
+        for file in files where file.isKept(fingerprint) { return true }
         return false
     }
 
     /// The fixed spelling of a word by its folded fingerprint ("мвд" → "МВД"),
     /// and whether Perekey corrects to it; `nil` for a word of no fixed case.
+    /// Of two files with a spelling, the rule of `ModelBuilder.addCasedForm`
+    /// picks: a correcting one, then the smaller string.
     public func casedForm(of folded: UInt64) -> (form: String, corrects: Bool)? {
-        cased?.form(of: folded)
+        var best: (form: String, corrects: Bool)?
+        for file in files {
+            guard let found = file.cased?.form(of: folded) else { continue }
+            if let known = best, known.corrects && !found.corrects || known.corrects == found.corrects
+                && known.form <= found.form
+            {
+                continue
+            }
+            best = found
+        }
+        return best
     }
 }
 

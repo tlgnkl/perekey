@@ -14,12 +14,16 @@
 
 | Что | Источник | Лицензия | Группа в скрипте |
 |---|---|---|---|
-| Ранг частоты ru и en | wordfreq 3.2 | данные CC BY-SA 4.0, код Apache-2.0 | `lexicon` |
+| Ранг частоты ru, en и uk | wordfreq 3.2 | данные CC BY-SA 4.0, код Apache-2.0 | `lexicon` |
 | Словоформы ru | Hunspell ru_RU (Лебедев) из LibreOffice | BSD-подобная | `lexicon` |
 | Словоформы en | SCOWL / ESDB, en_US-large | разрешительная (HPND-подобная) | `lexicon` |
-| Символьные n-граммы | Википедия ru и en, снимок 2023-11-01 | CC BY-SA 4.0 (+ GFDL) | `text` |
-| Отложенный корпус | Tatoeba, Stack Exchange, GeoNames, синтетика | CC0, CC BY 2.0 FR, CC BY-SA, CC BY 4.0 | `heldout`, `heavy` |
+| Символьные n-граммы | wordfreq 3.2: формы от Zipf 2,5 с весом √частоты | данные CC BY-SA 4.0 | `lexicon` |
+| Задел, не используется | Википедия ru, en и uk, снимок 2023-11-01 | CC BY-SA 4.0 (+ GFDL) | `text` |
+| Отложенный корпус | Tatoeba, Stack Exchange (в том числе `ukrainian`), GeoNames, синтетика | CC0, CC BY 2.0 FR, CC BY-SA, CC BY 4.0 | `heldout`, `heavy` |
 | Запасной словарь ru | OpenCorpora | CC BY-SA 3.0 | `fallback`, только после юриста |
+| Запасные словоформы uk | Викисловарь (en.wiktionary) через kaikki.org | CC BY-SA 4.0 + GFDL | `fallback`, только после юриста |
+
+**Словоформ uk в основном наборе нет.** Единственный полный словарь, ВЕСУМ (dict_uk) и всё, что из него собрано, выпущен под CC BY-NC-SA 4.0. Он несовместим с моделью (см. «Отклонены»). Модель uk строим только по wordfreq: частоты, формы и n-граммы, как у ru и en.
 
 Списки исправлений этапа 4 новых внешних источников не добавляют:
 
@@ -124,10 +128,10 @@ may comply with either license or both».
 
 | Источник | Лицензия | Объём | Формат | Что берём | Вердикт |
 |---|---|---|---|---|---|
-| [wordfreq](https://github.com/rspeer/wordfreq) 3.2, `large_ru`, `large_en` | Данные CC BY-SA 4.0, код Apache-2.0 ([README](https://github.com/rspeer/wordfreq#license)) | ru 713 447 форм, 4,5 МБ; en 321 180 форм, 1,5 МБ | msgpack.gz, 800 корзин centibel | Ранг частоты, дополнительные формы | Да |
+| [wordfreq](https://github.com/rspeer/wordfreq) 3.2, `large_ru`, `large_en`, `large_uk` | Данные CC BY-SA 4.0, код Apache-2.0 ([README](https://github.com/rspeer/wordfreq#license)) | ru 713 447 форм, 4,5 МБ; en 321 180 форм, 1,5 МБ; uk 443 616 форм, 2,8 МБ | msgpack.gz, 800 корзин centibel | Ранг частоты, дополнительные формы | Да |
 | [Hunspell ru_RU](https://github.com/LibreOffice/dictionaries/tree/master/ru_RU), А. Лебедев | BSD-подобная ([README_ru_RU.txt](https://github.com/LibreOffice/dictionaries/blob/master/ru_RU/README_ru_RU.txt)) | 146 269 основ, из них 7 347 с «ё» | `.dic` + `.aff` | Словоформы раскрытием аффиксов | Да |
 | [SCOWL / ESDB](https://github.com/en-wl/wordlist) `en_US-large` | Разрешительная, без доп. условий для официальных словарей ([Copyright](https://github.com/en-wl/wordlist/blob/v2/Copyright)) | 0,84 МБ `.dic` | Hunspell zip | Словоформы en | Да |
-| [Википедия](https://huggingface.co/datasets/wikimedia/wikipedia) ru и en, снимок 20231101, по одному файлу | CC BY-SA 4.0 + GFDL (ToU) | ru 171 МБ, en 188 МБ parquet | parquet, чистый текст | Символьные 4/5-граммы; часть статей — в отложенный корпус | Да |
+| [Википедия](https://huggingface.co/datasets/wikimedia/wikipedia) ru, en и uk, снимок 20231101, по одному файлу | CC BY-SA 4.0 + GFDL (ToU) | ru 171 МБ, en 188 МБ, uk 182 МБ parquet (файл 00002 из 10) | parquet, чистый текст | Пока ничего: в сборке нет читателя parquet. Задумывалась для n-грамм и прозы отложенного корпуса | Да, но не используется |
 
 **wordfreq.** Код под Apache-2.0, а не MIT; с GPLv3 совместим. Данные
 собраны из нескольких доменов
@@ -137,7 +141,8 @@ GlobalVoices), Google Books Ngrams 2012, Twitter. Для en ещё Reddit и OSC
 (веб). Автор выпускает итоговые частоты под CC BY-SA 4.0 и перечисляет условия
 источников: Google Books — «freely used for any purpose», SUBTLEX — разрешение
 на любое использование при указании авторов, OpenSubtitles — «may be used with
-attribution». Данные заморожены на 2021 году
+attribution». Для uk источников пять: Википедия, субтитры (OpenSubtitles 2018), веб (OSCAR),
+Twitter и Reddit; условия те же. Данные заморожены на 2021 году
 ([SUNSET.md](https://github.com/rspeer/wordfreq/blob/master/SUNSET.md)).
 Автор просит не конвертировать списки в CSV без атрибуции. Мы переносим
 атрибуцию в заголовок модели и в окно «Лицензии».
@@ -153,8 +158,11 @@ as such». Такой пункт GPLv3 допускает (§7(c)). Старая
 **Википедия.** Снимок 20231101 сделан после перехода на 4.0 (июнь 2023).
 Статьи, которые не правились после перехода, формально остаются под 3.0 — та
 же цепочка, что у OpenCorpora. Для символьных n-грамм риск мал: статистика букв
-вряд ли переработка в смысле авторского права. Запасной путь без Википедии —
-строить n-граммы по списку wordfreq с весами частот.
+вряд ли переработка в смысле авторского права. Сборщик пошёл запасным путём:
+n-граммы считаются по списку wordfreq с весом √(частоты на миллиард) от Zipf
+2,5 (`ModelBuild`, docs/classifier.md). Википедия не читается ни сборкой, ни
+`perekey-eval`: для parquet нужен `pyarrow` или `duckdb`. `fetch-data.sh text`
+её скачивает, но это задел.
 
 ### Для отложенного корпуса
 
@@ -164,9 +172,9 @@ as such». Такой пункт GPLv3 допускает (§7(c)). Старая
 
 | Категория | Источник | Лицензия | Вердикт |
 |---|---|---|---|
-| Проза | Википедия: статьи с `id % 20 == 0` из того же файла, исключены из обучения | CC BY-SA 4.0 | Да |
-| Чат, короткие фразы | [Tatoeba](https://tatoeba.org/en/terms_of_use): `sentences_CC0` и `rus/eng_sentences` | CC0; остальные CC BY 2.0 FR | Да. В репозиторий — только CC0 |
-| Смешанный ru+en, код | Дампы Stack Exchange 2024-04 на [archive.org](https://archive.org/details/stackexchange): `russian.stackexchange`, `rus.stackexchange`; `ru.stackoverflow` (1 ГБ) — в `heavy` | CC BY-SA 2.5/3.0/4.0, по посту в `ContentLicense` | Да, только локально и в CI, не в репозиторий |
+| Проза | Задумано: Википедия, статьи с `id % 20 == 0`. Сейчас проза — предложения Tatoeba от 8 слов (docs/classifier.md, «Метрика») | CC BY-SA 4.0 | Да, пока не используется |
+| Чат, короткие фразы | [Tatoeba](https://tatoeba.org/en/terms_of_use): `sentences_CC0` и `rus/eng/ukr_sentences` | CC0; остальные CC BY 2.0 FR | Да. В репозиторий — только CC0. У uk в CC0 всего 393 предложения из 188 837, поэтому основа — `ukr_sentences` |
+| Смешанный ru+en, код | Дампы Stack Exchange 2024-04 на [archive.org](https://archive.org/details/stackexchange): `russian.stackexchange`, `rus.stackexchange`, `ukrainian.stackexchange` (9,5 МБ); `ru.stackoverflow` (1 ГБ) — в `heavy`. Ukrainian Stack Overflow не существует | CC BY-SA 2.5/3.0/4.0, по посту в `ContentLicense` | Да, только локально и в CI, не в репозиторий |
 | Имена, топонимы | [GeoNames](https://www.geonames.org/export/) `cities15000` | CC BY 4.0 | Да |
 | Код | Исходники Perekey (наши, GPL-3.0-or-later) + блоки кода из Stack Exchange | — | Да |
 | URL, email, пути | Синтетика с фиксированным seed | — | Да |
@@ -194,7 +202,29 @@ Tatoeba и GeoNames обновляются без версий. Скрипт и�
 | [Taiga](https://tatianashavrina.github.io/taiga_site/) | Заявлена CC BY-SA 3.0 | Тексты журналов и соцсетей; права авторов не очищены | Нет |
 | [OpenSubtitles / OPUS](https://opus.nlpl.eu/OpenSubtitles.php) | Лицензии нет, просьба указать источник | Субтитры — производные от фильмов | Нет. Косвенно есть в wordfreq как частоты |
 | Корпуса из Common Crawl (OSCAR, CC-100, mC4, FineWeb-2, CulturaX) | Обёртка CC0 или ODC-By | По [условиям Common Crawl](https://commoncrawl.org/terms-of-use) права третьих лиц на тексты остаются, риск на пользователе | Нет |
+| [ВЕСУМ / dict_uk](https://github.com/brown-uk/dict_uk) (А. Рисін, В. Старко) | Данные CC BY-NC-SA 4.0, код GPL-3.0 ([README](https://github.com/brown-uk/dict_uk/blob/v6.7.5/README.md#ліцензія-)); с 2018 года ([коммит](https://github.com/brown-uk/dict_uk/commit/c4748edf79c05cd20d169fdaf69f8345a9938ef7)) | Условие NonCommercial. BY-SA §3(b) требует отдать переработку под BY-SA или совместимую лицензию, а «NC» — дополнительное ограничение, которого нет ни в BY-SA, ни в GPLv3 | Нет |
+| Hunspell uk_UA из LibreOffice ([`uk_UA/`](https://github.com/LibreOffice/dictionaries/tree/32b006a2c22a4ac7e8ed3f03346f7b3d85a970a4/uk_UA)), 350 657 основ | [README_uk_UA.txt](https://github.com/LibreOffice/dictionaries/blob/32b006a2c22a4ac7e8ed3f03346f7b3d85a970a4/uk_UA/README_uk_UA.txt): «licensed under MPL 1.1»; так же пишет [distr/hunspell/README.md](https://github.com/brown-uk/dict_uk/blob/master/distr/hunspell/README.md) автора | Это сборка ВЕСУМ 6.7.5: `.dic` и `.aff` совпадают байт в байт с `hunspell-uk_UA_6.7.5.zip` из релиза dict_uk. Исходные данные NC, а заявление про MPL 1.1 противоречит им. Даже если авторы вправе так лицензировать свою сборку, MPL 1.1 несовместима с GPLv3 (FSF) и требует оставить изменённые файлы под MPL | Нет. Файл не пиннится |
+| UniMorph [`ukr.xz`](https://github.com/unimorph/ukr), pymorphy2-dicts-uk, морфология LanguageTool uk | Автоматические сборки ВЕСУМ; README UniMorph: CC BY-NC-SA ([README](https://github.com/unimorph/ukr/blob/master/README.md)) | То же, что ВЕСУМ | Нет |
+| UniMorph [`ukr`](https://github.com/unimorph/ukr) (из Викисловаря) | CC BY-SA 3.0 | 20 905 форм, меньше kaikki, а путь тот же 3.0 → 4.0 → GPLv3 | Нет, kaikki полнее |
+| Викисловарь через [kaikki.org](https://kaikki.org/dictionary/Ukrainian/index.html) (wiktextract, дамп enwiktionary 2026-09-02) | CC BY-SA 4.0 + GFDL ([kaikki](https://kaikki.org/dictionary/rawdata.html), [Copyrights](https://en.wiktionary.org/wiki/Wiktionary:Copyrights)) | 55 300 лемм, 418 тыс. форм, 287 МБ JSONL. Старые правки были под 3.0 (цепочка как у OpenCorpora), формы — база данных (право изготовителя), файл обновляется на месте и не пиннится. Даёт +0,5 п. п. покрытия (см. ниже) | Запас, `fallback`, после юриста |
 | Tatoeba (не CC0) в модели | CC BY 2.0 FR | Список FSF называет совместимой с GPL CC BY 4.0, про версию 2.0 не говорит. Модели фразы не нужны | Только отложенный корпус |
+
+## Украинский: словоформы и цена отказа от них
+
+Проверено 08.10.2026 на 919 525 токенах Tatoeba `ukr` (188 837 предложений):
+
+| Набор | Покрытие токенов |
+|---|---|
+| wordfreq `large_uk` (443 616 форм) | 98,66 % |
+| Викисловарь kaikki (418 тыс. форм) отдельно | 96,52 % |
+| wordfreq + Викисловарь | 99,17 % |
+
+Без словаря словоформ модель uk опирается только на wordfreq. Незнакомыми
+остаются 1,3 % токенов против 0,8 % с Викисловарём. Для сравнения, полный
+ВЕСУМ даёт миллионы форм, но он закрыт условием NC. Редкие падежные формы и
+свежие слова модель получит из n-грамм, а не из словаря: ошибок
+«слово/не слово» на редких формах будет больше. На решение о раскладке это
+влияет слабо, пока слово переключается по нескольким признакам.
 
 ## Что выполнить при выпуске
 
@@ -219,7 +249,14 @@ Tatoeba и GeoNames обновляются без версий. Скрипт и�
 5. Подтвердить у автора, что BSD-текст словаря Лебедева заменил старую
    лицензию «только патчи». Сайт автора не открылся.
 6. Нужна ли отдельная атрибуция OpenSubtitles и Twitter, если мы берём только
-   частоты wordfreq?
+   частоты wordfreq? То же для OSCAR и Reddit в uk и en.
+7. Можно ли использовать Hunspell uk_UA, если авторы ВЕСУМ сами выпустили сборку
+   под MPL 1.1, хотя данные у них CC BY-NC-SA? Нужен письменный ответ авторов
+   (arysin@gmail.com). Даже с ним MPL 1.1 не совместима с GPLv3, поэтому нужна
+   ещё и двойная лицензия GPL/LGPL.
+8. Годится ли Викисловарь (kaikki) как запас для uk при цепочке 3.0 → 4.0 →
+   GPLv3 и праве изготовителя базы? Выигрыш мал (+0,5 п. п.), поэтому по
+   умолчанию его не берём.
 
 ## Не юридические вопросы
 

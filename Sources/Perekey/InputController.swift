@@ -32,6 +32,9 @@ final class InputController {
     @ObservationIgnored private var selection: SelectionReader!
     @ObservationIgnored private var plainPaste: PlainPaste!
     @ObservationIgnored private var lastSettings: PerekeyCore.Settings
+    /// The languages the classifier was loaded for, and its model.
+    @ObservationIgnored private var modelLanguages: Set<String> = []
+    @ObservationIgnored private var model: LanguageModel?
     @ObservationIgnored private var tokens: [(NotificationCenter, any NSObjectProtocol)] = []
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "input")
     @ObservationIgnored private let hint = HintController()
@@ -43,8 +46,13 @@ final class InputController {
     @ObservationIgnored var onCorrection: ((Correction) -> Void)?
     /// The correction with this `seq` was undone.
     @ObservationIgnored var onCorrectionUndone: ((UInt32) -> Void)?
+    /// The user retyped by hand (a shortcut or a selection). Carries no text.
+    @ObservationIgnored var onManualRetype: (() -> Void)?
     /// An undo taught Perekey this word; it is in `AppSettings.words` already.
     @ObservationIgnored var onLearned: ((String) -> Void)?
+    /// An undo took this word off "Всегда исправлять"; it is gone from
+    /// `AppSettings.words` already. For the hint to say so.
+    @ObservationIgnored var onAlwaysFixWithdrawn: ((String) -> Void)?
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState,
          languages: LanguageStatsStore = LanguageStatsStore())
@@ -64,8 +72,11 @@ final class InputController {
         let textProbe = TextProbe()
         selection = SelectionReader(probe: textProbe)
         // Memory-mapped, so loading is quick; without a model there is no
-        // automatic switching and the reason is in the log.
-        let classifier = ModelStore.classifier()
+        // automatic switching and the reason is in the log. Only the
+        // languages of the installed layouts are mapped.
+        modelLanguages = ModelStore.languages(of: sources.layouts)
+        model = ModelStore.model(languages: modelLanguages)
+        let classifier = model.map { Classifier(model: $0) }
         var machine = InputMachine(settings: lastSettings, layouts: sources.layouts,
                                    currentLayout: sources.currentLayout, classifier: classifier)
         _ = machine.handle(.appModeChanged(appModes.mode))
@@ -73,7 +84,10 @@ final class InputController {
 
         let engine = engine!
         hint.onButtonFrame = { engine.setHintButtonFrame($0) }
-        sources.onLayoutsChanged = { engine.send(.layoutsChanged($0)) }
+        sources.onLayoutsChanged = { [weak self] layouts in
+            engine.send(.layoutsChanged(layouts))
+            self?.loadModel(for: layouts)
+        }
         sources.onCurrentChanged = { engine.send(.layoutChanged($0)) }
         store.onChange = { [weak self] in self?.pushSettings() }
 
@@ -93,6 +107,16 @@ final class InputController {
         observeLanguageContext()
         engine.start()
         focus.start()
+    }
+
+    /// Maps the files of languages that came with new layouts and lets the
+    /// files of removed ones go: the tap drops its classifier for the new one.
+    private func loadModel(for layouts: [LayoutMap]) {
+        let languages = ModelStore.languages(of: layouts)
+        guard languages != modelLanguages else { return }
+        modelLanguages = languages
+        model = ModelStore.model(languages: languages, reusing: model)
+        engine.send(.classifierChanged(model.map { Classifier(model: $0) }))
     }
 
     /// The settings the tap uses: no shortcuts while the user records one, or
@@ -195,6 +219,7 @@ final class InputController {
             plainPaste.paste()
         case let .retyped(original, text, manual):
             SystemSounds.play(store.settings.correctionSound)
+            if manual { onManualRetype?() }
             // An automatic switch has its own hint, from `corrected`.
             if manual, store.settings.caretHint.shows(automatic: false), original != text {
                 hint.showRetyped(original: original, word: text, shortcut: retypeShortcut())
@@ -232,6 +257,9 @@ final class InputController {
             }
         case let .learned(word):
             learn(word)
+        case let .alwaysFixWithdrawn(word):
+            store.update { $0.words.stopFixing(word) }
+            onAlwaysFixWithdrawn?(word)
         case .capsLockOff:
             CapsLockState.turnOff()
         case let .languagesCounted(tally):
@@ -245,7 +273,8 @@ final class InputController {
         // The onboarding demo undoes «ghbdtn» on purpose: that teaches nothing.
         guard !(appModes.isDemoFront && AppModeController.isDemoWord(word)) else { return }
         var added = false
-        store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970) }
+        let readings = WordRules.readings(of: word, in: sources.layouts)
+        store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970, readings: readings) }
         guard added else { return }
         onLearned?(word)
         guard store.settings.caretHint != .off else { return }
@@ -253,6 +282,20 @@ final class InputController {
             self?.store.update { $0.words.forget(word) }
             self?.hint.hide()
         }
+    }
+
+    /// Puts a word on "Всегда исправлять": from now on it switches at the
+    /// word end whatever the score, unless a guard keeps it. `word` is the
+    /// form it should come out in, `typed` what the user typed (a learned
+    /// copy of it, or of another reading in the installed layouts, is forgotten). For the hint after a manual retype, when
+    /// `WordRules.offerAlwaysFix` says so. Returns false when the word is
+    /// invalid, already there, or on "Не трогать: мои".
+    @discardableResult
+    func alwaysFix(_ word: String, typed: String? = nil) -> Bool {
+        var added = false
+        let readings = WordRules.readings(of: word, in: sources.layouts)
+        store.update { added = $0.words.alwaysFix(word, typed: typed, readings: readings) }
+        return added
     }
 
     /// The user's own shortcut for retyping the last word, as keycaps, or nil.

@@ -36,6 +36,10 @@ struct WordJudge: Sendable {
         /// Let the key through and learn this word (`Effect.learned`): a
         /// switch inside it was undone.
         case learn(String)
+        /// Let the key through and take this word off "Всегда исправлять"
+        /// (`Effect.alwaysFixWithdrawn`): a switch inside it to the listed
+        /// word was undone.
+        case withdraw(String)
         /// Retype the word and hold the key.
         case retype(WordRetype)
     }
@@ -262,7 +266,10 @@ struct WordJudge: Sendable {
             var ruling = Ruling.keep
             if switching == .learnAtEnd {
                 switching = .suppressed
-                if settings.learnFromUndos,
+                if let listed = alwaysFixSpelling(buffer, in: other, settings) {
+                    // The latest explicit signal wins: withdraw, learn nothing.
+                    ruling = .withdraw(listed)
+                } else if settings.learnFromUndos,
                    let word = CorrectionUndo.learnable(Self.text(of: buffer.entries, in: typed),
                                                        or: Self.text(of: buffer.entries, in: other))
                 {
@@ -284,16 +291,30 @@ struct WordJudge: Sendable {
                 context: Classifier.Context(recent: recent, prior: languageContext.prior)
             )
             decision = found
-            if found.verdict == .switch(to: auto.other.id) {
-                if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings) {
+            let switches = found.verdict == .switch(to: auto.other.id)
+            // The other reading is on "Всегда исправлять": its spelling there.
+            let listed = alwaysFixSpelling(buffer, in: auto.other, settings)
+            // It switches over a keep, but not over a guard or a capital inside the word.
+            let forced = !switches && listed != nil && WordRules.overrides(found) && !isMixedCase(buffer, auto)
+            if forced || switches {
+                if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
+                    || alwaysFixSpelling(buffer, in: auto.typed, settings) != nil
+                {
                     record(auto.typed.language)
                     return .keep
                 }
+                // The listed form is what the user wants, spelt as listed
+                // ("артем" typed gives "артём"); a forced one gets no word
+                // correction on top.
+                let spelling = listed.flatMap { Self.spell($0, buffer.entries, in: auto.other) }
                 guard var retype = autoRetype(auto, buffer.entries[...], held: boundary, heldKeyCode: key.keyCode,
-                                              midWord: false, undoable: !endsLine, layouts: layouts,
-                                              settings: settings)
+                                              midWord: false, undoable: !endsLine, corrects: !forced,
+                                              spelling: spelling, layouts: layouts, settings: settings)
                 else { return .keep }
                 retype.decision = found
+                // An undo of a switch to a listed word withdraws it from the
+                // list instead of learning, whoever decided the switch.
+                retype.pending.alwaysFix = listed
                 record(auto.other.language)
                 return .retype(retype)
             }
@@ -302,7 +323,7 @@ struct WordJudge: Sendable {
             record(typed.language)
         }
         // The word stays in its layout: fix it there.
-        guard let typo, !isException(buffer, in: typo, settings),
+        guard let typo, !isException(buffer, in: typo, settings), alwaysFixSpelling(buffer, in: typo, settings) == nil,
               var retype = typoRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary, undoable: !endsLine,
                                       layouts: layouts, settings: settings)
         else { return .keep }
@@ -329,7 +350,7 @@ struct WordJudge: Sendable {
               wordIsPlain(buffer, layouts: layouts),
               context.classifier.impossiblePrefix(buffer.entries.lazy.map(\.stroke), typed: context.typed,
                                                   other: context.other),
-              !isExceptionPrefix(buffer, context, settings)
+              !isExceptionPrefix(buffer, context, settings), !isAlwaysFixPrefix(buffer, in: context.typed, settings)
         else { return nil }
         let trigger = buffer.entries[count - 1].stroke
         guard var retype = autoRetype(context, buffer.entries.dropLast(), held: trigger, heldKeyCode: trigger.keyCode,
@@ -396,8 +417,8 @@ struct WordJudge: Sendable {
     /// The word `entries` retyped in `context.other`, with a correction to
     /// report once posted. Nil when the word cannot be typed there.
     private func autoRetype(_ context: AutoContext, _ entries: ArraySlice<WordBuffer.Entry>, held: KeyStroke?,
-                            heldKeyCode: UInt16, midWord: Bool, undoable: Bool, layouts: LayoutState,
-                            settings: Settings) -> WordRetype?
+                            heldKeyCode: UInt16, midWord: Bool, undoable: Bool, corrects: Bool = true,
+                            spelling: [KeyStroke]? = nil, layouts: LayoutState, settings: Settings) -> WordRetype?
     {
         guard case let .keys(word) = layouts.retypeKeys(for: entries, into: context.other) else { return nil }
         var strokes = entries.map(\.stroke)
@@ -409,7 +430,8 @@ struct WordJudge: Sendable {
         // The whole word is known: the word corrections see it in its new layout.
         var keys = word.keys
         var fix: WordFix?
-        if !midWord, let found = correctWord(entries, in: context.other, settings: settings) {
+        let spelt = spelling.map { WordFix(strokes: $0, kind: .layout) }
+        if !midWord, let found = spelt ?? (corrects ? correctWord(entries, in: context.other, settings: settings) : nil) {
             keys.removeAll(keepingCapacity: true)
             for stroke in found.strokes {
                 guard let text = context.other.text(for: stroke) else { return nil }
@@ -523,6 +545,60 @@ struct WordJudge: Sendable {
         return false
     }
 
+    /// The always-fix spelling of the word as this layout reads it, if it is
+    /// on the list (`WordRules.matchKey`: "ё" as "е").
+    private func alwaysFixSpelling(_ buffer: WordBuffer, in map: LayoutMap, _ settings: Settings) -> String? {
+        guard !settings.alwaysFix.isEmpty, let word = Self.text(of: buffer.entries, in: map) else { return nil }
+        return settings.alwaysFix[WordRules.matchKey(Self.exceptionKey(word))]
+    }
+
+    /// A capital inside the word, next to small letters, in either reading:
+    /// the classifier's `mixedCase` guard, which it does not reach for a
+    /// typed reading with a symbol inside ("[jhJij"). No list overrides it.
+    private func isMixedCase(_ buffer: WordBuffer, _ context: AutoContext) -> Bool {
+        for map in [context.typed, context.other] {
+            guard let word = Self.text(of: buffer.entries, in: map) else { continue }
+            let core = Self.core(of: word)
+            if core.dropFirst().contains(where: \.isUppercase), core.contains(where: \.isLowercase) { return true }
+        }
+        return false
+    }
+
+    /// Some always-fix word starts with the word so far as typed: do not
+    /// switch it away early.
+    private func isAlwaysFixPrefix(_ buffer: WordBuffer, in map: LayoutMap, _ settings: Settings) -> Bool {
+        guard !settings.alwaysFix.isEmpty, let word = Self.text(of: buffer.entries, in: map) else { return false }
+        let prefix = WordRules.matchKey(Self.exceptionKey(word))
+        return settings.alwaysFix.keys.contains { $0.hasPrefix(prefix) }
+    }
+
+    /// The keys that type `spelling` in `map` in place of the word's core,
+    /// keeping the case the user typed and the keys around the core. Nil when
+    /// the keys type it already, or when it cannot be typed one key per letter.
+    static func spell(_ spelling: String, _ entries: [WordBuffer.Entry], in map: LayoutMap) -> [KeyStroke]? {
+        var strokes: [KeyStroke] = []
+        var characters: [Character] = []
+        for entry in entries {
+            guard !entry.isSpace, let text = map.text(for: entry.stroke), text.count == 1, let character = text.first
+            else { return nil }
+            strokes.append(entry.stroke)
+            characters.append(character)
+        }
+        guard let start = characters.firstIndex(where: isWordPart) else { return nil }
+        var changed = false
+        for (offset, wanted) in spelling.enumerated() {
+            let index = start + offset
+            guard index < characters.count else { return nil }
+            let now = characters[index]
+            guard now.lowercased() != String(wanted) else { continue }
+            let cased = now.isUppercase ? Character(wanted.uppercased()) : wanted
+            guard let stroke = map.stroke(for: cased), !stroke.modifiers.contains(.option) else { return nil }
+            strokes[index] = stroke
+            changed = true
+        }
+        return changed ? strokes : nil
+    }
+
     static func text(of entries: [WordBuffer.Entry], in map: LayoutMap) -> String? {
         var text = ""
         for entry in entries where !entry.isSpace {
@@ -532,15 +608,21 @@ struct WordJudge: Sendable {
         return text
     }
 
-    /// The word as `WordExceptions` stores it, without the punctuation around it.
+    /// The word as `WordRules` stores it, without the punctuation around it.
     static func exceptionKey(_ word: String) -> String {
+        WordRules.normalize(String(core(of: word)))
+    }
+
+    /// The word without the punctuation around it.
+    static func core(of word: String) -> Substring {
         var text = Substring(word)
-        func isPart(_ character: Character) -> Bool {
-            character.isLetter || character.isNumber
-        }
-        while let first = text.first, !isPart(first) { text.removeFirst() }
-        while let last = text.last, !isPart(last) { text.removeLast() }
-        return WordExceptions.normalize(String(text))
+        while let first = text.first, !isWordPart(first) { text.removeFirst() }
+        while let last = text.last, !isWordPart(last) { text.removeLast() }
+        return text
+    }
+
+    private static func isWordPart(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber
     }
 
     // MARK: - Word ends

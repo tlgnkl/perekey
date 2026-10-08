@@ -34,7 +34,57 @@ struct ModelStoreTests {
         try Data(bytes).write(to: URL(fileURLWithPath: path))
         #expect(ModelStore.model(at: path) == nil)
         // The test bundle has no model resource.
-        #expect(ModelStore.classifier(bundle: Bundle(for: Marker.self)) == nil)
+        #expect(ModelStore.classifier(languages: ["ru", "en"], bundle: Bundle(for: Marker.self)) == nil)
+    }
+
+    static func file(_ language: String, alphabet: String, word: String) -> [UInt8] {
+        var builder = ModelBuilder()
+        builder.addLanguage(language, alphabet: alphabet)
+        builder.addForm(word, language: language, rank: 200, weight: 100)
+        return builder.build()
+    }
+
+    /// A bundle directory with `ru.pklm`, `en.pklm` and `uk.pklm`.
+    static func bundle() throws -> (Bundle, URL) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("perekey-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(file("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-", word: "привет"))
+            .write(to: directory.appendingPathComponent("ru.pklm"))
+        try Data(file("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-", word: "hello"))
+            .write(to: directory.appendingPathComponent("en.pklm"))
+        try Data(file("uk", alphabet: "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя'-", word: "привіт"))
+            .write(to: directory.appendingPathComponent("uk.pklm"))
+        return (try #require(Bundle(path: directory.path)), directory)
+    }
+
+    @Test func mapsOnlyTheLanguagesAskedFor() throws {
+        let (bundle, directory) = try Self.bundle()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let english = try #require(ModelStore.model(languages: ["en"], bundle: bundle))
+        #expect(english.codes == ["en"])
+        // A Russian layout comes: the English file is kept, the Russian one mapped.
+        let both = try #require(ModelStore.model(languages: ["ru", "en"], reusing: english, bundle: bundle))
+        #expect(both.codes == ["ru", "en"])
+        #expect(both.byteCount > english.byteCount)
+        // It goes again: nothing of it stays mapped.
+        let again = try #require(ModelStore.model(languages: ["en"], reusing: both, bundle: bundle))
+        #expect(again.codes == ["en"])
+        #expect(again.byteCount == english.byteCount)
+        // A language without a file is skipped; none at all gives nil.
+        #expect(ModelStore.model(languages: ["en", "de"], bundle: bundle)?.codes == ["en"])
+        #expect(ModelStore.model(languages: ["de"], bundle: bundle) == nil)
+        // uk.pklm loads, though the app does not switch Ukrainian yet.
+        #expect(ModelStore.model(languages: ["uk"], bundle: bundle)?.codes == ["uk"])
+    }
+
+    @Test func theAppMapsOnlyEnabledLanguages() {
+        let layouts = [("ABC", "en"), ("Russian", "ru"), ("Ukrainian", "uk"), ("Emoji", nil)].map { id, language in
+            LayoutMap(id: LayoutID(rawValue: id), language: language, table: [:])
+        }
+        #expect(ModelStore.enabledLanguages == ["ru", "en"])
+        #expect(ModelStore.languages(of: layouts) == ["ru", "en"])
+        #expect(ModelStore.languages(of: Array(layouts.prefix(1))) == ["en"], "no Russian layout, no Russian file")
+        #expect(ModelStore.languages(of: layouts, enabled: ["ru", "en", "uk"]) == ["ru", "en", "uk"])
     }
 
     private final class Marker {}

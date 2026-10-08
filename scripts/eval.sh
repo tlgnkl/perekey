@@ -3,14 +3,16 @@
 #
 # Measures the classifier on the held-out corpus (docs/classifier.md).
 #
-# Usage: scripts/eval.sh [--full] [--sweep] [--typo-sweep] [--context-sweep] [--prior-sweep] [--model <file>]
+# Usage: scripts/eval.sh [--full] [--sweep] [--typo-sweep] [--context-sweep] [--prior-sweep]
+#                       [--model <file or dir>]
 #
 #   --full    the full corpus (about 1 M words) instead of the 50 k CI sample
 #   --sweep   print the ROC points over thresholds too
 #   --typo-sweep  print the typo correction points over minRank and margin too
 #   --context-sweep  print the points over the context weights too
 #   --prior-sweep    print the points over the app prior's scale and limit too
-#   --model   a model file (default: builds one with scripts/build-model.sh)
+#   --model   a model file or a directory of them (default: builds them with
+#             scripts/build-model.sh)
 #
 # Needs the held-out sources: scripts/fetch-data.sh lexicon heldout. The corpus
 # is built once per size into .build/eval/ and reused. Exit status 1 when the
@@ -31,7 +33,7 @@ while [[ $# -gt 0 ]]; do
         --context-sweep) SWEEP+=(--context-sweep) ;;
         --prior-sweep) SWEEP+=(--prior-sweep) ;;
         --model) MODEL="$2"; shift ;;
-        -h|--help) sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "eval: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -44,7 +46,7 @@ done
 
 if [[ -z "$MODEL" ]]; then
     PEREKEY_DATA_CACHE="$CACHE" scripts/build-model.sh >/dev/null
-    MODEL="$PWD/.build/model/perekey.model"
+    MODEL="$PWD/.build/model"
 fi
 
 swift build -c release --product perekey-eval >/dev/null

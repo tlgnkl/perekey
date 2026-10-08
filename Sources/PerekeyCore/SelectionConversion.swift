@@ -68,6 +68,15 @@ public enum SelectionConversion {
         return keys
     }
 
+    /// The keys that type `text` in `layout`, for a selection transformed in
+    /// place (case, script). A character the layout cannot type keeps its text
+    /// on the Space key, as in `keys(for:from:to:)`.
+    public static func keys(typing text: String, in layout: LayoutMap) -> [Retype.Key] {
+        text.map { character in
+            Retype.Key(stroke: layout.stroke(for: character) ?? KeyStroke(KeyCode.space), text: String(character))
+        }
+    }
+
     /// Everything in one: checks, the source layout and the keys. `layouts`
     /// in order of preference for ties, the current layout first.
     /// `counterpart` picks the target for a source.

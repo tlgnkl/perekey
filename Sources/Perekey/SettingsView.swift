@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import PerekeyCore
 import PerekeyInput
 import SwiftUI
 
@@ -102,7 +103,7 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch current {
-        case .general: GeneralPane(store: store)
+        case .general: GeneralPane(store: store, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
         case .shortcuts: ShortcutsPane(store: store, recording: recording)
         case .apps: AppsPane(store: store, sources: sources)
         case .sites: SitesPane(store: store, sources: sources)

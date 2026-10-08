@@ -62,6 +62,18 @@ public struct InputMachine: Sendable {
         /// The retype replaces the selection through accessibility: no own
         /// events will come, `.retypePosted` stands for the last one.
         var viaAccessibility = false
+        /// What to do with the selection once it is read.
+        var selectionAction = SelectionAction.convertLayout
+    }
+
+    /// The transform a shortcut applies to the selection.
+    private enum SelectionAction: Sendable {
+        /// Retype in the other layout (`convertLastWord`).
+        case convertLayout
+        /// Next case of the cycle (`changeCase`).
+        case changeCase
+        /// Other script (`transliterate`).
+        case transliterate
     }
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil) {
@@ -271,6 +283,19 @@ public struct InputMachine: Sendable {
 
         case .convertLastWord:
             retypeWord(at: time, effects: &effects)
+
+        case .changeCase:
+            changeCaseOfWord(at: time, effects: &effects)
+
+        case .transliterate:
+            if focus?.isSecureField == true {
+                effects.append(.refused(.secureField))
+            } else {
+                startSelectionConversion(at: time, action: .transliterate, effects: &effects)
+            }
+
+        case .pastePlain:
+            effects.append(.pastePlain)
         }
     }
 
@@ -338,18 +363,20 @@ public struct InputMachine: Sendable {
     }
 
     /// Nothing typed: hold input and ask the system layer for the selection.
-    private mutating func startSelectionConversion(at time: Double, effects: inout [Effect]) {
+    private mutating func startSelectionConversion(at time: Double, action: SelectionAction = .convertLayout,
+                                                   effects: inout [Effect])
+    {
         let seq = takeSeq()
         buffer.clear()
         // Long: reading may go through the pasteboard; `.retypePosted` shortens it.
         let deadline = time + settings.postTimeout
-        fence = Fence(seq: seq, deadline: deadline, awaitsSelection: true)
+        fence = Fence(seq: seq, deadline: deadline, awaitsSelection: true, selectionAction: action)
         effects.append(.convertSelection(seq: seq))
         effects.append(.scheduleDeadline(at: deadline))
     }
 
-    /// The selected text arrived: retype it in the counterpart layout, or
-    /// refuse and let input go.
+    /// The selected text arrived: retype it as the shortcut asks, or refuse
+    /// and let input go.
     private mutating func retypeSelection(_ text: String, viaAccessibility: Bool, effects: inout [Effect]) {
         fence?.awaitsSelection = false
         var candidates: [LayoutMap] = []
@@ -358,14 +385,51 @@ public struct InputMachine: Sendable {
         for id in layoutOrder where id != currentLayout {
             if let map = layouts[id] { candidates.append(map) }
         }
-        let result = SelectionConversion.convert(text, layouts: candidates) { source in
-            counterpart(of: source).flatMap { layouts[$0] }
+        switch fence?.selectionAction ?? .convertLayout {
+        case .convertLayout:
+            let result = SelectionConversion.convert(text, layouts: candidates) { source in
+                counterpart(of: source).flatMap { layouts[$0] }
+            }
+            guard case let .keys(source, keys) = result, let target = counterpart(of: source) else {
+                if case let .refused(refusal) = result { effects.append(.refused(refusal)) }
+                release(effects: &effects)
+                return
+            }
+            emitSelectionRetype(text, target: target, keys: keys, viaAccessibility: viaAccessibility, effects: &effects)
+        case .changeCase:
+            retypeSelection(text, as: TextCase.next(after:), candidates: candidates, typedIn: .source,
+                            viaAccessibility: viaAccessibility, effects: &effects)
+        case .transliterate:
+            retypeSelection(text, as: Transliteration.convert, candidates: candidates, typedIn: .result,
+                            viaAccessibility: viaAccessibility, effects: &effects)
         }
-        guard case let .keys(source, keys) = result, let target = counterpart(of: source) else {
-            if case let .refused(refusal) = result { effects.append(.refused(refusal)) }
-            release(effects: &effects)
-            return
-        }
+    }
+
+    /// Which text decides the layout a transformed selection is typed in.
+    private enum LayoutChoice { case source, result }
+
+    /// Types `transform(text)` over the selection, on the layout that types
+    /// the source text (case) or the result (script).
+    private mutating func retypeSelection(_ text: String, as transform: (String) -> String?,
+                                           candidates: [LayoutMap], typedIn: LayoutChoice,
+                                           viaAccessibility: Bool, effects: inout [Effect])
+    {
+        guard !text.isEmpty else { return refuseSelection(.nothingSelected, effects: &effects) }
+        guard SelectionConversion.isTypable(text), let new = transform(text), new != text,
+              let map = SelectionConversion.sourceLayout(of: typedIn == .source ? text : new, among: candidates)
+        else { return refuseSelection(.unsupportedSelection, effects: &effects) }
+        emitSelectionRetype(text, target: map.id, keys: SelectionConversion.keys(typing: new, in: map),
+                            viaAccessibility: viaAccessibility, effects: &effects)
+    }
+
+    private mutating func refuseSelection(_ refusal: Refusal, effects: inout [Effect]) {
+        effects.append(.refused(refusal))
+        release(effects: &effects)
+    }
+
+    private mutating func emitSelectionRetype(_ text: String, target: LayoutID, keys: [Retype.Key],
+                                              viaAccessibility: Bool, effects: inout [Effect])
+    {
         guard let seq = fence?.seq else { return }
         let layoutBefore = target == currentLayout ? nil : currentLayout
         select(target, effects: &effects)
@@ -374,6 +438,64 @@ public struct InputMachine: Sendable {
         fence?.awaitedLayout = target == confirmedLayout ? nil : target
         fence?.layoutBefore = layoutBefore
         fence?.viaAccessibility = viaAccessibility
+    }
+
+    /// Cycles the case of the word before the caret by retyping it with the
+    /// same keys and the Shift flags of the new case, in the layout it was
+    /// typed in. Without a word, the selection goes through the same cycle.
+    private mutating func changeCaseOfWord(at time: Double, effects: inout [Effect]) {
+        if focus?.isSecureField == true {
+            effects.append(.refused(.secureField))
+            return
+        }
+        guard let wordLayout = buffer.wordLayout else {
+            startSelectionConversion(at: time, action: .changeCase, effects: &effects)
+            return
+        }
+        guard let currentLayout, wordLayout == currentLayout, let map = layouts[currentLayout] else {
+            effects.append(.refused(.unsupportedLayout))
+            return
+        }
+        var typed: [Character] = []
+        typed.reserveCapacity(buffer.entries.count)
+        for entry in buffer.entries {
+            guard entry.layout == currentLayout, !entry.stroke.modifiers.contains(.option),
+                  let text = map.text(for: entry.stroke), text.count == 1, let character = text.first
+            else {
+                effects.append(.refused(.unconvertibleWord))
+                return
+            }
+            typed.append(character)
+        }
+        let old = String(typed)
+        guard let new = TextCase.next(after: old) else {
+            effects.append(.refused(.unconvertibleWord))
+            return
+        }
+        var keys: [Retype.Key] = []
+        var strokes: [KeyStroke] = []
+        keys.reserveCapacity(typed.count)
+        strokes.reserveCapacity(typed.count)
+        for (entry, character) in zip(buffer.entries, new) {
+            var stroke = entry.stroke
+            if map.text(for: stroke) != String(character) {
+                guard let other = map.stroke(for: character), !other.modifiers.contains(.option) else {
+                    effects.append(.refused(.missingKeys))
+                    return
+                }
+                stroke = other
+            }
+            strokes.append(stroke)
+            keys.append(Retype.Key(stroke: stroke, text: String(character)))
+        }
+
+        let seq = takeSeq()
+        effects.append(.retype(Retype(deleteCount: keys.count, keys: keys, target: currentLayout,
+                                      expected: old, seq: seq)))
+        buffer.replaceStrokes(strokes)
+        let deadline = time + settings.postTimeout
+        fence = Fence(seq: seq, deadline: deadline)
+        effects.append(.scheduleDeadline(at: deadline))
     }
 
     /// The layout a word typed in `source` should be retyped into.
@@ -419,6 +541,7 @@ public struct InputMachine: Sendable {
         for hotkey in newSettings.hotkeys {
             switch hotkey.trigger {
             case let .modifiers(chord, taps):
+                guard hotkey.action.acceptsModifierOnlyTrigger else { continue }
                 chords.append(.init(chord, taps: taps.rawValue, action: hotkey.action))
             case let .key(keyCode, modifiers):
                 let mask = modifiers.reduce(UInt8(0)) { $0 | $1.maskBit } & ~ModifierKind.function.maskBit

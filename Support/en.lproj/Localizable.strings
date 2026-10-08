@@ -169,3 +169,27 @@
 "This site already has a rule." = "This site already has a rule.";
 "Undo" = "Undo";
 "Remembered “%@”" = "Remembered “%@”";
+/* Stage 4: actions, sounds, report */
+"A wrong correction?" = "A wrong correction?";
+"Change case of the word or selection" = "Change case of the word or selection";
+"Feedback" = "Feedback";
+"Include the word" = "Include the word";
+"Leave it out if the text is private." = "Leave it out if the text is private.";
+"Off until you record a key with modifiers, such as ⌃⌥V." = "Off until you record a key with modifiers, such as ⌃⌥V.";
+"Open on GitHub" = "Open on GitHub";
+"Paste without formatting" = "Paste without formatting";
+"Perekey sends nothing by itself. The button opens a GitHub form with the text below; you can still change it there." = "Perekey sends nothing by itself. The button opens a GitHub form with the text below; you can still change it there.";
+"Play" = "Play";
+"Press again to go lower, Title, UPPER." = "Press again to go lower, Title, UPPER.";
+"Report a word" = "Report a word";
+"Report a word…" = "Report a word…";
+"Selection only: Cyrillic to Latin and back." = "Selection only: Cyrillic to Latin and back.";
+"Sound on correction" = "Sound on correction";
+"Sound on layout switch" = "Sound on layout switch";
+"Sounds" = "Sounds";
+"The word" = "The word";
+"This is what the link contains" = "This is what the link contains";
+"This one needs a key with modifiers, not modifiers alone." = "This one needs a key with modifiers, not modifiers alone.";
+"Transliterate the selection" = "Transliterate the selection";
+"What Perekey did" = "What Perekey did";
+"You see the text before anything is sent." = "You see the text before anything is sent.";

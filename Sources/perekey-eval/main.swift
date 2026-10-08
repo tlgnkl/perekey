@@ -15,7 +15,8 @@
 // false switches and recall per category; `--sweep` repeats it over a range
 // of thresholds (the ROC points) and names the lowest threshold that meets the
 // plan's targets. Exit status 1 when the targets are missed at the threshold
-// in use: false switches ≥ 0.1 % or recall < 95 %.
+// in use: false switches ≥ 0.1 % of all words, or recall < 95 % on prose and
+// chat (names and mixed text are reported but not gated).
 
 import Foundation
 import PerekeyCore
@@ -92,6 +93,7 @@ do {
             "threshold": results.threshold,
             "falseRate": results.total.falseRate,
             "recall": results.total.recall,
+            "textRecall": results.textRecall,
             "categories": results.categories.map { category -> [String: Any] in
                 ["name": category.name, "keepWords": category.keepWords, "falseSwitches": category.falseSwitches,
                  "switchWords": category.switchWords, "switches": category.switches]
@@ -104,8 +106,9 @@ do {
             var best: Evaluation.Results?
             for point in points {
                 let total = point.total
-                print(String(format: "  %5.1f  %7.3f%%  %6.2f%%", point.threshold, total.falseRate * 100, total.recall * 100))
-                if best == nil, total.falseRate < 0.001, total.recall >= 0.95 { best = point }
+                print(String(format: "  %5.1f  %7.3f%%  %6.2f%% (prose+chat %6.2f%%)", point.threshold,
+                             total.falseRate * 100, total.recall * 100, point.textRecall * 100))
+                if best == nil, total.falseRate < 0.001, point.textRecall >= 0.95 { best = point }
             }
             if let best {
                 print(String(format: "lowest threshold meeting the targets: %.1f", best.threshold))
@@ -119,8 +122,10 @@ do {
                 .write(to: URL(fileURLWithPath: path))
         }
         let total = results.total
-        if total.falseRate >= 0.001 || total.recall < 0.95 {
-            print("FAIL: targets are false switches < 0.1 % and recall ≥ 95 %")
+        print(String(format: "false switches %.3f%% of all words, recall %.2f%% on prose and chat",
+                     total.falseRate * 100, results.textRecall * 100))
+        if total.falseRate >= 0.001 || results.textRecall < 0.95 {
+            print("FAIL: targets are false switches < 0.1 % and recall ≥ 95 % on prose and chat")
             exit(1)
         }
 

@@ -35,6 +35,13 @@ public struct Evaluation {
         public var untypeable = 0
         public var errors: [Case]
 
+        /// Recall over prose and chat: the plan's target applies to text.
+        public var textRecall: Double {
+            let text = categories.filter { $0.name == "prose" || $0.name == "chat" }
+            let words = text.reduce(0) { $0 + $1.switchWords }
+            return words > 0 ? Double(text.reduce(0) { $0 + $1.switches }) / Double(words) : 1
+        }
+
         public var total: Category {
             var total = Category(name: "all")
             for category in categories {

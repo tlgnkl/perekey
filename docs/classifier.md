@@ -241,20 +241,21 @@ Classifier.Options { threshold, unknownWordExtra, noiseCost, unknownNoiseCost, o
 ниже 95 % на prose и chat.
 
 **В приложении.** `scripts/bundle.sh` кладёт файлы языков
-`PEREKEY_LANGUAGES` (по умолчанию `ru en uk be`) из `PEREKEY_MODEL` (каталог, по
+`PEREKEY_LANGUAGES` (по умолчанию языки `data/languages`) из `PEREKEY_MODEL` (каталог, по
 умолчанию сборка `build-model.sh`, при нужде собирает) в
 `Contents/Resources/<язык>.pklm`. `ModelStore` (`PerekeyInput`) отображает из
 `Bundle.main` через `Data(.alwaysMapped)` только языки установленных
-раскладок из `ModelStore.enabledLanguages`: `model(languages:reusing:bundle:)`,
+раскладок из `ModelStore.enabledLanguages` — это языки файлов, которые лежат
+в бандле. Так у списка один источник, `data/languages`: `bundle.sh` кладёт
+его файлы, приложение включает найденные. `model(languages:reusing:bundle:)`,
 `classifier(languages:bundle:options:)`, `model(at:)`. При `layoutsChanged`
 `InputController` спрашивает снова: файлы оставшихся языков переиспользуются,
 новые отображаются, файлы ушедших языков освобождаются вместе с прежним
 классификатором. `nil` с причиной в логе `app.perekey/model`, если файлов
 нет или они повреждены.
 
-uk в `enabledLanguages` пока нет: файла модели ядру достаточно, чтобы
-переключать пару, а автопереключение uk включает этап 8, задача 1 (ru ↔ uk
-никогда). `uk.pklm` собирается, проверяется хэшем и загружается в тестах;
+`scripts/build-model.sh` по умолчанию собирает все файлы из
+`data/model.sha256`, включённые и нет (kk), и CI сверяет хэш каждого.
 `perekey-eval coverage --model .build/model --language uk` даёт покрытие
 словаря: 98,68 % токенов Tatoeba `ukr` (ru 99,09 %, en 99,30 %). Загрузка — на главном
 потоке, `Classifier` — `Sendable`, в tap уходит значением.
@@ -417,8 +418,8 @@ Byelorussian и Kazakh (снимки `Tests/PerekeyCoreTests/Fixtures`, macOS 27
 | | chat | 25 002 | 0 | 0 | 70,69 % |
 | | всего | 44 332 | 0 | 0 | 66,09 % |
 
-**be проходит обе цели** и включён: `ModelStore.enabledLanguages`,
-`PEREKEY_LANGUAGES`, шаг `scripts/eval.sh`. Покрытие словаря 96,37 % токенов
+**be проходит обе цели** и включён: строка в `data/languages`, шаг
+`scripts/eval.sh`. Покрытие словаря 96,37 % токенов
 Tatoeba `bel` (`data/SOURCES.md`).
 
 **Три кириллицы** (`perekey-eval cyrillic --languages ru,be` и `ru,uk,be`,

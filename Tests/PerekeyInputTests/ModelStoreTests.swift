@@ -81,10 +81,30 @@ struct ModelStoreTests {
         let layouts = [("ABC", "en"), ("Russian", "ru"), ("Ukrainian", "uk"), ("Byelorussian", "be"), ("Kazakh", "kk"), ("Emoji", nil)].map { id, language in
             LayoutMap(id: LayoutID(rawValue: id), language: language, table: [:])
         }
-        #expect(ModelStore.enabledLanguages == ["ru", "en", "uk", "be"])
-        #expect(ModelStore.languages(of: layouts) == ["ru", "en", "uk", "be"], "Kazakh is built but not enabled")
-        #expect(ModelStore.languages(of: Array(layouts.prefix(1))) == ["en"], "no Russian layout, no Russian file")
+        let shipped: Set<String> = ["ru", "en", "uk", "be"]
+        #expect(ModelStore.languages(of: layouts, enabled: shipped) == shipped, "Kazakh is built but not shipped")
+        #expect(ModelStore.languages(of: Array(layouts.prefix(1)), enabled: shipped) == ["en"],
+                "no Russian layout, no Russian file")
         #expect(ModelStore.languages(of: layouts, enabled: ["ru", "en"]) == ["ru", "en"])
+    }
+
+    @Test func theAppEnablesTheFilesTheBundleCarries() throws {
+        let (bundle, directory) = try Self.bundle()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(ModelStore.bundledLanguages(in: bundle) == ["ru", "en", "uk"])
+        #expect(ModelStore.bundledLanguages(in: Bundle(for: Marker.self)).isEmpty)
+    }
+
+    /// data/languages is the one list of shipped languages: every one has a
+    /// recorded model hash.
+    @Test func theShippedLanguagesHaveRecordedModels() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let languages = try String(contentsOf: root.appendingPathComponent("data/languages"), encoding: .utf8)
+            .split(separator: "\n").filter { !$0.hasPrefix("#") && !$0.isEmpty }.map(String.init)
+        let hashes = try String(contentsOf: root.appendingPathComponent("data/model.sha256"), encoding: .utf8)
+        #expect(languages == ["ru", "en", "uk", "be"])
+        for language in languages { #expect(hashes.contains("  \(language).pklm"), "\(language)") }
     }
 
     private final class Marker {}

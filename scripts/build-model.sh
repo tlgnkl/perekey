@@ -2,18 +2,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Builds the language model files, one per language (ru.pklm, en.pklm,
-# uk.pklm, be.pklm), from the data cache (scripts/fetch-data.sh lexicon wikifreq) and checks
-# each file's hash against data/model.sha256.
+# uk.pklm, be.pklm, kk.pklm), from the data cache (scripts/fetch-data.sh
+# lexicon wikifreq) and checks each file's hash against data/model.sha256.
 #
-# Usage: scripts/build-model.sh [--write] [--out <dir>] [--languages ru,en,uk,be]
+# Usage: scripts/build-model.sh [--write] [--out <dir>] [--languages ru,en,uk,be,kk]
 #
 #   --write   record the hashes of this build in data/model.sha256 instead of
 #             checking them (after a deliberate change of the builder or data)
 #   --out     the directory for the files (default: .build/model)
-#   --languages  the languages to build (default: ru,en,uk,be). be and kk
-#             count their words with scripts/wiki-freq.py, run here in
-#             .build/venv (pip install pyarrow msgpack) when the list is
-#             missing; kk also needs scripts/fetch-data.sh text. The hashes
+#   --languages  the languages to build (default: every file of
+#             data/model.sha256, shipped or not, so CI checks them all). be
+#             and kk count their words with scripts/wiki-freq.py, run here in
+#             .build/venv when the list is missing; its packages are pinned
+#             with hashes in scripts/wiki-freq.requirements.txt. The hashes
 #             are checked and recorded for the built languages only
 #
 # Environment:
@@ -48,13 +49,20 @@ done
 }
 
 # Languages wordfreq lacks: the word counts of the Wikipedia snapshot.
-for language in $(tr , ' ' <<< "${LANGUAGES:-ru,en,uk,be}"); do
+# Every recorded file by default: a model that is built but not shipped (kk)
+# is checked as well.
+if [[ -z "$LANGUAGES" && -f data/model.sha256 ]]; then
+    LANGUAGES="$(awk '{ sub(/\.pklm$/, "", $2); print $2 }' data/model.sha256 | paste -sd, -)"
+fi
+for language in $(tr , ' ' <<< "${LANGUAGES:-ru,en,uk,be,kk}"); do
     [[ "$language" == be || "$language" == kk ]] || continue
     [[ -f "$CACHE/wikifreq/large_$language.msgpack.gz" ]] && continue
     venv="$PWD/.build/venv"
     if [[ ! -x "$venv/bin/python" ]] || ! "$venv/bin/python" -c 'import pyarrow, msgpack' 2>/dev/null; then
         python3 -m venv "$venv"
-        "$venv/bin/pip" install --quiet pyarrow msgpack
+        # Exact versions and hashes: nothing unpinned runs in a build.
+        "$venv/bin/pip" install --quiet --require-hashes --only-binary :all: \
+            -r scripts/wiki-freq.requirements.txt
     fi
     "$venv/bin/python" scripts/wiki-freq.py --cache "$CACHE" "$language"
 done

@@ -10,8 +10,9 @@ downloads (group `text`). The output is <cache>/wikifreq/large_<lang>.msgpack.gz
 in the wordfreq "cB" format: perekey-model reads it as it reads wordfreq's
 files. Deterministic: the same parquet files give the same bytes.
 
-Needs pyarrow and msgpack (preparation step only, not the app):
-    python3 -m venv .build/venv && .build/venv/bin/pip install pyarrow msgpack
+Needs pyarrow and msgpack (preparation step only, not the app), pinned with
+hashes in scripts/wiki-freq.requirements.txt; scripts/build-model.sh installs
+them into .build/venv with pip --require-hashes.
 """
 import argparse
 import glob

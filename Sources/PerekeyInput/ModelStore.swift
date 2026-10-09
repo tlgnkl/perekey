@@ -13,13 +13,19 @@ import PerekeyCore
 public enum ModelStore {
     private static let log = Logger(subsystem: "app.perekey", category: "model")
 
-    /// The languages the app switches between. A model file is all the core
-    /// needs to weigh a reading, so a language joins here only when its pair
-    /// is measured (`scripts/eval.sh`). Automatic switching goes between a
-    /// Latin and a Cyrillic language only (`Classifier.switchesAutomatically`):
-    /// ru ↔ uk is manual. Kazakh has a model but is not here: it misses the
-    /// recall target (docs/classifier.md, «en ↔ kk»).
-    public static let enabledLanguages: Set<String> = ["ru", "en", "uk", "be"]
+    /// The languages the app switches between: those whose model file the
+    /// bundle carries. The one list is `data/languages`: scripts/bundle.sh
+    /// ships the files it names, so a language joins in one place, when its
+    /// pair meets the targets of `scripts/eval.sh`. Automatic switching goes
+    /// between a Latin and a Cyrillic language only
+    /// (`Classifier.switchesAutomatically`): ru ↔ uk is manual.
+    public static let enabledLanguages: Set<String> = bundledLanguages(in: .main)
+
+    /// The languages of the model files in `bundle`.
+    public static func bundledLanguages(in bundle: Bundle) -> Set<String> {
+        let files = bundle.urls(forResourcesWithExtension: ModelFile.fileExtension, subdirectory: nil) ?? []
+        return Set(files.map { $0.deletingPathExtension().lastPathComponent })
+    }
 
     /// The enabled languages the model needs for these layouts.
     public static func languages(of layouts: [LayoutMap], enabled: Set<String> = enabledLanguages) -> Set<String> {

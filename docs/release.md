@@ -96,10 +96,15 @@ SPARKLE_ED_PRIVATE_KEY=<закрытый> scripts/appcast.sh .build/dmg/Perekey-
 - Описание изменений не встраивается в appcast и не грузится отдельным
   запросом: проверка остаётся одним GET. Кнопка «История версий» в окне
   Sparkle открывает страницу релиза в браузере.
-- В бандл идёт модель — файл на язык: `Contents/Resources/ru.pklm`,
-  `en.pklm`, `uk.pklm` и `be.pklm` (`PEREKEY_LANGUAGES` в `scripts/bundle.sh`). `release.yml`
-  собирает их из кэша `scripts/fetch-data.sh lexicon wikifreq`; хэш каждого файла
-  сверен с `data/model.sha256` в CI того же коммита. Приложение, которое
+- В бандл идёт модель — файл на язык из `data/languages`: сейчас
+  `Contents/Resources/ru.pklm`, `en.pklm`, `uk.pklm` и `be.pklm`. Приложение
+  включает ровно те языки, файлы которых нашло в бандле. `release.yml`
+  собирает модели из кэша `scripts/fetch-data.sh lexicon wikifreq` отдельным
+  шагом до импорта сертификата Developer ID: пакеты Python для
+  `wiki-freq.py` ставятся с точными версиями и хэшами
+  (`scripts/wiki-freq.requirements.txt`, `pip --require-hashes`), и ничего
+  стороннего не запускается, пока сертификат лежит в открытой связке. Хэш
+  каждого файла, включённого или нет, сверен с `data/model.sha256`. Приложение, которое
   ждёт прежний `perekey.model`, новую модель не найдёт: старые сборки и
   новые файлы не смешивать.
 - Подписывать все выпуски одной подписью. С Developer ID Sparkle проверяет и

@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The languages Perekey switches: scripts/bundle.sh ships their model files,
+# and the app enables exactly the files it finds (ModelStore.enabledLanguages).
+# A language joins only when its pair meets the targets of scripts/eval.sh.
+# Kazakh has a model but misses the recall target (docs/classifier.md, «en ↔ kk»).
+ru
+en
+uk
+be

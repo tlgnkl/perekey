@@ -116,7 +116,7 @@ struct SitesPane: View {
             }
         }
         .labelsHidden()
-        .frame(width: 140)
+        .frame(width: 196)
     }
 
     private func binding(for host: String) -> Binding<SiteLayoutChoice> {

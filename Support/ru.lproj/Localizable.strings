@@ -30,12 +30,14 @@
 "Continue" = "Продолжить";
 "Control + Shift" = "Control + Shift";
 "Ctrl+Shift habit on a Mac" = "Привычка Ctrl+Shift на Mac";
+"Delete" = "Delete";
 "Don't touch" = "Не трогать";
 "Done" = "Готово";
 "Double Shift" = "Двойной Shift";
 "Drag Perekey into the Accessibility list in System Settings" = "Перетащите Perekey в список «Универсальный доступ» в Системных настройках";
 "Edge of %@ at a threshold of %lld" = "Перевес %@ при пороге %lld";
 "Edge of %@, but it needed %lld" = "Перевес %@, а нужно %lld";
+"Escape" = "Esc";
 "General" = "Основные";
 "Hint" = "Подсказка";
 "Hint at the caret" = "Подсказка у курсора";
@@ -56,6 +58,7 @@
 "One letter too many, and the fixed word is a known one" = "Лишняя буква, а исправленное слово есть в словаре";
 "One letter was missing, and the fixed word is a known one" = "Не хватало буквы, а исправленное слово есть в словаре";
 "One letter was wrong, and the fixed word is a known one" = "Одна буква не та, а исправленное слово есть в словаре";
+"Return" = "Return";
 "Shift alone, Option retypes" = "Один Shift, Option перенабирает";
 "Like Ctrl+Shift on Windows" = "Как Ctrl+Shift в Windows";
 "Like macOS" = "Как в macOS";
@@ -97,9 +100,11 @@
 "Shift twice retypes" = "Двойной Shift перенабирает";
 "Shortcuts" = "Сочетания";
 "Shows what Perekey changed, a moment after the word." = "Показывает, что Perekey изменил, сразу после слова.";
+"Space" = "Пробел";
 "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal." = "Запускайте Perekey командой «open Perekey.app», а не самим файлом. Иначе macOS выдаст доступ Терминалу.";
 "Step %lld of %lld" = "Шаг %1$lld из %2$lld";
 "Switch layout" = "Сменить раскладку";
+"Tab" = "Tab";
 "The app modes say so. Perekey does not fix words or change the layout here." = "Так задано в режимах программ. Здесь Perekey не исправляет и не меняет раскладку.";
 "The dictionary spells this word with «ё»" = "В словаре это слово пишется с «ё»";
 "The fn / 🌐 key also runs its own macOS action, which can switch the input source." = "Клавиша fn / 🌐 запускает и своё действие macOS, которое может сменить источник ввода.";
@@ -159,7 +164,7 @@
 "In terminals and code editors Perekey fixes only on your command. In games it is off." = "В терминалах и редакторах кода Perekey исправляет только по вашей команде, в играх выключен.";
 "Search the list" = "Найти в списке";
 "Mode" = "Режим";
-"All %@" = "Все %@";
+"All %lld" = "Все %lld";
 "%@ %@" = "%@ %@";
 "Add app" = "Добавить программу";
 "Layout" = "Раскладка";
@@ -174,7 +179,7 @@
 "Cannot export settings" = "Не удалось экспортировать настройки";
 "Cannot import settings" = "Не удалось импортировать настройки";
 "Replace your settings?" = "Заменить ваши настройки?";
-"The file has %@ shortcuts, %@ apps and %@ words." = "В файле: сочетаний — %@, программ — %@, слов — %@.";
+"The file has %lld shortcuts, %lld apps and %lld words." = "В файле: сочетаний — %lld, программ — %lld, слов — %lld.";
 "They replace all your current settings." = "Они заменят все текущие настройки.";
 "Apps" = "Программы";
 "Words" = "Слова";
@@ -207,7 +212,7 @@
 "Reset" = "Сбросить";
 "Forget the languages typed in this app" = "Забыть, на каких языках здесь писали";
 "The file is not a Perekey settings file." = "Это не файл настроек Perekey.";
-"The file comes from a newer Perekey (format %@). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %@). Обновите Perekey и попробуйте снова.";
+"The file comes from a newer Perekey (format %lld). Update Perekey and try again." = "Файл создан более новой версией Perekey (формат %lld). Обновите Perekey и попробуйте снова.";
 
 /* Sites (stage 4) */
 "Sites" = "Сайты";

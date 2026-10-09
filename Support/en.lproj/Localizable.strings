@@ -30,12 +30,14 @@
 "Continue" = "Continue";
 "Control + Shift" = "Control + Shift";
 "Ctrl+Shift habit on a Mac" = "Ctrl+Shift habit on a Mac";
+"Delete" = "Delete";
 "Don't touch" = "Don't touch";
 "Done" = "Done";
 "Double Shift" = "Double Shift";
 "Drag Perekey into the Accessibility list in System Settings" = "Drag Perekey into the Accessibility list in System Settings";
 "Edge of %@ at a threshold of %lld" = "Edge of %@ at a threshold of %lld";
 "Edge of %@, but it needed %lld" = "Edge of %@, but it needed %lld";
+"Escape" = "Escape";
 "General" = "General";
 "Hint" = "Hint";
 "Hint at the caret" = "Hint at the caret";
@@ -56,6 +58,7 @@
 "One letter too many, and the fixed word is a known one" = "One letter too many, and the fixed word is a known one";
 "One letter was missing, and the fixed word is a known one" = "One letter was missing, and the fixed word is a known one";
 "One letter was wrong, and the fixed word is a known one" = "One letter was wrong, and the fixed word is a known one";
+"Return" = "Return";
 "Shift alone, Option retypes" = "Shift alone, Option retypes";
 "Like Ctrl+Shift on Windows" = "Like Ctrl+Shift on Windows";
 "Like macOS" = "Like macOS";
@@ -97,9 +100,11 @@
 "Shift twice retypes" = "Shift twice retypes";
 "Shortcuts" = "Shortcuts";
 "Shows what Perekey changed, a moment after the word." = "Shows what Perekey changed, a moment after the word.";
+"Space" = "Space";
 "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal." = "Start Perekey with “open Perekey.app”, not by running the binary. Otherwise macOS gives the access to Terminal.";
 "Step %lld of %lld" = "Step %1$lld of %2$lld";
 "Switch layout" = "Switch layout";
+"Tab" = "Tab";
 "The app modes say so. Perekey does not fix words or change the layout here." = "The app modes say so. Perekey does not fix words or change the layout here.";
 "The dictionary spells this word with «ё»" = "The dictionary spells this word with «ё»";
 "The fn / 🌐 key also runs its own macOS action, which can switch the input source." = "The fn / 🌐 key also runs its own macOS action, which can switch the input source.";
@@ -159,7 +164,7 @@
 "In terminals and code editors Perekey fixes only on your command. In games it is off." = "In terminals and code editors Perekey fixes only on your command. In games it is off.";
 "Search the list" = "Search the list";
 "Mode" = "Mode";
-"All %@" = "All %@";
+"All %lld" = "All %lld";
 "%@ %@" = "%@ %@";
 "Add app" = "Add app";
 "Layout" = "Layout";
@@ -174,7 +179,7 @@
 "Cannot export settings" = "Cannot export settings";
 "Cannot import settings" = "Cannot import settings";
 "Replace your settings?" = "Replace your settings?";
-"The file has %@ shortcuts, %@ apps and %@ words." = "The file has %@ shortcuts, %@ apps and %@ words.";
+"The file has %lld shortcuts, %lld apps and %lld words." = "The file has %lld shortcuts, %lld apps and %lld words.";
 "They replace all your current settings." = "They replace all your current settings.";
 "Apps" = "Apps";
 "Words" = "Words";
@@ -207,7 +212,7 @@
 "Reset" = "Reset";
 "Forget the languages typed in this app" = "Forget the languages typed in this app";
 "The file is not a Perekey settings file." = "The file is not a Perekey settings file.";
-"The file comes from a newer Perekey (format %@). Update Perekey and try again." = "The file comes from a newer Perekey (format %@). Update Perekey and try again.";
+"The file comes from a newer Perekey (format %lld). Update Perekey and try again." = "The file comes from a newer Perekey (format %lld). Update Perekey and try again.";
 
 /* Sites (stage 4) */
 "Sites" = "Sites";

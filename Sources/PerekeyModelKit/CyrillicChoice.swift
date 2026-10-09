@@ -71,11 +71,14 @@ public struct CyrillicChoice {
     /// The plan's bound for the wrong Cyrillic language with context.
     public static let target = 0.005
 
-    public static func build(cache: String, words: Int, seed: UInt64) throws -> [Item] {
+    /// Tatoeba files of the Cyrillic languages.
+    static let tatoebaFiles = ["ru": "rus", "uk": "ukr", "be": "bel"]
+
+    public static func build(cache: String, words: Int, seed: UInt64, languages: [String] = ["ru", "uk"]) throws -> [Item] {
         var random = SplitMix64(seed: seed)
         var items: [Item] = []
         var sentenceIndex = 0
-        for (language, file) in [("ru", "rus"), ("uk", "ukr")] {
+        for (language, file) in languages.compactMap({ code in tatoebaFiles[code].map { (code, $0) } }) {
             var count = 0
             for sentence in try Corpus.tatoeba("\(cache)/tatoeba/\(file)_sentences.tsv.bz2", random: &random)
                 where count < words
@@ -110,15 +113,15 @@ public struct CyrillicChoice {
 
     /// - Parameter layouts: ABC, and the Cyrillic layout of each language.
     public static func run(_ items: [Item], classifier: Classifier, abc: LayoutMap,
-                           layouts: [String: LayoutMap]) -> [Row]
+                           layouts: [String: LayoutMap], languages: [String] = ["ru", "uk"]) -> [Row]
     {
         var rows: [Row] = []
-        for language in ["ru", "uk"] {
-            for first in ["ru", "uk"] {
-                guard let own = layouts[language], let a = layouts[first],
-                      let b = layouts[first == "ru" ? "uk" : "ru"]
-                else { continue }
-                let candidates = [a, b]
+        for language in languages {
+            for first in languages {
+                guard let own = layouts[language] else { continue }
+                // The layout used last first, the others in the order given.
+                let candidates = ([first] + languages.filter { $0 != first }).compactMap { layouts[$0] }
+                guard candidates.count == languages.count else { continue }
                 var row = Row(language: language, first: first)
                 for item in items where item.language == language {
                     var strokes: [KeyStroke] = []
@@ -138,7 +141,7 @@ public struct CyrillicChoice {
                         }
                     }
                     count(Classifier.Context(), into: &row.noContext)
-                    let other: String? = language == "ru" ? "uk" : "ru"
+                    let other: String? = first != language ? first : languages.first { $0 != language }
                     count(Classifier.Context(recent: RecentLanguages([other])), into: &row.wrongContext1)
                     count(Classifier.Context(recent: RecentLanguages([other, other, other])), into: &row.wrongContext3)
                     if item.recent.contains(where: { $0 != nil }) {
@@ -154,13 +157,14 @@ public struct CyrillicChoice {
     }
 
     public static func recover(_ items: [Item], classifier: Classifier, abc: LayoutMap,
-                               layouts: [String: LayoutMap]) -> [Recovery]
+                               layouts: [String: LayoutMap], languages: [String] = ["ru", "uk"]) -> [Recovery]
     {
-        guard let russian = layouts["ru"], let ukrainian = layouts["uk"] else { return [] }
+        let candidates = languages.compactMap { layouts[$0] }
+        guard candidates.count == languages.count else { return [] }
         var results: [Recovery] = []
-        for language in ["ru", "uk"] {
+        for language in languages {
             guard let own = layouts[language] else { continue }
-            let other: String? = language == "ru" ? "uk" : "ru"
+            let other: String? = languages.first { $0 != language }
             var recovery = Recovery(language: language)
             var sentence = -1
             var recent = RecentLanguages()
@@ -187,7 +191,7 @@ public struct CyrillicChoice {
                 }
                 guard strokes.count == item.text.count else { continue }
                 position += 1
-                let decision = classifier.classify(strokes, typed: abc, candidates: [russian, ukrainian],
+                let decision = classifier.classify(strokes, typed: abc, candidates: candidates,
                                                    context: Classifier.Context(recent: recent))
                 if decision.verdict == .switch(to: own.id) {
                     done = true
@@ -206,7 +210,7 @@ public struct CyrillicChoice {
     }
 
     public static func report(_ rows: [Row]) -> String {
-        var text = "words typed on ABC, Russian and Ukrainian-PC installed: wrong Cyrillic language / own language\n"
+        var text = "words typed on ABC, the Cyrillic layouts installed: wrong Cyrillic language / own language\n"
         text += "lang first   words   no context              first words             with context\n"
         for row in rows {
             func cell(_ count: Count) -> String {

@@ -113,7 +113,7 @@ Classifier.Options { threshold, unknownWordExtra, noiseCost, unknownNoiseCost, o
 
 ## Модель
 
-Файл на язык (`ru.pklm`, `en.pklm`, `uk.pklm`), little-endian, читается на
+Файл на язык (`ru.pklm`, `en.pklm`, `uk.pklm`, `be.pklm`, `kk.pklm`), little-endian, читается на
 месте через `UnsafeRawBufferPointer`.
 Ядро не трогает Foundation: `ModelFile.load` (единственный файл с Foundation в
 этой части) отображает файл через `Data(contentsOf:options:.alwaysMapped)` и
@@ -169,7 +169,7 @@ Classifier.Options { threshold, unknownWordExtra, noiseCost, unknownNoiseCost, o
 
 **Пароль и капча** не в модели: это правила классификатора.
 
-Итог: `ru.pklm` 10,6 МБ, `en.pklm` 3,0 МБ, `uk.pklm` 4,4 МБ; sha256 каждого
+Итог: `ru.pklm` 10,6 МБ, `en.pklm` 3,0 МБ, `uk.pklm` 4,4 МБ, `be.pklm` 5,6 МБ, `kk.pklm` 6,1 МБ; sha256 каждого
 файла в `data/model.sha256`.
 
 ### Файл на язык
@@ -205,7 +205,7 @@ Classifier.Options { threshold, unknownWordExtra, noiseCost, unknownNoiseCost, o
 
 `perekey-model --cache <кэш> --data data --out <каталог> [--languages ru,en,uk]`,
 обёртка `scripts/build-model.sh`. Пишет `<каталог>/<язык>.pklm`. Входы из
-`scripts/fetch-data.sh lexicon`:
+`scripts/fetch-data.sh lexicon wikifreq`:
 
 1. wordfreq `large_ru`, `large_en`, `large_uk`: ранг частоты и формы. Статистика n-грамм
    считается по этим спискам с весом `√(частота на миллиард)` — компромисс
@@ -241,7 +241,7 @@ Classifier.Options { threshold, unknownWordExtra, noiseCost, unknownNoiseCost, o
 ниже 95 % на prose и chat.
 
 **В приложении.** `scripts/bundle.sh` кладёт файлы языков
-`PEREKEY_LANGUAGES` (по умолчанию `ru en`) из `PEREKEY_MODEL` (каталог, по
+`PEREKEY_LANGUAGES` (по умолчанию `ru en uk be`) из `PEREKEY_MODEL` (каталог, по
 умолчанию сборка `build-model.sh`, при нужде собирает) в
 `Contents/Resources/<язык>.pklm`. `ModelStore` (`PerekeyInput`) отображает из
 `Bundle.main` через `Data(.alwaysMapped)` только языки установленных
@@ -395,6 +395,52 @@ chat 98,47 %. В mixed много русских слов: сайт о язык�
 Числа пары ru/en не изменились: на том же корпусе JSON `scripts/eval.sh`
 совпадает байт в байт. Но корпус пересобирается из исходников Perekey
 (категория code), так что после правки кода выборка чуть другая.
+
+### en ↔ be и en ↔ kk
+
+Частоты be и kk считает `scripts/wiki-freq.py` по Википедии (в wordfreq этих
+языков нет), поэтому Википедия — обучающий текст, и отложенный корпус не берёт
+её совсем: только Tatoeba `bel`/`kaz` и `eng` (`Corpus.buildSmallPair`). Stack
+Exchange на этих языках нет, категории mixed тоже. Предложения кириллического
+файла с латинской буквой отброшены: в Tatoeba `kaz` есть казахский латиницей, и
+его слова корпус принял бы за английские. Набор — на ABC и раскладках
+Byelorussian и Kazakh (снимки `Tests/PerekeyCoreTests/Fixtures`, macOS 27).
+
+Выборка 50 тыс. слов, порог 10 бит (09.10.2026):
+
+| Пара | Категория | Слов | Ложных | Доля | Полнота |
+|---|---|---|---|---|---|
+| en ↔ be | prose | 24 996 | 0 | 0 | 97,86 % |
+| | chat | 25 003 | 0 | 0 | 96,54 % |
+| | всего | 49 999 | 0 | 0 | 97,20 % |
+| en ↔ kk | prose | 19 330 | 0 | 0 | 60,16 % |
+| | chat | 25 002 | 0 | 0 | 70,69 % |
+| | всего | 44 332 | 0 | 0 | 66,09 % |
+
+**be проходит обе цели** и включён: `ModelStore.enabledLanguages`,
+`PEREKEY_LANGUAGES`, шаг `scripts/eval.sh`. Покрытие словаря 96,37 % токенов
+Tatoeba `bel` (`data/SOURCES.md`).
+
+**Три кириллицы** (`perekey-eval cyrillic --languages ru,be` и `ru,uk,be`,
+20 тыс. слов Tatoeba на язык, 09.10.2026). Слово набрано на ABC, раскладки
+ABC, Russian и Byelorussian (и Ukrainian-PC) стоят вместе. Чужая кириллица
+с контекстом: ru 0,00 %, be 0,01 % (ru+be); при трёх кириллицах ru 0,00 %, uk
+0,04 %, be 0,01 %; цель < 0,5 % выполнена, шаг гейта в `eval.sh`. Первое слово
+предложения, когда последней была другая кириллица, уходит не туда в 53–82 %
+случаев (be после ru 60 %, ru после be 60 %): решает последняя
+раскладка, это цена правила без контекста.
+
+**kk не проходит** по полноте и остаётся собранным, но выключенным. Причина не
+в модели: из 15 тыс. пропусков 14 263 — причина `digits`. Казахские «ә і ң ғ ү ұ
+қ» стоят на клавишах цифрового ряда, и слово с ними на ABC читается как слово с
+цифрами; правило цифр оставляет такое слово как есть. Без этих слов полнота
+была бы около 98 %. Снять правило для одной раскладки нельзя без проверки: «2024»
+на ABC читается по-казахски как слово, а «mp3» и «h2o» тоже перестали бы быть
+защищены. Нужны правило «слово из одних цифр и знаков — не слово» и корпус
+кодов и чисел для пары en ↔ kk. Это отдельная задача; проверка —
+`perekey-eval corpus --pair en-kk` и `run --pair en-kk` на модели kk
+(`scripts/build-model.sh --languages ru,en,uk,be,kk --out <каталог>`).
+Опечатки be не исправляются: `TypoCorrector` — только ru и en.
 
 ## Автопереключение
 

@@ -53,6 +53,50 @@ extension Corpus {
         return items
     }
 
+    /// The corpus of the en ↔ be and en ↔ kk pairs: Tatoeba only, prose and
+    /// chat as for Ukrainian, no mixed text (Stack Exchange has no site in
+    /// these languages). Wikipedia is the training text of both models, so it
+    /// is not used here. Tatoeba has few Belarusian and Kazakh sentences: the
+    /// pools of prose and chat are told apart first, and the corpus ends when
+    /// the Cyrillic one runs out, so the two languages stay balanced.
+    /// Sentences with a Latin letter are left out of the Cyrillic file (Kazakh
+    /// is also written in Latin there): their words would be taken for English.
+    public static func buildSmallPair(language: String, cache: String, words: Int, seed: UInt64) throws -> [CorpusItem] {
+        guard let file = ["be": "bel", "kk": "kaz"][language] else {
+            throw ModelBuild.Failure(description: "no Tatoeba file for \(language)")
+        }
+        var random = SplitMix64(seed: seed)
+        var items: [CorpusItem] = []
+        let isLatin = { (character: Character) in character.isASCII && character.isLetter }
+        let cyrillic = try tatoeba("\(cache)/tatoeba/\(file)_sentences.tsv.bz2", random: &random)
+            .filter { !$0.contains(where: isLatin) }
+        let english = try tatoeba("\(cache)/tatoeba/eng_sentences.tsv.bz2", random: &random)
+
+        func tokens(_ sentence: String, category: String) -> [String] {
+            if category == "prose" {
+                return sentence.split(separator: " ").map { trimQuotes(apostrophes($0)) }.filter { !$0.isEmpty }
+            }
+            return apostrophes(Substring(sentence.lowercased())).split(separator: " ").map { token in
+                String(token.filter { $0.isLetter || $0 == "-" || $0 == "'" })
+            }.filter { !$0.isEmpty }
+        }
+        for category in ["prose", "chat"] {
+            let fits = { (sentence: String) in
+                let count = tokens(sentence, category: category).count
+                return category == "prose" ? count >= 8 : (count >= 1 && count <= 6)
+            }
+            var cyr = cyrillic.filter(fits).makeIterator()
+            var en = english.filter(fits).makeIterator()
+            var count = 0
+            while count < Int(Double(words) * 0.5) {
+                guard let sentence = random.bool() ? cyr.next() : en.next() else { break }
+                count += addUkrainian(tokens(sentence, category: category), category: category, language: language,
+                                      to: &items)
+            }
+        }
+        return items
+    }
+
     /// "uk" for a Cyrillic word, "en" for a Latin one, nil for anything else.
     static func ukrainianLanguage(of token: String) -> String? {
         var cyrillic = false, latin = false
@@ -69,14 +113,17 @@ extension Corpus {
         return nil
     }
 
-    private static func addUkrainian(_ tokens: [String], category: String, to items: inout [CorpusItem]) -> Int {
+    private static func addUkrainian(_ tokens: [String], category: String, language cyrillicCode: String = "uk",
+                                     to items: inout [CorpusItem]) -> Int
+    {
         var previous: String?
         var added = 0
         for token in tokens {
-            guard let language = ukrainianLanguage(of: token) else {
+            guard var language = ukrainianLanguage(of: token) else {
                 previous = nil
                 continue
             }
+            if language == "uk" { language = cyrillicCode }
             items.append(CorpusItem(category: category, language: language, previous: previous, text: token))
             previous = language
             added += 1

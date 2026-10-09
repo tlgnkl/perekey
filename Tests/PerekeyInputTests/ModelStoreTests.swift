@@ -78,11 +78,11 @@ struct ModelStoreTests {
     }
 
     @Test func theAppMapsOnlyEnabledLanguages() {
-        let layouts = [("ABC", "en"), ("Russian", "ru"), ("Ukrainian", "uk"), ("Emoji", nil)].map { id, language in
+        let layouts = [("ABC", "en"), ("Russian", "ru"), ("Ukrainian", "uk"), ("Byelorussian", "be"), ("Kazakh", "kk"), ("Emoji", nil)].map { id, language in
             LayoutMap(id: LayoutID(rawValue: id), language: language, table: [:])
         }
-        #expect(ModelStore.enabledLanguages == ["ru", "en", "uk"])
-        #expect(ModelStore.languages(of: layouts) == ["ru", "en", "uk"])
+        #expect(ModelStore.enabledLanguages == ["ru", "en", "uk", "be"])
+        #expect(ModelStore.languages(of: layouts) == ["ru", "en", "uk", "be"], "Kazakh is built but not enabled")
         #expect(ModelStore.languages(of: Array(layouts.prefix(1))) == ["en"], "no Russian layout, no Russian file")
         #expect(ModelStore.languages(of: layouts, enabled: ["ru", "en"]) == ["ru", "en"])
     }

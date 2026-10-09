@@ -73,8 +73,26 @@ echo "en ↔ uk:"
 "$bin" run --pair en-uk --model "$MODEL" --corpus "$uk_corpus" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" \
     --json ".build/eval/result-uk-$WORDS.json"
 
+# The English and Belarusian pair: Tatoeba bel and eng (no Stack Exchange site,
+# and Wikipedia is the training text), typed on ABC and Byelorussian. Kazakh
+# (`--pair en-kk`) misses the recall target and is not gated: docs/classifier.md.
+be_corpus=".build/eval/corpus-be-$WORDS-seed1.tsv"
+if [[ ! -f "$be_corpus" ]]; then
+    "$bin" corpus --pair en-be --cache "$CACHE" --out "$be_corpus" --words "$WORDS" --seed 1
+fi
+echo
+echo "en ↔ be:"
+"$bin" run --pair en-be --model "$MODEL" --corpus "$be_corpus" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" \
+    --json ".build/eval/result-be-$WORDS.json"
+
 # ABC, Russian and Ukrainian-PC together: a Russian or Ukrainian word typed
 # on ABC must land in its own Cyrillic layout (perekey-eval cyrillic).
 echo
 echo "en → ru | uk:"
 "$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE"
+echo
+echo "en → ru | be:"
+"$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE" --languages ru,be
+echo
+echo "en → ru | uk | be:"
+"$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE" --languages ru,uk,be

@@ -18,7 +18,7 @@
 #   SPARKLE_PUBLIC_ED_KEY  replaces SUPublicEDKey of Support/Info.plist
 #   PEREKEY_MODEL  directory of the language model files (default:
 #                  $SCRATCH_PATH/model, built by scripts/build-model.sh if missing)
-#   PEREKEY_LANGUAGES  the model files to ship (default: "ru en uk")
+#   PEREKEY_LANGUAGES  the model files to ship (default: "ru en uk be")
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -69,10 +69,10 @@ cp Support/Perekey.sdef "$APP/Contents/Resources/Perekey.sdef" # AppleScript dic
 # Each file must match its hash in data/model.sha256: a stale local build
 # would otherwise ship silently.
 MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
-LANGUAGES="${PEREKEY_LANGUAGES:-ru en uk}"
+LANGUAGES="${PEREKEY_LANGUAGES:-ru en uk be}"
 if [[ -e "$MODEL" && ! -d "$MODEL" ]]; then
     echo "error: PEREKEY_MODEL=$MODEL is a file; it names the directory of <language>.pklm now" >&2
-    echo "       (the single perekey.model is gone, scripts/build-model.sh writes ru.pklm, en.pklm, uk.pklm)" >&2
+    echo "       (the single perekey.model is gone, scripts/build-model.sh writes ru.pklm, en.pklm, uk.pklm, be.pklm)" >&2
     exit 1
 fi
 for language in $LANGUAGES; do

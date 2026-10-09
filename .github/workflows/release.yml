@@ -40,8 +40,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .build/data-cache
-          key: data-cache-${{ hashFiles('scripts/fetch-data.sh') }}
-      - run: scripts/fetch-data.sh lexicon
+          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
+      - run: scripts/fetch-data.sh lexicon wikifreq
 
       - name: Import the Developer ID certificate
         id: cert

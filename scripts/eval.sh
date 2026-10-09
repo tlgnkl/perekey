@@ -16,7 +16,9 @@
 #
 # Needs the held-out sources: scripts/fetch-data.sh lexicon heldout. The corpus
 # is built once per size into .build/eval/ and reused. Exit status 1 when the
-# plan's targets are missed: false switches < 0.1 % of words, recall ≥ 95 %.
+# plan's targets are missed: false switches < 0.1 % of words, recall ≥ 95 %,
+# for the ru ↔ en corpus and then for the en ↔ uk one; and a wrong Cyrillic
+# language < 0.5 % with context when ABC, Russian and Ukrainian are installed.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -33,7 +35,7 @@ while [[ $# -gt 0 ]]; do
         --context-sweep) SWEEP+=(--context-sweep) ;;
         --prior-sweep) SWEEP+=(--prior-sweep) ;;
         --model) MODEL="$2"; shift ;;
-        -h|--help) sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "eval: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -59,3 +61,20 @@ if [[ ! -f "$corpus" ]]; then
 fi
 "$bin" run --model "$MODEL" --corpus "$corpus" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" \
     --json ".build/eval/result-$WORDS.json" ${SWEEP[@]+"${SWEEP[@]}"}
+
+# The English and Ukrainian pair (stage 8): Tatoeba ukr and eng, and the
+# ukrainian.stackexchange.com dump as mixed text, typed on ABC and Ukrainian-PC.
+uk_corpus=".build/eval/corpus-uk-$WORDS-seed1.tsv"
+if [[ ! -f "$uk_corpus" ]]; then
+    "$bin" corpus --pair en-uk --cache "$CACHE" --out "$uk_corpus" --words "$WORDS" --seed 1
+fi
+echo
+echo "en ↔ uk:"
+"$bin" run --pair en-uk --model "$MODEL" --corpus "$uk_corpus" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" \
+    --json ".build/eval/result-uk-$WORDS.json"
+
+# ABC, Russian and Ukrainian-PC together: a Russian or Ukrainian word typed
+# on ABC must land in its own Cyrillic layout (perekey-eval cyrillic).
+echo
+echo "en → ru | uk:"
+"$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE"

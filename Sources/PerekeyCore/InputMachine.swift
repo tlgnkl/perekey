@@ -43,6 +43,7 @@ public struct InputMachine: Sendable {
         self.layouts = LayoutState(layouts, current: currentLayout)
         fence = Fence(confirmedLayout: currentLayout)
         judge = WordJudge(classifier: classifier)
+        self.layouts.typoLanguages = judge.typoLanguages
     }
 
     /// Whether user input is being held back right now.
@@ -144,6 +145,7 @@ public struct InputMachine: Sendable {
 
         case let .classifierChanged(newClassifier):
             judge.setClassifier(newClassifier)
+            layouts.typoLanguages = judge.typoLanguages
 
         case let .languageContextChanged(context):
             if let tally = judge.languageContextChanged(context) { effects.append(.languagesCounted(tally)) }
@@ -368,7 +370,7 @@ public struct InputMachine: Sendable {
         case .retype, .readingSelection:
             buffer.clear()
         }
-        if let layout = cancelled.layoutBefore { select(layout, effects: &effects) }
+        if let layout = cancelled.layoutBefore { select(layout, byUser: false, effects: &effects) }
         fence.release(effects: &effects)
     }
 
@@ -396,7 +398,11 @@ public struct InputMachine: Sendable {
 
         case .convertLastWord:
             let plan = manual.retypeWord(buffer: buffer, layouts: layouts,
-                                         phrases: settings.corrections.phraseRetype, isSecureField: isSecureField)
+                                         phrases: settings.corrections.phraseRetype, isSecureField: isSecureField,
+                                         classifier: judge.classifier,
+                                         // Only more than two layouts rank readings by it.
+                                         context: layouts.order.count > 2 ? judge.manualContext(focus: focus)
+                                             : Classifier.Context(mode: .manual))
             run(plan, as: action, fixedByAutoswitch: fixedByAutoswitch, at: time, effects: &effects)
 
         case .changeCase:
@@ -433,7 +439,7 @@ public struct InputMachine: Sendable {
             // The first press on a word: what automatic switching made of it.
             let decision = retype.explainable && !fixedByAutoswitch
                 ? judge.decisionForManualRetype(buffer: buffer, layouts: layouts, settings: settings, focus: focus,
-                                                secureInput: secureInput)
+                                                secureInput: secureInput, target: retype.target)
                 : nil
             startRetype(retype.word, target: retype.target, awaitsLayout: retype.changesLayout,
                         seq: fence.takeSeq(), origin: .manual(action), decision: decision, at: time, effects: &effects)
@@ -442,7 +448,10 @@ public struct InputMachine: Sendable {
             case let .relabelPhrase(phrase): buffer.relabelPhrase(phrase)
             case let .replaceStrokes(strokes): buffer.replaceStrokes(strokes)
             }
-            if retype.changesLayout { judge.leaveWordAlone() }
+            if retype.changesLayout {
+                judge.leaveWordAlone()
+                judge.languageChosen(layouts[retype.target]?.language)
+            }
         }
     }
 
@@ -451,7 +460,7 @@ public struct InputMachine: Sendable {
     private mutating func retypeSelection(_ text: String, _ action: ManualActions.SelectionAction,
                                           viaAccessibility: Bool, effects: inout [Effect])
     {
-        switch ManualActions.selectionRead(text, action: action, layouts: layouts) {
+        switch ManualActions.selectionRead(text, action: action, layouts: layouts, classifier: judge.classifier) {
         case let .refuse(refusal):
             if let refusal { effects.append(.refused(refusal)) }
             fence.release(effects: &effects)
@@ -465,8 +474,9 @@ public struct InputMachine: Sendable {
         }
     }
 
-    private mutating func select(_ id: LayoutID, effects: inout [Effect]) {
-        guard layouts.makeCurrent(id) else { return }
+    /// `byUser`: see `LayoutState.makeCurrent`.
+    private mutating func select(_ id: LayoutID, byUser: Bool = true, effects: inout [Effect]) {
+        guard layouts.makeCurrent(id, byUser: byUser) else { return }
         fence.selected(id)
         effects.append(.selectLayout(id))
     }
@@ -481,7 +491,11 @@ public struct InputMachine: Sendable {
                                       effects: inout [Effect])
     {
         let layoutBefore = target == layouts.current ? nil : layouts.current
-        select(target, effects: &effects)
+        let byUser: Bool = switch origin {
+        case .manual, .manualSelection: true
+        case .automatic, .undo: false
+        }
+        select(target, byUser: byUser, effects: &effects)
         effects.append(.retype(Retype(deleteCount: deleteCount ?? word.keys.count, keys: word.keys, target: target,
                                       expected: word.expected, seq: seq, origin: origin, decision: decision)))
         // Long until the retype is posted; `.retypePosted` shortens it.

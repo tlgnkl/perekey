@@ -2,8 +2,8 @@
 //
 // Measures the classifier on the held-out corpus. scripts/eval.sh wraps it.
 //
-//   perekey-eval corpus --cache <dir> --code <dir> --out <file> [--words N] [--seed S]
-//   perekey-eval run --model <file> --corpus <file> --layouts <dir>
+//   perekey-eval corpus --cache <dir> --code <dir> --out <file> [--words N] [--seed S] [--pair en-uk]
+//   perekey-eval run --model <file> --corpus <file> --layouts <dir> [--pair en-uk [--uk-layout <name>]]
 //                    [--threshold T] [--sweep] [--errors N per category] [--json <file>]
 //                    [--typo-score S] [--typo-margin M] [--typo-sweep]
 //                    [--context-bonus B] [--context-decay D] [--context-sweep [--bonuses 3,4] [--decays 0,1]]
@@ -11,9 +11,18 @@
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
 //                     [--previous ru,en,...]
 //   perekey-eval coverage --model <file> --language <code> [--cache <dir>]
+//   perekey-eval cyrillic --model <dir> --layouts <dir> [--cache <dir>] [--words N] [--margin M]
+//                         [--margin-sweep]
 //
+// `--pair en-uk` builds and runs the corpus of the English and Ukrainian
+// pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
+// `--uk-layout` names; without it, the pair is ru and en.
 // `--model` is a model file or a directory of them (`<language>.pklm`);
 // `run` and `word` map ru and en from a directory.
+// `cyrillic` types Russian and Ukrainian words on ABC with both Cyrillic
+// layouts installed and counts the words that land in the other Cyrillic
+// language (`CyrillicChoice`); exit status 1 when, with context, that is
+// 0.5 % or more. `--margin-sweep` repeats it over `Options.readingMargin`.
 // `coverage` prints the share of Tatoeba tokens of one language that its
 // model knows as word forms: for a language without a word-form dictionary
 // (uk, data/SOURCES.md).
@@ -48,13 +57,13 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word", "coverage"].contains(command) else {
-    fail("usage: perekey-eval corpus|run|word|coverage ... (see the source header)")
+guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic"].contains(command) else {
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
-    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep"].contains(argument) {
+    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -78,7 +87,9 @@ do {
         guard let out = flags["--out"] else { fail("--out is required") }
         let words = Int(flags["--words"] ?? "50000") ?? 50000
         let seed = UInt64(flags["--seed"] ?? "1") ?? 1
-        let items = try Corpus.build(cache: cache, code: code, words: words, seed: seed)
+        let items = flags["--pair"] == "en-uk"
+            ? try Corpus.buildUkrainian(cache: cache, words: words, seed: seed)
+            : try Corpus.build(cache: cache, code: code, words: words, seed: seed)
         try Corpus.write(items, to: out)
         var counts: [String: Int] = [:]
         for item in items { counts[item.category, default: 0] += 1 }
@@ -89,7 +100,8 @@ do {
         guard let modelPath = flags["--model"], let corpusPath = flags["--corpus"], let layouts = flags["--layouts"] else {
             fail("--model, --corpus and --layouts are required")
         }
-        let model = try ModelFile.load(modelPath, languages: ["ru", "en"])
+        let ukrainian = flags["--pair"] == "en-uk"
+        let model = try ModelFile.load(modelPath, languages: ukrainian ? ["uk", "en"] : ["ru", "en"])
         let items = try Corpus.read(corpusPath)
         var options = Classifier.Options()
         if let threshold = flags["--threshold"].flatMap(Double.init) { options.threshold = threshold }
@@ -100,8 +112,9 @@ do {
         var typoOptions = TypoCorrector.Options()
         if let score = flags["--typo-score"].flatMap(Int.init) { typoOptions.minScore = score }
         if let margin = flags["--typo-margin"].flatMap(Int.init) { typoOptions.margin = margin }
+        let cyrillic = ukrainian ? ("uk", flags["--uk-layout"] ?? "Ukrainian-PC") : ("ru", "Russian")
         let evaluation = Evaluation(model: model, layouts: [
-            "ru": layout("Russian", in: layouts), "en": layout("ABC", in: layouts),
+            cyrillic.0: layout(cyrillic.1, in: layouts), "en": layout("ABC", in: layouts),
         ], options: options, typoOptions: typoOptions)
 
         let results = evaluation.run(items, maxErrors: Int(flags["--errors"] ?? "12") ?? 12)
@@ -228,6 +241,37 @@ do {
                      total.falseRate * 100, results.textRecall * 100))
         if total.falseRate >= 0.001 || results.textRecall < 0.95 {
             print("FAIL: targets are false switches < 0.1 % and recall ≥ 95 % on prose and chat")
+            exit(1)
+        }
+
+    case "cyrillic":
+        guard let modelPath = flags["--model"], let layouts = flags["--layouts"] else {
+            fail("--model and --layouts are required")
+        }
+        let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
+        let model = try ModelFile.load(modelPath, languages: ["ru", "en", "uk"])
+        let items = try CyrillicChoice.build(cache: cache, words: Int(flags["--words"] ?? "20000") ?? 20000, seed: 1)
+        let abc = layout("ABC", in: layouts)
+        let maps = ["ru": layout("Russian", in: layouts), "uk": layout("Ukrainian-PC", in: layouts)]
+        var options = Classifier.Options()
+        if let margin = flags["--margin"].flatMap(Double.init) { options.readingMargin = margin }
+        let margins = flags["--margin-sweep"] != nil ? Array(stride(from: 0.0, through: 30.0, by: 5.0))
+            : [options.readingMargin]
+        var met = true
+        for margin in margins {
+            options.readingMargin = margin
+            let rows = CyrillicChoice.run(items, classifier: Classifier(model: model, options: options), abc: abc,
+                                          layouts: maps)
+            print("readingMargin \(margin)")
+            print(CyrillicChoice.report(rows))
+            met = met && CyrillicChoice.targetsMet(rows)
+        }
+        if flags["--margin-sweep"] == nil {
+            print(CyrillicChoice.report(CyrillicChoice.recover(items, classifier: Classifier(model: model, options: options),
+                                                              abc: abc, layouts: maps)))
+        }
+        if flags["--margin-sweep"] == nil, !met {
+            print("FAIL: target is a wrong Cyrillic language < 0.5 % with context")
             exit(1)
         }
 

@@ -15,6 +15,11 @@ public struct Classifier: Sendable {
         /// Bits the other reading must win by. The default comes from the ROC
         /// sweep of `perekey-eval`.
         public var threshold: Double = 10
+        /// Bits a reading of a different text must beat the reading the
+        /// context prefers by, when two candidates of one script compete:
+        /// "ghbdsn" is "привыт" in Russian and "привіт" in Ukrainian. Chosen
+        /// with `perekey-eval cyrillic`.
+        public var readingMargin: Double = 10
         /// Extra bits the other reading must win by when it is not a known
         /// form: a rare form or a name, but also a random string.
         public var unknownWordExtra: Double = 6
@@ -212,6 +217,153 @@ public struct Classifier: Sendable {
         }
     }
 
+    /// Judges a word against every layout it may have been meant for and
+    /// answers for one reading. With one candidate it is
+    /// `classify(_:typed:other:context:)`.
+    ///
+    /// A candidate competes only when its language has a model and differs
+    /// from the typed one, and, in `.automatic` mode, when it is written in
+    /// another script (`switchesAutomatically`): ru ↔ uk never switches by
+    /// itself. The competing readings are then of one script, and the model
+    /// alone must not pick among them: a Russian word typed on ABC reads the
+    /// same, or nearly, in Ukrainian, and a wrong pick leaves the user in a
+    /// layout nothing switches back from. So the context picks
+    /// (`preferredReading`: the words before, the app's prior, the layout
+    /// used last), and another reading wins only when its text differs and
+    /// it beats the preferred one by `Options.readingMargin`, scores without
+    /// the context's lean: the context counts once, in the pick. `explaining`
+    /// fills in the facts of the reading chosen, as for a pair.
+    public func classify(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap],
+                         context: Context = Context(), explaining: Bool = false) -> Decision
+    {
+        let automatic = context.mode == .automatic
+        if candidates.count == 1 {
+            let other = candidates[0]
+            if automatic, let typedCode = typed.language, let otherCode = other.language,
+               !Self.switchesAutomatically(from: typedCode, to: otherCode)
+            {
+                return Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
+            }
+            return classify(strokes, typed: typed, other: other, context: context, explaining: explaining)
+        }
+        let count = Self.wordLength(strokes)
+        guard count > 0 else { return Decision(verdict: .keep, score: 0, reason: .empty, language: nil) }
+        guard let typedCode = typed.language, let typedLanguage = model.language(typedCode) else {
+            return Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
+        }
+        return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: 2 * Self.maxScalars) { scalars in
+            withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 2 * Self.maxScalars) { symbols in
+                let half = Self.maxScalars
+                guard let typedReading = Reading(strokes, count: count, in: typed, language: typedLanguage,
+                                                 scalars: scalars[0..<half], symbols: symbols[0..<half])
+                else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
+                // `bare`: the score without the context, which picks the
+                // preferred reading and must not count a second time.
+                var readings: [(decision: Decision, language: String, text: UInt64, bare: Double)] = []
+                readings.reserveCapacity(candidates.count)
+                for other in candidates {
+                    guard let otherCode = other.language, otherCode != typedCode,
+                          !automatic || Self.switchesAutomatically(from: typedCode, to: otherCode),
+                          let otherLanguage = model.language(otherCode)
+                    else { continue }
+                    // The other half is reused: a decision keeps no pointer into it.
+                    guard let otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
+                                                     scalars: scalars[half...], symbols: symbols[half...])
+                    else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
+                    let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context,
+                                          explaining: explaining)
+                    readings.append((decision, otherCode, otherReading.exactFingerprint ^ UInt64(otherReading.count),
+                                     decision.score - lean(context, toward: otherCode, from: typedCode)))
+                }
+                guard !readings.isEmpty else {
+                    return Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
+                }
+                let preferred = Self.preferredReading(readings.map(\.language), context: context)
+                var chosen = preferred
+                for index in readings.indices where index != preferred {
+                    // The same text is a tie: the context decided it already.
+                    guard readings[index].text != readings[preferred].text,
+                          readings[index].bare >= readings[preferred].bare + options.readingMargin,
+                          readings[index].bare > readings[chosen].bare || chosen == preferred
+                    else { continue }
+                    chosen = index
+                }
+                return readings[chosen].decision
+            }
+        }
+    }
+
+    /// The candidates in the order a manual retype walks them: the most
+    /// plausible reading first (`.manual` scores with the word's context),
+    /// a candidate without a model after the scored ones, ties in the given
+    /// order.
+    public func ranked(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap],
+                       context: Context = Context(mode: .manual)) -> [LayoutMap]
+    {
+        guard candidates.count > 1 else { return candidates }
+        var context = context
+        context.mode = .manual
+        let scored = candidates.enumerated().map { index, other -> (index: Int, score: Double) in
+            guard other.language != typed.language, let code = other.language, model.language(code) != nil else {
+                return (index, -.infinity)
+            }
+            let decision = classify(strokes, typed: typed, other: other, context: context)
+            return (index, decision.reason == .compared ? decision.score : -.infinity)
+        }
+        return scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.index < $1.index }
+            .map { candidates[$0.index] }
+    }
+
+    /// Which of the competing languages the context points to: the latest
+    /// of the words before that is one of them, else the language the app's
+    /// prior leans to, else the first candidate (`LayoutState` lists the
+    /// layout used last first).
+    static func preferredReading(_ languages: [String], context: Context) -> Int {
+        for index in 0..<context.recent.count {
+            if let language = context.recent[index], let found = languages.firstIndex(of: language) { return found }
+        }
+        var best = 0
+        if !context.prior.isEmpty {
+            for index in languages.indices.dropFirst()
+                where context.prior.lean(toward: languages[index], from: languages[best]) > 0
+            {
+                best = index
+            }
+        }
+        return best
+    }
+
+    /// The script of a language's alphabet, for the rule of automatic switching.
+    public enum Script: Hashable, Sendable {
+        case latin, cyrillic
+
+        static let cyrillicLanguages: Set<String> = ["ru", "uk", "be", "bg", "kk", "ky", "mk", "mn", "sr", "tg", "tt"]
+        static let latinLanguages: Set<String> = [
+            "en", "de", "fr", "es", "it", "pt", "nl", "pl", "cs", "sk", "sl", "hr", "ro", "hu", "sv", "nb", "nn",
+            "no", "da", "fi", "et", "lv", "lt", "tr", "az", "uz", "ca", "ga", "is", "mt", "sq", "id", "ms", "vi",
+        ]
+
+        public init?(language: String) {
+            if Self.cyrillicLanguages.contains(language) {
+                self = .cyrillic
+            } else if Self.latinLanguages.contains(language) {
+                self = .latin
+            } else {
+                return nil
+            }
+        }
+    }
+
+    /// Whether automatic switching may go from a word in `typed` to `other`:
+    /// only between a Latin and a Cyrillic language (docs/PLAN.md, stage 8,
+    /// «ru ↔ uk автоматически»). ru and uk differ in a few keys (ы/і, э/є,
+    /// ъ/ї); telling them apart is language detection, not a wrong layout.
+    /// A manual retype goes between any two.
+    public static func switchesAutomatically(from typed: String, to other: String) -> Bool {
+        guard let from = Script(language: typed), let to = Script(language: other) else { return false }
+        return from != to
+    }
+
     /// Whether the word so far cannot start a word in the active layout's
     /// language, but can in the other's: "ghb" is no English start, "при" is a
     /// Russian one. Cheap enough for every key stroke; needs 3 or 4 letters.
@@ -300,11 +452,7 @@ public struct Classifier: Sendable {
         let otherCost = other.cost - bonus(other)
         var score = typedCost - otherCost
         score += options.openerBonus * Double(typed.openers - other.openers)
-        score += contextLean(context.recent, toward: otherCode, from: typedCode)
-        if !context.prior.isEmpty {
-            let lean = options.priorScale * context.prior.lean(toward: otherCode, from: typedCode)
-            score += min(options.priorLimit, max(-options.priorLimit, lean))
-        }
+        score += lean(context, toward: otherCode, from: typedCode)
 
         guard automatic else {
             let wins = !typed.isWord || score > 0
@@ -370,6 +518,16 @@ public struct Classifier: Sendable {
     /// Bits the words before give the other reading: `contextBonus` for the
     /// previous word in the other language, `contextDecay` times less for
     /// each word further back; in a mixed sentence the previous word alone.
+    /// What the words before and the app's prior add to the score of `other`.
+    private func lean(_ context: Context, toward other: String?, from typed: String?) -> Double {
+        var lean = contextLean(context.recent, toward: other, from: typed)
+        if !context.prior.isEmpty {
+            let prior = options.priorScale * context.prior.lean(toward: other, from: typed)
+            lean += min(options.priorLimit, max(-options.priorLimit, prior))
+        }
+        return lean
+    }
+
     private func contextLean(_ recent: RecentLanguages, toward other: String?, from typed: String?) -> Double {
         if isMixed(recent, typed, other) {
             if recent.latest == other { return options.contextBonus }

@@ -47,6 +47,11 @@ public struct TypoCorrector: Sendable {
         public var minLetters = 4
         /// Longer words are left alone: no one types them in one go.
         public var maxLetters = 24
+        /// The languages whose typos are corrected: those that passed the
+        /// typo gate of `perekey-eval` (docs/classifier.md, «Опечатки»). uk
+        /// has no word-form dictionary and no measured recall: a rare valid
+        /// form could be «fixed», so its typos stay as typed until measured.
+        public var languages: Set<String> = ["ru", "en"]
 
         public init() {}
     }
@@ -94,6 +99,14 @@ public struct TypoCorrector: Sendable {
     /// - Parameter sentenceStart: the word starts a sentence, so a capital
     ///   first letter is no name.
     public func correct(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap, sentenceStart: Bool) -> Candidate? {
+        guard let code = layout.language, options.languages.contains(code) else { return nil }
+        return correct(strokes, inAllowed: layout, sentenceStart: sentenceStart)
+    }
+
+    /// `correct(_:in:sentenceStart:)` for a caller that knows the layout's
+    /// language is allowed (`LayoutState.correctsTypos`): no set lookup on
+    /// the per-word path.
+    func correct(_ strokes: some Collection<KeyStroke>, inAllowed layout: LayoutMap, sentenceStart: Bool) -> Candidate? {
         guard let code = layout.language, let language = model.language(code) else { return nil }
         let capacity = options.maxLetters
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: capacity) { scalars in

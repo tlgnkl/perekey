@@ -24,6 +24,7 @@ func layout(_ name: String) -> LayoutMap {
 
 let abc = layout("ABC")
 let russian = layout("Russian")
+let ukrainian = layout("Ukrainian-PC")
 
 /// A session: words in the wrong layout, spaces, a retype every few words, its
 /// synthetic events and the layout confirmation, typos with Backspace, arrows.
@@ -109,15 +110,19 @@ if p99 > 1_000_000 {
 
 // The classifier: two readings of every word of the session, in the budget
 // of a single key stroke. PEREKEY_MODEL names a real model, a file or the
-// directory of `ru.pklm` and `en.pklm`; without it a small model is built
+// directory of `ru.pklm`, `en.pklm` and `uk.pklm`; without it a small model is built
 // here, which exercises the same code paths.
 let model: LanguageModel
 if let path = ProcessInfo.processInfo.environment["PEREKEY_MODEL"] {
-    model = try ModelFile.load(path, languages: ["ru", "en"])
+    model = try ModelFile.load(path, languages: ["ru", "en", "uk"])
 } else {
     var builder = ModelBuilder()
     builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
     builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
+    builder.addLanguage("uk", alphabet: "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя'-")
+    for word in ["привіт", "дякую", "добре", "сьогодні", "місто", "що", "як", "і", "не"] {
+        builder.addForm(word, language: "uk", rank: 200, weight: 100)
+    }
     for word in ["привет", "мир", "будет", "хорошо", "это", "выбор", "код", "а", "и", "не", "что", "как", "спасибо",
                  "клавиатура"] {
         builder.addForm(word, language: "ru", rank: 200, weight: 100)
@@ -187,10 +192,12 @@ let typoWords: [(String, LayoutMap)] = [
     ("будте", russian), ("code", abc), ("https://example.com", abc), ("клавиатура", russian), ("the", abc),
 ]
 
-func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutMap)]) -> AutoswitchRun {
+func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutMap)],
+                       layouts: [LayoutMap] = [abc, russian]) -> AutoswitchRun
+{
     var run = AutoswitchRun()
     run.samples.reserveCapacity(rounds * 80)
-    var machine = InputMachine(settings: settings, layouts: [abc, russian], currentLayout: abc.id,
+    var machine = InputMachine(settings: settings, layouts: layouts, currentLayout: abc.id,
                                classifier: classifier)
     _ = machine.handle(.focusChanged(Focus(bundleID: "app.perekey.bench")))
     var time = 0.0
@@ -280,6 +287,24 @@ if autoswitch.corrections == 0 {
     failed = true
 }
 
+// Three layouts (stage 8): a word typed on ABC is weighed against Russian
+// and Ukrainian; words of all three languages, typed in the wrong layout
+// now and then. The mean per event of the session with two layouts above is
+// the one to compare it with.
+let threeLayoutWords = autoswitchWords + [("привіт", ukrainian), ("дякую", ukrainian), ("сьогодні", ukrainian)]
+var autoswitch3 = correctionSession(rounds: 6000, settings: Settings(), words: threeLayoutWords,
+                                    layouts: [abc, russian, ukrainian])
+autoswitch3.samples.sort()
+let autoswitch3Mean = autoswitch3.samples.reduce(0, +) / Double(autoswitch3.samples.count)
+let autoswitch3P99 = autoswitch3.samples[autoswitch3.samples.count * 99 / 100]
+print(String(format: "autoswitch, 3 layouts: %d events, %d corrections: mean %.0f ns, p99 %.0f ns, max %.0f ns",
+             autoswitch3.events, autoswitch3.corrections, autoswitch3Mean, autoswitch3P99,
+             autoswitch3.samples.last!))
+if autoswitch3P99 > 1_000_000 {
+    print("FAIL: autoswitch p99 with 3 layouts exceeds the 1 ms tap callback budget")
+    failed = true
+}
+
 // Typo correction: the corrector alone on words with one key off, then the
 // machine with the setting on, typing typos among clean words in their own
 // layouts (autoswitch off, so the session measures the typo path by itself).
@@ -319,6 +344,7 @@ if typos.corrections == 0 {
 if arguments.count >= 3 {
     try JSONEncoder().encode(["mean": mean, "p99": p99, "classifier": classifierMean, "classifierP99": classifierP99,
                               "autoswitch": autoswitchMean, "autoswitchP99": autoswitchP99,
+                              "autoswitch3": autoswitch3Mean, "autoswitch3P99": autoswitch3P99,
                               "corrector": correctorMean, "correctorP99": correctorP99,
                               "typos": typosMean, "typosP99": typosP99])
         .write(to: URL(fileURLWithPath: arguments[2]))

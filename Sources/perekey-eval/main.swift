@@ -2,8 +2,8 @@
 //
 // Measures the classifier on the held-out corpus. scripts/eval.sh wraps it.
 //
-//   perekey-eval corpus --cache <dir> --code <dir> --out <file> [--words N] [--seed S] [--pair en-uk]
-//   perekey-eval run --model <file> --corpus <file> --layouts <dir> [--pair en-uk [--uk-layout <name>]]
+//   perekey-eval corpus --cache <dir> --code <dir> --out <file> [--words N] [--seed S] [--pair en-uk|en-be|en-kk]
+//   perekey-eval run --model <file> --corpus <file> --layouts <dir> [--pair en-uk|en-be|en-kk [--uk-layout <name>]]
 //                    [--threshold T] [--sweep] [--errors N per category] [--json <file>]
 //                    [--typo-score S] [--typo-margin M] [--typo-sweep]
 //                    [--context-bonus B] [--context-decay D] [--context-sweep [--bonuses 3,4] [--decays 0,1]]
@@ -14,7 +14,9 @@
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
-// `--uk-layout` names; without it, the pair is ru and en.
+// `--uk-layout` names; `en-be` and `en-kk` do the same for Belarusian
+// (Byelorussian) and Kazakh (Corpus.buildSmallPair); without it, the pair is
+// ru and en.
 // `--model` is a model file or a directory of them (`<language>.pklm`);
 // `run` and `word` map ru and en from a directory.
 // `coverage` prints the share of Tatoeba tokens of one language that its
@@ -64,6 +66,12 @@ while let argument = arguments.next() {
     }
 }
 
+/// The Cyrillic language of `--pair en-<code>`, nil for the ru ↔ en corpus.
+var pairLanguage: String? {
+    guard let pair = flags["--pair"], pair.hasPrefix("en-") else { return nil }
+    return String(pair.dropFirst(3))
+}
+
 func layout(_ name: String, in directory: String) -> LayoutMap {
     let url = URL(fileURLWithPath: directory).appendingPathComponent("\(name).json")
     do {
@@ -81,9 +89,12 @@ do {
         guard let out = flags["--out"] else { fail("--out is required") }
         let words = Int(flags["--words"] ?? "50000") ?? 50000
         let seed = UInt64(flags["--seed"] ?? "1") ?? 1
-        let items = flags["--pair"] == "en-uk"
-            ? try Corpus.buildUkrainian(cache: cache, words: words, seed: seed)
-            : try Corpus.build(cache: cache, code: code, words: words, seed: seed)
+        let items: [CorpusItem]
+        switch pairLanguage {
+        case "uk": items = try Corpus.buildUkrainian(cache: cache, words: words, seed: seed)
+        case let language?: items = try Corpus.buildSmallPair(language: language, cache: cache, words: words, seed: seed)
+        case nil: items = try Corpus.build(cache: cache, code: code, words: words, seed: seed)
+        }
         try Corpus.write(items, to: out)
         var counts: [String: Int] = [:]
         for item in items { counts[item.category, default: 0] += 1 }
@@ -94,8 +105,8 @@ do {
         guard let modelPath = flags["--model"], let corpusPath = flags["--corpus"], let layouts = flags["--layouts"] else {
             fail("--model, --corpus and --layouts are required")
         }
-        let ukrainian = flags["--pair"] == "en-uk"
-        let model = try ModelFile.load(modelPath, languages: ukrainian ? ["uk", "en"] : ["ru", "en"])
+        let cyrillicCode = pairLanguage ?? "ru"
+        let model = try ModelFile.load(modelPath, languages: [cyrillicCode, "en"])
         let items = try Corpus.read(corpusPath)
         var options = Classifier.Options()
         if let threshold = flags["--threshold"].flatMap(Double.init) { options.threshold = threshold }
@@ -106,7 +117,9 @@ do {
         var typoOptions = TypoCorrector.Options()
         if let score = flags["--typo-score"].flatMap(Int.init) { typoOptions.minScore = score }
         if let margin = flags["--typo-margin"].flatMap(Int.init) { typoOptions.margin = margin }
-        let cyrillic = ukrainian ? ("uk", flags["--uk-layout"] ?? "Ukrainian-PC") : ("ru", "Russian")
+        let cyrillic = (cyrillicCode, flags["--uk-layout"] ?? [
+            "uk": "Ukrainian-PC", "be": "Byelorussian", "kk": "Kazakh",
+        ][cyrillicCode] ?? "Russian")
         let evaluation = Evaluation(model: model, layouts: [
             cyrillic.0: layout(cyrillic.1, in: layouts), "en": layout("ABC", in: layouts),
         ], options: options, typoOptions: typoOptions)

@@ -17,8 +17,9 @@ public enum ModelStore {
     /// needs to weigh a reading, so a language joins here only when its pair
     /// is measured (`scripts/eval.sh`). Automatic switching goes between a
     /// Latin and a Cyrillic language only (`Classifier.switchesAutomatically`):
-    /// ru ↔ uk is manual.
-    public static let enabledLanguages: Set<String> = ["ru", "en", "uk"]
+    /// ru ↔ uk is manual. Kazakh has a model but is not here: it misses the
+    /// recall target (docs/classifier.md, «en ↔ kk»).
+    public static let enabledLanguages: Set<String> = ["ru", "en", "uk", "be"]
 
     /// The enabled languages the model needs for these layouts.
     public static func languages(of layouts: [LayoutMap], enabled: Set<String> = enabledLanguages) -> Set<String> {

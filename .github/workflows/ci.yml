@@ -21,8 +21,8 @@ jobs:
         with:
           path: .build/data-cache
           # The pinned revisions and hashes live in the script itself.
-          key: data-cache-${{ hashFiles('scripts/fetch-data.sh') }}
-      - run: scripts/fetch-data.sh lexicon heldout
+          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
+      - run: scripts/fetch-data.sh lexicon wikifreq heldout
       - name: Build the model files and check their hashes
         run: scripts/build-model.sh
       - name: Evaluate the classifier on the held-out sample

@@ -17,6 +17,8 @@ let defaultIDs = [
     "com.apple.keylayout.Russian",
     "com.apple.keylayout.RussianWin",
     "com.apple.keylayout.Ukrainian-PC",
+    "com.apple.keylayout.Byelorussian",
+    "com.apple.keylayout.Kazakh",
     "com.apple.keylayout.Ukrainian",
 ]
 

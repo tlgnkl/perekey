@@ -281,7 +281,7 @@ import Testing
     }
 }
 
-/// Belarusian and Kazakh: built from Wikipedia counts, not switched yet.
+/// Belarusian and Kazakh: built from Wikipedia counts; be is enabled, kk is not.
 @Suite struct BelarusianKazakhModelTests {
     @Test func alphabetsHoldTheirOwnLetters() throws {
         let belarusian = try #require(ModelBuild.alphabets["be"])
@@ -290,7 +290,7 @@ import Testing
         let kazakh = try #require(ModelBuild.alphabets["kk"])
         for letter in "әғқңөұүһі" { #expect(kazakh.contains(letter)) }
         for letter in "ў'" { #expect(!kazakh.contains(letter)) }
-        #expect(!ModelBuild.languages.contains("be") && !ModelBuild.languages.contains("kk"))
+        #expect(ModelBuild.languages.contains("be") && !ModelBuild.languages.contains("kk"))
     }
 }
 
@@ -300,7 +300,7 @@ import Testing
         let alphabet = try #require(ModelBuild.alphabets["uk"])
         for letter in "ґєії'-" { #expect(alphabet.contains(letter)) }
         for letter in "ёъыэ" { #expect(!alphabet.contains(letter)) }
-        #expect(ModelBuild.languages == ["ru", "en", "uk"])
+        #expect(ModelBuild.languages == ["ru", "en", "uk", "be"])
     }
 
     @Test func apostrophesBecomeTheJoiner() {

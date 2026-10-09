@@ -9,8 +9,9 @@
 #
 # Groups:
 #   lexicon   word lists and frequencies for the model (~26 MB)
-#   text      Wikipedia text for character n-grams (~1 GB)
-#   model     lexicon + text (default)
+#   text      Wikipedia text for character n-grams (~1 GB); kk for scripts/wiki-freq.py
+#   wikifreq  Wikipedia be, the word counts of the Belarusian model (~285 MB)
+#   model     lexicon + text + wikifreq (default)
 #   heldout   held-out corpus sources, used only for evaluation (~141 MB)
 #   heavy     large optional held-out source: ru.stackoverflow.com (~1 GB)
 #   fallback  needs a legal decision before use: OpenCorpora (ru), Wiktionary
@@ -61,8 +62,8 @@ lexicon|esdb/hunspell-en_US-large-$ESDB_VER.zip|https://github.com/en-wl/wordlis
 text|wikipedia/ru/train-00007-of-00021.parquet|$HF_WIKI.ru/train-00007-of-00021.parquet|39b59952cd92a148b301f4d2b3ae1fb71e4caab987c6abe278f0dbdf0b01bb88
 text|wikipedia/en/train-00028-of-00041.parquet|$HF_WIKI.en/train-00028-of-00041.parquet|10589a39188af404fa458da252df7dcf22c6f6395a1501d9243ef56ce4c3c148
 text|wikipedia/uk/train-00002-of-00010.parquet|$HF_WIKI.uk/train-00002-of-00010.parquet|11f25bf916b71e9030626104542acbe298b0ee1bfc394444928253d91a4095a2
-text|wikipedia/be/train-00000-of-00002.parquet|$HF_WIKI.be/train-00000-of-00002.parquet|68048674aca99df6826cb3cc212a0c14eedd70ddf66aedd3833fb55aca7a8b39
-text|wikipedia/be/train-00001-of-00002.parquet|$HF_WIKI.be/train-00001-of-00002.parquet|d7930469968c695b232d005bbfb7857db3b0c14245887acf0fab374312d97d6f
+wikifreq|wikipedia/be/train-00000-of-00002.parquet|$HF_WIKI.be/train-00000-of-00002.parquet|68048674aca99df6826cb3cc212a0c14eedd70ddf66aedd3833fb55aca7a8b39
+wikifreq|wikipedia/be/train-00001-of-00002.parquet|$HF_WIKI.be/train-00001-of-00002.parquet|d7930469968c695b232d005bbfb7857db3b0c14245887acf0fab374312d97d6f
 text|wikipedia/kk/train-00000-of-00001.parquet|$HF_WIKI.kk/train-00000-of-00001.parquet|7ecd6679b1635942941a67744eca1f677ec01fca9b60406253bda128ebf80dc4
 heldout|tatoeba/sentences_CC0.tar.bz2|https://downloads.tatoeba.org/exports/sentences_CC0.tar.bz2|-
 heldout|tatoeba/rus_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/rus/rus_sentences.tsv.bz2|-
@@ -151,15 +152,15 @@ want_group() { # group
 
 GROUPS_WANTED=()
 if [[ $# -eq 0 ]]; then
-    GROUPS_WANTED=(lexicon text)
+    GROUPS_WANTED=(lexicon text wikifreq)
 fi
 for arg in "$@"; do
     case "$arg" in
-        lexicon|text|heldout|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
-        model) GROUPS_WANTED+=(lexicon text) ;;
-        all) GROUPS_WANTED+=(lexicon text heldout) ;;
-        -h|--help) sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "unknown group: $arg (lexicon, text, model, heldout, heavy, fallback, all)" ;;
+        lexicon|text|wikifreq|heldout|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
+        model) GROUPS_WANTED+=(lexicon text wikifreq) ;;
+        all) GROUPS_WANTED+=(lexicon text wikifreq heldout) ;;
+        -h|--help) sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown group: $arg (lexicon, text, wikifreq, model, heldout, heavy, fallback, all)" ;;
     esac
 done
 

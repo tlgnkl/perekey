@@ -80,6 +80,7 @@ enum ExplanationText {
         case "en": String(localized: "in English")
         case "ru": String(localized: "in Russian")
         case "uk": String(localized: "in Ukrainian")
+        case "be": String(localized: "in Belarusian")
         default: String(localized: "in this layout")
         }
     }
@@ -101,7 +102,7 @@ enum ExplanationText {
         static func form(_ count: Int, languageCode: String?) -> Plural {
             let n = abs(count)
             switch languageCode {
-            case "ru", "uk":
+            case "ru", "uk", "be":
                 if n % 10 == 1, n % 100 != 11 { return .one }
                 if (2...4).contains(n % 10), !(12...14).contains(n % 100) { return .few }
                 return .other

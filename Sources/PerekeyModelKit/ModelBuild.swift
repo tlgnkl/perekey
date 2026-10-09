@@ -36,7 +36,7 @@ public struct ModelBuild {
     ]
 
     /// The languages `perekey-model` builds by default.
-    public static let languages = ["ru", "en", "uk"]
+    public static let languages = ["ru", "en", "uk", "be"]
 
     /// Languages wordfreq has no list for: the frequencies are counted from
     /// the Wikipedia snapshot by scripts/wiki-freq.py.
@@ -171,8 +171,8 @@ public struct ModelBuild {
             let inputs: [String] = switch language {
             case "ru": ["wordfreq/large_ru.", "hunspell-ru/"]
             case "en": ["wordfreq/large_en.", "esdb/"]
-            case "be": ["wikifreq/large_be.", "wikipedia/be/", "hunspell-be/"]
-            case "kk": ["wikifreq/large_kk.", "wikipedia/kk/"]
+            case "be": ["wikipedia/be/", "hunspell-be/"]
+            case "kk": ["wikipedia/kk/"]
             default: ["wordfreq/large_\(language)."]
             }
             let formsNote = switch language {

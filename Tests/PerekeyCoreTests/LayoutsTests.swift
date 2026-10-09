@@ -14,7 +14,7 @@ enum UkrainianFixture {
     static let words: [(String, UInt8)] = [
         ("привіт", 200), ("дякую", 190), ("будь", 180), ("ласка", 180), ("добре", 190), ("що", 230), ("як", 230),
         ("так", 230), ("ні", 220), ("вона", 210), ("мене", 210), ("його", 210), ("їжак", 140), ("європа", 160),
-        ("п'ять", 190), ("сьогодні", 190), ("дуже", 200), ("місто", 180), ("її", 210), ("україна", 180),
+        ("п'ять", 190), ("м'ясо", 170), ("сьогодні", 190), ("дуже", 200), ("місто", 180), ("її", 210), ("україна", 180),
     ]
 
     static let model: LanguageModel = {
@@ -79,17 +79,50 @@ enum UkrainianFixture {
 @Suite struct ClassifierCandidatesTests {
     let classifier = UkrainianFixture.classifier
 
-    @Test func theBestReadingWins() {
+    @Test func aReadingOfAnotherTextWinsByAClearMargin() {
+        // "ghbdsn": "привыт" in Russian is noise, "привіт" in Ukrainian a word.
         let toUkrainian = classifier.classify(Fixture.abc.strokes("ghbdsn"), typed: Fixture.abc,
                                               candidates: [Fixture.russian, Fixture.ukrainianPC])
         #expect(toUkrainian.verdict == .switch(to: uk))
         #expect(toUkrainian.language == "uk")
-        let toRussian = classifier.classify(Fixture.abc.strokes("ghbdtn"), typed: Fixture.abc,
-                                            candidates: [Fixture.ukrainianPC, Fixture.russian])
-        #expect(toRussian.verdict == .switch(to: ru))
+        // Even after Russian words: the text is not Russian.
+        let afterRussian = classifier.classify(Fixture.abc.strokes("ghbdsn"), typed: Fixture.abc,
+                                               candidates: [Fixture.russian, Fixture.ukrainianPC],
+                                               context: Classifier.Context(previousLanguage: "ru"))
+        #expect(afterRussian.verdict == .switch(to: uk))
         let english = classifier.classify(Fixture.abc.strokes("hello"), typed: Fixture.abc,
                                           candidates: [Fixture.russian, Fixture.ukrainianPC])
         #expect(english.verdict == .keep)
+    }
+
+    @Test func theSameTextIsATieTheContextDecides() {
+        // "ghbdtn" is "привет" on Russian and on Ukrainian-PC keys alike: the
+        // model must not choose, a wrong pick would stick (ru ↔ uk is manual).
+        let strokes = Fixture.abc.strokes("ghbdtn")
+        let candidates = [Fixture.ukrainianPC, Fixture.russian]
+        let afterRussian = classifier.classify(strokes, typed: Fixture.abc, candidates: candidates,
+                                               context: Classifier.Context(recent: RecentLanguages(["en", "ru"])))
+        #expect(afterRussian.verdict == .switch(to: ru), "the latest word of a candidate language")
+        let russianApp = classifier.classify(strokes, typed: Fixture.abc, candidates: candidates,
+                                             context: Classifier.Context(recent: RecentLanguages(),
+                                                                         prior: LanguagePrior(counts: ["ru": 5000])))
+        #expect(russianApp.verdict == .switch(to: ru), "then the app's prior")
+        let none = classifier.classify(strokes, typed: Fixture.abc, candidates: candidates)
+        #expect(none.verdict != .switch(to: ru), "then the first candidate, the layout used last")
+        let reversed = classifier.classify(strokes, typed: Fixture.abc, candidates: [Fixture.russian, Fixture.ukrainianPC])
+        #expect(reversed.verdict == .switch(to: ru))
+    }
+
+    @Test func theCyrillicLayoutUsedLastComesFirst() {
+        var layouts = LayoutState([Fixture.abc, Fixture.russian, Fixture.ukrainianPC], current: en)
+        #expect(layouts.automaticCandidates.map(\.id) == [ru, uk])
+        layouts.makeCurrent(uk)
+        layouts.makeCurrent(ru)
+        layouts.makeCurrent(en)
+        #expect(layouts.automaticCandidates.map(\.id) == [ru, uk])
+        layouts.makeCurrent(uk)
+        layouts.makeCurrent(en)
+        #expect(layouts.automaticCandidates.map(\.id) == [uk, ru])
     }
 
     @Test func oneCandidateIsThePair() {
@@ -192,6 +225,27 @@ extension ModelFixture {
         #expect(desk.text == "привыт")
         desk.tapOption()
         #expect(desk.text == "привіт", "and round again")
+    }
+
+    @Test func aReadingOfTheSameTextIsNoPress() {
+        // "ghbdtn" types "привет" on Russian and on Ukrainian-PC: one reading.
+        var settings = Settings()
+        settings.corrections.phraseRetype = false
+        var desk = desk(settings)
+        desk.type("ghbdtn")
+        desk.tapOption()
+        #expect(desk.text == "привет")
+        desk.tapOption()
+        #expect(desk.text == "ghbdtn", "not «привет» again in the other layout")
+    }
+
+    @Test func aLoneWordKeepsTheWholeWalkWithPhrases() {
+        var desk = desk(current: ru)
+        desk.type("привыт", on: Fixture.russian)
+        for expected in ["привіт", "ghbdsn", "привыт", "привіт", "ghbdsn", "привыт"] {
+            desk.tapOption()
+            #expect(desk.text == expected)
+        }
     }
 
     @Test func withPhrasesTheWalkComesBeforeTheSecondWord() {
@@ -308,6 +362,49 @@ extension ModelFixture {
         for candidates in [[Fixture.ukrainianPC], [Fixture.ukrainianPC, Fixture.abc]] {
             let decision = classifier.classify(strokes, typed: Fixture.russian, candidates: candidates, context: context)
             #expect(decision.verdict != .switch(to: uk))
+        }
+    }
+}
+
+/// The word lists read the Ukrainian apostrophe as the model does.
+@Suite struct UkrainianApostropheListTests {
+    @Test func theListsFoldTheUkrainianApostrophe() {
+        #expect(WordRules.normalize("Мʼясо") == "м'ясо")
+        #expect(WordRules.matchKey("мʼясо") == WordRules.matchKey("м’ясо"))
+        let words = WordRules(mine: ["м'ясо"])
+        #expect(words.contains("мʼясо"))
+        #expect(WordJudge.exceptionKey("«мʼясо»") == "м'ясо")
+    }
+
+    @Test func aListedWordTypedOnUkrainianPCMatches() {
+        let layouts = [Fixture.abc, Fixture.ukrainianPC]
+        let typed = Fixture.ukrainianPC.strokes("мʼясо")
+        let text = Fixture.abc.type(typed) + " "
+        var plain = Desk(Settings(), layouts: layouts, classifier: UkrainianFixture.classifier)
+        plain.type(text)
+        #expect(plain.text == "мʼясо ", "without a list it switches")
+        var kept = Desk(Settings(exceptions: ["м'ясо"]), layouts: layouts, classifier: UkrainianFixture.classifier)
+        kept.type(text)
+        #expect(kept.text == text, "«м'ясо» on the list keeps «мʼясо»")
+    }
+}
+
+@Suite struct ThreeLayoutsSelectionTests {
+    @Test func aSelectionGoesWhereItReadsNotWhereTheLayoutWasBefore() {
+        var layouts = LayoutState([Fixture.abc, Fixture.russian, Fixture.ukrainianPC], current: en)
+        layouts.makeCurrent(ru)
+        layouts.makeCurrent(uk)
+        // "руддщ" reads the same in Ukrainian and Russian: Russian was the
+        // layout before, but only English makes it another text.
+        for classifier in [UkrainianFixture.classifier, nil] {
+            let plan = ManualActions.selectionRead("руддщ", action: .convertLayout, layouts: layouts,
+                                                   classifier: classifier)
+            guard case let .retype(target, keys) = plan else {
+                Issue.record("refused: \(plan)")
+                continue
+            }
+            #expect(target == en)
+            #expect(keys.map(\.text).joined() == "hello")
         }
     }
 }

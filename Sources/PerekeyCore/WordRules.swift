@@ -83,14 +83,20 @@ public struct WordRules: Hashable, Sendable {
     public var count: Int { mine.count + learned.count + always.count }
 
     /// The stored form of a word: trimmed, lowercased.
+    /// The Ukrainian apostrophe `ʼ` (U+02BC, what Ukrainian-PC types) is
+    /// `'`, as the model reads it (`ModelFormat.fold`): «м'ясо» on a list
+    /// matches «мʼясо» typed.
     public static func normalize(_ word: String) -> String {
         var text = Substring(word)
         while let first = text.first, first.isWhitespace { text.removeFirst() }
         while let last = text.last, last.isWhitespace { text.removeLast() }
-        return text.lowercased()
+        let lowered = text.lowercased()
+        guard lowered.contains("\u{2BC}") else { return lowered }
+        return String(lowered.map { $0 == "\u{2BC}" ? "'" : $0 })
     }
 
-    /// The form "Всегда исправлять" matches by: normalized, "ё" as "е", "’" as "'".
+    /// The form "Всегда исправлять" matches by: normalized (so `ʼ` as "'"),
+    /// "ё" as "е", "’" as "'".
     public static func matchKey(_ word: String) -> String {
         String(normalize(word).map { character -> Character in
             switch character {

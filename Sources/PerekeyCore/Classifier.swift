@@ -15,6 +15,11 @@ public struct Classifier: Sendable {
         /// Bits the other reading must win by. The default comes from the ROC
         /// sweep of `perekey-eval`.
         public var threshold: Double = 10
+        /// Bits a reading of a different text must beat the reading the
+        /// context prefers by, when two candidates of one script compete:
+        /// "ghbdsn" is "привыт" in Russian and "привіт" in Ukrainian. Chosen
+        /// with `perekey-eval cyrillic`.
+        public var readingMargin: Double = 10
         /// Extra bits the other reading must win by when it is not a known
         /// form: a rare form or a name, but also a random string.
         public var unknownWordExtra: Double = 6
@@ -213,15 +218,20 @@ public struct Classifier: Sendable {
     }
 
     /// Judges a word against every layout it may have been meant for and
-    /// answers for the best reading: a switch with the highest score, else
-    /// the most plausible reading that stayed `unsure` or `keep`. With one
-    /// candidate it is `classify(_:typed:other:context:)`.
+    /// answers for one reading. With one candidate it is
+    /// `classify(_:typed:other:context:)`.
     ///
     /// A candidate competes only when its language has a model and differs
     /// from the typed one, and, in `.automatic` mode, when it is written in
     /// another script (`switchesAutomatically`): ru ↔ uk never switches by
-    /// itself. Of equal readings the earlier candidate wins. `explaining`
-    /// fills in the facts of the reading that won, as for a pair.
+    /// itself. The competing readings are then of one script, and the model
+    /// alone must not pick among them: a Russian word typed on ABC reads the
+    /// same, or nearly, in Ukrainian, and a wrong pick leaves the user in a
+    /// layout nothing switches back from. So the context picks
+    /// (`preferredReading`: the words before, the app's prior, the layout
+    /// used last), and another reading wins only when its text differs and
+    /// it beats the preferred one by `Options.readingMargin`. `explaining`
+    /// fills in the facts of the reading chosen, as for a pair.
     public func classify(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap],
                          context: Context = Context(), explaining: Bool = false) -> Decision
     {
@@ -246,7 +256,8 @@ public struct Classifier: Sendable {
                 guard let typedReading = Reading(strokes, count: count, in: typed, language: typedLanguage,
                                                  scalars: scalars[0..<half], symbols: symbols[0..<half])
                 else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
-                var best: Decision?
+                var readings: [(decision: Decision, language: String, text: UInt64)] = []
+                readings.reserveCapacity(candidates.count)
                 for other in candidates {
                     guard let otherCode = other.language, otherCode != typedCode,
                           !automatic || Self.switchesAutomatically(from: typedCode, to: otherCode),
@@ -258,19 +269,36 @@ public struct Classifier: Sendable {
                     else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
                     let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context,
                                           explaining: explaining)
-                    if best.map({ Self.isBetter(decision, than: $0) }) ?? true { best = decision }
+                    readings.append((decision, otherCode, otherReading.exactFingerprint ^ UInt64(otherReading.count)))
                 }
-                return best ?? Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
+                guard !readings.isEmpty else {
+                    return Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
+                }
+                let preferred = Self.preferredReading(readings.map(\.language), context: context)
+                var chosen = preferred
+                for index in readings.indices where index != preferred {
+                    // The same text is a tie: the context decided it already.
+                    guard readings[index].text != readings[preferred].text,
+                          readings[index].decision.score >= readings[preferred].decision.score + options.readingMargin,
+                          readings[index].decision.score > readings[chosen].decision.score || chosen == preferred
+                    else { continue }
+                    chosen = index
+                }
+                return readings[chosen].decision
             }
         }
     }
 
     /// The candidates in the order a manual retype walks them: the most
-    /// plausible reading first (`.manual` scores), a candidate without a
-    /// model after the scored ones, ties in the given order.
-    public func ranked(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap]) -> [LayoutMap] {
+    /// plausible reading first (`.manual` scores with the word's context),
+    /// a candidate without a model after the scored ones, ties in the given
+    /// order.
+    public func ranked(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap],
+                       context: Context = Context(mode: .manual)) -> [LayoutMap]
+    {
         guard candidates.count > 1 else { return candidates }
-        let context = Context(mode: .manual)
+        var context = context
+        context.mode = .manual
         let scored = candidates.enumerated().map { index, other -> (index: Int, score: Double) in
             guard other.language != typed.language, let code = other.language, model.language(code) != nil else {
                 return (index, -.infinity)
@@ -282,18 +310,23 @@ public struct Classifier: Sendable {
             .map { candidates[$0.index] }
     }
 
-    /// The better of two decisions on one word: a switch over the rest, then
-    /// `unsure` over `keep`, then the higher score.
-    private static func isBetter(_ new: Decision, than old: Decision) -> Bool {
-        func rank(_ verdict: Verdict) -> Int {
-            switch verdict {
-            case .switch: 2
-            case .unsure: 1
-            case .keep: 0
+    /// Which of the competing languages the context points to: the latest
+    /// of the words before that is one of them, else the language the app's
+    /// prior leans to, else the first candidate (`LayoutState` lists the
+    /// layout used last first).
+    static func preferredReading(_ languages: [String], context: Context) -> Int {
+        for index in 0..<context.recent.count {
+            if let language = context.recent[index], let found = languages.firstIndex(of: language) { return found }
+        }
+        var best = 0
+        if !context.prior.isEmpty {
+            for index in languages.indices.dropFirst()
+                where context.prior.lean(toward: languages[index], from: languages[best]) > 0
+            {
+                best = index
             }
         }
-        let (a, b) = (rank(new.verdict), rank(old.verdict))
-        return a != b ? a > b : new.score > old.score
+        return best
     }
 
     /// The script of a language's alphabet, for the rule of automatic switching.

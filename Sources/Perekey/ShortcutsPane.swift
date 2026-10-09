@@ -10,10 +10,28 @@ struct ShortcutsPane: View {
     let store: SettingsStore
     let recording: ShortcutRecording
 
-    private static let actions: [HotkeyAction] = [
-        .switchLayout, .convertLastWord, .toggleAutoswitch, .undoLastCorrection, .selectLanguage("en"),
-        .selectLanguage("ru"), .changeCase, .transliterate, .pastePlain,
-    ]
+    /// The languages of the installed layouts. English and Russian rows stay
+    /// even without such a layout: the presets bind them.
+    var languages: [String] = ["en", "ru"]
+
+    /// A row to select each language: the installed ones, English and Russian,
+    /// and any other language a shortcut is already recorded for.
+    private var actions: [HotkeyAction] {
+        var codes = ["en", "ru"]
+        for code in languages + store.settings.hotkeys.compactMap({ binding -> String? in
+            if case let .selectLanguage(code) = binding.action { code } else { nil }
+        }) where !codes.contains(code) {
+            codes.append(code)
+        }
+        return [.switchLayout, .convertLastWord, .toggleAutoswitch, .undoLastCorrection]
+            + codes.map { .selectLanguage($0) } + [.changeCase, .transliterate, .pastePlain]
+    }
+
+    /// Languages the two-keys preset has no key for.
+    private var unboundLanguages: [String] {
+        guard store.settings.preset == .separateKeys else { return [] }
+        return languages.filter { $0 != "en" && $0 != "ru" && store.settings.trigger(for: .selectLanguage($0)) == nil }
+    }
 
     var body: some View {
         PKPane(title: Text("Shortcuts")) {
@@ -22,6 +40,10 @@ struct ShortcutsPane: View {
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
             presetSection
+            if !unboundLanguages.isEmpty {
+                PKNote(Text("These keys select English and Russian. For \(unboundLanguages.map(LanguageNames.name(of:)).joined(separator: ", ")) record a shortcut below."))
+                    .pkCard()
+            }
             actionsSection
             capsLockSection
         }
@@ -43,7 +65,7 @@ struct ShortcutsPane: View {
 
     private var actionsSection: some View {
         PKGroup {
-            ForEach(Array(Self.actions.enumerated()), id: \.element) { index, action in
+            ForEach(Array(actions.enumerated()), id: \.element) { index, action in
                 if index > 0 { PKDivider() }
                 PKRow(Text(verbatim: TriggerText.name(of: action)), detail: detail(of: action)) {
                     ShortcutRecorderButton(action: action, store: store, recording: recording)

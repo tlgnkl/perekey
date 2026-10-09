@@ -18,7 +18,7 @@ struct OnboardingView: View {
             ZStack(alignment: .topLeading) {
                 Group {
                     switch model.step {
-                    case .welcome: WelcomeStep(heroPhase: heroPhase)
+                    case .welcome: WelcomeStep(heroPhase: heroPhase, pairs: model.languagePairs, retypeKeys: model.retypeKeys)
                     case .access: AccessStep(model: model)
                     case .preset: PresetStep(model: model)
                     case .demo: DemoStep(model: model)
@@ -119,14 +119,28 @@ private struct StepHeader: View {
 
 private struct WelcomeStep: View {
     var heroPhase: Double?
+    /// More than two languages: which pairs switch by itself.
+    var pairs: LanguagePairs?
+    var retypeKeys: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: pairs?.hasChoice == true ? 8 : 18) {
             GlassStripHero(phase: heroPhase)
                 .padding(.top, 14)
                 .padding(.bottom, 6)
-            StepHeader(title: "Typed in the wrong layout? Perekey fixes it.",
-                       lead: "Press a shortcut and Perekey retypes the last word in the other layout. Press it again and the word comes back as it was.")
+            if let pairs, pairs.hasChoice {
+                // With three languages "the other layout" is not one layout: the shortcut walks through them.
+                if let retypeKeys {
+                    StepHeader(title: "Typed in the wrong layout? Perekey fixes it.",
+                               lead: "Press \(retypeKeys) and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed.")
+                } else {
+                    StepHeader(title: "Typed in the wrong layout? Perekey fixes it.",
+                               lead: "Press the shortcut and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed.")
+                }
+            } else {
+                StepHeader(title: "Typed in the wrong layout? Perekey fixes it.",
+                           lead: "Press a shortcut and Perekey retypes the last word in the other layout. Press it again and the word comes back as it was.")
+            }
             HStack(alignment: .top, spacing: 10) {
                 Fact(symbol: "keyboard.fill", title: "On your command",
                      text: "A shortcut retypes the last word or the selection. The same shortcut brings it back.")
@@ -140,6 +154,9 @@ private struct WelcomeStep: View {
                 .font(PK.Font.caption)
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
+            if let pairs, pairs.hasChoice {
+                LanguagePairsSummary(pairs: pairs)
+            }
         }
     }
 }

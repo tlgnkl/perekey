@@ -92,8 +92,6 @@
 "Retype last word or selection" = "Перенабрать последнее слово или выделение";
 "Right ⌘ — EN, right ⌥ — RU" = "Правый ⌘ — EN, правый ⌥ — RU";
 "Select %@" = "Включить %@";
-"Select English" = "Включить English";
-"Select Russian" = "Включить русскую";
 "Settings…" = "Настройки…";
 "Shift" = "Shift";
 "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them." = "Двойной Shift открывает «Search Everywhere» в IDE от JetBrains. Если вы ими пользуетесь, выберите другое сочетание.";
@@ -339,3 +337,14 @@
 "Languages of apps" = "Языки программ";
 "Forget the languages of apps" = "Забыть языки программ";
 "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "Чтобы угадать язык следующего слова, Perekey считает, сколько слов на каком языке вы набираете в программе. Без слов, только числа. Сайты считаются только до выхода из Perekey.";
+"Your languages" = "Ваши языки";
+"By hand" = "Вручную";
+"%@ walks through the readings: press it again for the next layout, then back to what you typed." = "%@ перебирает прочтения: нажмите ещё раз — следующая раскладка, потом снова то, что вы набрали.";
+"The retype shortcut walks through the readings: press it again for the next layout, then back to what you typed." = "Сочетание перенабора перебирает прочтения: нажмите ещё раз — следующая раскладка, потом снова то, что вы набрали.";
+"Perekey switches by itself, and on your shortcut." = "Perekey переключает сам и по вашему сочетанию.";
+"Only on your shortcut. The layouts differ in a few letters, so Perekey cannot tell a wrong layout from the other language." = "Только по вашему сочетанию. Раскладки различаются несколькими буквами, и Perekey не отличит неверную раскладку от другого языка.";
+"These keys select English and Russian. For %@ record a shortcut below." = "Эти клавиши включают английский и русский. Для других языков (%@) запишите сочетание ниже.";
+"By itself: %@." = "Автоматически: %@.";
+"Only by hand: %@." = "Только вручную: %@.";
+"Press %@ and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed." = "Нажмите %@, и Perekey перенаберёт последнее слово в другой раскладке. Ещё раз — следующая раскладка, потом снова набранное.";
+"Press the shortcut and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed." = "Нажмите сочетание, и Perekey перенаберёт последнее слово в другой раскладке. Ещё раз — следующая раскладка, потом снова набранное.";

@@ -229,6 +229,13 @@ final class OnboardingModel {
 
     var retypeTrigger: Trigger? { store.settings.trigger(for: .convertLastWord) }
 
+    /// Which pairs switch by itself; shown when there are more than two languages.
+    var languagePairs: LanguagePairs { LanguagePairs(layouts: sources.layouts) }
+
+    var retypeKeys: String? {
+        store.settings.trigger(for: .convertLastWord).map { TriggerText.keycaps(of: $0).joined(separator: " ") }
+    }
+
     var needsSecondLayout: Bool { sources.layouts.count < 2 }
 
     var demoSolved: Bool { demoText == "привет" }

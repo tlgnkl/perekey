@@ -45,6 +45,7 @@ enum DebugSnapshot {
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
         renderStatistics(in: directory)
+        renderThreeLayouts(in: directory)
         renderHint(in: directory)
         renderReasons(in: directory)
         renderStrips(in: directory)
@@ -215,6 +216,56 @@ enum DebugSnapshot {
         render(SitesPane(store: emptyStore, sources: sources, initialDraft: "not a host!")
             .background(Color(nsColor: .windowBackgroundColor)),
             dark: false, size: size, to: directory.appending(path: "sites-empty.png"))
+    }
+
+    /// ABC, Russian and Ukrainian-PC, whatever this Mac has enabled: the maps
+    /// carry no keys, which no surface here reads.
+    private static func threeLayouts() -> InputSources {
+        let layouts = [
+            LayoutMap(id: "com.apple.keylayout.ABC", language: "en", table: [:]),
+            LayoutMap(id: "com.apple.keylayout.Russian", language: "ru", table: [:]),
+            LayoutMap(id: "com.apple.keylayout.Ukrainian-PC", language: "uk", table: [:]),
+        ]
+        return InputSources(preview: layouts, current: layouts[0].id, names: [
+            layouts[0].id: "ABC", layouts[1].id: "Russian", layouts[2].id: "Ukrainian - PC",
+        ])
+    }
+
+    /// Onboarding, Shortcuts, General and the menu with three layouts.
+    private static func renderThreeLayouts(in directory: URL) {
+        let sources = threeLayouts()
+        let languages = LanguagePairs(layouts: sources.layouts).languages
+        for (name, preset, dark) in [("shortcuts-three-light", HotkeyPreset.standard, false),
+                                     ("shortcuts-three-separate-dark", .separateKeys, true)] {
+            let file = SettingsFile(url: directory.appending(path: "\(name).json"))
+            try? file.save(AppSettings(hotkeys: preset.hotkeys))
+            let store = SettingsStore(file: file)
+            let size = CGSize(width: 560, height: 980)
+            render(ShortcutsPane(store: store, recording: ShortcutRecording(store: store), languages: languages)
+                .frame(width: size.width, height: size.height), dark: dark, size: size,
+                to: directory.appending(path: "\(name).png"))
+        }
+        let file = SettingsFile(url: directory.appending(path: "three.json"))
+        try? file.save(AppSettings())
+        let store = SettingsStore(file: file)
+        let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil)
+        let size = CGSize(width: 560, height: 1000)
+        render(GeneralPane(store: store, updates: updates, layouts: sources.layouts).frame(width: size.width, height: size.height),
+               dark: false, size: size, to: directory.appending(path: "general-three-light.png"))
+        render(GeneralPane(store: store, updates: updates, layouts: sources.layouts).frame(width: size.width, height: size.height),
+               dark: true, size: size, to: directory.appending(path: "general-three-dark.png"))
+        let onboardingSize = NSSize(width: 640, height: 580)
+        for dark in [false, true] {
+            let model = OnboardingModel(store: store, sources: sources, step: .welcome, live: false)
+            render(OnboardingView(model: model), dark: dark, size: onboardingSize,
+                   to: directory.appending(path: "onboarding-1-welcome-three-\(dark ? "dark" : "light").png"))
+        }
+        let pause = PauseState(frozen: PauseSet(), now: Date())
+        let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+        appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Notes", name: "Notes", isGame: false))
+        let menu = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+                               appModes: appModes, recents: RecentCorrections())
+        render(menu, dark: false, size: CGSize(width: 318, height: 560), to: directory.appending(path: "menu-three-light.png"))
     }
 
     /// A recorder with a week of made-up counts, in a file of its own.

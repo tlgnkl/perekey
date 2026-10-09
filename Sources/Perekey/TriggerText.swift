@@ -67,11 +67,7 @@ enum TriggerText {
         case .pastePlain: String(localized: "Paste without formatting")
         case .undoLastCorrection: String(localized: "Undo last correction")
         case let .selectLanguage(code):
-            switch code {
-            case "en": String(localized: "Select English")
-            case "ru": String(localized: "Select Russian")
-            default: String(localized: "Select \(code)")
-            }
+            String(localized: "Select \(LanguageNames.name(of: code))")
         }
     }
 

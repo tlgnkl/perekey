@@ -48,11 +48,9 @@ final class InputController {
     @ObservationIgnored var onCorrectionUndone: ((UInt32) -> Void)?
     /// The user retyped by hand (a shortcut or a selection). Carries no text.
     @ObservationIgnored var onManualRetype: (() -> Void)?
-    /// An undo taught Perekey this word; it is in `AppSettings.words` already.
-    @ObservationIgnored var onLearned: ((String) -> Void)?
-    /// An undo took this word off "Всегда исправлять"; it is gone from
-    /// `AppSettings.words` already. For the hint to say so.
-    @ObservationIgnored var onAlwaysFixWithdrawn: ((String) -> Void)?
+    /// Corrections of the onboarding demo, by `seq`: they count for nothing,
+    /// neither the menu's list nor the statistics, nor their undo.
+    @ObservationIgnored private var demoCorrections = Set<UInt32>()
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState,
          languages: LanguageStatsStore = LanguageStatsStore())
@@ -224,7 +222,7 @@ final class InputController {
         case let .retyped(original, text, origin, decision):
             SystemSounds.play(store.settings.correctionSound)
             // An automatic switch has its own hint, from `corrected`; an undo hides it.
-            if manualAction(of: origin) != nil { onManualRetype?() }
+            if manualAction(of: origin) != nil, !isDemo(original, text) { onManualRetype?() }
             if let manual = manualAction(of: origin), store.settings.caretHint.shows(automatic: false),
                original != text
             {
@@ -254,18 +252,23 @@ final class InputController {
                 hint.show(original: correction.original, replacement: correction.replacement) {
                     engine.undoLastCorrection(seq: seq)
                 }
-            } else if shownCorrection != nil {
-                // An older hint's Undo would do nothing now: take it away.
+            } else {
+                // An older hint, its Undo or a manual retype's buttons, would
+                // do nothing useful now: take it away.
                 shownCorrection = nil
                 hint.hide()
             }
-            onCorrection?(correction)
+            if isDemo(correction.original, correction.replacement) {
+                demoCorrections.insert(correction.seq)
+            } else {
+                onCorrection?(correction)
+            }
         case let .correctionUndone(seq):
             if shownCorrection == seq {
                 shownCorrection = nil
                 hint.hide()
             }
-            onCorrectionUndone?(seq)
+            if demoCorrections.remove(seq) == nil { onCorrectionUndone?(seq) }
         case let .correctionUndoFailed(seq):
             // The caret moved away from the word; the text stays as it is.
             log.info("Undo of correction \(seq, privacy: .public) cancelled by the caret check")
@@ -277,13 +280,13 @@ final class InputController {
             learn(word)
         case let .alwaysFixWithdrawn(word):
             store.update { $0.words.stopFixing(word) }
-            onAlwaysFixWithdrawn?(word)
             // After the `correctionUndone` of the same undo, which hid the old hint.
             if store.settings.caretHint != .off { hint.showAlwaysFixWithdrawn(word: word) }
         case .capsLockOff:
             CapsLockState.turnOff()
         case let .languagesCounted(tally):
-            languages.record(tally)
+            // The demo's words count for no app, whatever the context said.
+            if !appModes.isDemoFront { languages.record(tally) }
         }
     }
 
@@ -296,7 +299,6 @@ final class InputController {
         let readings = WordRules.readings(of: word, in: sources.layouts)
         store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970, readings: readings) }
         guard added else { return }
-        onLearned?(word)
         guard store.settings.caretHint != .off else { return }
         hint.showLearned(word: word) { [weak self] in
             self?.store.update { $0.words.forget(word) }
@@ -336,8 +338,16 @@ final class InputController {
             return
         }
         hint.showAlwaysFixed(word: word) { [weak self] in
-            self?.store.update { $0.words.stopFixing(word) }
+            guard let self else { return }
+            store.update { $0.words.stopFixing(word) }
+            if store.settings.caretHint != .off { hint.showAlwaysFixWithdrawn(word: word) }
         }
+    }
+
+    /// The onboarding demo's own words: they are corrected and undone for the
+    /// show, and leave no trace in the lists of corrections or the counts.
+    private func isDemo(_ typed: String, _ other: String) -> Bool {
+        appModes.isDemoFront && (AppModeController.isDemoWord(typed) || AppModeController.isDemoWord(other))
     }
 
     private func manualAction(of origin: Retype.Origin) -> (action: HotkeyAction, onSelection: Bool)? {

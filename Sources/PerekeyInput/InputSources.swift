@@ -29,6 +29,17 @@ public final class InputSources {
     @ObservationIgnored private var builtKeyboardType: UInt8 = 0
     @ObservationIgnored private var observer: NotificationObserver?
 
+    #if DEBUG
+    /// Snapshot helper: these layouts, no system observers.
+    @ObservationIgnored private var previewNames: [LayoutID: String] = [:]
+
+    public init(preview layouts: [LayoutMap], current: LayoutID?, names: [LayoutID: String]) {
+        self.layouts = layouts
+        currentLayout = current
+        previewNames = names
+    }
+    #endif
+
     public init() {
         reload()
         currentLayout = LayoutReader.currentLayoutID()
@@ -48,7 +59,10 @@ public final class InputSources {
 
     /// The localized name, e.g. "Russian". Falls back to the ID for unknown sources.
     public func name(of id: LayoutID) -> String {
-        source(for: id).flatMap { LayoutReader.string(of: $0, kTISPropertyLocalizedName) } ?? id.rawValue
+        #if DEBUG
+        if let name = previewNames[id] { return name }
+        #endif
+        return source(for: id).flatMap { LayoutReader.string(of: $0, kTISPropertyLocalizedName) } ?? id.rawValue
     }
 
     /// A short menu bar code: the language ("EN", "RU"), else the first two letters of the name.

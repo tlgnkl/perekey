@@ -14,7 +14,7 @@ enum UkrainianFixture {
     static let words: [(String, UInt8)] = [
         ("привіт", 200), ("дякую", 190), ("будь", 180), ("ласка", 180), ("добре", 190), ("що", 230), ("як", 230),
         ("так", 230), ("ні", 220), ("вона", 210), ("мене", 210), ("його", 210), ("їжак", 140), ("європа", 160),
-        ("п'ять", 190), ("м'ясо", 170), ("сьогодні", 190), ("дуже", 200), ("місто", 180), ("її", 210), ("україна", 180),
+        ("п'ять", 190), ("м'ясо", 170), ("сьогодні", 190), ("дуже", 200), ("місто", 180), ("мир", 160), ("її", 210), ("україна", 180),
     ]
 
     static let model: LanguageModel = {
@@ -406,5 +406,59 @@ extension ModelFixture {
             #expect(target == en)
             #expect(keys.map(\.text).joined() == "hello")
         }
+    }
+}
+
+/// A wrong guess between ru and uk must not feed itself.
+@Suite struct CyrillicChainTests {
+    @Test func theContextCountsOnceBetweenCyrillicReadings() {
+        // "ds,jh": «выбор» in Russian, noise in Ukrainian. Three Ukrainian
+        // words before pick Ukrainian first; the Russian reading still wins
+        // by its own margin, not by that margin plus the context's lean.
+        let context = Classifier.Context(recent: RecentLanguages(["uk", "uk", "uk"]))
+        let decision = UkrainianFixture.classifier.classify(
+            Fixture.abc.strokes("ds,jh"), typed: Fixture.abc, candidates: [Fixture.ukrainianPC, Fixture.russian],
+            context: context)
+        #expect(decision.verdict == .switch(to: ru))
+    }
+
+    @Test func anAutomaticSwitchDoesNotTeachTheLayoutUsedLast() {
+        var layouts = LayoutState([Fixture.abc, Fixture.russian, Fixture.ukrainianPC], current: en)
+        layouts.makeCurrent(uk)
+        layouts.makeCurrent(en)
+        #expect(layouts.automaticCandidates.map(\.id) == [uk, ru])
+        layouts.makeCurrent(ru, byUser: false)
+        layouts.makeCurrent(en, byUser: false)
+        #expect(layouts.automaticCandidates.map(\.id) == [uk, ru], "Perekey's own switch to ru does not count")
+        layouts.makeCurrent(ru)
+        layouts.makeCurrent(en)
+        #expect(layouts.automaticCandidates.map(\.id) == [ru, uk])
+    }
+
+    @Test func theMachineMarksOnlyUserSelections() {
+        var desk = Desk(Settings(), layouts: [Fixture.abc, Fixture.russian, Fixture.ukrainianPC],
+                        classifier: UkrainianFixture.classifier)
+        // The user selects Ukrainian in the system, then English.
+        desk.send(.layoutChanged(uk))
+        desk.send(.layoutChanged(en))
+        desk.appLayout = en
+        // Perekey switches a Russian word by itself...
+        desk.type("ds,jh ")
+        #expect(desk.appLayout == ru)
+        // ...which is no choice of the user's: Ukrainian stays the layout used
+        // last. In a new field there is no context to go on.
+        desk.send(.layoutChanged(en))
+        desk.appLayout = en
+        desk.send(.focusChanged(Desk.textEdit))
+        desk.type("vbh ") // «мир» on Russian and on Ukrainian-PC keys, a word of both
+        #expect(desk.text.hasSuffix("мир "))
+        #expect(desk.appLayout == uk, "the tie goes to the layout the user chose last")
+    }
+
+    @Test func aManualRetypeBreaksTheChain() {
+        var judge = WordJudge(classifier: UkrainianFixture.classifier)
+        judge.languageChosen("uk")
+        judge.languageChosen("ru")
+        #expect(judge.recent == RecentLanguages(["ru"]))
     }
 }

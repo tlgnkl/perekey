@@ -275,6 +275,16 @@ struct WordJudge: Sendable {
 
     // MARK: - Languages of the words
 
+    /// The user retyped the word into a layout of `language` by hand: the
+    /// word is in it, and the words before, as Perekey judged them, no
+    /// longer count. An explicit choice breaks a chain of wrong guesses
+    /// (a Russian text taken for Ukrainian keeps leaning to Ukrainian).
+    mutating func languageChosen(_ language: String?) {
+        record(language)
+        recent.removeAll()
+        recent.push(language)
+    }
+
     /// The word being typed is in `language`, as far as Perekey can tell.
     private mutating func record(_ language: String?) {
         if languageRecorded {

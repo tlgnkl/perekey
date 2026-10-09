@@ -230,7 +230,8 @@ public struct Classifier: Sendable {
     /// layout nothing switches back from. So the context picks
     /// (`preferredReading`: the words before, the app's prior, the layout
     /// used last), and another reading wins only when its text differs and
-    /// it beats the preferred one by `Options.readingMargin`. `explaining`
+    /// it beats the preferred one by `Options.readingMargin`, scores without
+    /// the context's lean: the context counts once, in the pick. `explaining`
     /// fills in the facts of the reading chosen, as for a pair.
     public func classify(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap],
                          context: Context = Context(), explaining: Bool = false) -> Decision
@@ -256,7 +257,9 @@ public struct Classifier: Sendable {
                 guard let typedReading = Reading(strokes, count: count, in: typed, language: typedLanguage,
                                                  scalars: scalars[0..<half], symbols: symbols[0..<half])
                 else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
-                var readings: [(decision: Decision, language: String, text: UInt64)] = []
+                // `bare`: the score without the context, which picks the
+                // preferred reading and must not count a second time.
+                var readings: [(decision: Decision, language: String, text: UInt64, bare: Double)] = []
                 readings.reserveCapacity(candidates.count)
                 for other in candidates {
                     guard let otherCode = other.language, otherCode != typedCode,
@@ -269,7 +272,8 @@ public struct Classifier: Sendable {
                     else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
                     let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context,
                                           explaining: explaining)
-                    readings.append((decision, otherCode, otherReading.exactFingerprint ^ UInt64(otherReading.count)))
+                    readings.append((decision, otherCode, otherReading.exactFingerprint ^ UInt64(otherReading.count),
+                                     decision.score - lean(context, toward: otherCode, from: typedCode)))
                 }
                 guard !readings.isEmpty else {
                     return Decision(verdict: .keep, score: 0, reason: .unsupported, language: nil)
@@ -279,8 +283,8 @@ public struct Classifier: Sendable {
                 for index in readings.indices where index != preferred {
                     // The same text is a tie: the context decided it already.
                     guard readings[index].text != readings[preferred].text,
-                          readings[index].decision.score >= readings[preferred].decision.score + options.readingMargin,
-                          readings[index].decision.score > readings[chosen].decision.score || chosen == preferred
+                          readings[index].bare >= readings[preferred].bare + options.readingMargin,
+                          readings[index].bare > readings[chosen].bare || chosen == preferred
                     else { continue }
                     chosen = index
                 }
@@ -448,11 +452,7 @@ public struct Classifier: Sendable {
         let otherCost = other.cost - bonus(other)
         var score = typedCost - otherCost
         score += options.openerBonus * Double(typed.openers - other.openers)
-        score += contextLean(context.recent, toward: otherCode, from: typedCode)
-        if !context.prior.isEmpty {
-            let lean = options.priorScale * context.prior.lean(toward: otherCode, from: typedCode)
-            score += min(options.priorLimit, max(-options.priorLimit, lean))
-        }
+        score += lean(context, toward: otherCode, from: typedCode)
 
         guard automatic else {
             let wins = !typed.isWord || score > 0
@@ -518,6 +518,16 @@ public struct Classifier: Sendable {
     /// Bits the words before give the other reading: `contextBonus` for the
     /// previous word in the other language, `contextDecay` times less for
     /// each word further back; in a mixed sentence the previous word alone.
+    /// What the words before and the app's prior add to the score of `other`.
+    private func lean(_ context: Context, toward other: String?, from typed: String?) -> Double {
+        var lean = contextLean(context.recent, toward: other, from: typed)
+        if !context.prior.isEmpty {
+            let prior = options.priorScale * context.prior.lean(toward: other, from: typed)
+            lean += min(options.priorLimit, max(-options.priorLimit, prior))
+        }
+        return lean
+    }
+
     private func contextLean(_ recent: RecentLanguages, toward other: String?, from typed: String?) -> Double {
         if isMixed(recent, typed, other) {
             if recent.latest == other { return options.contextBonus }

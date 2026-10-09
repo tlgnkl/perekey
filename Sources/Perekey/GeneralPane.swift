@@ -10,9 +10,14 @@ import SwiftUI
 struct GeneralPane: View {
     let store: SettingsStore
     let updates: Updates
+    /// The enabled layouts: with more than two languages General says which pairs switch by itself.
+    var layouts: [LayoutMap] = []
 
     var body: some View {
         PKPane(title: Text("General")) {
+            if LanguagePairs(layouts: layouts).hasChoice {
+                LanguagePairsGroup(pairs: LanguagePairs(layouts: layouts), retypeKeys: retypeKeys)
+            }
             correctionsSection
             hintSection
             soundsSection
@@ -68,6 +73,10 @@ struct GeneralPane: View {
                 .toggleStyle(.pkSwitch)
             }
         }
+    }
+
+    private var retypeKeys: String? {
+        store.settings.trigger(for: .convertLastWord).map { TriggerText.keycaps(of: $0).joined(separator: " ") }
     }
 
     private var hintSection: some View {

@@ -370,7 +370,7 @@ public struct InputMachine: Sendable {
         case .retype, .readingSelection:
             buffer.clear()
         }
-        if let layout = cancelled.layoutBefore { select(layout, effects: &effects) }
+        if let layout = cancelled.layoutBefore { select(layout, byUser: false, effects: &effects) }
         fence.release(effects: &effects)
     }
 
@@ -399,7 +399,10 @@ public struct InputMachine: Sendable {
         case .convertLastWord:
             let plan = manual.retypeWord(buffer: buffer, layouts: layouts,
                                          phrases: settings.corrections.phraseRetype, isSecureField: isSecureField,
-                                         classifier: judge.classifier, context: judge.manualContext(focus: focus))
+                                         classifier: judge.classifier,
+                                         // Only more than two layouts rank readings by it.
+                                         context: layouts.order.count > 2 ? judge.manualContext(focus: focus)
+                                             : Classifier.Context(mode: .manual))
             run(plan, as: action, fixedByAutoswitch: fixedByAutoswitch, at: time, effects: &effects)
 
         case .changeCase:
@@ -445,7 +448,10 @@ public struct InputMachine: Sendable {
             case let .relabelPhrase(phrase): buffer.relabelPhrase(phrase)
             case let .replaceStrokes(strokes): buffer.replaceStrokes(strokes)
             }
-            if retype.changesLayout { judge.leaveWordAlone() }
+            if retype.changesLayout {
+                judge.leaveWordAlone()
+                judge.languageChosen(layouts[retype.target]?.language)
+            }
         }
     }
 
@@ -468,8 +474,9 @@ public struct InputMachine: Sendable {
         }
     }
 
-    private mutating func select(_ id: LayoutID, effects: inout [Effect]) {
-        guard layouts.makeCurrent(id) else { return }
+    /// `byUser`: see `LayoutState.makeCurrent`.
+    private mutating func select(_ id: LayoutID, byUser: Bool = true, effects: inout [Effect]) {
+        guard layouts.makeCurrent(id, byUser: byUser) else { return }
         fence.selected(id)
         effects.append(.selectLayout(id))
     }
@@ -484,7 +491,11 @@ public struct InputMachine: Sendable {
                                       effects: inout [Effect])
     {
         let layoutBefore = target == layouts.current ? nil : layouts.current
-        select(target, effects: &effects)
+        let byUser: Bool = switch origin {
+        case .manual, .manualSelection: true
+        case .automatic, .undo: false
+        }
+        select(target, byUser: byUser, effects: &effects)
         effects.append(.retype(Retype(deleteCount: deleteCount ?? word.keys.count, keys: word.keys, target: target,
                                       expected: word.expected, seq: seq, origin: origin, decision: decision)))
         // Long until the retype is posted; `.retypePosted` shortens it.

@@ -283,6 +283,10 @@ do {
             print(CyrillicChoice.report(rows))
             met = met && CyrillicChoice.targetsMet(rows)
         }
+        if flags["--margin-sweep"] == nil {
+            print(CyrillicChoice.report(CyrillicChoice.recover(items, classifier: Classifier(model: model, options: options),
+                                                              abc: abc, layouts: maps, languages: languages)))
+        }
         if flags["--margin-sweep"] == nil, !met {
             print("FAIL: target is a wrong Cyrillic language < 0.5 % with context")
             exit(1)

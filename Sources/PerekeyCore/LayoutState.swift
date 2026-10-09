@@ -14,9 +14,10 @@ struct LayoutState: Sendable {
     }
     /// The table of `current`, looked up once per change, not per key.
     private(set) var currentMap: LayoutMap?
-    /// The layouts in the order they were last selected, the latest first:
-    /// `current`, the one before it, and so on. Which Cyrillic layout the
-    /// user used last decides between ru and uk when nothing else does.
+    /// The layouts in the order the user last selected them, the latest
+    /// first. Perekey's own automatic switches leave it alone: which Cyrillic
+    /// layout the user chose last decides between ru and uk when nothing
+    /// else does, and a wrong switch must not teach it.
     private var used: [LayoutID] = []
     /// What automatic switching weighs a word of `current` against:
     /// `candidates(of: current)` of another script
@@ -61,14 +62,18 @@ struct LayoutState: Sendable {
         updateCandidates()
     }
 
-    /// Makes `id` the current layout; the current one, if known, becomes the
-    /// previous one. False when `id` is current already.
+    /// Makes `id` the current layout. `byUser`: the user chose it (a layout
+    /// shortcut, a manual retype, a change in the system), so it also counts
+    /// as the layout used last; an automatic switch does not. False when
+    /// `id` is current already.
     @discardableResult
-    mutating func makeCurrent(_ id: LayoutID) -> Bool {
+    mutating func makeCurrent(_ id: LayoutID, byUser: Bool = true) -> Bool {
         guard id != current else { return false }
-        used.removeAll { $0 == id }
-        used.insert(id, at: 0)
-        if used.count > 16 { used.removeLast() }
+        if byUser {
+            used.removeAll { $0 == id }
+            used.insert(id, at: 0)
+            if used.count > 16 { used.removeLast() }
+        }
         current = id
         updateCandidates()
         return true

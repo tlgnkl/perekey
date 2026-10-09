@@ -124,8 +124,8 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch current {
-        case .general: GeneralPane(store: store, updates: updates)
-        case .shortcuts: ShortcutsPane(store: store, recording: recording)
+        case .general: GeneralPane(store: store, updates: updates, layouts: sources.layouts)
+        case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         case .apps: AppsPane(store: store, sources: sources, languages: languages)
         case .sites: SitesPane(store: store, sources: sources)
         case .words: WordsPane(store: store, layouts: sources.layouts)

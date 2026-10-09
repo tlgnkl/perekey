@@ -288,7 +288,7 @@
 "After a space Perekey fixes a word typed in the wrong layout. Backspace undoes it." = "После пробела Perekey исправляет слово, набранное не в той раскладке. Backspace отменяет.";
 "Private" = "Приватно";
 "Nothing you type is sent anywhere. The code is open under GPL-3.0." = "Набранное никуда не отправляется. Код открыт под GPL-3.0.";
-"Typed text stays in memory and is never written to disk. Only the lists you see in Settings → Words are saved, on this Mac." = "Набранный текст остаётся в памяти и не пишется на диск. На этом Mac сохраняются только списки из «Настройки → Слова».";
+"Typed text is never saved. On this Mac stay your settings, the lists in Settings → Words and, if you allow it, counts without words." = "Набранный текст не сохраняется. На этом Mac остаются настройки, списки из «Настройки → Слова» и, если вы разрешите, счётчики без слов.";
 "Switch Perekey on" = "Включите Perekey";
 "If it is missing, drag the icon into the list." = "Если его нет, перетащите значок в список.";
 "Perekey reads keys only to find the end of a word and to see your shortcuts." = "Perekey читает нажатия только затем, чтобы найти конец слова и увидеть ваши сочетания.";
@@ -334,7 +334,7 @@
 "Undone share" = "Доля отмен";
 "Today: no corrections" = "Сегодня правок нет";
 "Privacy" = "Приватность";
-"What you type stays in memory and never leaves this Mac. Settings, your words, the languages of apps and the counts you allow are files on this Mac. The only network request is the update check." = "Набранное остаётся в памяти и не покидает этот Mac. Настройки, ваши слова, языки программ и разрешённые счётчики лежат файлами на этом Mac. Сеть нужна только для проверки обновлений.";
+"Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. The only network request is the update check." = "Набранный текст не сохраняется и не покидает этот Mac. Файлы на этом Mac: settings.json (настройки и ваши списки слов с датами и числом отмен), statistics.json (только при включённом «Считать правки»: числа, без слов), languages.json (сколько слов какого языка в каждой программе: ID программ и числа). Счётчики сайтов лежат в памяти. Сетевой запрос один: проверка обновлений.";
 "Languages of apps" = "Языки программ";
 "Forget the languages of apps" = "Забыть языки программ";
 "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "Чтобы угадать язык следующего слова, Perekey считает, сколько слов на каком языке вы набираете в программе. Без слов, только числа. Сайты считаются только до выхода из Perekey.";

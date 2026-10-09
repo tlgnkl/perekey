@@ -288,7 +288,7 @@
 "After a space Perekey fixes a word typed in the wrong layout. Backspace undoes it." = "After a space Perekey fixes a word typed in the wrong layout. Backspace undoes it.";
 "Private" = "Private";
 "Nothing you type is sent anywhere. The code is open under GPL-3.0." = "Nothing you type is sent anywhere. The code is open under GPL-3.0.";
-"Typed text stays in memory and is never written to disk. Only the lists you see in Settings → Words are saved, on this Mac." = "Typed text stays in memory and is never written to disk. Only the lists you see in Settings → Words are saved, on this Mac.";
+"Typed text is never saved. On this Mac stay your settings, the lists in Settings → Words and, if you allow it, counts without words." = "Typed text is never saved. On this Mac stay your settings, the lists in Settings → Words and, if you allow it, counts without words.";
 "Switch Perekey on" = "Switch Perekey on";
 "If it is missing, drag the icon into the list." = "If it is missing, drag the icon into the list.";
 "Perekey reads keys only to find the end of a word and to see your shortcuts." = "Perekey reads keys only to find the end of a word and to see your shortcuts.";
@@ -334,7 +334,7 @@
 "Undone share" = "Undone share";
 "Today: no corrections" = "Today: no corrections";
 "Privacy" = "Privacy";
-"What you type stays in memory and never leaves this Mac. Settings, your words, the languages of apps and the counts you allow are files on this Mac. The only network request is the update check." = "What you type stays in memory and never leaves this Mac. Settings, your words, the languages of apps and the counts you allow are files on this Mac. The only network request is the update check.";
+"Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. The only network request is the update check." = "Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. The only network request is the update check.";
 "Languages of apps" = "Languages of apps";
 "Forget the languages of apps" = "Forget the languages of apps";
 "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit.";

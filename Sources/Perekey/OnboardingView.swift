@@ -150,7 +150,7 @@ private struct WelcomeStep: View {
                      text: "Nothing you type is sent anywhere. The code is open under GPL-3.0.")
             }
             .fixedSize(horizontal: false, vertical: true)
-            Text("Typed text stays in memory and is never written to disk. Only the lists you see in Settings → Words are saved, on this Mac.")
+            Text("Typed text is never saved. On this Mac stay your settings, the lists in Settings → Words and, if you allow it, counts without words.")
                 .font(PK.Font.caption)
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)

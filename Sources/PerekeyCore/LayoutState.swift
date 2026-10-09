@@ -14,21 +14,35 @@ struct LayoutState: Sendable {
     }
     /// The table of `current`, looked up once per change, not per key.
     private(set) var currentMap: LayoutMap?
-    private var previous: LayoutID?
+    /// The layouts in the order they were last selected, the latest first:
+    /// `current`, the one before it, and so on. Which Cyrillic layout the
+    /// user used last decides between ru and uk when nothing else does.
+    private var used: [LayoutID] = []
     /// What automatic switching weighs a word of `current` against:
     /// `candidates(of: current)` of another script
     /// (`Classifier.switchesAutomatically`). Kept per change, not per word.
     private(set) var automaticCandidates: [LayoutMap] = []
+    /// The languages whose typos the judge's corrector fixes
+    /// (`TypoCorrector.Options.languages`); `InputMachine` keeps it in step.
+    var typoLanguages: Set<String> = TypoCorrector.Options().languages {
+        didSet {
+            guard typoLanguages != oldValue else { return }
+            for index in scripted.indices {
+                scripted[index].typos = scripted[index].map.language.map(typoLanguages.contains) ?? false
+            }
+        }
+    }
     /// The layouts in `order` with the script of their language, looked up
     /// once per set of layouts: `updateCandidates` runs on every layout
     /// change and hashes nothing.
-    /// `typos`: the layout's language passed the typo gate
-    /// (`TypoCorrector.Options.languages`), asked once here, not per word.
+    /// `typos`: the layout's language is one of `typoLanguages`, asked once
+    /// here, not per word.
     private var scripted: [(map: LayoutMap, script: Classifier.Script?, typos: Bool)] = []
 
     init(_ maps: [LayoutMap], current: LayoutID?) {
         set(maps)
         self.current = current
+        if let current { used = [current] }
         currentMap = current.flatMap { self.maps[$0] }
         updateCandidates()
     }
@@ -38,7 +52,6 @@ struct LayoutState: Sendable {
     mutating func set(_ newMaps: [LayoutMap]) {
         order = newMaps.map(\.id)
         maps = Dictionary(newMaps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let typoLanguages = TypoCorrector.Options().languages
         scripted = order.compactMap { id in
             maps[id].map { map in
                 (map, map.language.flatMap(Classifier.Script.init), map.language.map(typoLanguages.contains) ?? false)
@@ -53,7 +66,9 @@ struct LayoutState: Sendable {
     @discardableResult
     mutating func makeCurrent(_ id: LayoutID) -> Bool {
         guard id != current else { return false }
-        if let current, maps[current] != nil { previous = current }
+        used.removeAll { $0 == id }
+        used.insert(id, at: 0)
+        if used.count > 16 { used.removeLast() }
         current = id
         updateCandidates()
         return true
@@ -120,27 +135,32 @@ struct LayoutState: Sendable {
         scripted.first { $0.map.id == id }?.typos ?? false
     }
 
-    /// `current`, `previous`, then the system order, no layout twice, until
-    /// `body` returns false. Linear over a handful of layouts: no hashing on
-    /// the way of a retype.
+    /// `current`, then the layouts by when they were last used, then the
+    /// system order, no layout twice, until `body` returns false. Linear
+    /// over a handful of layouts: no hashing on the way of a retype.
     private func visitPreferred(_ body: (LayoutMap) -> Bool) {
-        let first = current.flatMap { id in scripted.firstIndex { $0.map.id == id } }
-        let second = previous.flatMap { id in scripted.firstIndex { $0.map.id == id } }
-        if let first, !body(scripted[first].map) { return }
-        if let second, second != first, !body(scripted[second].map) { return }
-        for index in scripted.indices where index != first && index != second {
-            if !body(scripted[index].map) { return }
+        var seen: UInt64 = 0
+        func visit(_ index: Int) -> Bool {
+            let bit: UInt64 = index < 64 ? 1 << UInt64(index) : 0
+            guard seen & bit == 0 else { return true }
+            seen |= bit
+            return body(scripted[index].map)
         }
+        if let current, let index = scripted.firstIndex(where: { $0.map.id == current }), !visit(index) { return }
+        for id in used {
+            if let index = scripted.firstIndex(where: { $0.map.id == id }), !visit(index) { return }
+        }
+        for index in scripted.indices where !visit(index) { return }
     }
 
     /// `candidates(of: current)` of another script, without the arrays of
     /// `candidates`: it runs on every layout change, a few times a second
-    /// while typing.
+    /// while typing. The layout used last comes first.
     private mutating func updateCandidates() {
         automaticCandidates.removeAll(keepingCapacity: true)
         guard let current, let script = scripted.first(where: { $0.map.id == current })?.script else { return }
-        if let previous, let index = scripted.firstIndex(where: { $0.map.id == previous }) {
-            consider(index, against: script)
+        for id in used where id != current {
+            if let index = scripted.firstIndex(where: { $0.map.id == id }) { consider(index, against: script) }
         }
         for index in scripted.indices { consider(index, against: script) }
     }

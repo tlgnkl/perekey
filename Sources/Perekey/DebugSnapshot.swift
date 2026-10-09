@@ -97,16 +97,28 @@ enum DebugSnapshot {
                 var log = CorrectionLog()
                 if menu.name != "appoff" {
                     let en = sources.layouts.first?.id ?? "en", ru = sources.layouts.last?.id ?? "ru"
-                    log.record(Correction(seq: 1, original: "ghbdtn", replacement: "привет", source: en, target: ru), at: now)
+                    var layout = Correction(seq: 1, original: "ghbdtn", replacement: "привет", source: en, target: ru)
+                    layout.decision = Classifier.Decision(verdict: .switch(to: ru), score: 38.4, reason: .compared,
+                                                          language: "ru", margin: 10, typedForm: .unknown,
+                                                          otherForm: .known, typedLanguage: "en", otherLanguage: "ru")
+                    log.record(layout, at: now)
                     log.record(Correction(seq: 2, original: "мвд", replacement: "МВД", source: ru, target: ru, kind: .abbreviation), at: now)
                     log.record(Correction(seq: 3, original: "еще", replacement: "ещё", source: ru, target: ru, kind: .yo), at: now)
                     log.markUndone(seq: 2)
                 }
-                let view = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch, appModes: appModes,
-                                       recents: RecentCorrections(log), updates: updates)
-                    .background(Color(nsColor: .windowBackgroundColor))
-                render(view, dark: dark, size: CGSize(width: 318, height: 640),
+                func menuView(explained: Int? = nil) -> some View {
+                    var content = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch,
+                                              appModes: appModes, recents: RecentCorrections(log), updates: updates)
+                    content.explainedEntry = explained
+                    return content.background(Color(nsColor: .windowBackgroundColor))
+                }
+                render(menuView(), dark: dark, size: CGSize(width: 318, height: 640),
                        to: directory.appending(path: "menu-\(menu.name)-\(suffix).png"))
+                if menu.name == "normal" {
+                    // The newest-but-two row is the switch; its «Why?» open.
+                    render(menuView(explained: 0), dark: dark, size: CGSize(width: 318, height: 720),
+                           to: directory.appending(path: "menu-explained-\(suffix).png"))
+                }
             }
         }
     }
@@ -259,7 +271,7 @@ enum DebugSnapshot {
             LearnedWord(word: "ghbdtn", learnedAt: Date().addingTimeInterval(-86_400 * 20).timeIntervalSince1970,
                         undoCount: 3, lastUndoneAt: Date().addingTimeInterval(-86_400 * 4).timeIntervalSince1970),
         ]
-        let size = CGSize(width: 560, height: 800)
+        let size = CGSize(width: 560, height: 1100)
         for (name, sample, dark) in [("words-light", words, false), ("words-empty-dark", WordRules(), true)] {
             let file = SettingsFile(url: directory.appending(path: "\(name).json"))
             try? file.save(AppSettings(words: sample))

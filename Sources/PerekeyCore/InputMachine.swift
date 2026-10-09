@@ -43,6 +43,7 @@ public struct InputMachine: Sendable {
         self.layouts = LayoutState(layouts, current: currentLayout)
         fence = Fence(confirmedLayout: currentLayout)
         judge = WordJudge(classifier: classifier)
+        self.layouts.typoLanguages = judge.typoLanguages
     }
 
     /// Whether user input is being held back right now.
@@ -144,6 +145,7 @@ public struct InputMachine: Sendable {
 
         case let .classifierChanged(newClassifier):
             judge.setClassifier(newClassifier)
+            layouts.typoLanguages = judge.typoLanguages
 
         case let .languageContextChanged(context):
             if let tally = judge.languageContextChanged(context) { effects.append(.languagesCounted(tally)) }
@@ -397,7 +399,7 @@ public struct InputMachine: Sendable {
         case .convertLastWord:
             let plan = manual.retypeWord(buffer: buffer, layouts: layouts,
                                          phrases: settings.corrections.phraseRetype, isSecureField: isSecureField,
-                                         classifier: judge.classifier)
+                                         classifier: judge.classifier, context: judge.manualContext(focus: focus))
             run(plan, as: action, fixedByAutoswitch: fixedByAutoswitch, at: time, effects: &effects)
 
         case .changeCase:
@@ -452,7 +454,7 @@ public struct InputMachine: Sendable {
     private mutating func retypeSelection(_ text: String, _ action: ManualActions.SelectionAction,
                                           viaAccessibility: Bool, effects: inout [Effect])
     {
-        switch ManualActions.selectionRead(text, action: action, layouts: layouts) {
+        switch ManualActions.selectionRead(text, action: action, layouts: layouts, classifier: judge.classifier) {
         case let .refuse(refusal):
             if let refusal { effects.append(.refused(refusal)) }
             fence.release(effects: &effects)

@@ -181,6 +181,14 @@ struct WordJudge: Sendable {
         Classifier.Context(recent: recent, prior: inContextApp(focus) ? languageContext.prior : LanguagePrior())
     }
 
+    /// The context a manual retype ranks the readings of the word with:
+    /// the one it had at its end, or the current one.
+    func manualContext(focus: Focus?) -> Classifier.Context {
+        var context = judged ? contextAtJudge : context(focus: focus)
+        context.mode = .manual
+        return context
+    }
+
     private func inContextApp(_ focus: Focus?) -> Bool {
         languageContext.app != nil && focus?.bundleID == languageContext.app
     }
@@ -204,6 +212,9 @@ struct WordJudge: Sendable {
     init(classifier: Classifier?) {
         setClassifier(classifier)
     }
+
+    /// The languages the corrector fixes typos in; none without a model.
+    var typoLanguages: Set<String> { typoCorrector?.options.languages ?? [] }
 
     mutating func setClassifier(_ newClassifier: Classifier?) {
         classifier = newClassifier
@@ -372,19 +383,29 @@ struct WordJudge: Sendable {
                 : auto.classifier.classify(strokes, typed: auto.typed, candidates: auto.candidates,
                                            context: contextAtJudge)
             decision = found
-            // The reading the classifier picked, or one on "Всегда исправлять".
+            // The reading the classifier picked, or one on "Всегда исправлять"
+            // with the decision on that reading, not on the one that won.
+            var listed: String?
+            var listedDecision = found
             if case let .switch(to: id) = found.verdict, let map = layouts[id] {
                 auto.other = map
-            } else if auto.candidates.count > 1,
-                      let listed = auto.candidates.first(where: { alwaysFixSpelling(buffer, in: $0, settings) != nil })
-            {
-                auto.other = listed
+                listed = alwaysFixSpelling(buffer, in: map, settings)
+            } else if auto.candidates.count == 1 {
+                listed = alwaysFixSpelling(buffer, in: auto.other, settings)
+            } else if !settings.alwaysFix.isEmpty {
+                for candidate in auto.candidates {
+                    guard let spelling = alwaysFixSpelling(buffer, in: candidate, settings) else { continue }
+                    auto.other = candidate
+                    listed = spelling
+                    listedDecision = auto.classifier.classify(strokes, typed: auto.typed, other: candidate,
+                                                              context: contextAtJudge)
+                    break
+                }
             }
             let switches = found.verdict == .switch(to: auto.other.id)
-            // The other reading is on "Всегда исправлять": its spelling there.
-            let listed = alwaysFixSpelling(buffer, in: auto.other, settings)
             // It switches over a keep, but not over a guard or a capital inside the word.
-            let forced = !switches && listed != nil && WordRules.overrides(found) && !isMixedCase(buffer, auto)
+            let forced = !switches && listed != nil && WordRules.overrides(listedDecision)
+                && !isMixedCase(buffer, auto)
             if forced || switches {
                 if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
                     || alwaysFixSpelling(buffer, in: auto.typed, settings) != nil

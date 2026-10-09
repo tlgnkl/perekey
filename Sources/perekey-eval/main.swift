@@ -11,6 +11,8 @@
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
 //                     [--previous ru,en,...]
 //   perekey-eval coverage --model <file> --language <code> [--cache <dir>]
+//   perekey-eval cyrillic --model <dir> --layouts <dir> [--cache <dir>] [--words N] [--margin M] [--languages ru,uk,be]
+//                         [--margin-sweep]
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -19,6 +21,10 @@
 // ru and en.
 // `--model` is a model file or a directory of them (`<language>.pklm`);
 // `run` and `word` map ru and en from a directory.
+// `cyrillic` types Russian and Ukrainian words on ABC with both Cyrillic
+// layouts installed and counts the words that land in the other Cyrillic
+// language (`CyrillicChoice`); exit status 1 when, with context, that is
+// 0.5 % or more. `--margin-sweep` repeats it over `Options.readingMargin`.
 // `coverage` prints the share of Tatoeba tokens of one language that its
 // model knows as word forms: for a language without a word-form dictionary
 // (uk, data/SOURCES.md).
@@ -53,13 +59,13 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word", "coverage"].contains(command) else {
-    fail("usage: perekey-eval corpus|run|word|coverage ... (see the source header)")
+guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic"].contains(command) else {
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
-    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep"].contains(argument) {
+    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -248,6 +254,37 @@ do {
                      total.falseRate * 100, results.textRecall * 100))
         if total.falseRate >= 0.001 || results.textRecall < 0.95 {
             print("FAIL: targets are false switches < 0.1 % and recall ≥ 95 % on prose and chat")
+            exit(1)
+        }
+
+    case "cyrillic":
+        guard let modelPath = flags["--model"], let layouts = flags["--layouts"] else {
+            fail("--model and --layouts are required")
+        }
+        let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
+        let languages = (flags["--languages"] ?? "ru,uk").split(separator: ",").map(String.init)
+        let model = try ModelFile.load(modelPath, languages: ["en"] + languages)
+        let items = try CyrillicChoice.build(cache: cache, words: Int(flags["--words"] ?? "20000") ?? 20000, seed: 1,
+                                             languages: languages)
+        let abc = layout("ABC", in: layouts)
+        let names = ["ru": "Russian", "uk": "Ukrainian-PC", "be": "Byelorussian"]
+        var maps: [String: LayoutMap] = [:]
+        for code in languages { maps[code] = layout(names[code] ?? code, in: layouts) }
+        var options = Classifier.Options()
+        if let margin = flags["--margin"].flatMap(Double.init) { options.readingMargin = margin }
+        let margins = flags["--margin-sweep"] != nil ? Array(stride(from: 0.0, through: 30.0, by: 5.0))
+            : [options.readingMargin]
+        var met = true
+        for margin in margins {
+            options.readingMargin = margin
+            let rows = CyrillicChoice.run(items, classifier: Classifier(model: model, options: options), abc: abc,
+                                          layouts: maps, languages: languages)
+            print("readingMargin \(margin)")
+            print(CyrillicChoice.report(rows))
+            met = met && CyrillicChoice.targetsMet(rows)
+        }
+        if flags["--margin-sweep"] == nil, !met {
+            print("FAIL: target is a wrong Cyrillic language < 0.5 % with context")
             exit(1)
         }
 

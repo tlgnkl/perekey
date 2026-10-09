@@ -17,7 +17,8 @@
 # Needs the held-out sources: scripts/fetch-data.sh lexicon heldout. The corpus
 # is built once per size into .build/eval/ and reused. Exit status 1 when the
 # plan's targets are missed: false switches < 0.1 % of words, recall ≥ 95 %,
-# for the ru ↔ en corpus and then for the en ↔ uk one.
+# for the ru ↔ en corpus and then for the en ↔ uk one; and a wrong Cyrillic
+# language < 0.5 % with context when ABC, Russian and Ukrainian are installed.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -34,7 +35,7 @@ while [[ $# -gt 0 ]]; do
         --context-sweep) SWEEP+=(--context-sweep) ;;
         --prior-sweep) SWEEP+=(--prior-sweep) ;;
         --model) MODEL="$2"; shift ;;
-        -h|--help) sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "eval: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -83,3 +84,15 @@ echo
 echo "en ↔ be:"
 "$bin" run --pair en-be --model "$MODEL" --corpus "$be_corpus" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" \
     --json ".build/eval/result-be-$WORDS.json"
+
+# ABC, Russian and Ukrainian-PC together: a Russian or Ukrainian word typed
+# on ABC must land in its own Cyrillic layout (perekey-eval cyrillic).
+echo
+echo "en → ru | uk:"
+"$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE"
+echo
+echo "en → ru | be:"
+"$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE" --languages ru,be
+echo
+echo "en → ru | uk | be:"
+"$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE" --languages ru,uk,be

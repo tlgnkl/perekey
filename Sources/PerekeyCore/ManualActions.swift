@@ -341,6 +341,8 @@ struct ManualActions: Sendable {
         var best = changing[0]
         var bestScore = -Double.infinity
         for target in changing {
+            // A layout without a model has nothing to say: last, as in `Classifier.ranked`.
+            guard let code = target.language, classifier.model.language(code) != nil else { continue }
             var score = 0.0
             for strokes in words where !strokes.isEmpty {
                 let decision = classifier.classify(strokes, typed: sourceMap, other: target, context: context)

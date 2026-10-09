@@ -551,7 +551,7 @@ struct WordJudge: Sendable {
         var keys = word.keys
         var fix: WordFix?
         let spelt = spelling.map { WordFix(strokes: $0, kind: .layout) }
-        if !midWord, let found = spelt ?? (corrects ? correctWord(entries, in: context.other, settings: settings) : nil) {
+        if !midWord, let found = spelt ?? (corrects ? correctWord(entries, in: context.other, layouts: layouts, settings: settings) : nil) {
             keys.removeAll(keepingCapacity: true)
             for stroke in found.strokes {
                 guard let text = context.other.text(for: stroke) else { return nil }
@@ -583,7 +583,7 @@ struct WordJudge: Sendable {
     private func typoRetype(_ buffer: WordBuffer, in typed: LayoutMap, heldKeyCode: UInt16, held: KeyStroke?,
                             undoable: Bool, layouts: LayoutState, settings: Settings) -> WordRetype?
     {
-        guard let fix = correctWord(buffer.entries[...], in: typed, settings: settings) else { return nil }
+        guard let fix = correctWord(buffer.entries[...], in: typed, layouts: layouts, settings: settings) else { return nil }
         var keys: [Retype.Key] = []
         var expected = ""
         keys.reserveCapacity(fix.strokes.count)
@@ -619,12 +619,12 @@ struct WordJudge: Sendable {
     /// 2. The dictionary steps of `WordCorrections`: Caps Lock, double
     ///    capitals, abbreviations, "ё".
     /// The kind of the first step that changed the word names the correction.
-    private func correctWord(_ entries: ArraySlice<WordBuffer.Entry>, in map: LayoutMap,
+    private func correctWord(_ entries: ArraySlice<WordBuffer.Entry>, in map: LayoutMap, layouts: LayoutState,
                              settings: Settings) -> WordFix?
     {
         var fix: WordFix?
-        if settings.typoCorrection, let typoCorrector,
-           let candidate = typoCorrector.correct(entries.lazy.map(\.stroke), in: map, sentenceStart: sentenceStart)
+        if settings.typoCorrection, let typoCorrector, layouts.correctsTypos(map.id),
+           let candidate = typoCorrector.correct(entries.lazy.map(\.stroke), inAllowed: map, sentenceStart: sentenceStart)
         {
             fix = WordFix(strokes: candidate.strokes, kind: .typo, typoChange: candidate.change)
         }

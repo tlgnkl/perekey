@@ -140,6 +140,8 @@ struct ManualActions: Sendable {
     private static func walk(of buffer: WordBuffer, from source: LayoutID, layouts: LayoutState,
                              classifier: Classifier?) -> [LayoutID]?
     {
+        // Two layouts: one reading, the other layout, without building lists.
+        if layouts.order.count <= 2 { return layouts.counterpart(of: source).map { [$0] } }
         let candidates = layouts.candidates(of: source)
         guard candidates.count > 1 else {
             return candidates.isEmpty ? layouts.counterpart(of: source).map { [$0] } : candidates

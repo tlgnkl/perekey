@@ -22,7 +22,9 @@ struct LayoutState: Sendable {
     /// The layouts in `order` with the script of their language, looked up
     /// once per set of layouts: `updateCandidates` runs on every layout
     /// change and hashes nothing.
-    private var scripted: [(map: LayoutMap, script: Classifier.Script?)] = []
+    /// `typos`: the layout's language passed the typo gate
+    /// (`TypoCorrector.Options.languages`), asked once here, not per word.
+    private var scripted: [(map: LayoutMap, script: Classifier.Script?, typos: Bool)] = []
 
     init(_ maps: [LayoutMap], current: LayoutID?) {
         set(maps)
@@ -36,7 +38,12 @@ struct LayoutState: Sendable {
     mutating func set(_ newMaps: [LayoutMap]) {
         order = newMaps.map(\.id)
         maps = Dictionary(newMaps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        scripted = order.compactMap { id in maps[id].map { ($0, $0.language.flatMap(Classifier.Script.init)) } }
+        let typoLanguages = TypoCorrector.Options().languages
+        scripted = order.compactMap { id in
+            maps[id].map { map in
+                (map, map.language.flatMap(Classifier.Script.init), map.language.map(typoLanguages.contains) ?? false)
+            }
+        }
         currentMap = current.flatMap { maps[$0] }
         updateCandidates()
     }
@@ -107,6 +114,12 @@ struct LayoutState: Sendable {
         return candidates.map(\.id)
     }
 
+    /// Whether typos of words in this layout are corrected: its language
+    /// passed the typo gate. A linear look among a handful of layouts.
+    func correctsTypos(_ id: LayoutID) -> Bool {
+        scripted.first { $0.map.id == id }?.typos ?? false
+    }
+
     /// `current`, `previous`, then the system order, no layout twice, until
     /// `body` returns false. Linear over a handful of layouts: no hashing on
     /// the way of a retype.
@@ -133,7 +146,7 @@ struct LayoutState: Sendable {
     }
 
     private mutating func consider(_ index: Int, against script: Classifier.Script) {
-        let (map, other) = scripted[index]
+        let (map, other, _) = scripted[index]
         guard let other, other != script,
               !automaticCandidates.contains(where: { $0.language == map.language })
         else { return }

@@ -99,9 +99,15 @@ public struct TypoCorrector: Sendable {
     /// - Parameter sentenceStart: the word starts a sentence, so a capital
     ///   first letter is no name.
     public func correct(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap, sentenceStart: Bool) -> Candidate? {
-        guard let code = layout.language, options.languages.contains(code), let language = model.language(code) else {
-            return nil
-        }
+        guard let code = layout.language, options.languages.contains(code) else { return nil }
+        return correct(strokes, inAllowed: layout, sentenceStart: sentenceStart)
+    }
+
+    /// `correct(_:in:sentenceStart:)` for a caller that knows the layout's
+    /// language is allowed (`LayoutState.correctsTypos`): no set lookup on
+    /// the per-word path.
+    func correct(_ strokes: some Collection<KeyStroke>, inAllowed layout: LayoutMap, sentenceStart: Bool) -> Candidate? {
+        guard let code = layout.language, let language = model.language(code) else { return nil }
         let capacity = options.maxLetters
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: capacity) { scalars in
             withUnsafeTemporaryAllocation(of: UInt16.self, capacity: capacity) { keyCodes in

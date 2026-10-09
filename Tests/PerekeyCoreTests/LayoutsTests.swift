@@ -210,6 +210,22 @@ extension ModelFixture {
 }
 
 @Suite struct UkrainianTyposTests {
+    @Test func theLayoutsKnowWhichLanguagesHaveTypoCorrection() {
+        let layouts = LayoutState([Fixture.abc, Fixture.russian, Fixture.ukrainianPC], current: en)
+        #expect(layouts.correctsTypos(en) && layouts.correctsTypos(ru))
+        #expect(!layouts.correctsTypos(uk))
+    }
+
+    @Test func aUkrainianTypoStaysAsTyped() {
+        var desk = Desk(Settings(autoswitch: false, typoCorrection: true),
+                        layouts: [Fixture.abc, Fixture.russian, Fixture.ukrainianPC], current: uk,
+                        classifier: UkrainianFixture.classifier)
+        let typo = "сього" + "нді "
+        desk.type(typo, on: Fixture.ukrainianPC)
+        #expect(desk.text == typo)
+        #expect(desk.corrections.isEmpty)
+    }
+
     @Test func typosAreCorrectedOnlyInLanguagesThatPassedTheGate() {
         #expect(TypoCorrector.Options().languages == ["ru", "en"])
         // "сьогодні" with two letters swapped: one edit from a known uk form.

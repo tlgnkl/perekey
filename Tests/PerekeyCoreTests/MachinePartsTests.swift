@@ -286,7 +286,8 @@ private func buffer(_ text: String, in layout: LayoutID = en) -> WordBuffer {
 
     @Test func anUndoneSwitchInsideTheWordIsLearnedAtItsEnd() {
         var wordJudge = WordJudge(classifier: Desk.classifier)
-        wordJudge.wordUndone(language: "en")
+        wordJudge.wordUndone()
+        wordJudge.undoPosted(language: "en")
         #expect(wordJudge.judged)
         wordJudge.learnAtWordEnd()
         wordJudge.typed(startsWord: false)

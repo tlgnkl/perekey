@@ -9,8 +9,9 @@
 #
 # Groups:
 #   lexicon   word lists and frequencies for the model (~26 MB)
-#   text      Wikipedia text for character n-grams (~1 GB); kk for scripts/wiki-freq.py
-#   wikifreq  Wikipedia be, the word counts of the Belarusian model (~285 MB)
+#   text      Wikipedia text for character n-grams (~1 GB)
+#   wikifreq  Wikipedia be and kk, the word counts of their models: CI builds
+#             and checks every model file, shipped or not
 #   model     lexicon + text + wikifreq (default)
 #   heldout   held-out corpus sources, used only for evaluation (~141 MB)
 #   heavy     large optional held-out source: ru.stackoverflow.com (~1 GB)
@@ -64,7 +65,7 @@ text|wikipedia/en/train-00028-of-00041.parquet|$HF_WIKI.en/train-00028-of-00041.
 text|wikipedia/uk/train-00002-of-00010.parquet|$HF_WIKI.uk/train-00002-of-00010.parquet|11f25bf916b71e9030626104542acbe298b0ee1bfc394444928253d91a4095a2
 wikifreq|wikipedia/be/train-00000-of-00002.parquet|$HF_WIKI.be/train-00000-of-00002.parquet|68048674aca99df6826cb3cc212a0c14eedd70ddf66aedd3833fb55aca7a8b39
 wikifreq|wikipedia/be/train-00001-of-00002.parquet|$HF_WIKI.be/train-00001-of-00002.parquet|d7930469968c695b232d005bbfb7857db3b0c14245887acf0fab374312d97d6f
-text|wikipedia/kk/train-00000-of-00001.parquet|$HF_WIKI.kk/train-00000-of-00001.parquet|7ecd6679b1635942941a67744eca1f677ec01fca9b60406253bda128ebf80dc4
+wikifreq|wikipedia/kk/train-00000-of-00001.parquet|$HF_WIKI.kk/train-00000-of-00001.parquet|7ecd6679b1635942941a67744eca1f677ec01fca9b60406253bda128ebf80dc4
 heldout|tatoeba/sentences_CC0.tar.bz2|https://downloads.tatoeba.org/exports/sentences_CC0.tar.bz2|-
 heldout|tatoeba/rus_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/rus/rus_sentences.tsv.bz2|-
 heldout|tatoeba/eng_sentences.tsv.bz2|https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2|-

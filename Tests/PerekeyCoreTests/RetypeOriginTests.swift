@@ -89,16 +89,17 @@ private func keyboard(_ action: HotkeyAction, autoswitch: Bool = true) -> Keyboa
         #expect(try #require(kb.tapOption().retype).decision == nil)
     }
 
-    @Test func puttingAnAutomaticFixBackIsNoLeftAloneWord() throws {
+    @Test func theRetypeShortcutRightAfterAnAutomaticFixIsAnUndo() throws {
         var desk = Desk(settings(.convertLastWord))
         // The classifier switches this word at the space.
         desk.type("[jhjij ")
         #expect(desk.text == "хорошо ")
         desk.tapOption()
         desk.settle()
+        #expect(desk.text == "[jhjij ")
         let back = try #require(desk.history.last)
         #expect(desk.history.count == 2)
-        #expect(back.origin == .manual(.convertLastWord))
+        #expect(back.origin == .undo, "statistics count it as an undo, not a manual retype")
         // Nothing was left alone: there is nothing to explain.
         #expect(back.decision == nil)
     }

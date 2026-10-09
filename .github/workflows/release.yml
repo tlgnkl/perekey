@@ -42,6 +42,12 @@ jobs:
           path: .build/data-cache
           key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
       - run: scripts/fetch-data.sh lexicon wikifreq
+      # Everything that downloads or runs third-party build tools (the pinned
+      # pip packages of scripts/wiki-freq.py) goes before the certificate is
+      # in an unlocked keychain. scripts/build-universal.sh then finds the
+      # files and only checks their hashes.
+      - name: Build the model files and check their hashes
+        run: scripts/build-model.sh --out .build/universal/model
 
       - name: Import the Developer ID certificate
         id: cert

@@ -61,6 +61,9 @@ struct CorrectionUndo: Sendable {
         var withdraw: String?
         /// The Backspace that asked for the undo is the first held event.
         var heldKey: Bool
+        /// The language the word is in once the undo is posted: the context
+        /// learns it then, not when the undo starts and may still be cancelled.
+        var language: String?
     }
 
     /// The retype that undoes a correction.
@@ -188,7 +191,8 @@ struct CorrectionUndo: Sendable {
         return Plan(keys: keys, expected: expected, deleteCount: deleteCount, source: source.id,
                     language: source.language, strokes: last.strokes,
                     inFlight: InFlight(seq: correction.seq, reported: last.reported, isOpen: last.isOpen,
-                                       learn: learn, withdraw: last.alwaysFix, heldKey: heldKey))
+                                       learn: learn, withdraw: last.alwaysFix, heldKey: heldKey,
+                                       language: source.language))
     }
 
     /// A key typed while a switch inside the word is open, after it went into

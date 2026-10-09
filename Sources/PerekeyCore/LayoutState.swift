@@ -18,7 +18,7 @@ struct LayoutState: Sendable {
     /// first. Perekey's own automatic switches leave it alone: which Cyrillic
     /// layout the user chose last decides between ru and uk when nothing
     /// else does, and a wrong switch must not teach it.
-    private var used: [LayoutID] = []
+    private(set) var used: [LayoutID] = []
     /// What automatic switching weighs a word of `current` against:
     /// `candidates(of: current)` of another script
     /// (`Classifier.switchesAutomatically`). Kept per change, not per word.

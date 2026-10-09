@@ -26,11 +26,14 @@ public struct InputMachine: Sendable {
     /// the last one the system reported.
     public var currentLayout: LayoutID? { layouts.current }
 
-    private var layouts: LayoutState
+    private(set) var layouts: LayoutState
     private var fence: Fence
-    private var judge: WordJudge
+    private(set) var judge: WordJudge
     private var undo = CorrectionUndo()
     private var manual = ManualActions()
+    /// The language a manual retype in flight chose: it goes into the context
+    /// when the retype is posted, and is dropped with a cancelled one.
+    private var languageChoice: (seq: UInt32, language: String?)?
     private var shortcuts: Shortcuts
     private var secureInput = false
     private var focus: Focus?
@@ -324,7 +327,7 @@ public struct InputMachine: Sendable {
                     seq: fence.takeSeq(), purpose: .undo(plan.inFlight), origin: .undo, at: time, effects: &effects)
         buffer.clear()
         for stroke in plan.strokes { buffer.type(stroke, in: plan.source) }
-        judge.wordUndone(language: plan.language)
+        judge.wordUndone()
         return true
     }
 
@@ -335,6 +338,7 @@ public struct InputMachine: Sendable {
         case let .correction(pending):
             undo.posted(pending, effects: &effects)
         case let .undo(inFlight):
+            judge.undoPosted(language: inFlight.language)
             if inFlight.reported { effects.append(.correctionUndone(seq: inFlight.seq)) }
             if inFlight.isOpen {
                 judge.learnAtWordEnd()
@@ -343,9 +347,12 @@ public struct InputMachine: Sendable {
             }
             if let word = inFlight.withdraw { effects.append(.alwaysFixWithdrawn(word)) }
             fence.undoPosted(heldKey: inFlight.heldKey)
-        case .retype, .readingSelection:
+        case .retype:
+            if let chosen = languageChoice, chosen.seq == seq { judge.languageChosen(chosen.language) }
+        case .readingSelection:
             break
         }
+        languageChoice = nil
         fence.finishPosted(effects: &effects)
     }
 
@@ -354,6 +361,7 @@ public struct InputMachine: Sendable {
     private mutating func retypeCancelled(_ seq: UInt32, effects: inout [Effect]) {
         guard let cancelled = fence.hold, cancelled.seq == seq else { return }
         manual.endPhrase()
+        languageChoice = nil
         switch cancelled.purpose {
         case let .undo(inFlight):
             // The caret is not after the corrected word: the text stays,
@@ -370,7 +378,15 @@ public struct InputMachine: Sendable {
         case .retype, .readingSelection:
             buffer.clear()
         }
-        if let layout = cancelled.layoutBefore { select(layout, byUser: false, effects: &effects) }
+        if let layout = cancelled.layoutBefore {
+            // A cancelled retype the user asked for leaves their layout the
+            // one used last, not the target that never came.
+            let byUser: Bool = switch cancelled.purpose {
+            case .undo, .retype, .readingSelection: true
+            case .correction: false
+            }
+            select(layout, byUser: byUser, effects: &effects)
+        }
         fence.release(effects: &effects)
     }
 
@@ -382,6 +398,13 @@ public struct InputMachine: Sendable {
         // The word the last switch fixed is no word automatic switching
         // "left alone", whatever the retype does with it.
         let fixedByAutoswitch = undo.last != nil
+        // The retype shortcut right after an automatic fix takes it back, as
+        // Backspace does: an undo, with all an undo brings (the recent list,
+        // learning, «Всегда исправлять», statistics, the context).
+        if action == .convertLastWord, fixedByAutoswitch, undoCorrection(at: time, heldKey: false, effects: &effects) {
+            manual.endPhrase()
+            return
+        }
         if case .undoLastCorrection = action {} else { undo.forget() }
         if action != .convertLastWord { manual.endPhrase() }
         let isSecureField = focus?.isSecureField == true
@@ -441,8 +464,9 @@ public struct InputMachine: Sendable {
                 ? judge.decisionForManualRetype(buffer: buffer, layouts: layouts, settings: settings, focus: focus,
                                                 secureInput: secureInput, target: retype.target)
                 : nil
+            let seq = fence.takeSeq()
             startRetype(retype.word, target: retype.target, awaitsLayout: retype.changesLayout,
-                        seq: fence.takeSeq(), origin: .manual(action), decision: decision, at: time, effects: &effects)
+                        seq: seq, origin: .manual(action), decision: decision, at: time, effects: &effects)
             switch retype.edit {
             case let .relabel(layout): buffer.relabel(to: layout)
             case let .relabelPhrase(phrase): buffer.relabelPhrase(phrase)
@@ -450,7 +474,8 @@ public struct InputMachine: Sendable {
             }
             if retype.changesLayout {
                 judge.leaveWordAlone()
-                judge.languageChosen(layouts[retype.target]?.language)
+                // The context learns the language once the retype is posted.
+                languageChoice = (seq, layouts[retype.target]?.language)
             }
         }
     }
@@ -491,9 +516,10 @@ public struct InputMachine: Sendable {
                                       effects: inout [Effect])
     {
         let layoutBefore = target == layouts.current ? nil : layouts.current
+        // An undo is the user's choice of the original layout as much as a retype is.
         let byUser: Bool = switch origin {
-        case .manual, .manualSelection: true
-        case .automatic, .undo: false
+        case .manual, .manualSelection, .undo: true
+        case .automatic: false
         }
         select(target, byUser: byUser, effects: &effects)
         effects.append(.retype(Retype(deleteCount: deleteCount ?? word.keys.count, keys: word.keys, target: target,

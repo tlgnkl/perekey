@@ -254,9 +254,14 @@ struct WordJudge: Sendable {
     }
 
     /// A correction of the word was undone: the word is back in its layout.
-    mutating func wordUndone(language: String?) {
+    mutating func wordUndone() {
         switching = .suppressed
         judged = true
+    }
+
+    /// The undo of the word was posted: it is in `language`. Not before: a
+    /// cancelled undo leaves the word as corrected, and its language with it.
+    mutating func undoPosted(language: String?) {
         record(language)
     }
 

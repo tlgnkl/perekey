@@ -23,8 +23,24 @@ press Option. Every shortcut is configurable, including Windows-style ⌥⇧ and
 - **Never in passwords.** Password fields, Secure Input, password-like strings
   and captcha-like random strings are left alone.
 - **Extras.** Change case, transliterate, paste without formatting, sounds.
-- **Private.** Typed text stays in memory. The only network request is the
+- **Private.** Typed text is never saved. Only your settings and word lists
+  are kept, on this Mac (see "What is stored"). The only network request is the
   update check, and it can be turned off (see below).
+
+## What is stored
+
+Typed text is never saved: the word you are typing lives in memory. Perekey
+keeps three files in `~/Library/Application Support/Perekey/`:
+
+- `settings.json`: settings and your word lists ("Mine", "Learned",
+  "Always fix"), with dates and undo counts. These are words you chose or
+  undid, so they are text you typed; the lists are in Settings → Words.
+- `statistics.json`: only with "Count corrections" on. Counts per day and kind
+  of correction, and how many you undid. No words, no apps.
+- `languages.json`: how many words of each language you type in each app, by
+  app ID. No words. Counts for websites stay in memory and are gone on quit.
+
+Settings → Privacy erases the counts.
 
 ## Network
 

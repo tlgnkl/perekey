@@ -31,7 +31,7 @@ struct PrivacyPane: View {
 
     var body: some View {
         PKPane(title: Text("Privacy")) {
-            Text("What you type stays in memory and never leaves this Mac. Settings, your words, the languages of apps and the counts you allow are files on this Mac. The only network request is the update check.")
+            Text("Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. The only network request is the update check.")
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)

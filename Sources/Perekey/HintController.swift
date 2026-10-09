@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import PerekeyCore
 import PerekeyInput
 import SwiftUI
 
@@ -45,6 +46,7 @@ final class HintController {
     /// After a correction: `original` struck out, `replacement` underlined, an
     /// «Undo» chip that calls `onUndo`.
     func show(original: String, replacement: String, onUndo: @escaping () -> Void) {
+        alwaysFixAction = nil
         present(.corrected(original: original, replacement: replacement), action: onUndo)
     }
 
@@ -72,10 +74,12 @@ final class HintController {
 
     /// After an undo with learning: «Remembered “word” · Forget».
     func showLearned(word: String, onForget: @escaping () -> Void) {
+        alwaysFixAction = nil
         present(.learned(word: word), action: onForget)
     }
 
     func hide() {
+        alwaysFixAction = nil
         generation += 1
         dismiss()
     }
@@ -271,6 +275,13 @@ final class HintController {
     private func startKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            // Perekey's own retype and the replay of held keys are no typing of
+            // the user's now: the second word of «ghbdtn vbh » would end its hint.
+            if let cgEvent = event.cgEvent,
+               SyntheticMark(userData: cgEvent.getIntegerValueField(.eventSourceUserData)) != nil
+            {
+                return
+            }
             let key = HintKey.classify(keyCode: event.keyCode, character: event.characters?.first,
                                        isShortcut: !event.modifierFlags.intersection([.command, .control]).isEmpty)
             MainActor.assumeIsolated { self?.keyPressed(key) }

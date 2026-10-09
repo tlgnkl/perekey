@@ -89,8 +89,6 @@
 "Retype last word or selection" = "Retype last word or selection";
 "Right ⌘ — EN, right ⌥ — RU" = "Right ⌘ — EN, right ⌥ — RU";
 "Select %@" = "Select %@";
-"Select English" = "Select English";
-"Select Russian" = "Select Russian";
 "Settings…" = "Settings…";
 "Shift" = "Shift";
 "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them." = "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them.";
@@ -334,3 +332,14 @@
 "Languages of apps" = "Languages of apps";
 "Forget the languages of apps" = "Forget the languages of apps";
 "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit.";
+"Your languages" = "Your languages";
+"By hand" = "By hand";
+"%@ walks through the readings: press it again for the next layout, then back to what you typed." = "%@ walks through the readings: press it again for the next layout, then back to what you typed.";
+"The retype shortcut walks through the readings: press it again for the next layout, then back to what you typed." = "The retype shortcut walks through the readings: press it again for the next layout, then back to what you typed.";
+"Perekey switches by itself, and on your shortcut." = "Perekey switches by itself, and on your shortcut.";
+"Only on your shortcut. The layouts differ in a few letters, so Perekey cannot tell a wrong layout from the other language." = "Only on your shortcut. The layouts differ in a few letters, so Perekey cannot tell a wrong layout from the other language.";
+"These keys select English and Russian. For %@ record a shortcut below." = "These keys select English and Russian. For %@ record a shortcut below.";
+"By itself: %@." = "By itself: %@.";
+"Only by hand: %@." = "Only by hand: %@.";
+"Press %@ and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed." = "Press %@ and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed.";
+"Press the shortcut and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed." = "Press the shortcut and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed.";

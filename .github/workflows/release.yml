@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15
+    runs-on: macos-26 # the macOS 26 SDK and Swift 6.2+ (Liquid Glass, isolated deinit), as in ci.yml
     steps:
       - uses: actions/checkout@v4
       - name: Select Command Line Tools

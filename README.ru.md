@@ -45,6 +45,12 @@
 
 Нужна macOS 14 или новее, Apple Silicon или Intel.
 
+Или через Homebrew:
+
+```sh
+brew install --cask tlgnkl/tap/perekey
+```
+
 > [!IMPORTANT]
 > Сборки пока без подписи Apple, поэтому macOS не даст запустить Perekey
 > с первого раза.

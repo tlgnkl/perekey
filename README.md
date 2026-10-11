@@ -46,6 +46,12 @@
 
 Needs macOS 14 or later, on Apple Silicon or Intel.
 
+Or with Homebrew:
+
+```sh
+brew install --cask tlgnkl/tap/perekey
+```
+
 > [!IMPORTANT]
 > Builds are not signed by Apple yet, so macOS blocks the first launch.
 > - **macOS 15 and later:** open Perekey once, close the warning, then go to

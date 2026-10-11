@@ -36,6 +36,13 @@ jobs:
         run: |
           echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           echo "BUILD=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+      # Fails before the long build if CHANGELOG.md has no dated section for
+      # this version ("## [0.1.0] - 2026-10-11").
+      - name: Check the release notes
+        run: |
+          scripts/release-notes.sh "$VERSION" >/dev/null
+          grep -qE "^## \[${VERSION//./\\.}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md \
+            || { echo "::error::Put the release date on \"## [$VERSION]\" in CHANGELOG.md"; exit 1; }
       - name: Cache the model data
         uses: actions/cache@v4
         with:
@@ -80,6 +87,7 @@ jobs:
         run: scripts/dmg.sh
 
       - name: Notarize and staple
+        id: notary
         if: steps.cert.outputs.signed == 'true'
         env:
           NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
@@ -96,6 +104,7 @@ jobs:
           xcrun stapler staple "$dmg"
           # The stapled DMG changed, so its checksum did too.
           (cd .build/dmg && shasum -a 256 "Perekey-$VERSION.dmg" > "Perekey-$VERSION.dmg.sha256")
+          echo "notarized=true" >> "$GITHUB_OUTPUT"
 
       - name: Appcast for Sparkle
         env:
@@ -111,11 +120,20 @@ jobs:
       - name: Upload to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          # Unsigned builds get the "Open Anyway" steps in their notes.
+          SIGNED: ${{ steps.notary.outputs.notarized == 'true' }}
         run: |
-          files=(".build/dmg/Perekey-$VERSION.dmg" ".build/dmg/Perekey-$VERSION.dmg.sha256")
+          scripts/release-notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
+          # The same DMG under a fixed name: README and the site link to
+          # releases/latest/download/Perekey.dmg, which always is the newest one.
+          cp ".build/dmg/Perekey-$VERSION.dmg" .build/dmg/Perekey.dmg
+          files=(".build/dmg/Perekey-$VERSION.dmg" ".build/dmg/Perekey-$VERSION.dmg.sha256" .build/dmg/Perekey.dmg)
           [[ -f .build/appcast/appcast.xml ]] && files+=(.build/appcast/appcast.xml)
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "Perekey $VERSION" --generate-notes
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$GITHUB_REF_NAME" --title "Perekey $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
 
       - name: Publish the appcast on GitHub Pages

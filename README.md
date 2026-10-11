@@ -1,13 +1,63 @@
-# Perekey
+<p align="center">
+  <img src="docs/images/icon.png" width="128" height="128" alt="">
+</p>
 
-Free and open-source automatic keyboard layout switcher for macOS.
+<h1 align="center">Perekey</h1>
 
-Typed `ghbdtn` instead of `привет`? Perekey fixes it as you type, or when you
-press Option. Every shortcut is configurable, including Windows-style ⌥⇧ and ⌃⇧.
+<p align="center">
+  Free and open-source automatic keyboard layout switcher for macOS.<br>
+  Typed <code>ghbdtn</code> instead of <code>привет</code>? Perekey fixes it as you type, or when you press Option.
+</p>
 
-> Pre-release: no signed build yet. See [docs/PLAN.md](docs/PLAN.md) for the
-> roadmap and [docs/manual-check.md](docs/manual-check.md) for what is still to
-> be checked by hand (both in Russian).
+<p align="center">
+  <a href="https://github.com/tlgnkl/perekey/releases/latest/download/Perekey.dmg"><img src="https://img.shields.io/badge/Download_for_macOS-5E5CE6?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/tlgnkl/perekey/releases/latest"><img src="https://img.shields.io/github/v/release/tlgnkl/perekey?label=version&color=5E5CE6" alt="Latest version"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-555" alt="macOS 14 or later">
+  <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-555" alt="Apple Silicon and Intel">
+  <a href="https://github.com/tlgnkl/perekey/actions/workflows/ci.yml"><img src="https://github.com/tlgnkl/perekey/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/tlgnkl/perekey?color=555" alt="GPL-3.0"></a>
+</p>
+
+<p align="center">
+  <a href="https://tlgnkl.github.io/perekey/">Website</a> ·
+  <a href="CHANGELOG.md">What's new</a> ·
+  <a href="https://github.com/tlgnkl/perekey/releases">All releases</a> ·
+  <a href="README.ru.md">По-русски</a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hint-corrected-dark.png">
+    <img src="docs/images/hint-corrected-light.png" width="384" alt="Hint near the caret: ghbdtn → привет, with an Undo button">
+  </picture>
+</p>
+
+## Install
+
+1. [Download `Perekey.dmg`](https://github.com/tlgnkl/perekey/releases/latest/download/Perekey.dmg)
+   from the latest release.
+2. Open the DMG and drag Perekey to Applications.
+3. Start Perekey from Applications.
+4. Allow Accessibility and Input Monitoring when Perekey asks. Without them it
+   cannot see keystrokes or replace a word.
+
+Needs macOS 14 or later, on Apple Silicon or Intel.
+
+> [!IMPORTANT]
+> Builds are not signed by Apple yet, so macOS blocks the first launch.
+> - **macOS 15 and later:** open Perekey once, close the warning, then go to
+>   System Settings → Privacy & Security and click **Open Anyway**.
+> - **macOS 14:** Control-click Perekey in Applications, choose **Open**, then
+>   **Open** again.
+
+**Updates.** Perekey checks for a new version once a day and asks before it
+installs. Each release lists its changes in [CHANGELOG.md](CHANGELOG.md) and on
+the [releases page](https://github.com/tlgnkl/perekey/releases). Every DMG
+comes with a `.sha256` file:
+`shasum -a 256 -c Perekey-<version>.dmg.sha256`.
 
 ## What it does
 
@@ -16,6 +66,9 @@ press Option. Every shortcut is configurable, including Windows-style ⌥⇧ and
 - **Automatic switching.** A language model inside the app decides at the end
   of each word. One Backspace right after a correction undoes it, and Perekey
   remembers the word — the hint near the caret says so and offers "Forget".
+- **Typo fixes.** One-key typos such as `прривет` are fixed with the same undo.
+- **Languages.** Russian, English, Ukrainian and Belarusian, in any mix of
+  installed layouts.
 - **Honest about code.** Terminals and IDEs are "manual only" by default, games
   are off. Rules per app and per website.
 - **Any shortcut.** Presets for a single Shift, Windows ⌥⇧ / ⌃⇧, ⌘⇧, two
@@ -26,6 +79,20 @@ press Option. Every shortcut is configurable, including Windows-style ⌥⇧ and
 - **Private.** Typed text is never saved. Only your settings and word lists
   are kept, on this Mac (see "What is stored"). The only network request is the
   update check, and it can be turned off (see below).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-shortcuts-dark.png">
+    <img src="docs/images/settings-shortcuts-light.png" width="720" alt="Shortcuts settings: presets Shift, Double Shift, Option + Shift, Control + Shift, Command + Shift and Two keys">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hint-learned-dark.png">
+    <img src="docs/images/hint-learned-light.png" width="384" alt="Hint after an undo: Remembered “дедлайн”, with a Forget button">
+  </picture>
+</p>
 
 ## What is stored
 
@@ -92,7 +159,7 @@ these does nothing.
 
   Starting Perekey this way launches it if it is not running.
 
-## Build
+## Build from source
 
 Runs on macOS 14+. Building needs the macOS 26 SDK and Swift 6.2+ (Xcode 26 or
 its Command Line Tools): the app uses Liquid Glass where available.
@@ -110,9 +177,15 @@ PEREKEY_SNAPSHOT=/tmp/shots .build/debug/Perekey
 Without `dev-cert.sh` the app is signed ad hoc, and macOS forgets the
 Accessibility permission after every rebuild.
 
+The roadmap is in [docs/PLAN.md](docs/PLAN.md), and what is still checked by
+hand is in [docs/manual-check.md](docs/manual-check.md) (both in Russian).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Commits need a DCO sign-off (`git commit -s`).
+Found a false switch or an app where Perekey misbehaves?
+[Open an issue](https://github.com/tlgnkl/perekey/issues/new/choose): there are
+forms for both. Security problems go through [SECURITY.md](SECURITY.md).
 
 ## License
 

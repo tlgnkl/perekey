@@ -54,6 +54,13 @@ started from a terminal asks for the terminal's grants, not the app's.
 New logic comes with unit tests. A bug fix comes with a test that fails without the fix.
 `scripts/test.sh` must pass; CI runs it, plus the benchmark.
 
+## Changelog
+
+A change people will notice in the app gets one line under `[Unreleased]` in
+[CHANGELOG.md](CHANGELOG.md), in the section that fits: Added, Changed, Fixed,
+Removed. Write what the user can now do, not what the code does. The release
+notes are made from this file.
+
 ## DCO sign-off
 
 Every commit needs a `Signed-off-by:` line with the same email as the commit author

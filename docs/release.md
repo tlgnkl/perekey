@@ -48,6 +48,30 @@ Perekey обновляется через Sparkle 2. Версия Sparkle зад
    «Network» в README одним коммитом: GitHub будет перенаправлять старый
    адрес, но Little Snitch покажет два хоста.
 
+## Как выпустить версию
+
+1. В `CHANGELOG.md` перенести пункты из `[Unreleased]` в новый раздел
+   `## [X.Y.Z] - ГГГГ-ММ-ДД`. Внизу файла добавить ссылку на тег и сдвинуть
+   ссылку `[Unreleased]`.
+2. Проверить заметки к выпуску: `scripts/release-notes.sh X.Y.Z`.
+3. Влить это в `main`.
+4. Поставить тег: `git tag -a vX.Y.Z -m "Perekey X.Y.Z"` и
+   `git push origin vX.Y.Z`.
+5. Дождаться `release.yml`. Он проверяет раздел в `CHANGELOG.md` до сборки:
+   без раздела или без даты выпуск падает сразу.
+6. Проверить страницу выпуска и ссылку
+   `https://github.com/tlgnkl/perekey/releases/latest/download/Perekey.dmg`.
+7. Обновить Homebrew tap по `packaging/README.md`.
+
+Заметки к выпуску — раздел версии из `CHANGELOG.md` и блок «Install» из
+`scripts/release-notes.sh`. У сборки без нотаризации в блоке есть шаги «Open
+Anyway». К выпуску прикладываются `Perekey-X.Y.Z.dmg`, его `.sha256` и тот же
+образ под именем `Perekey.dmg`: на него ведут README и сайт, а
+`releases/latest/download/Perekey.dmg` всегда отдаёт новейший.
+
+Выпуск не помечать как pre-release: тогда `releases/latest` на него не
+указывает, и ссылка «Скачать» ведёт на прежнюю версию или в 404.
+
 ## Как CI подписывает appcast
 
 `release.yml` на теге `v*` собирает DMG и выполняет:

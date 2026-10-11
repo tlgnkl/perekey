@@ -53,10 +53,11 @@
 	<!-- Sparkle 2. The only network address of the app; README, "Network", names it. -->
 	<key>SUFeedURL</key>
 	<string>https://tlgnkl.github.io/perekey/appcast.xml</string>
-	<!-- TO-CONFIGURE: the EdDSA public key from Sparkle's generate_keys (docs/release.md).
-	     Until it is a real key, the app treats updates as not set up and never starts Sparkle. -->
+	<!-- The EdDSA public key that checks every update (docs/release.md). The private
+	     key is the CI secret SPARKLE_ED_PRIVATE_KEY. Without a real key the app treats
+	     updates as not set up and never starts Sparkle. -->
 	<key>SUPublicEDKey</key>
-	<string>TO-CONFIGURE</string>
+	<string>ogG6ALB7tkGKrhNl2hH/zDjlXeDH78uQZ6jOyjo2/Xg=</string>
 	<!-- On by default, without Sparkle's permission prompt; the user turns it off in Settings → General. -->
 	<key>SUEnableAutomaticChecks</key>
 	<true/>

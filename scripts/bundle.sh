@@ -125,21 +125,25 @@ if [[ -n "$stray" ]]; then
 fi
 
 # Sign inside out with one identity: Sparkle's helpers, the framework, the app.
-# Library validation lets a hardened app load only libraries of its own team.
-# The local "Perekey Dev" and ad hoc signatures have no team, so those builds
-# get an entitlement that turns the check off; Developer ID builds do not.
+# Every build gets Support/Perekey.entitlements: the hardened runtime gives a
+# signature without the audio input entitlement no microphone. Library
+# validation lets a hardened app load only libraries of its own team. The local
+# "Perekey Dev" and ad hoc signatures have no team, so the file turns the check
+# off; Developer ID builds have one and keep it on.
 SIGN=(codesign --force --options runtime ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} --sign "$SIGN_IDENTITY")
-APP_ENTITLEMENTS=()
+ENTITLEMENTS=Support/Perekey.entitlements
 if [[ "$SIGN_IDENTITY" == "Developer ID Application"* ]]; then
     SIGN+=(--timestamp) # notarization needs a secure timestamp
+    ENTITLEMENTS="$(mktemp -t perekey-entitlements)"
+    trap 'rm -f "$ENTITLEMENTS"' EXIT
+    plutil -remove 'com\.apple\.security\.cs\.disable-library-validation' -o "$ENTITLEMENTS" Support/Perekey.entitlements
 else
     SIGN+=(--timestamp=none)
-    APP_ENTITLEMENTS=(--entitlements Support/Dev.entitlements)
 fi
 SPARKLE="$FRAMEWORKS/Sparkle.framework/Versions/B"
 "${SIGN[@]}" "$SPARKLE/Autoupdate"
 "${SIGN[@]}" "$SPARKLE/Updater.app"
 "${SIGN[@]}" "$FRAMEWORKS/Sparkle.framework"
-"${SIGN[@]}" ${APP_ENTITLEMENTS[@]+"${APP_ENTITLEMENTS[@]}"} "$APP"
+"${SIGN[@]}" --entitlements "$ENTITLEMENTS" "$APP"
 codesign --verify --deep --strict "$APP"
 echo "$APP"

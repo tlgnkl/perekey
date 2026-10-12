@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The entitlements of the app, for every build scripts/bundle.sh signs. -->
+<plist version="1.0">
+<dict>
+	<!-- The local "Perekey Dev" and ad hoc signatures have no team ID, so library
+	     validation would refuse the embedded Sparkle.framework. Developer ID
+	     builds have a team, and scripts/bundle.sh signs them without this key. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<!-- Voice input. Without it the hardened runtime gives the app silence
+	     instead of the microphone, and macOS never asks the user. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

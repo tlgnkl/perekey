@@ -81,15 +81,21 @@ def unescape(s):
     return re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), s)
 
 
-def file_keys(lang):
+def read_strings(path):
+    """The pairs of a .strings file; none if it is missing."""
     pairs = {}
     try:
-        text = open(f"Support/{lang}.lproj/Localizable.strings", encoding="utf-8").read()
+        text = open(path, encoding="utf-8").read()
     except FileNotFoundError:
         return pairs
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
     for m in re.finditer(r'"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)"\s*;', text):
         pairs[unescape(m.group(1))] = unescape(m.group(2))
+    return pairs
+
+
+def file_keys(lang):
+    pairs = read_strings(f"Support/{lang}.lproj/Localizable.strings")
     for path in glob.glob(f"Support/{lang}.lproj/Localizable.stringsdict"):
         with open(path, "rb") as f:
             for key in plistlib.load(f):
@@ -124,6 +130,24 @@ def check_stringsdict(lang):
     return bad
 
 
+def check_info_plist(lang):
+    """InfoPlist.strings translates exactly the usage descriptions of Support/Info.plist."""
+    with open("Support/Info.plist", "rb") as f:
+        wanted = {k for k in plistlib.load(f) if k.endswith("UsageDescription")}
+    have = read_strings(f"Support/{lang}.lproj/InfoPlist.strings")
+    bad = 0
+    for key in sorted(wanted - have.keys()):
+        bad += 1
+        print(f"{lang}: InfoPlist.strings has no {key}")
+    for key in sorted(have.keys() - wanted):
+        bad += 1
+        print(f"{lang}: InfoPlist.strings key {key!r} is not in Support/Info.plist")
+    for key in sorted(k for k in have if not have[k].strip()):
+        bad += 1
+        print(f"{lang}: InfoPlist.strings {key} is empty")
+    return bad
+
+
 def main():
     found = source_keys()
     if "--list" in sys.argv:
@@ -150,6 +174,7 @@ def main():
                 bad += 1
                 print(f"{lang}: {k!r}: {problem}")
         bad += check_stringsdict(lang)
+        bad += check_info_plist(lang)
         if lang != LANGS[0]:
             first = {norm(k) for k in file_keys(LANGS[0])}
             for n, k in have_n.items():

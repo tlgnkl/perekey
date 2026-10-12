@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import ApplicationServices
 import PerekeyInput
 import SwiftUI
 
@@ -25,18 +26,24 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         self.sources = sources
     }
 
-    /// Opens the window on first launch only.
-    func showIfFirstLaunch() {
-        if !store.settings.onboardingDone { show() }
+    /// Opens the window on first launch, and at the access step whenever
+    /// Perekey starts without access: the engine no longer makes macOS ask.
+    func showIfNeeded() {
+        if !store.settings.onboardingDone {
+            show()
+        } else if !AXIsProcessTrusted() {
+            show(at: .access)
+        }
     }
 
-    func show() {
+    func show(at step: OnboardingModel.Step = .welcome) {
         if let window {
+            if step != .welcome { model?.step = step }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate()
             return
         }
-        let model = OnboardingModel(store: store, sources: sources)
+        let model = OnboardingModel(store: store, sources: sources, step: step)
         model.engineIsRunning = engineIsRunning
         model.demoActive = demoActive
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 580),

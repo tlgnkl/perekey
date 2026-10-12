@@ -50,4 +50,18 @@ import Testing
         let rect = CaretLocator.appKitRect(fromAX: CGRect(x: 10, y: 100, width: 2, height: 20), primaryHeight: 900)
         #expect(rect == CGRect(x: 10, y: 780, width: 2, height: 20))
     }
+
+    @Test func oneLineFrameIsACaretAtItsLeftEdge() {
+        // xterm.js keeps its input textarea on the cursor cell.
+        let caret = CaretLocator.caret(fromLineFrame: CGRect(x: 120, y: 700, width: 8, height: 17))
+        #expect(caret == CGRect(x: 120, y: 700, width: 0, height: 17))
+        let limit = CaretLocator.caret(fromLineFrame: CGRect(x: 0, y: 0, width: 300, height: CaretLocator.maxLineHeight))
+        #expect(limit?.height == CaretLocator.maxLineHeight)
+    }
+
+    @Test func tallOrEmptyFrameIsNoCaret() {
+        #expect(CaretLocator.caret(fromLineFrame: CGRect(x: 0, y: 0, width: 600, height: 400)) == nil)
+        #expect(CaretLocator.caret(fromLineFrame: CGRect(x: 0, y: 0, width: 8, height: 0)) == nil)
+        #expect(CaretLocator.caret(fromLineFrame: CGRect(x: CGFloat.nan, y: 0, width: 8, height: 17)) == nil)
+    }
 }

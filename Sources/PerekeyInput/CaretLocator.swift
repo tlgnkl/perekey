@@ -50,13 +50,48 @@ public final class CaretLocator: Sendable {
             (CFRange(location: selection.location, length: 1), false),
             (CFRange(location: selection.location - 1, length: 1), true),
         ]
+        var rangeCaret: CGRect?
         for candidate in candidates where candidate.range.location >= 0 {
             guard var rect = bounds(of: element, in: candidate.range), rect.height > 0 else { continue }
             if candidate.atRightEdge { rect = CGRect(x: rect.maxX, y: rect.minY, width: 0, height: rect.height) }
-            let primaryHeight = CGDisplayBounds(CGMainDisplayID()).height
-            return appKitRect(fromAX: rect, primaryHeight: primaryHeight)
+            rangeCaret = rect
+            break
         }
-        return nil
+        // A text element that answers no bounds: its own frame, when it is
+        // one line high.
+        guard let caret = rangeCaret ?? frame(of: element).flatMap(Self.caret(fromLineFrame:)) else { return nil }
+        let primaryHeight = CGDisplayBounds(CGMainDisplayID()).height
+        return appKitRect(fromAX: caret, primaryHeight: primaryHeight)
+    }
+
+    /// Tallest frame still read as one line of text.
+    public static let maxLineHeight: CGFloat = 40
+
+    /// The caret at the left edge of a one-line frame, or nil for a taller or
+    /// empty one. Terminals on xterm.js (Orca, VS Code) type into an empty
+    /// textarea that answers no bounds for a range, but they keep it on the
+    /// cursor cell; a one-line field is still better than the screen corner.
+    public static func caret(fromLineFrame frame: CGRect) -> CGRect? {
+        guard frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.height > 0, frame.height <= maxLineHeight
+        else { return nil }
+        return CGRect(x: frame.minX, y: frame.minY, width: 0, height: frame.height)
+    }
+
+    private static func frame(of element: AXUIElement) -> CGRect? {
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let positionValue, CFGetTypeID(positionValue) == AXValueGetTypeID(),
+              let sizeValue, CFGetTypeID(sizeValue) == AXValueGetTypeID()
+        else { return nil }
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(unsafeDowncast(positionValue, to: AXValue.self), .cgPoint, &position),
+              AXValueGetValue(unsafeDowncast(sizeValue, to: AXValue.self), .cgSize, &size)
+        else { return nil }
+        return CGRect(origin: position, size: size)
     }
 
     private static func bounds(of element: AXUIElement, in range: CFRange) -> CGRect? {

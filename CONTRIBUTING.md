@@ -16,13 +16,15 @@ Requires macOS 14+ and Swift 6. Command Line Tools are enough; Xcode is not need
 | `scripts/appcast.sh` | Write the signed Sparkle appcast for a release DMG. CI runs it; see [docs/release.md](docs/release.md). |
 
 Voice input is in progress and builds only with `PEREKEY_VOICE=1`, in its own
-scratch path: `PEREKEY_VOICE=1 swift build --scratch-path .build/voice`, and
-`PEREKEY_VOICE=1 scripts/test.sh --scratch-path .build/voice`. `bundle.sh` and
-`build-universal.sh` pick their voice scratch path from the variable themselves.
-`Package.resolved` holds the pins of the voice build and is committed. A build
-without the flag leaves it as is (SwiftPM still fetches the pinned packages), but
-`swift package update` without the flag deletes it: update the pins only with
-`PEREKEY_VOICE=1 swift package update --scratch-path .build/voice`.
+scratch path: `scripts/voice-pins.sh use`, then
+`PEREKEY_VOICE=1 swift build --scratch-path .build/voice`. `scripts/test.sh`,
+`bundle.sh`, `build-universal.sh` and `snapshot.sh` take the variable and do both
+themselves. Speech models load only from the app's own store:
+`scripts/check-voice-loaders.sh` fails on the loaders of FluidAudio and WhisperKit.
+The pins of the voice build live in `Support/voice/Package.resolved`; the root
+`Package.resolved` is ignored by git, so builds without the flag fetch no voice
+packages. The flagged scripts copy the pins to the root before they build. Update
+them with `scripts/voice-pins.sh update`, never with a bare `swift package update`.
 
 Start the app with `open .build/app/Perekey.app`, not by running the binary.
 macOS (TCC) attributes permissions to the process that launched it, so a binary

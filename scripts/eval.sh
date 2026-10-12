@@ -22,6 +22,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# The tool has no voice: build it in .build without PEREKEY_VOICE.
+unset PEREKEY_VOICE
 
 CACHE="${PEREKEY_DATA_CACHE:-$PWD/.build/data-cache}"
 WORDS=50000

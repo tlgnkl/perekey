@@ -233,6 +233,8 @@ public enum Effect: Hashable, Sendable {
     /// The languages of the words judged since the last tally, in its app and
     /// site: add them to `LanguageStats`, off the tap thread. Counts only.
     case languagesCounted(LanguageTally)
+    /// The voice trigger fired (`Settings.voice`). Its key events are swallowed.
+    case voice(VoiceSignal)
 }
 
 /// What to do with the event that was handled.

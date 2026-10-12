@@ -33,6 +33,9 @@ public struct Settings: Hashable, Sendable, Codable {
     /// Typo correction at the end of a word (`TypoCorrector`). Off until it
     /// meets the plan's metric (docs/classifier.md, «Опечатки»).
     public var typoCorrection: Bool
+    /// What starts dictation; nil while it is off. Comes from `VoiceSettings`
+    /// through `AppSettings.snapshot(voice:)`.
+    public var voice: VoiceTrigger?
 
     public init(
         hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys,
@@ -43,7 +46,8 @@ public struct Settings: Hashable, Sendable, Codable {
         alwaysFix: [String: String] = [:],
         learnFromUndos: Bool = true,
         corrections: TextCorrections = TextCorrections(),
-        typoCorrection: Bool = true
+        typoCorrection: Bool = true,
+        voice: VoiceTrigger? = nil
     ) {
         self.hotkeys = hotkeys
         self.autoswitch = autoswitch
@@ -54,5 +58,6 @@ public struct Settings: Hashable, Sendable, Codable {
         self.learnFromUndos = learnFromUndos
         self.corrections = corrections
         self.typoCorrection = typoCorrection
+        self.voice = voice
     }
 }

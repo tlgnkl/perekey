@@ -34,6 +34,21 @@ public enum ShortcutConflicts {
         return result
     }
 
+    /// Every known conflict of `voice` as the dictation trigger. `bindings`
+    /// are the user's shortcuts as saved; the check sees them as the tap
+    /// does (`VoiceTrigger.narrowing(_:)`), so the retype on either Option
+    /// key does not clash with a tap of the right one.
+    public static func check(voice: VoiceTrigger, among bindings: [HotkeyBinding],
+                             system: SystemShortcuts = .macOSDefaults) -> [ShortcutConflict]
+    {
+        let trigger = voice.shortcut
+        var result = Self.system(trigger, system)
+        for binding in voice.narrowing(bindings) where overlap(trigger, binding.trigger) {
+            result.append(.otherAction(binding.action))
+        }
+        return result
+    }
+
     static func system(_ trigger: Trigger, _ system: SystemShortcuts) -> [ShortcutConflict] {
         switch trigger {
         case .key:

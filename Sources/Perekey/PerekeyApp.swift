@@ -41,6 +41,7 @@ struct PerekeyApp: App {
         input.onCorrection = { recents.record($0); usage.recordCorrection($0.kind) }
         input.onCorrectionUndone = { recents.undone(seq: $0); usage.recordUndo() }
         input.onManualRetype = { usage.recordManualRetype() }
+        input.onAccessLost = { onboarding.show(at: .access) }
         // Counters reach the disk at most every few seconds, and here at quit.
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { usage.flush() }
@@ -49,7 +50,7 @@ struct PerekeyApp: App {
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates)
         self.shell = shell
         Task { @MainActor in
-            onboarding.showIfFirstLaunch()
+            onboarding.showIfNeeded()
             // After launch, so the status bar exists.
             shell.start()
         }

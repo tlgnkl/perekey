@@ -303,7 +303,7 @@
 "Backspace brought ghbdtn back" = "Backspace вернул ghbdtn";
 "Automatic switching is off. Turn it on in the menu to try the second exercise." = "Автопереключение выключено. Включите его в меню, чтобы пройти второе задание.";
 "Open the list" = "Откройте список";
-"System Settings opens at Accessibility." = "Системные настройки откроются на «Универсальном доступе».";
+"macOS asks first: choose “Open System Settings”." = "Сначала спросит macOS: выберите «Открыть Системные настройки».";
 "In the menu bar" = "В строке меню";
 "Pause, the mode of the current app and the latest fixes." = "Пауза, режим текущей программы и последние правки.";
 "In Settings" = "В настройках";

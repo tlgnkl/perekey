@@ -17,6 +17,17 @@ differently, what was fixed.
   later. It opens the Settings window now, in front of other apps.
 - **No window at launch.** Perekey no longer opens Settings by itself when it
   starts.
+- **Launch at login** can now be turned on. In 0.1.0 the switch stayed grey
+  with "Works in the installed app only" even in the installed app, because
+  macOS reports an app that has never been added to Login Items as unknown.
+- **Asking for Accessibility.** macOS no longer shows its access alert at
+  launch and again every second, before Perekey has said why it needs the
+  access. Only the button in the welcome window asks now.
+- **The welcome window comes back.** Once you switch Perekey on in System
+  Settings, the window returns to the front by itself. Before, it stayed under
+  System Settings, and a menu bar app has no Dock icon to bring it back.
+- **Starting without access.** If Perekey starts without access, or loses it,
+  it opens the access step instead of doing nothing silently.
 
 ## [0.1.0] - 2026-10-11
 

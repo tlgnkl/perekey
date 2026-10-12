@@ -242,6 +242,10 @@ public final class InputEngine: @unchecked Sendable {
     }
 
     private func createTaps() -> Bool {
+        // Without access, `tapCreate` makes macOS show its own Accessibility
+        // alert, on every retry and before onboarding has said why. Only the
+        // onboarding button asks; until then, check without a prompt.
+        guard AXIsProcessTrusted() else { return false }
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         if keyboardTap == nil {
             let mask: CGEventMask = 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue

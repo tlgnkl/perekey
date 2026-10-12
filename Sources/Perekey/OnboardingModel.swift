@@ -177,17 +177,35 @@ final class OnboardingModel {
 
     private func refreshTrust() {
         let now = AXIsProcessTrusted()
-        if now != trusted { trusted = now }
+        if now != trusted {
+            trusted = now
+            if now, step == .access { bringBack() }
+        }
         if now { returnedWithoutAccess = false }
+    }
+
+    /// Access arrived while System Settings covers the window. A menu bar app
+    /// has no Dock icon and no place in ⌘Tab, so the window must come back by itself.
+    private func bringBack() {
+        guard let window else { return }
+        // In front even if macOS declines to activate the app.
+        window.orderFrontRegardless()
+        window.makeKey()
+        NSApp.activate()
     }
 
     // MARK: - Accessibility
 
-    /// Asks macOS to list Perekey, then opens the pane where the user switches it on.
+    /// The first press lets macOS ask: its alert adds Perekey to the list and
+    /// opens it. Opening System Settings as well put a second window under
+    /// the alert. Later presses open the list directly: macOS may not ask again.
     func requestAccess() {
-        didRequestAccess = true
-        // The literal is `kAXTrustedCheckOptionPrompt`; the C global is not concurrency-safe in Swift 6.
-        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        guard didRequestAccess else {
+            didRequestAccess = true
+            // The literal is `kAXTrustedCheckOptionPrompt`; the C global is not concurrency-safe in Swift 6.
+            _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+            return
+        }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }

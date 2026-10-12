@@ -48,6 +48,9 @@ final class InputController {
     @ObservationIgnored var onCorrectionUndone: ((UInt32) -> Void)?
     /// The user retyped by hand (a shortcut or a selection). Carries no text.
     @ObservationIgnored var onManualRetype: (() -> Void)?
+    /// Accessibility was revoked while the taps ran. Nothing asks the system
+    /// by itself any more, so someone has to tell the user.
+    @ObservationIgnored var onAccessLost: (() -> Void)?
     /// Corrections of the onboarding demo, by `seq`: they count for nothing,
     /// neither the menu's list nor the statistics, nor their undo.
     @ObservationIgnored private var demoCorrections = Set<UInt32>()
@@ -188,7 +191,9 @@ final class InputController {
     private func receive(_ message: EngineMessage) {
         switch message {
         case let .tapState(state):
+            let lost = tapState == .running && state == .waitingForAccess
             tapState = state
+            if lost { onAccessLost?() }
         case let .select(id, then):
             // Without a retype it is a layout shortcut; a retype has its own sound.
             if then == nil { SystemSounds.play(store.settings.layoutSound) }

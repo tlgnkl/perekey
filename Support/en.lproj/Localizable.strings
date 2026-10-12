@@ -304,7 +304,7 @@
 "Backspace brought ghbdtn back" = "Backspace brought ghbdtn back";
 "Automatic switching is off. Turn it on in the menu to try the second exercise." = "Automatic switching is off. Turn it on in the menu to try the second exercise.";
 "Open the list" = "Open the list";
-"System Settings opens at Accessibility." = "System Settings opens at Accessibility.";
+"macOS asks first: choose “Open System Settings”." = "macOS asks first: choose “Open System Settings”.";
 "In the menu bar" = "In the menu bar";
 "Pause, the mode of the current app and the latest fixes." = "Pause, the mode of the current app and the latest fixes.";
 "In Settings" = "In Settings";

@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         input.onCorrection = { recents.record($0); usage.recordCorrection($0.kind) }
         input.onCorrectionUndone = { recents.undone(seq: $0); usage.recordUndo() }
         input.onManualRetype = { usage.recordManualRetype() }
+        input.onAccessLost = { onboarding.show(at: .access) }
         let sources = inputSources
         let settings = SettingsWindow(recording: recording) {
             SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
@@ -74,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        onboarding.showIfFirstLaunch()
+        onboarding.showIfNeeded()
         // After launch, so the status bar exists.
         shell.start()
     }

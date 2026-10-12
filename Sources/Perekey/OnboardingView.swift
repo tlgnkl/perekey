@@ -206,7 +206,7 @@ private struct AccessStep: View {
             .pkCard()
 
             VStack(spacing: 8) {
-                ActionCard(number: 1, title: "Open the list", text: "System Settings opens at Accessibility.") {
+                ActionCard(number: 1, title: "Open the list", text: "macOS asks first: choose “Open System Settings”.") {
                     Button("Open System Settings") { model.requestAccess() }
                         .buttonStyle(.pkPrimary)
                 }

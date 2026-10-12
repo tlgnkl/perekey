@@ -25,6 +25,12 @@ differently, what was fixed.
 - **Conflict warnings read your Mac.** Perekey warns about Spotlight or the
   macOS input switch only when that shortcut really does it on this Mac.
 
+### Fixed
+
+- **The hint stays by the cursor in terminals.** In terminals built on
+  xterm.js (Orca, the VS Code terminal) the correction hint appeared in the
+  top right corner of the screen. It now shows next to the line you type in.
+
 ## [0.1.1] - 2026-10-12
 
 ### Fixed

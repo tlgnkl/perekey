@@ -12,7 +12,7 @@ import PerekeyInput
 /// docs/managed-preferences.md) locks pause, autoswitch or modes, so none is checked.
 @MainActor
 final class ExternalControl {
-    /// The one instance, set by `PerekeyApp` once the models exist. Scripting commands
+    /// The one instance, set by `AppDelegate` once the models exist. Scripting commands
     /// are created by Cocoa and reach the app through it.
     static var shared: ExternalControl?
 

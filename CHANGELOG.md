@@ -11,6 +11,13 @@ differently, what was fixed.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Settings open again.** Settings… in the menu did nothing on macOS 14 and
+  later. It opens the Settings window now, in front of other apps.
+- **No window at launch.** Perekey no longer opens Settings by itself when it
+  starts.
+
 ## [0.1.0] - 2026-10-11
 
 The first public preview. The DMG is not signed by Apple yet, so macOS asks you

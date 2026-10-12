@@ -75,6 +75,7 @@
 "Perekey does not fix words or change the layout." = "Perekey ничего не исправляет и не меняет раскладку.";
 "Perekey needs Accessibility access to notice your shortcut and to type the corrected word." = "Нужен универсальный доступ, чтобы видеть ваше сочетание и вводить исправленное слово.";
 "Perekey needs two keyboard layouts, for example English and Russian. Add one in System Settings → Keyboard." = "Нужны две раскладки, например английская и русская. Добавьте вторую в Системных настройках → Клавиатура.";
+"Perekey Settings" = "Настройки Perekey";
 "Perekey remaps Caps Lock and gives it back when it quits." = "Perekey переназначает Caps Lock и возвращает его при выходе.";
 "Perekey resumes when the cursor leaves the field." = "Продолжу, когда курсор уйдёт из поля.";
 "Pick a set by habit or record your own. A shortcut of modifiers alone fires when you release the keys." = "Выберите набор по привычке или запишите свои. Сочетание из одних модификаторов срабатывает, когда клавиши отпущены.";

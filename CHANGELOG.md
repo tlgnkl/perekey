@@ -11,6 +11,12 @@ differently, what was fixed.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Launch at login** can now be turned on. In 0.1.0 the switch stayed grey
+  with "Works in the installed app only" even in the installed app, because
+  macOS reports an app that has never been added to Login Items as unknown.
+
 ## [0.1.0] - 2026-10-11
 
 The first public preview. The DMG is not signed by Apple yet, so macOS asks you

@@ -15,6 +15,15 @@ Requires macOS 14+ and Swift 6. Command Line Tools are enough; Xcode is not need
 | `scripts/bundle.sh` | Build and sign `.build/app/Perekey.app`, with Sparkle embedded in `Contents/Frameworks`. |
 | `scripts/appcast.sh` | Write the signed Sparkle appcast for a release DMG. CI runs it; see [docs/release.md](docs/release.md). |
 
+Voice input is in progress and builds only with `PEREKEY_VOICE=1`, in its own
+scratch path: `PEREKEY_VOICE=1 swift build --scratch-path .build/voice`, and
+`PEREKEY_VOICE=1 scripts/test.sh --scratch-path .build/voice`. `bundle.sh` and
+`build-universal.sh` pick their voice scratch path from the variable themselves.
+`Package.resolved` holds the pins of the voice build and is committed. A build
+without the flag leaves it as is (SwiftPM still fetches the pinned packages), but
+`swift package update` without the flag deletes it: update the pins only with
+`PEREKEY_VOICE=1 swift package update --scratch-path .build/voice`.
+
 Start the app with `open .build/app/Perekey.app`, not by running the binary.
 macOS (TCC) attributes permissions to the process that launched it, so a binary
 started from a terminal asks for the terminal's grants, not the app's.

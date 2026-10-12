@@ -55,6 +55,13 @@ jobs:
       # files and only checks their hashes.
       - name: Build the model files and check their hashes
         run: scripts/build-model.sh --out .build/universal/model
+      # SwiftPM fetches the pins of Package.resolved even without voice input
+      # (the release leaves PEREKEY_VOICE unset), and Sparkle's zip with them.
+      - name: Resolve the packages
+        run: |
+          for arch in arm64 x86_64; do
+            swift package resolve --scratch-path ".build/universal/$arch"
+          done
 
       - name: Import the Developer ID certificate
         id: cert

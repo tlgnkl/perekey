@@ -8,9 +8,15 @@
 # `lipo -create`, and lets scripts/bundle.sh assemble and sign the bundle
 # (PEREKEY_BINARY makes bundle.sh skip its own build).
 #
+# With PEREKEY_VOICE=1 the x86_64 slice compiles FluidAudio and WhisperKit too:
+# SwiftPM has no per-architecture dependencies. The app turns voice off on
+# Intel at run time.
+#
 # Environment (same meaning as in bundle.sh):
 #   CONFIG         debug | release (default: release)
-#   SCRATCH_PATH   build directory (default: .build/universal)
+#   PEREKEY_VOICE  1 builds voice input in (Package.swift)
+#   SCRATCH_PATH   build directory (default: .build/universal,
+#                  .build/voice-universal with PEREKEY_VOICE=1)
 #   OUT            where Perekey.app goes (default: $SCRATCH_PATH/app)
 #   VERSION, BUILD, SIGN_IDENTITY, PEREKEY_MODEL
 #   MIN_MACOS      deployment target (default: 14.0)
@@ -19,7 +25,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export CONFIG="${CONFIG:-release}"
-export SCRATCH_PATH="${SCRATCH_PATH:-.build/universal}"
+if [[ "${PEREKEY_VOICE:-}" == 1 ]]; then
+    export SCRATCH_PATH="${SCRATCH_PATH:-.build/voice-universal}"
+else
+    export SCRATCH_PATH="${SCRATCH_PATH:-.build/universal}"
+fi
 export OUT="${OUT:-$SCRATCH_PATH/app}"
 MIN_MACOS="${MIN_MACOS:-14.0}"
 

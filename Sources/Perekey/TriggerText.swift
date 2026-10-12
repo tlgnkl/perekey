@@ -73,8 +73,8 @@ enum TriggerText {
 
     static func warning(for conflict: ShortcutConflict) -> String {
         switch conflict {
-        case .spotlight: String(localized: "⌘Space also opens Spotlight. Both will run.")
-        case .systemInputSwitch: String(localized: "macOS switches the input source on this shortcut too. The layout would change twice.")
+        case .spotlight: String(localized: "This shortcut also opens Spotlight. Both will run.")
+        case .systemInputSwitch: String(localized: "macOS switches the input source on this shortcut too. The layout would change twice. Pick “As now in macOS” to leave it to macOS.")
         case .globeKey: String(localized: "The fn / 🌐 key also runs its own macOS action, which can switch the input source.")
         case .dictation: String(localized: "fn twice starts Dictation in macOS.")
         case .jetBrainsSearch: String(localized: "Shift twice opens Search Everywhere in JetBrains IDEs. Pick another shortcut if you use them.")
@@ -87,6 +87,7 @@ enum TriggerText {
 extension HotkeyPreset {
     var title: String {
         switch self {
+        case .system: String(localized: "As now in macOS")
         case .standard: String(localized: "Shift")
         case .windowsAltShift: String(localized: "Option + Shift")
         case .windowsControlShift: String(localized: "Control + Shift")
@@ -98,6 +99,7 @@ extension HotkeyPreset {
 
     var note: String {
         switch self {
+        case .system: String(localized: "macOS switches the layout, Option retypes")
         case .standard: String(localized: "Shift alone, Option retypes")
         case .windowsAltShift: String(localized: "Like Alt+Shift on Windows")
         case .windowsControlShift: String(localized: "Like Ctrl+Shift on Windows")
@@ -105,5 +107,19 @@ extension HotkeyPreset {
         case .doubleShift: String(localized: "Shift twice retypes")
         case .separateKeys: String(localized: "Right ⌘ — EN, right ⌥ — RU")
         }
+    }
+
+    /// The note of a chip: the system preset names the keys macOS switches with.
+    @MainActor
+    func note(system: SystemShortcuts) -> String {
+        guard self == .system, let trigger = system.inputSwitches.first else { return note }
+        let keys = TriggerText.keycaps(of: trigger).joined(separator: " ")
+        return String(localized: "\(keys) by macOS, ⌥ retypes")
+    }
+
+    /// The presets to offer. The system one only when macOS has a shortcut to
+    /// switch with, or when it is the current choice.
+    static func offered(system: SystemShortcuts, selected: HotkeyPreset?) -> [HotkeyPreset] {
+        allCases.filter { $0 != .system || !system.inputSwitches.isEmpty || selected == .system }
     }
 }

@@ -141,3 +141,61 @@ import Testing
         #expect(HotkeyPreset(matching: []) == nil)
     }
 }
+
+@Suite struct SystemShortcutsTests {
+    private let commandSpace = Trigger.key(keyCode: KeyCode.space, modifiers: [.command])
+    private let optionSpace = Trigger.key(keyCode: KeyCode.space, modifiers: [.option])
+
+    /// Switching on ⌘Space, Spotlight moved to ⌥Space: a common setup.
+    private var swapped: SystemShortcuts {
+        SystemShortcuts(symbolicHotKeys: [
+            SystemShortcuts.ID.previousInputSource: .init(enabled: true, parameters: [32, 49, 1_048_576]),
+            SystemShortcuts.ID.nextInputSource: .init(enabled: false, parameters: [32, 49, 786_432]),
+            SystemShortcuts.ID.spotlight: .init(enabled: true, parameters: [32, 49, 524_288]),
+        ], fnUsageType: 0)
+    }
+
+    @Test func missingEntriesAreDefaults() {
+        let read = SystemShortcuts(symbolicHotKeys: [:], fnUsageType: nil)
+        #expect(read == .macOSDefaults)
+        #expect(!read.isCustomized)
+    }
+
+    @Test func readsChangedShortcuts() {
+        #expect(swapped.previousInputSource == commandSpace)
+        #expect(swapped.nextInputSource == nil)
+        #expect(swapped.spotlight == optionSpace)
+        #expect(swapped.inputSwitches == [commandSpace])
+        #expect(swapped.isCustomized)
+    }
+
+    @Test func entryWithoutKeyIsNoShortcut() {
+        let read = SystemShortcuts(symbolicHotKeys: [
+            SystemShortcuts.ID.previousInputSource: .init(enabled: true, parameters: [65535, 65535, 0]),
+        ], fnUsageType: nil)
+        #expect(read.previousInputSource == nil)
+    }
+
+    @Test func globeCountsAsSwitch() {
+        let read = SystemShortcuts(symbolicHotKeys: [:], fnUsageType: SystemShortcuts.fnUsageChangeInputSource)
+        #expect(read.isCustomized)
+        #expect(read.inputSwitches.first == .modifiers(ModifierChord([.function: .either]), taps: .single))
+    }
+
+    @Test func conflictsFollowThisMac() {
+        // ⌘Space switches the layout here and does not open Spotlight.
+        #expect(ShortcutConflicts.check(commandSpace, for: .switchLayout, among: [], system: swapped)
+            == [.systemInputSwitch])
+        #expect(ShortcutConflicts.check(optionSpace, for: .switchLayout, among: [], system: swapped) == [.spotlight])
+        // ⌃Space is free once macOS no longer uses it.
+        #expect(ShortcutConflicts.check(.key(keyCode: KeyCode.space, modifiers: [.control]), for: .switchLayout,
+                                        among: [], system: swapped).isEmpty)
+    }
+
+    @Test func systemPresetLeavesSwitchingToMacOS() {
+        #expect(HotkeyPreset.system.hotkeys.allSatisfy { $0.action != .switchLayout })
+        var settings = AppSettings()
+        settings.setTrigger(nil, for: .switchLayout)
+        #expect(settings.preset == .system)
+    }
+}

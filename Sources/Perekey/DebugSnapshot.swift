@@ -499,6 +499,11 @@ enum DebugSnapshot {
         }
         render(OnboardingView(model: OnboardingModel(store: store, sources: sources, step: .preset, live: false)),
                dark: true, size: size, to: directory.appending(path: "onboarding-3-preset-dark.png"))
+        let system = OnboardingModel(store: store, sources: sources, step: .preset, live: false)
+        system.choose(.system)
+        render(OnboardingView(model: system), dark: false, size: size,
+               to: directory.appending(path: "onboarding-3-preset-system.png"))
+        system.choose(.default)
         for (name, undone) in [("auto", false), ("auto-undone", true)] {
             let model = OnboardingModel(store: store, sources: sources, step: .demo, live: false)
             model.fakeAutoDemo(undone: undone)

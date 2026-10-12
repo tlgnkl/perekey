@@ -29,6 +29,9 @@ public enum HotkeyAction: Hashable, Sendable, Codable {
 
 /// A ready-made set of shortcuts. Onboarding asks which one fits the user.
 public enum HotkeyPreset: String, CaseIterable, Hashable, Sendable, Codable {
+    /// macOS keeps switching the layout with its own shortcut (⌃Space, ⌘Space,
+    /// 🌐); Perekey adds no shortcut for it. Option retypes the word.
+    case system
     /// Shift switches the layout, Option retypes the word. Same as Caramba Switcher.
     case standard
     /// Shift switches the layout, double Shift retypes the word.
@@ -49,6 +52,8 @@ public enum HotkeyPreset: String, CaseIterable, Hashable, Sendable, Codable {
             .init(.bothShifts, action: .toggleAutoswitch),
         ]
         switch self {
+        case .system:
+            result += [.init(.option, action: .convertLastWord)]
         case .standard:
             result += [.init(.shift, action: .switchLayout), .init(.option, action: .convertLastWord)]
         case .doubleShift:

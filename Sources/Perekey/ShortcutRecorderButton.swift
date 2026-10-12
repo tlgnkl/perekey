@@ -9,6 +9,9 @@ struct ShortcutRecorderButton: View {
     let action: HotkeyAction
     let store: SettingsStore
     let recording: ShortcutRecording
+    /// Keycaps to show while the action has no shortcut, dimmed: the keys
+    /// macOS switches with.
+    var fallback: [String] = []
 
     var body: some View {
         let isRecording = recording.action == action
@@ -23,6 +26,11 @@ struct ShortcutRecorderButton: View {
                                 PKKeycap(text: cap)
                             }
                         }
+                    } else if !fallback.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(Array(fallback.enumerated()), id: \.offset) { _, cap in PKKeycap(text: cap) }
+                        }
+                        .opacity(0.6)
                     } else {
                         Text("Record").font(PK.Font.caption).foregroundStyle(Color.pkInk2)
                     }

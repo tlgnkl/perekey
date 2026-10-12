@@ -3,6 +3,9 @@
 import AppKit
 import PerekeyCore
 import PerekeyInput
+#if PEREKEY_VOICE
+import PerekeyVoice
+#endif
 import SwiftUI
 
 /// The entry point. Plain AppKit, not a SwiftUI `App`: every window is an
@@ -15,6 +18,10 @@ enum PerekeyMain {
     static func main() {
         #if DEBUG
         DebugSnapshot.runIfRequested()
+        #endif
+        #if PEREKEY_VOICE
+        // Links the voice layer until the app uses it.
+        withExtendedLifetime(VoiceEngines.linked) {}
         #endif
         let app = NSApplication.shared
         let delegate = AppDelegate()

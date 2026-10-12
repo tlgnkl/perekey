@@ -9,6 +9,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# The tool has no voice: build it in .build without PEREKEY_VOICE.
+unset PEREKEY_VOICE
 
 ROUNDS="${BENCH_ROUNDS:-5}"
 FIXTURES="$PWD/Tests/PerekeyCoreTests/Fixtures"

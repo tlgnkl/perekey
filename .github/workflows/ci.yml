@@ -47,3 +47,21 @@ jobs:
       - name: Where Swift Testing lives in these Command Line Tools
         run: find /Library/Developer/CommandLineTools -maxdepth 7 -name 'Testing*' | head -20
       - run: scripts/test.sh
+
+  # Voice input, built only with PEREKEY_VOICE=1 until it ships (Package.swift).
+  # Its own scratch path, as locally; its pins in Support/voice/Package.resolved.
+  voice:
+    runs-on: macos-latest
+    env:
+      PEREKEY_VOICE: 1
+    steps:
+      - uses: actions/checkout@v4
+      # Speech models are downloaded only by the app's own model store, with
+      # checksums; the loaders of FluidAudio and WhisperKit stay unused.
+      - name: No model loaders of FluidAudio or WhisperKit in Sources/
+        run: scripts/check-voice-loaders.sh
+      # Prints swift --version: the pins are compared, not the whole file.
+      - name: The voice pins match Package.swift
+        run: scripts/voice-pins.sh check
+      - run: swift build --scratch-path .build/voice
+      - run: scripts/test.sh

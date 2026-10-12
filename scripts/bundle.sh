@@ -5,7 +5,8 @@
 #
 # Environment:
 #   CONFIG         debug | release (default: release)
-#   SCRATCH_PATH   SwiftPM build directory (default: .build)
+#   PEREKEY_VOICE  1 builds voice input in (Package.swift)
+#   SCRATCH_PATH   SwiftPM build directory (default: .build, .build/voice with PEREKEY_VOICE=1)
 #   OUT            where Perekey.app goes (default: $SCRATCH_PATH/app)
 #   VERSION        CFBundleShortVersionString (default: 0.0.0)
 #   BUILD          CFBundleVersion (default: 0)
@@ -17,7 +18,8 @@
 #                  executable, where SwiftPM puts it)
 #   SPARKLE_PUBLIC_ED_KEY  replaces SUPublicEDKey of Support/Info.plist
 #   PEREKEY_MODEL  directory of the language model files (default:
-#                  $SCRATCH_PATH/model, built by scripts/build-model.sh if missing)
+#                  $SCRATCH_PATH/model, .build/model with PEREKEY_VOICE=1;
+#                  built by scripts/build-model.sh if missing)
 #   PEREKEY_LANGUAGES  the model files to ship (default: the languages of
 #                  data/languages, the one list the app enables by)
 set -euo pipefail
@@ -25,7 +27,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-release}"
-SCRATCH_PATH="${SCRATCH_PATH:-.build}"
+VOICE=0
+[[ "${PEREKEY_VOICE:-}" == 1 ]] && VOICE=1
+if ((VOICE)); then
+    SCRATCH_PATH="${SCRATCH_PATH:-.build/voice}"
+else
+    SCRATCH_PATH="${SCRATCH_PATH:-.build}"
+fi
 OUT="${OUT:-$SCRATCH_PATH/app}"
 VERSION="${VERSION:-0.0.0}"
 BUILD="${BUILD:-0}"
@@ -41,6 +49,7 @@ SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 if [[ -n "${PEREKEY_BINARY:-}" ]]; then
     BINARY="$PEREKEY_BINARY"
 else
+    ((VOICE)) && scripts/voice-pins.sh use
     swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --product Perekey
     BINARY="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --show-bin-path)/Perekey"
 fi
@@ -69,7 +78,12 @@ cp Support/Perekey.sdef "$APP/Contents/Resources/Perekey.sdef" # AppleScript dic
 # layouts' languages from Bundle.main: Contents/Resources/<language>.pklm.
 # Each file must match its hash in data/model.sha256: a stale local build
 # would otherwise ship silently.
-MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+# The model has no voice in it: a voice build shares the one of .build.
+if ((VOICE)); then
+    MODEL="${PEREKEY_MODEL:-.build/model}"
+else
+    MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+fi
 LANGUAGES="${PEREKEY_LANGUAGES:-$(grep -v '^#' data/languages | tr '\n' ' ')}"
 if [[ -e "$MODEL" && ! -d "$MODEL" ]]; then
     echo "error: PEREKEY_MODEL=$MODEL is a file; it names the directory of <language>.pklm now" >&2
@@ -107,6 +121,17 @@ otool -l "$EXE" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | sort -u 
     [[ "$rpath" == /usr/lib/swift ]] || install_name_tool -delete_rpath "$rpath" "$EXE" 2>/dev/null
 done
 install_name_tool -add_rpath @executable_path/../Frameworks "$EXE" 2>/dev/null
+
+# Resource bundles of packages stay out: SwiftPM leaves them next to the
+# executable, and a bundle at the root of the app breaks its signature. The one
+# with PEREKEY_VOICE=1, FluidAudio_FluidAudio.bundle, holds TTS data only;
+# FluidAudio's speech recognition, VAD and diarization do not read Bundle.module.
+stray="$(find "$APP" -name '*.bundle' -not -path "$FRAMEWORKS/*")"
+if [[ -n "$stray" ]]; then
+    echo "error: resource bundles in the app would break its signature:" >&2
+    echo "$stray" >&2
+    exit 1
+fi
 
 # Sign inside out with one identity: Sparkle's helpers, the framework, the app.
 # Library validation lets a hardened app load only libraries of its own team.

@@ -75,6 +75,7 @@
 "Perekey does not fix words or change the layout." = "Perekey does not fix words or change the layout.";
 "Perekey needs Accessibility access to notice your shortcut and to type the corrected word." = "Perekey needs Accessibility access to notice your shortcut and to type the corrected word.";
 "Perekey needs two keyboard layouts, for example English and Russian. Add one in System Settings → Keyboard." = "Perekey needs two keyboard layouts, for example English and Russian. Add one in System Settings → Keyboard.";
+"Perekey Settings" = "Perekey Settings";
 "Perekey remaps Caps Lock and gives it back when it quits." = "Perekey remaps Caps Lock and gives it back when it quits.";
 "Perekey resumes when the cursor leaves the field." = "Perekey resumes when the cursor leaves the field.";
 "Pick a set by habit or record your own. A shortcut of modifiers alone fires when you release the keys." = "Pick a set by habit or record your own. A shortcut of modifiers alone fires when you release the keys.";

@@ -57,14 +57,10 @@ struct SettingsView: View {
     let usage: UsageRecorder?
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
-    /// Material behind the whole window; off for offscreen snapshots.
-    private let windowBackground: Bool
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
-         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general,
-         windowBackground: Bool = true) {
+         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general) {
         self.usage = usage
-        self.windowBackground = windowBackground
         self.languages = languages
         self.updates = updates
         self.store = store
@@ -77,7 +73,7 @@ struct SettingsView: View {
 
     /// 640pt, but never taller than the visible screen minus 150pt, and never under 560pt.
     private var height: CGFloat {
-        Self.windowHeight(visibleScreen: (SettingsFront.window?.screen ?? NSScreen.main)?.visibleFrame.height)
+        Self.windowHeight(visibleScreen: SettingsWindow.screen?.visibleFrame.height)
     }
 
     static func windowHeight(visibleScreen: CGFloat?) -> CGFloat {
@@ -111,8 +107,6 @@ struct SettingsView: View {
             .clipped()
         }
         .frame(width: 840, height: height)
-        .background(SettingsWindowReader())
-        .modifier(WindowGlass(enabled: windowBackground))
         .onDisappear { recording.stop() }
     }
 
@@ -130,19 +124,6 @@ struct SettingsView: View {
         case .sites: SitesPane(store: store, sources: sources)
         case .words: WordsPane(store: store, layouts: sources.layouts)
         case .privacy: PrivacyPane(store: store, usage: usage, languages: languages, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
-        }
-    }
-}
-
-/// Window Glass behind everything on macOS 15+; the system background on 14.
-private struct WindowGlass: ViewModifier {
-    let enabled: Bool
-
-    func body(content: Content) -> some View {
-        if #available(macOS 15, *), enabled {
-            content.containerBackground(.regularMaterial, for: .window)
-        } else {
-            content
         }
     }
 }
@@ -213,40 +194,68 @@ private struct SidebarItem: View {
     }
 }
 
-// MARK: - Bringing Settings to the front
+// MARK: - The Settings window
 
-/// A menu bar app has no Dock icon, so `SettingsLink` opens the window behind
-/// the frontmost app. Activate the app, then raise the window.
+/// Owns the Settings window. A plain `NSWindow`, like onboarding: since macOS 14
+/// `showSettingsWindow:` only logs "Please use SettingsLink" and opens nothing,
+/// and `openSettings` needs a SwiftUI view inside a scene, which the AppKit menu
+/// panel is not. The window is kept after closing, so it reopens where it was.
 @MainActor
-enum SettingsFront {
-    private(set) static weak var window: NSWindow?
+final class SettingsWindow: NSObject, NSWindowDelegate {
+    /// The screen the window sizes itself to.
+    static var screen: NSScreen? { current?.screen ?? NSScreen.main }
+    private static weak var current: NSWindow?
 
-    static func register(_ window: NSWindow?) {
-        guard let window, window !== Self.window else { return }
-        Self.window = window
-        raise()
+    private let recording: ShortcutRecording
+    private let content: @MainActor () -> SettingsView
+    private var window: NSWindow?
+
+    init(recording: ShortcutRecording, content: @escaping @MainActor () -> SettingsView) {
+        self.recording = recording
+        self.content = content
     }
 
-    static func raise() {
+    /// A menu bar app has no Dock icon: activate first, or the window opens
+    /// behind the frontmost app.
+    func show() {
+        let window = window ?? make()
         NSApp.activate()
-        window?.makeKeyAndOrderFront(nil)
-        // The link opens the window a moment after the click; once more when it exists.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            NSApp.activate()
-            window?.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func make() -> NSWindow {
+        let host = NSHostingView(rootView: content())
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+                              styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window.title = String(localized: "Perekey Settings")
+        // Window Glass on macOS 15+, the system background on 14. In AppKit:
+        // `containerBackground(_:for: .window)` only reaches SwiftUI's own windows.
+        if #available(macOS 15, *) {
+            let glass = NSVisualEffectView()
+            glass.material = .underWindowBackground
+            glass.blendingMode = .behindWindow
+            glass.state = .followsWindowActiveState
+            host.translatesAutoresizingMaskIntoConstraints = false
+            glass.addSubview(host)
+            NSLayoutConstraint.activate([
+                host.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+                host.topAnchor.constraint(equalTo: glass.topAnchor),
+                host.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
+            ])
+            window.contentView = glass
+        } else {
+            window.contentView = host
         }
-    }
-}
-
-/// Hands the hosting window to `SettingsFront`.
-private struct SettingsWindowReader: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { SettingsFront.register(view.window) }
-        return view
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+        self.window = window
+        Self.current = window
+        return window
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { SettingsFront.register(view.window) }
+    func windowWillClose(_ notification: Notification) {
+        recording.stop()
     }
 }

@@ -5,13 +5,32 @@ import PerekeyCore
 import PerekeyInput
 import SwiftUI
 
+/// The entry point. Plain AppKit, not a SwiftUI `App`: every window is an
+/// `NSWindow` Perekey owns, and a SwiftUI `Settings` scene cannot serve a menu bar
+/// app. Its `showSettingsWindow:` opens nothing since macOS 14, and the scene
+/// opens itself at launch.
 @main
-struct PerekeyApp: App {
-    // A plain `let`: the App value is created once, and the `@State` macro plugin
-    // is missing from Command Line Tools.
+@MainActor
+enum PerekeyMain {
+    static func main() {
+        #if DEBUG
+        DebugSnapshot.runIfRequested()
+        #endif
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;
+        // this keeps `swift run` behaving the same way.
+        app.setActivationPolicy(.accessory)
+        withExtendedLifetime(delegate) { app.run() }
+    }
+}
+
+/// Builds the app and keeps it alive.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private let inputSources = InputSources()
     private let store: SettingsStore
-    private let recording: ShortcutRecording
     private let onboarding: OnboardingController
     private let pause = PauseState()
     private let launchAtLogin = LaunchAtLogin()
@@ -19,16 +38,13 @@ struct PerekeyApp: App {
     private let input: InputController
     private let shell: MenuBarShell
     private let usage: UsageRecorder
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
-    init() {
-        #if DEBUG
-        DebugSnapshot.runIfRequested()
-        #endif
+    override init() {
         let store = SettingsStore()
         self.store = store
-        recording = ShortcutRecording(store: store)
-        updates = Updates(store: store)
+        let recording = ShortcutRecording(store: store)
+        let updates = Updates(store: store)
+        self.updates = updates
         let input = InputController(sources: inputSources, store: store, pause: pause)
         self.input = input
         let onboarding = OnboardingController(store: store, sources: inputSources,
@@ -42,29 +58,77 @@ struct PerekeyApp: App {
         input.onCorrectionUndone = { recents.undone(seq: $0); usage.recordUndo() }
         input.onManualRetype = { usage.recordManualRetype() }
         input.onAccessLost = { onboarding.show(at: .access) }
-        // Counters reach the disk at most every few seconds, and here at quit.
-        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { usage.flush() }
-        }
-        let shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
-                             input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates)
-        self.shell = shell
-        Task { @MainActor in
-            onboarding.showIfNeeded()
-            // After launch, so the status bar exists.
-            shell.start()
-        }
-        ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
-        // Menu bar only, no Dock icon. The bundled Info.plist sets LSUIElement too;
-        // this keeps `swift run` behaving the same way.
-        NSApplication.shared.setActivationPolicy(.accessory)
-    }
-
-    var body: some Scene {
-        Settings {
-            SettingsView(store: store, recording: recording, sources: inputSources, updates: updates, usage: usage,
+        let sources = inputSources
+        let settings = SettingsWindow(recording: recording) {
+            SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                          languages: input.languages)
         }
+        shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
+                             input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
+                             settings: settings)
+        super.init()
+        ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = Self.mainMenu()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        onboarding.showIfNeeded()
+        // After launch, so the status bar exists.
+        shell.start()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Counters reach the disk at most every few seconds, and here at quit.
+        usage.flush()
+        // The Caps Lock remap would outlive the app until logout.
+        CapsLockRemapper.apply(.untouched)
+    }
+
+    /// `perekey://` links (see `ControlCommand`).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        ExternalControl.shared?.open(urls)
+    }
+
+    /// The menu bar never shows (LSUIElement), but its key equivalents work in
+    /// Perekey's windows: ⌘C, ⌘V and ⌘Z in text fields, ⌘W, ⌘Q. Nobody sees
+    /// the titles, so they stay in English.
+    private static func mainMenu() -> NSMenu {
+        let main = NSMenu()
+        func add(_ title: String, _ items: [NSMenuItem]) -> NSMenu {
+            let menu = NSMenu(title: title)
+            items.forEach(menu.addItem)
+            let item = NSMenuItem()
+            item.submenu = menu
+            main.addItem(item)
+            return menu
+        }
+        func item(_ title: String, _ action: Selector, _ key: String,
+                  _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            return item
+        }
+        _ = add("Perekey", [
+            item("Hide Perekey", #selector(NSApplication.hide(_:)), "h"),
+            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
+            item("Quit Perekey", #selector(NSApplication.terminate(_:)), "q"),
+        ])
+        _ = add("Edit", [
+            item("Undo", Selector(("undo:")), "z"),
+            item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            item("Cut", #selector(NSText.cut(_:)), "x"),
+            item("Copy", #selector(NSText.copy(_:)), "c"),
+            item("Paste", #selector(NSText.paste(_:)), "v"),
+            item("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ])
+        NSApp.windowsMenu = add("Window", [
+            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
+            item("Close", #selector(NSWindow.performClose(_:)), "w"),
+        ])
+        return main
     }
 }
 
@@ -82,7 +146,8 @@ final class MenuBarShell {
     private var statusItem: StatusItemController?
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
-         recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates)
+         recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates,
+         settings: SettingsWindow)
     {
         self.sources = sources
         self.store = store
@@ -95,13 +160,7 @@ final class MenuBarShell {
             recents: recents, usage: usage, updates: updates
         ) { menu in
             MenuActions(
-                openSettings: {
-                    menu.close()
-                    // A menu bar app has no Dock icon: activate first, then ask for the window.
-                    NSApp.activate()
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                    SettingsFront.raise()
-                },
+                openSettings: { menu.close(); settings.show() },
                 showOnboarding: { menu.close(); onboarding.show() },
                 showAbout: {
                     menu.close()
@@ -144,18 +203,6 @@ final class ReportWordWindow {
         self.window = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
-    }
-}
-
-/// Removes Perekey's Caps Lock remap on quit: it would outlive the app until logout.
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationWillTerminate(_ notification: Notification) {
-        CapsLockRemapper.apply(.untouched)
-    }
-
-    /// `perekey://` links (see `ControlCommand`).
-    func application(_ application: NSApplication, open urls: [URL]) {
-        MainActor.assumeIsolated { ExternalControl.shared?.open(urls) }
     }
 }
 

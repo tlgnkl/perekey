@@ -40,7 +40,7 @@ cat <<EOF
 3. Allow Accessibility and Input Monitoring when Perekey asks: without them it
    cannot see keystrokes or replace a word.
 
-Or with Homebrew: `brew install --cask tlgnkl/tap/perekey`.
+Or with Homebrew: \`brew install --cask tlgnkl/tap/perekey\`.
 EOF
 
 if [[ "${SIGNED:-false}" != "true" ]]; then

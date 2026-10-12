@@ -148,7 +148,7 @@ enum DebugSnapshot {
                 let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
                                       lastCheck: Date().addingTimeInterval(-3_600 * 5))
                 let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
-                                        languages: languages, initial: section, windowBackground: false)
+                                        languages: languages, initial: section)
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
             }

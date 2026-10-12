@@ -11,8 +11,14 @@ differently, what was fixed.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-12
+
 ### Fixed
 
+- **Settings open again.** Settings… in the menu did nothing on macOS 14 and
+  later. It opens the Settings window now, in front of other apps.
+- **No window at launch.** Perekey no longer opens Settings by itself when it
+  starts.
 - **Launch at login** can now be turned on. In 0.1.0 the switch stayed grey
   with "Works in the installed app only" even in the installed app, because
   macOS reports an app that has never been added to Login Items as unknown.
@@ -65,5 +71,6 @@ to confirm the first launch (the release notes say how).
   captcha-like strings are left alone.
 - The only network request is the update check.
 
-[Unreleased]: https://github.com/tlgnkl/perekey/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tlgnkl/perekey/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/tlgnkl/perekey/releases/tag/v0.1.1
 [0.1.0]: https://github.com/tlgnkl/perekey/releases/tag/v0.1.0

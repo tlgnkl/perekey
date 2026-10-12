@@ -79,7 +79,7 @@
 "Perekey remaps Caps Lock and gives it back when it quits." = "Perekey переназначает Caps Lock и возвращает его при выходе.";
 "Perekey resumes when the cursor leaves the field." = "Продолжу, когда курсор уйдёт из поля.";
 "Pick a set by habit or record your own. A shortcut of modifiers alone fires when you release the keys." = "Выберите набор по привычке или запишите свои. Сочетание из одних модификаторов срабатывает, когда клавиши отпущены.";
-"Pick what you are used to and Perekey follows. You can change it later in Settings." = "Выберите, Perekey подстроится. Потом можно изменить в настройках.";
+"Pick what you are used to and Perekey follows. Another shortcut? Click the keys of “Switch layout” and press yours." = "Выберите привычное, Perekey подстроится. Другое сочетание? Щёлкните клавиши в строке «Сменить раскладку» и нажмите своё.";
 "Preset" = "Набор";
 "Press a shortcut and Perekey retypes the last word in the other layout. Press it again and the word comes back as it was." = "Нажмите сочетание, и Perekey перенаберёт последнее слово в другой раскладке. Нажмите ещё раз, и слово вернётся как было.";
 "Press a shortcut…" = "Нажмите сочетание…";
@@ -142,7 +142,7 @@
 "in this layout" = "в этой раскладке";
 "left" = "левый";
 "macOS refused to change Caps Lock." = "macOS не дала изменить Caps Lock.";
-"macOS switches the input source on this shortcut too. The layout would change twice." = "macOS тоже меняет источник ввода по этому сочетанию. Раскладка сменится дважды.";
+"macOS switches the input source on this shortcut too. The layout would change twice. Pick “As now in macOS” to leave it to macOS." = "macOS тоже меняет источник ввода по этому сочетанию. Раскладка сменится дважды. Выберите «Как сейчас в macOS», чтобы переключала только macOS.";
 "off here" = "выкл. здесь";
 "password" = "пароль";
 "right" = "правый";
@@ -155,7 +155,7 @@
 "“%@” is a rare word %@" = "«%@» — редкое слово %@";
 "“%@” is not a word" = "«%@» — не слово";
 "“%@” is not a word %@" = "«%@» — такого слова %@ нет";
-"⌘Space also opens Spotlight. Both will run." = "⌘Пробел открывает ещё и Spotlight. Сработают оба.";
+"This shortcut also opens Spotlight. Both will run." = "Это сочетание открывает ещё и Spotlight. Сработают оба.";
 
 /* Apps, Words, General (stage 2) */
 "Search apps" = "Найти программу";
@@ -350,3 +350,10 @@
 "Only by hand: %@." = "Только вручную: %@.";
 "Press %@ and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed." = "Нажмите %@, и Perekey перенаберёт последнее слово в другой раскладке. Ещё раз — следующая раскладка, потом снова набранное.";
 "Press the shortcut and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed." = "Нажмите сочетание, и Perekey перенаберёт последнее слово в другой раскладке. Ещё раз — следующая раскладка, потом снова набранное.";
+
+/* System switching preset */
+"As now in macOS" = "Как сейчас в macOS";
+"macOS switches the layout, Option retypes" = "Переключает macOS, Option перенабирает";
+"%@ by macOS, ⌥ retypes" = "%@ — macOS, ⌥ перенабирает";
+"macOS switches with %@." = "macOS переключает по %@.";
+"Click and press another shortcut, such as ⌥Space" = "Щёлкните и нажмите другое сочетание, например ⌥Пробел";

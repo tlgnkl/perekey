@@ -3,6 +3,7 @@
 import AppKit
 import Observation
 import PerekeyCore
+import PerekeyInput
 
 /// Records a shortcut for one action at a time and keeps what the pane shows
 /// about it: the recording state, a hint and the conflicts of the last recording.
@@ -121,7 +122,8 @@ final class ShortcutRecording {
                 return
             }
             store.update { $0.setTrigger(trigger, for: target) }
-            let conflicts = ShortcutConflicts.check(trigger, for: target, among: store.settings.hotkeys)
+            let conflicts = ShortcutConflicts.check(trigger, for: target, among: store.settings.hotkeys,
+                                                    system: .current())
             stop()
             conflictTexts = conflicts.map(TriggerText.warning(for:))
         case .cancelled:

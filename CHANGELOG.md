@@ -11,6 +11,20 @@ differently, what was fixed.
 
 ## [Unreleased]
 
+### Added
+
+- **Keep the macOS shortcut.** If you switch layouts with ⌃Space, ⌘Space or
+  the 🌐 key, pick “As now in macOS”: Perekey leaves switching to macOS and
+  only adds Option to retype the word. Onboarding picks it for you when you
+  have changed that shortcut yourself.
+- **Your own switch shortcut in onboarding.** Click the keys of “Switch layout”
+  and press any shortcut, such as ⌥Space.
+
+### Changed
+
+- **Conflict warnings read your Mac.** Perekey warns about Spotlight or the
+  macOS input switch only when that shortcut really does it on this Mac.
+
 ## [0.1.1] - 2026-10-12
 
 ### Fixed

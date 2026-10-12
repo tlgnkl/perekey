@@ -2,10 +2,10 @@
 
 /// Why a shortcut may not work as the user expects.
 public enum ShortcutConflict: Hashable, Sendable {
-    /// ⌘Space opens Spotlight: both would run.
+    /// The shortcut opens Spotlight (⌘Space by default): both would run.
     case spotlight
-    /// ⌃Space or ⌃⌥Space switch the input source in macOS: the layout
-    /// would change twice.
+    /// macOS switches the input source on the shortcut (⌃Space, ⌃⌥Space by
+    /// default): the layout would change twice.
     case systemInputSwitch
     /// fn / 🌐 runs its own system action, also switching the input source
     /// by default.
@@ -23,23 +23,22 @@ public enum ShortcutConflict: Hashable, Sendable {
 public enum ShortcutConflicts {
     /// Every known conflict of `trigger` if it is set for `action`.
     /// `bindings` are the current shortcuts; the old one of `action` is ignored.
-    public static func check(_ trigger: Trigger, for action: HotkeyAction,
-                             among bindings: [HotkeyBinding]) -> [ShortcutConflict]
+    /// `system` is what macOS does with its own shortcuts on this Mac.
+    public static func check(_ trigger: Trigger, for action: HotkeyAction, among bindings: [HotkeyBinding],
+                             system: SystemShortcuts = .macOSDefaults) -> [ShortcutConflict]
     {
-        var result = system(trigger)
+        var result = Self.system(trigger, system)
         for binding in bindings where binding.action != action && overlap(trigger, binding.trigger) {
             result.append(.otherAction(binding.action))
         }
         return result
     }
 
-    static func system(_ trigger: Trigger) -> [ShortcutConflict] {
+    static func system(_ trigger: Trigger, _ system: SystemShortcuts) -> [ShortcutConflict] {
         switch trigger {
-        case let .key(keyCode, modifiers) where keyCode == KeyCode.space:
-            if modifiers == [.command] { return [.spotlight] }
-            if modifiers == [.control] || modifiers == [.control, .option] { return [.systemInputSwitch] }
-            return []
         case .key:
+            if let spotlight = system.spotlight, overlap(trigger, spotlight) { return [.spotlight] }
+            if system.inputSwitches.contains(where: { overlap(trigger, $0) }) { return [.systemInputSwitch] }
             return []
         case let .modifiers(chord, taps):
             let onlyFunction = chord.requirements.keys.allSatisfy { $0 == .function }

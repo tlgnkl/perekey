@@ -317,11 +317,11 @@ private struct PresetStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             StepHeader(title: "How do you switch layouts now?",
-                       lead: "Pick what you are used to and Perekey follows. You can change it later in Settings.")
+                       lead: "Pick what you are used to and Perekey follows. Another shortcut? Click the keys of “Switch layout” and press yours.")
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
                       alignment: .leading, spacing: 8) {
-                ForEach(HotkeyPreset.allCases, id: \.self) { preset in
-                    PresetChip(title: preset.title, note: preset.note,
+                ForEach(model.presets, id: \.self) { preset in
+                    PresetChip(title: preset.title, note: preset.note(system: model.system),
                                isSelected: !model.capsLockChosen && model.store.settings.preset == preset) {
                         model.choose(preset)
                     }
@@ -354,11 +354,22 @@ private struct PresetStep: View {
                 HStack(spacing: 4) {
                     Text(verbatim: row.name).font(PK.Font.body).foregroundStyle(Color.pkInk)
                     Spacer(minLength: 8)
-                    ForEach(Array(row.keys.enumerated()), id: \.offset) { _, key in PKKeycap(text: key) }
+                    if row.recordable, let recording = model.recording {
+                        ShortcutRecorderButton(action: .switchLayout, store: model.store, recording: recording,
+                                               fallback: row.keys)
+                            .help("Click and press another shortcut, such as ⌥Space")
+                    } else {
+                        ForEach(Array(row.keys.enumerated()), id: \.offset) { _, key in PKKeycap(text: key) }
+                    }
                 }
                 .padding(.horizontal, PK.Space.lg)
                 .padding(.vertical, 6)
                 .frame(minHeight: 38)
+            }
+            if let recording = model.recording {
+                ForEach(recording.conflictTexts, id: \.self) { text in
+                    PKCallout(Text(text))
+                }
             }
         }
     }

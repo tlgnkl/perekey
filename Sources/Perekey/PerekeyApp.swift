@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.updates = updates
         let input = InputController(sources: inputSources, store: store, pause: pause)
         self.input = input
-        let onboarding = OnboardingController(store: store, sources: inputSources,
+        let onboarding = OnboardingController(store: store, sources: inputSources, recording: recording,
                                               engineIsRunning: { input.tapState == .running },
                                               demoActive: { input.appModes.onboardingDemo = $0 })
         self.onboarding = onboarding

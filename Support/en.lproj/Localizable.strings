@@ -79,7 +79,7 @@
 "Perekey remaps Caps Lock and gives it back when it quits." = "Perekey remaps Caps Lock and gives it back when it quits.";
 "Perekey resumes when the cursor leaves the field." = "Perekey resumes when the cursor leaves the field.";
 "Pick a set by habit or record your own. A shortcut of modifiers alone fires when you release the keys." = "Pick a set by habit or record your own. A shortcut of modifiers alone fires when you release the keys.";
-"Pick what you are used to and Perekey follows. You can change it later in Settings." = "Pick what you are used to and Perekey follows. You can change it later in Settings.";
+"Pick what you are used to and Perekey follows. Another shortcut? Click the keys of “Switch layout” and press yours." = "Pick what you are used to and Perekey follows. Another shortcut? Click the keys of “Switch layout” and press yours.";
 "Preset" = "Preset";
 "Press a shortcut and Perekey retypes the last word in the other layout. Press it again and the word comes back as it was." = "Press a shortcut and Perekey retypes the last word in the other layout. Press it again and the word comes back as it was.";
 "Press a shortcut…" = "Press a shortcut…";
@@ -142,7 +142,7 @@
 "in this layout" = "in this layout";
 "left" = "left";
 "macOS refused to change Caps Lock." = "macOS refused to change Caps Lock.";
-"macOS switches the input source on this shortcut too. The layout would change twice." = "macOS switches the input source on this shortcut too. The layout would change twice.";
+"macOS switches the input source on this shortcut too. The layout would change twice. Pick “As now in macOS” to leave it to macOS." = "macOS switches the input source on this shortcut too. The layout would change twice. Pick “As now in macOS” to leave it to macOS.";
 "off here" = "off here";
 "password" = "password";
 "right" = "right";
@@ -155,7 +155,7 @@
 "“%@” is a rare word %@" = "“%@” is a rare word %@";
 "“%@” is not a word" = "“%@” is not a word";
 "“%@” is not a word %@" = "“%@” is not a word %@";
-"⌘Space also opens Spotlight. Both will run." = "⌘Space also opens Spotlight. Both will run.";
+"This shortcut also opens Spotlight. Both will run." = "This shortcut also opens Spotlight. Both will run.";
 
 /* Apps, Words, General (stage 2) */
 "Search apps" = "Search apps";
@@ -350,3 +350,10 @@
 "Only by hand: %@." = "Only by hand: %@.";
 "Press %@ and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed." = "Press %@ and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed.";
 "Press the shortcut and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed." = "Press the shortcut and Perekey retypes the last word in another layout. Press again for the next layout, then back to what you typed.";
+
+/* System switching preset */
+"As now in macOS" = "As now in macOS";
+"macOS switches the layout, Option retypes" = "macOS switches the layout, Option retypes";
+"%@ by macOS, ⌥ retypes" = "%@ by macOS, ⌥ retypes";
+"macOS switches with %@." = "macOS switches with %@.";
+"Click and press another shortcut, such as ⌥Space" = "Click and press another shortcut, such as ⌥Space";

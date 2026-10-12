@@ -78,7 +78,8 @@ comes with a `.sha256` file:
 - **Honest about code.** Terminals and IDEs are "manual only" by default, games
   are off. Rules per app and per website.
 - **Any shortcut.** Presets for a single Shift, Windows ⌥⇧ / ⌃⇧, ⌘⇧, two
-  separate keys, Caps Lock; or record your own, with conflict warnings.
+  separate keys, Caps Lock, or the macOS shortcut you already use (⌃Space,
+  ⌘Space, 🌐); or record your own, with conflict warnings.
 - **Never in passwords.** Password fields, Secure Input, password-like strings
   and captcha-like random strings are left alone.
 - **Extras.** Change case, transliterate, paste without formatting, sounds.

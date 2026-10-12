@@ -52,8 +52,10 @@ struct ShortcutsPane: View {
     private var presetSection: some View {
         PKGroup(header: Text("Preset")) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
-                ForEach(HotkeyPreset.allCases, id: \.self) { preset in
-                    PresetChip(title: preset.title, note: preset.note, isSelected: store.settings.preset == preset) {
+                let system = SystemShortcuts.current()
+                ForEach(HotkeyPreset.offered(system: system, selected: store.settings.preset), id: \.self) { preset in
+                    PresetChip(title: preset.title, note: preset.note(system: system),
+                               isSelected: store.settings.preset == preset) {
                         recording.stop()
                         store.update { $0.apply(preset) }
                     }
@@ -79,12 +81,20 @@ struct ShortcutsPane: View {
 
     private func detail(of action: HotkeyAction) -> Text? {
         switch action {
+        case .switchLayout: switchDetail
         case .changeCase: Text("Press again to go lower, Title, UPPER.")
         case .transliterate: Text("Selection only: Cyrillic to Latin and back.")
         case .pastePlain: Text("Off until you record a key with modifiers, such as ⌃⌥V.")
         case .undoLastCorrection: Text("Backspace right after a correction does the same.")
         default: nil
         }
+    }
+
+    /// Without a shortcut of Perekey's, the keys macOS switches with.
+    private var switchDetail: Text? {
+        guard store.settings.trigger(for: .switchLayout) == nil,
+              let trigger = SystemShortcuts.current().inputSwitches.first else { return nil }
+        return Text("macOS switches with \(TriggerText.keycaps(of: trigger).joined(separator: " ")).")
     }
 
     private var capsLockSection: some View {

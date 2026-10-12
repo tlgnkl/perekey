@@ -54,6 +54,11 @@ final class OnboardingModel {
     }
     private(set) var didAutoSwitch = false
     private(set) var didAutoUndo = false
+    /// How macOS switches the input source, read when the preset step opens.
+    private(set) var system = SystemShortcuts.macOSDefaults
+    /// Records the user's own layout shortcut on the preset step; snapshots have none.
+    @ObservationIgnored var recording: ShortcutRecording?
+    @ObservationIgnored private var didSuggestSystem = false
 
     /// The window that shows this model. The key monitor ignores other windows.
     @ObservationIgnored weak var window: NSWindow?
@@ -140,6 +145,12 @@ final class OnboardingModel {
         pollTask = nil
         if let activeToken { NotificationCenter.default.removeObserver(activeToken) }
         activeToken = nil
+        if step == .preset {
+            system = .current()
+            suggestSystemPreset()
+        } else {
+            recording?.stop()
+        }
         if step == .access {
             refreshTrust()
             // Coming back from System Settings: check at once, and say so if access is still off.
@@ -218,27 +229,58 @@ final class OnboardingModel {
     /// Someone else already remaps Caps Lock: onboarding does not replace it silently.
     var capsLockBlocked: Bool { !capsLockChosen && CapsLockRemapper.foreignCapsLockRemap != nil }
 
+    /// One line of «Your shortcuts». The layout line can be recorded: it is
+    /// where a shortcut no preset has, such as ⌥Space, goes.
+    struct ShortcutRow {
+        var name: String
+        var keys: [String]
+        var recordable = false
+    }
+
     /// The shortcuts of the current choice, for the preset step. Caps Lock
-    /// takes the place of the layout shortcut.
-    var shortcutRows: [(name: String, keys: [String])] {
-        var rows: [(name: String, keys: [String])] = []
+    /// takes the place of the layout shortcut; without one of Perekey's,
+    /// the line shows the keys macOS switches with.
+    var shortcutRows: [ShortcutRow] {
+        var rows: [ShortcutRow] = []
+        let switchName = TriggerText.name(of: .switchLayout)
         if capsLockChosen {
-            rows.append((TriggerText.name(of: .switchLayout), ["Caps Lock"]))
+            rows.append(ShortcutRow(name: switchName, keys: ["Caps Lock"]))
+        } else if store.settings.trigger(for: .switchLayout) == nil {
+            let keys = system.inputSwitches.first.map(TriggerText.keycaps(of:)) ?? []
+            rows.append(ShortcutRow(name: switchName, keys: keys, recordable: true))
         }
         // The pause shortcut is the same in every preset: last.
         let bindings = store.settings.hotkeys.filter { !(capsLockChosen && $0.action == .switchLayout) }
         for binding in bindings.filter({ $0.action != .toggleAutoswitch }) + bindings.filter({ $0.action == .toggleAutoswitch }) {
-            rows.append((TriggerText.name(of: binding.action), TriggerText.keycaps(of: binding.trigger)))
+            rows.append(ShortcutRow(name: TriggerText.name(of: binding.action), keys: TriggerText.keycaps(of: binding.trigger),
+                                    recordable: binding.action == .switchLayout))
         }
         return rows
     }
 
+    /// The presets the step offers: the system one only when macOS switches by itself.
+    var presets: [HotkeyPreset] {
+        HotkeyPreset.offered(system: system, selected: capsLockChosen ? nil : store.settings.preset)
+    }
+
+    /// The user set up switching in macOS by hand: keep that habit chosen.
+    /// Once, on the first run, and only over the untouched default.
+    private func suggestSystemPreset() {
+        guard !didSuggestSystem else { return }
+        didSuggestSystem = true
+        guard !store.settings.onboardingDone, system.isCustomized, !system.inputSwitches.isEmpty,
+              store.settings.preset == HotkeyPreset.default, !capsLockChosen else { return }
+        choose(.system)
+    }
+
     func choose(_ preset: HotkeyPreset) {
+        recording?.stop()
         store.update { $0.apply(preset) }
         if capsLockChosen { store.setCapsLock(.untouched) }
     }
 
     func chooseCapsLock() {
+        recording?.stop()
         store.update { $0.apply(.standard) }
         store.setCapsLock(.instant)
     }

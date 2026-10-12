@@ -13,6 +13,9 @@ differently, what was fixed.
 
 ### Fixed
 
+- **Launch at login** can now be turned on. In 0.1.0 the switch stayed grey
+  with "Works in the installed app only" even in the installed app, because
+  macOS reports an app that has never been added to Login Items as unknown.
 - **Asking for Accessibility.** macOS no longer shows its access alert at
   launch and again every second, before Perekey has said why it needs the
   access. Only the button in the welcome window asks now.

@@ -5,26 +5,31 @@ import ServiceManagement
 
 /// "Launch at login" through `SMAppService.mainApp`.
 ///
-/// The service needs a real, signed `.app` bundle. From `swift run` the status is
-/// `.notFound` and `register()` throws; the error is kept in `lastError` and the
-/// menu shows it instead of hiding the failure.
+/// The service needs a real `.app` bundle. `swift run` starts a bare executable,
+/// so the toggle is off there. A failed `register()` keeps its error in
+/// `lastError`, and the menu shows it instead of hiding the failure.
 @MainActor
 @Observable
 final class LaunchAtLogin {
     private(set) var status: SMAppService.Status
     private(set) var lastError: String?
 
+    /// Whether this process runs from a `.app` bundle.
+    let isBundled: Bool
+
     @ObservationIgnored private let service: SMAppService?
 
-    init(service: SMAppService = .mainApp) {
+    init(service: SMAppService = .mainApp, bundle: Bundle = .main) {
         self.service = service
+        isBundled = bundle.bundleURL.pathExtension == "app"
         status = service.status
     }
 
     #if DEBUG
     /// Snapshot helper: shows a status without touching the system.
-    init(previewStatus: SMAppService.Status, error: String? = nil) {
+    init(previewStatus: SMAppService.Status, error: String? = nil, bundled: Bool = true) {
         service = nil
+        isBundled = bundled
         status = previewStatus
         lastError = error
     }
@@ -33,8 +38,10 @@ final class LaunchAtLogin {
     /// On, or waiting for the user's approval in System Settings.
     var isOn: Bool { status == .enabled || status == .requiresApproval }
 
-    /// The toggle works only in an installed app.
-    var isAvailable: Bool { status != .notFound }
+    /// The toggle works only in an app bundle. The status cannot tell this:
+    /// macOS reports `.notFound` also for an installed app that has never
+    /// registered, and only `register()` gets it out of that state.
+    var isAvailable: Bool { isBundled }
 
     func setEnabled(_ on: Bool) {
         guard let service else { return }

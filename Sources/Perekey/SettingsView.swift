@@ -72,11 +72,15 @@ struct SettingsView: View {
     /// The speech models and the voice settings; the Voice tab is empty without it.
     var voiceController: VoiceModelsController?
     #endif
+    /// A view of the first pane to scroll to when it opens; gone once the person picks another pane.
+    private let scrollTarget: State<String?>
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
-         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general) {
+         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general,
+         scrollTarget: String? = nil) {
+        self.scrollTarget = State(initialValue: scrollTarget)
         self.usage = usage
         self.languages = languages
         self.updates = updates
@@ -106,6 +110,7 @@ struct SettingsView: View {
                 set: { new in
                     guard new != current else { return }
                     recording.stop()
+                    scrollTarget.wrappedValue = nil
                     direction.wrappedValue = new.rawValue > current.rawValue ? 1 : -1
                     withAnimation(reduceMotionFree(PK.Motion.easeOut(0.32))) { selection.wrappedValue = new }
                 }
@@ -115,6 +120,7 @@ struct SettingsView: View {
 
             ZStack {
                 pane
+                    .environment(\.pkScrollTarget, scrollTarget.wrappedValue)
                     .id(current)
                     .transition(.asymmetric(
                         insertion: .offset(x: CGFloat(direction.wrappedValue) * 14).combined(with: .opacity),
@@ -228,10 +234,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private static weak var current: NSWindow?
 
     private let recording: ShortcutRecording
-    private let content: @MainActor () -> SettingsView
+    private let content: @MainActor (SettingsSection, String?) -> SettingsView
     private var window: NSWindow?
 
-    init(recording: ShortcutRecording, content: @escaping @MainActor () -> SettingsView) {
+    init(recording: ShortcutRecording, content: @escaping @MainActor (SettingsSection, String?) -> SettingsView) {
         self.recording = recording
         self.content = content
     }
@@ -244,8 +250,21 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func make() -> NSWindow {
-        let host = NSHostingView(rootView: content())
+    /// Opens Settings at `section`, scrolled to the view with `scrollTarget`. A
+    /// window that is open is rebuilt, so that it opens there.
+    func show(section: SettingsSection, scrollTarget: String? = nil) {
+        if let window {
+            self.window = nil
+            window.delegate = nil
+            window.close()
+        }
+        let window = make(section: section, scrollTarget: scrollTarget)
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func make(section: SettingsSection = .general, scrollTarget: String? = nil) -> NSWindow {
+        let host = NSHostingView(rootView: content(section, scrollTarget))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
                               styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = String(localized: "Perekey Settings")

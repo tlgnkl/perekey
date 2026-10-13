@@ -17,7 +17,28 @@ import PerekeyInput
 final class OnboardingModel {
     enum Step: Int, CaseIterable {
         case welcome, access, preset, demo
+        #if PEREKEY_VOICE
+        /// The offer of voice input; only while there is one (`voiceIntro`).
+        case voice
+        #endif
     }
+
+    #if PEREKEY_VOICE
+    /// The voice offer of this run; nil when voice is not offered (answered,
+    /// on, not supported or forbidden): the step is then not there.
+    @ObservationIgnored var voiceIntro: VoiceIntroModel?
+    #endif
+
+    /// The steps of this run, in order.
+    var steps: [Step] {
+        #if PEREKEY_VOICE
+        Step.allCases.filter { $0 != .voice || voiceIntro != nil }
+        #else
+        Step.allCases
+        #endif
+    }
+
+    var isLastStep: Bool { step == steps.last }
 
     let store: SettingsStore
     let sources: InputSources
@@ -108,13 +129,15 @@ final class OnboardingModel {
     var canGoForward: Bool { step != .access || trusted }
 
     func next() {
-        guard let following = Step(rawValue: (pendingStep ?? step).rawValue + 1) else { return }
-        go(to: following)
+        let list = steps
+        guard let index = list.firstIndex(of: pendingStep ?? step), index + 1 < list.count else { return }
+        go(to: list[index + 1])
     }
 
     func back() {
-        guard let previous = Step(rawValue: (pendingStep ?? step).rawValue - 1) else { return }
-        go(to: previous)
+        let list = steps
+        guard let index = list.firstIndex(of: pendingStep ?? step), index > 0 else { return }
+        go(to: list[index - 1])
     }
 
     /// Sets the direction first and moves a moment later: the step that leaves

@@ -49,6 +49,9 @@ final class VoiceSetup {
 
     private func apply() {
         input.voiceSettings = isOn ? settings : VoiceSettings()
+        // The only request voice makes is a model download the user asks
+        // for: allowed while dictation is on and no profile forbids it.
+        VoiceHTTP.shared.allowed = isOn && !managed.voiceModelDownloadsDisabled ? [.modelDownload] : []
         guard isOn else {
             if let controller {
                 self.controller = nil

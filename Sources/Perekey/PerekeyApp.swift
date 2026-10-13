@@ -19,6 +19,9 @@ enum PerekeyMain {
         #if DEBUG
         DebugSnapshot.runIfRequested()
         #endif
+        #if DEBUG && PEREKEY_VOICE
+        DebugVoiceScenario.runIfRequested()
+        #endif
         #if PEREKEY_VOICE
         // Links the voice layer until the app uses it.
         withExtendedLifetime(VoiceEngines.linked) {}

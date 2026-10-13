@@ -969,6 +969,11 @@ extension VoiceModelStore {
             } catch {
                 try? writer.close()
                 known = writer.hashed
+                // An answer that was taken breaks a run of odd ones, even if it broke off.
+                if writer.started {
+                    foreignRanges = 0
+                    offlines = 0
+                }
                 switch error {
                 case is CancellationError:
                     throw CancellationError()

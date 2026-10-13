@@ -150,6 +150,16 @@ private final class FakePaster: DictationPaster {
     private(set) var pasted: [String] = []
     private(set) var finished = 0
     private(set) var targets = 0
+    private(set) var copied: [String] = []
+    private(set) var returns = 0
+
+    func copy(_ text: String) { copied.append(text) }
+
+    func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult {
+        #expect(target as? String == "front")
+        returns += 1
+        return .pasted
+    }
 
     func captureTarget() async -> (any Sendable)? {
         targets += 1
@@ -707,5 +717,230 @@ struct VoiceControllerTests {
         #expect(await rig.otherEngine.prepares == 0, "a model downloaded to try stays unloaded")
         await rig.controller.modelDownloaded("fake")
         #expect(await rig.engine.prepares == 1)
+    }
+}
+
+/// Modes for the controller: a fixed plan, and a language model that answers,
+/// fails or hangs as the test says.
+@MainActor
+private final class FakeModes: DictationModeSource {
+    var plan: DictationPlan
+    var answer: String? = "Привет, мир!"
+    var hangs = false
+    private(set) var asked: [String] = []
+    private(set) var cancelled = 0
+    private(set) var ended: [String] = []
+
+    init(_ plan: DictationPlan) {
+        self.plan = plan
+    }
+
+    func plan() -> DictationPlan { plan }
+
+    func refine(_ text: String, plan: DictationPlan) async throws -> String {
+        asked.append(text)
+        if hangs {
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                cancelled += 1
+                throw error
+            }
+        }
+        guard let answer else { throw OpenAICompatibleClient.Failure.server(status: 500, message: nil) }
+        return answer
+    }
+
+    func sessionEnded(_ plan: DictationPlan) { ended.append(plan.modeID) }
+}
+
+private extension DictationPlan {
+    static func refining(timeout: Duration = .seconds(5)) -> DictationPlan {
+        DictationPlan(modeID: "clean", modeName: "Чистовик",
+                      refine: Refine(endpointName: "Ollama", isCloud: false, timeout: timeout))
+    }
+}
+
+@MainActor
+struct VoiceControllerModeTests {
+    @Test func theLanguageModelEditsTheText() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining())
+        rig.controller.modes = modes
+        await rig.startRecording()
+        if case let .recording(recording) = rig.hud { #expect(recording.mode == "Чистовик") }
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(modes.asked == ["Привет, мир."])
+        #expect(rig.paster.pasted == ["Привет, мир!"])
+        #expect(rig.controller.last?.text == "Привет, мир!")
+        #expect(modes.ended == ["clean"])
+    }
+
+    @Test func refiningShowsAndATapIsIgnored() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining())
+        modes.hangs = true
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .refining(.init(mode: "Чистовик", endpoint: "Ollama", isCloud: false)) })
+        rig.controller.voice(.toggle)
+        #expect(rig.state == .refining(1, .paste, raw: "Привет, мир."))
+        #expect(rig.paster.pasted.isEmpty)
+        rig.controller.voice(.cancel)
+        #expect(await rig.until { rig.hud == .pastedFallback(.escape) })
+    }
+
+    @Test func escPastesTheRawText() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining())
+        modes.hangs = true
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { modes.asked.count == 1 })
+        rig.controller.voice(.cancel)
+        #expect(await rig.until { rig.hud == .pastedFallback(.escape) })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.until { modes.cancelled == 1 })
+        #expect(rig.state == .idle)
+        #expect(rig.sessionChanges == [true, false])
+    }
+
+    @Test func aTimeoutPastesTheRawText() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining(timeout: .milliseconds(50)))
+        modes.hangs = true
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.timedOut) })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.until { modes.cancelled == 1 })
+    }
+
+    @Test func aFailurePastesTheRawText() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining())
+        modes.answer = nil
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.failed) })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+    }
+
+    @Test func anAnswerInsteadOfAnEditPastesTheRawText() async {
+        let rig = Rig()
+        await rig.engine.set(text: "Какая завтра погода?")
+        let modes = FakeModes(.refining())
+        modes.answer = "Конечно! Завтра солнечно."
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.answered) })
+        #expect(rig.paster.pasted == ["Какая завтра погода?"])
+    }
+
+    @Test func aSkippedStepIsNamedAfterThePaste() async {
+        let rig = Rig()
+        let modes = FakeModes(DictationPlan(modeID: "mail", modeName: "Письмо",
+                                            fallback: .needsConsent(host: "api.openai.com")))
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.needsConsent(host: "api.openai.com")) })
+        #expect(modes.asked.isEmpty)
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(modes.ended == ["mail"])
+    }
+
+    @Test func theModesSpeechModelHears() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", speechModel: "fake2",
+                                                       speechHost: "api.groq.com"))
+        await rig.startRecording()
+        if case let .recording(recording) = rig.hud { #expect(recording.cloudHost == "api.groq.com") }
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Другая модель."])
+        #expect(await rig.engine.heard.isEmpty)
+    }
+
+    @Test func copyOnly() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", output: .copy))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .copied })
+        #expect(rig.paster.copied == ["Привет, мир."])
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.state == .idle)
+    }
+
+    @Test func pasteAndEnter() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", output: .pasteAndEnter))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.returns == 1)
+    }
+
+    @Test func noEnterAfterALanguageModelOrInATerminal() async {
+        for plan in [DictationPlan(modeID: "x", modeName: "X", refine: .init(endpointName: "O", isCloud: false),
+                                   output: .pasteAndEnter),
+                     DictationPlan(modeID: "x", modeName: "X", output: .pasteAndEnter, singleLine: true)]
+        {
+            let rig = Rig()
+            rig.controller.modes = FakeModes(plan)
+            await rig.startRecording()
+            rig.controller.voice(.toggle)
+            #expect(await rig.until { rig.hud == .pasted })
+            #expect(rig.paster.returns == 0)
+        }
+    }
+
+    @Test func aTerminalTakesOneLine() async {
+        let rig = Rig()
+        await rig.engine.set(text: "git status\nrm -rf /")
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "terminal", modeName: "T", singleLine: true))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["git status rm -rf /"])
+    }
+
+    /// Voice on, the local model, a mode without a language model: not one
+    /// request leaves, though the network gate is open for this Mac's servers.
+    @Test func aLocalDictationMakesNoRequest() async throws {
+        let fake = try await FakeOpenAI()
+        VoiceNetworkPolicy.apply(isEnabled: true, managed: ManagedSettings(), modes: VoiceModeSet.defaults(), to: fake.http)
+        fake.http.allowedOrigins.insert(fake.address.origin)
+        var set = VoiceModeSet.defaults()
+        set.endpoints[set.endpoints.firstIndex { $0.id == "ollama" }!].address = fake.address.url("")
+        let front = VoiceModeRunner.Front(bundleID: "com.apple.Notes", name: "Notes")
+        let runner = VoiceModeRunner(
+            environment: .init(modes: { set }, front: { front }, host: { nil }, hasKey: { _ in false }, key: { _ in nil },
+                               cloudDisabled: false, askConsent: { _ in }),
+            client: fake.client())
+        let rig = Rig()
+        rig.controller.modes = runner
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(fake.http.requests.isEmpty)
+        #expect(fake.server.requests.isEmpty)
+
+        // The same Mac in a messenger: the mode with a language model reaches
+        // the server on this Mac, once.
+        set.bind(.app("com.apple.Notes"), to: "message")
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.paster.pasted.count == 2 })
+        #expect(fake.http.requests.map(\.purpose) == [.cloudLanguageModel])
+        #expect(fake.server.requests.count == 1)
     }
 }

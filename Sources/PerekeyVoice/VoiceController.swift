@@ -20,9 +20,16 @@ public enum DictationHUDState: Hashable, Sendable {
     case recognizing(preparingModel: Bool)
     /// A hotkey press while recognizing: "Ещё распознаю".
     case stillRecognizing
+    /// The mode's language model edits the text: "Улучшаю". Esc pastes it as said.
+    case refining(Refining)
     case pasting
     /// The text is in. A short confirmation, then hidden.
     case pasted
+    /// The text is in as recognized: the mode's cloud or language model
+    /// step was skipped, for the reason given ("Вставлен исходный текст").
+    case pastedFallback(ModeFallback)
+    /// The mode puts the text on the pasteboard only: "Скопировано".
+    case copied
     /// The text was recognized but not pasted; it is in `last`.
     /// `NotPastedReason.offersPaste` says whether "Вставить" goes beside
     /// "Скопировать".
@@ -39,11 +46,33 @@ public enum DictationHUDState: Hashable, Sendable {
         public var level: Float
         /// The model is still loading; the audio waits for it.
         public var preparingModel: Bool
+        /// The dictation's mode; nil without modes.
+        public var mode: String?
+        /// The host the audio goes to, for a cloud speech model: "☁".
+        public var cloudHost: String?
 
-        public init(seconds: Double, level: Float, preparingModel: Bool) {
+        public init(seconds: Double, level: Float, preparingModel: Bool, mode: String? = nil,
+                    cloudHost: String? = nil)
+        {
             self.seconds = seconds
             self.level = level
             self.preparingModel = preparingModel
+            self.mode = mode
+            self.cloudHost = cloudHost
+        }
+    }
+
+    public struct Refining: Hashable, Sendable {
+        public var mode: String
+        /// "Ollama", "OpenAI".
+        public var endpoint: String
+        /// The text leaves the Mac: "☁".
+        public var isCloud: Bool
+
+        public init(mode: String, endpoint: String, isCloud: Bool) {
+            self.mode = mode
+            self.endpoint = endpoint
+            self.isCloud = isCloud
         }
     }
 }
@@ -120,6 +149,10 @@ public final class VoiceController {
     /// The latest recognized text, pasted or not: for "Вставить · Скопировать"
     /// and, with stage 3, the history. Set once the paste has an answer.
     public private(set) var last: DictatedText?
+
+    /// The dictation modes: the speech model, the language model step and
+    /// the output of each session. Without them every dictation pastes as said.
+    @ObservationIgnored public var modes: (any DictationModeSource)?
 
     /// Things the controller asks of the app.
     public struct Hooks {
@@ -200,11 +233,18 @@ public final class VoiceController {
         var silence: Task<Void, Never>?
         var isRecognizing = false
         var isReleased = false
+        /// The session's mode, resolved at its start.
+        let plan: DictationPlan?
+        var refining: Task<Void, Never>?
+        /// A step of the mode the session skipped.
+        var fallback: ModeFallback?
 
-        init(session: DictationMachine.Session, audio: DictationAudio, model: Model?) {
+        init(session: DictationMachine.Session, audio: DictationAudio, model: Model?, plan: DictationPlan?) {
             self.session = session
             self.audio = audio
             self.model = model
+            self.plan = plan
+            fallback = plan?.fallback
         }
 
         func stopTimers() {
@@ -394,6 +434,13 @@ public final class VoiceController {
             discard(session)
         case let .recognize(session, delivery):
             recognize(session, delivery)
+        case let .refine(session, text):
+            refine(session, text)
+        case let .stopRefining(session):
+            if let work = current, work.session == session {
+                work.fallback = .escape
+                work.refining?.cancel()
+            }
         case let .paste(session, text):
             paste(session, text)
         case let .keep(_, text):
@@ -409,6 +456,7 @@ public final class VoiceController {
                 if let work = current {
                     work.stopTimers()
                     release(work)
+                    if let plan = work.plan { modes?.sessionEnded(plan) }
                 }
                 current = nil
                 applyMicrophone()
@@ -428,6 +476,11 @@ public final class VoiceController {
         case .recording: hud = .recording(recording)
         case .recognizing: hud = .recognizing(preparingModel: current?.modelReady == false)
         case .stillRecognizing: hud = .stillRecognizing
+        case .refining:
+            let plan = current?.plan
+            hud = .refining(DictationHUDState.Refining(
+                mode: plan?.modeName ?? "", endpoint: plan?.refine?.endpointName ?? "",
+                isCloud: plan?.refine?.isCloud ?? false))
         case .pasting: hud = .pasting
         case .cancelled: hud = .cancelled
         case .nothingHeard: hud = .nothingHeard
@@ -443,7 +496,8 @@ public final class VoiceController {
 
     private var recording: DictationHUDState.Recording {
         DictationHUDState.Recording(seconds: current?.audio.seconds ?? 0, level: min(1, (current?.audio.level ?? 0) * 4),
-                                    preparingModel: current?.modelReady == false)
+                                    preparingModel: current?.modelReady == false, mode: current?.plan?.modeName,
+                                    cloudHost: current?.plan?.speechHost)
     }
 
     // MARK: - Session work
@@ -466,9 +520,12 @@ public final class VoiceController {
                 // A new device, a lost one, a stall: what was said so far is recognized.
                 Task { @MainActor in self?.handle(.captureEnded(session, .deviceChanged)) }
             })
-        let work = Work(session: session, audio: audio, model: model(for: preferences.modelID))
+        let plan = modes?.plan()
+        let work = Work(session: session, audio: audio, model: model(for: plan?.speechModel ?? preferences.modelID),
+                        plan: plan)
         current?.stopTimers()
         current = work
+        handle(.refinesText(session, plan?.refine != nil))
         let paster = self.paster
         work.target = Task { await paster.captureTarget() }
         if let residency = work.model?.residency {
@@ -507,6 +564,7 @@ public final class VoiceController {
     private func discard(_ session: DictationMachine.Session) {
         guard let work = current, work.session == session else { return }
         stop(session)
+        work.refining?.cancel()
         current = nil
         // A recognition under way keeps its hold on the model until it ends:
         // CoreML is not stopped half way, and the model must not go under it.
@@ -571,11 +629,80 @@ public final class VoiceController {
         }
     }
 
+    /// The mode's language model on the text, within the plan's timeout.
+    /// Whatever goes wrong, the dictation goes in as recognized.
+    private func refine(_ session: DictationMachine.Session, _ text: String) {
+        guard let work = current, work.session == session, let plan = work.plan, let step = plan.refine,
+              let modes
+        else {
+            handle(.refineFailed(session))
+            return
+        }
+        work.refining = Task { [weak self] in
+            let outcome: RefineOutcome
+            do {
+                let answer = try await Self.within(step.timeout) { try await modes.refine(text, plan: plan) }
+                if let answer {
+                    switch OutputGuard.check(answer, dictation: text) {
+                    case let .accept(edited): outcome = .edited(edited)
+                    case .reject: outcome = .fallback(.answered)
+                    }
+                } else {
+                    outcome = .fallback(.timedOut)
+                }
+            } catch {
+                outcome = .fallback(.failed)
+            }
+            guard let self, case let .refining(current, _, _) = machine.state, current == session else { return }
+            switch outcome {
+            case let .edited(edited):
+                handle(.refined(session, edited))
+            case let .fallback(fallback):
+                work.fallback = fallback
+                handle(.refineFailed(session))
+            }
+        }
+    }
+
+    /// What `operation` returns, or nil once `timeout` is over; the
+    /// operation is cancelled then.
+    nonisolated static func within<T: Sendable>(
+        _ timeout: Duration, _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T? {
+        try await withThrowingTaskGroup(of: T?.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return nil
+            }
+            defer { group.cancelAll() }
+            return try await group.next() ?? nil
+        }
+    }
+
+    private enum RefineOutcome {
+        case edited(String)
+        case fallback(ModeFallback)
+    }
+
     private func paste(_ session: DictationMachine.Session, _ text: String) {
-        let target = current?.session == session ? current?.target : nil
+        let work = current?.session == session ? current : nil
+        let target = work?.target
+        let plan = work?.plan
+        let text = plan?.singleLine == true ? Terminals.singleLine(text) : text
         let paster = self.paster
+        if plan?.output == .copy {
+            paster.copy(text)
+            last = DictatedText(text: text, pasted: false, isPrivate: false)
+            hud = .copied
+            handle(.pasted(session))
+            return
+        }
         Task {
-            let result = await paster.paste(text, into: await target?.value)
+            var result = await paster.paste(text, into: await target?.value)
+            if result == .pasted, plan?.output == .pasteAndEnter, plan?.singleLine == false, plan?.refine == nil {
+                result = await paster.pressReturn(in: await target?.value)
+            }
             let reason: NotPastedReason? = switch result {
             case .pasted: nil
             case .targetChanged: .targetChanged
@@ -591,7 +718,7 @@ public final class VoiceController {
             if let reason {
                 hud = .notPasted(reason)
             } else {
-                hud = .pasted
+                hud = work?.fallback.map(DictationHUDState.pastedFallback) ?? .pasted
                 if preferences.switchesLayout { hooks.pasted(text) }
             }
             handle(.pasted(session))

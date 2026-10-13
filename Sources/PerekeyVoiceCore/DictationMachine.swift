@@ -62,8 +62,10 @@ public struct DictationMachine: Sendable {
         /// The microphone is starting; a stop or a cancel waits for it.
         case starting(Session, Trigger, pending: Pending?)
         case recording(Session, Trigger)
-        case recognizing(Session, Delivery)
-        // The LLM step of stage 4 goes here: Esc pastes the raw text.
+        case recognizing(Session, Delivery, refines: Bool)
+        /// The mode's language model works on the text. A tap does nothing;
+        /// Esc, a failure or the timeout paste `raw`.
+        case refining(Session, Delivery, raw: String)
         case pasting(Session)
     }
 
@@ -85,10 +87,18 @@ public struct DictationMachine: Sendable {
         case secureInputChanged(Bool)
         case recognized(Session, RecognitionOutcome)
         case recognitionFailed(Session, String)
+        /// The language model's text, checked by `OutputGuard`.
+        case refined(Session, String)
+        /// The language model failed, timed out, or its text did not pass
+        /// `OutputGuard`: the dictation goes in as recognized.
+        case refineFailed(Session)
         /// The paste is done, whatever came of it.
         case pasted(Session)
         /// Dictation is being turned off: whatever runs is dropped.
         case shutdown
+        /// The session's mode has a language model step: sent once the mode
+        /// is resolved, before the recording ends.
+        case refinesText(Session, Bool)
     }
 
     /// What the HUD shows for the machine's part of a session. The level,
@@ -100,6 +110,8 @@ public struct DictationMachine: Sendable {
         case recognizing
         /// A tap while recognizing: "Still recognizing".
         case stillRecognizing
+        /// The mode's language model works: "Улучшаю".
+        case refining
         case pasting
         case cancelled
         /// No speech, or only phrases the stop list removed.
@@ -120,6 +132,10 @@ public struct DictationMachine: Sendable {
         /// Stop the microphone if it runs and drop the session's audio and work.
         case discard(Session)
         case recognize(Session, Delivery)
+        /// Run the mode's language model on the text.
+        case refine(Session, String)
+        /// Stop the language model; its answer is not waited for.
+        case stopRefining(Session)
         case paste(Session, String)
         /// Keep the text without pasting (`Delivery.keep`).
         case keep(Session, String)
@@ -138,6 +154,9 @@ public struct DictationMachine: Sendable {
 
     public private(set) var state: State = .idle
     public private(set) var lastSession: Session = 0
+    /// The session in progress has a language model step after recognition:
+    /// set by `VoiceController` from the mode when the session starts.
+    public private(set) var refines = false
     /// Secure Input is on: dictation does not start, and makes no sound or HUD.
     public private(set) var secureInput = false
     /// The tap was told to take Esc and not told otherwise yet.
@@ -170,6 +189,13 @@ public struct DictationMachine: Sendable {
             finish(trigger: trigger, &out)
         case let .voice(signal):
             voice(signal, &out)
+        case let .refinesText(session, on):
+            switch state {
+            case let .starting(current, _, _), let .recording(current, _):
+                if current == session { refines = on }
+            default:
+                break
+            }
         case let .captureStarted(session):
             captureStarted(session, &out)
         case let .captureFailed(session, failure):
@@ -180,23 +206,27 @@ public struct DictationMachine: Sendable {
             guard self.session == session else { break }
             stopAny(reason, &out)
         case let .recognized(session, outcome):
-            guard case let .recognizing(current, delivery) = state, current == session else { break }
+            guard case let .recognizing(current, delivery, refines) = state, current == session else { break }
             switch outcome {
-            case let .text(text) where delivery == .paste:
-                state = .pasting(session)
-                releaseEscape(&out)
-                out += [.phase(.pasting), .paste(session, text)]
+            case let .text(text) where refines:
+                state = .refining(session, delivery, raw: text)
+                out += [.phase(.refining), .refine(session, text)]
             case let .text(text):
-                finish(&out)
-                out.append(.keep(session, text))
+                deliver(session, text, delivery, &out)
             case .noSpeech, .nothingLeft:
                 finish(&out)
                 out.append(.phase(.nothingHeard))
             }
         case let .recognitionFailed(session, message):
-            guard case let .recognizing(current, _) = state, current == session else { break }
+            guard case let .recognizing(current, _, _) = state, current == session else { break }
             finish(&out)
             out.append(.phase(.recognitionFailed(message)))
+        case let .refined(session, text):
+            guard case let .refining(current, delivery, _) = state, current == session else { break }
+            deliver(session, text, delivery, &out)
+        case let .refineFailed(session):
+            guard case let .refining(current, delivery, raw) = state, current == session else { break }
+            deliver(session, raw, delivery, &out)
         case let .pasted(session):
             guard case let .pasting(current) = state, current == session else { break }
             finish(&out)
@@ -208,8 +238,8 @@ public struct DictationMachine: Sendable {
     public var session: Session? {
         switch state {
         case .idle: nil
-        case let .starting(session, _, _), let .recording(session, _), let .recognizing(session, _),
-             let .pasting(session): session
+        case let .starting(session, _, _), let .recording(session, _), let .recognizing(session, _, _),
+             let .refining(session, _, _), let .pasting(session): session
         }
     }
 
@@ -241,6 +271,11 @@ public struct DictationMachine: Sendable {
         case (.recognizing, .cancel):
             cancel(.escape, &out)
 
+        case let (.refining(session, delivery, raw), .cancel):
+            // Esc gives up on the language model, never on the dictation.
+            out.append(.stopRefining(session))
+            deliver(session, raw, delivery, &out)
+
         default:
             // A tap during a hold session and the like, and anything while
             // pasting: the table has nothing for them.
@@ -251,6 +286,7 @@ public struct DictationMachine: Sendable {
     private mutating func start(_ trigger: Trigger, _ out: inout [Output]) {
         guard !secureInput else { return }
         lastSession += 1
+        refines = false
         state = .starting(lastSession, trigger, pending: nil)
         escapeTaken = true
         out += [.sessionActive(true), .takesEscape(true), .phase(.starting), .startCapture(lastSession)]
@@ -285,7 +321,7 @@ public struct DictationMachine: Sendable {
             queue(.stop(reason))
         case .recording:
             stop(reason, &out)
-        case .idle, .recognizing, .pasting:
+        case .idle, .recognizing, .refining, .pasting:
             break
         }
     }
@@ -296,16 +332,19 @@ public struct DictationMachine: Sendable {
             queue(.cancel(reason))
         case .recording:
             cancel(reason, &out)
-        case .idle, .recognizing, .pasting:
-            // Asleep, recognition and the paste wait: the paste checks its target.
+        case .idle, .recognizing, .refining, .pasting:
+            // Asleep, recognition, the language model and the paste wait:
+            // the paste checks its target.
             break
         }
     }
 
     private mutating func accessibilityLost(_ out: inout [Output]) {
         switch state {
-        case let .recognizing(session, _):
-            state = .recognizing(session, .keep)
+        case let .recognizing(session, _, refines):
+            state = .recognizing(session, .keep, refines: refines)
+        case let .refining(session, _, raw):
+            state = .refining(session, .keep, raw: raw)
         case let .starting(session, trigger, .stop):
             // Whatever stop waits, the text must not be pasted now.
             state = .starting(session, trigger, pending: .stop(.accessibilityLost))
@@ -319,7 +358,7 @@ public struct DictationMachine: Sendable {
     private mutating func stop(_ reason: StopReason, _ out: inout [Output]) {
         guard case let .recording(session, trigger) = state else { return }
         let delivery: Delivery = reason == .accessibilityLost ? .keep : .paste
-        state = .recognizing(session, delivery)
+        state = .recognizing(session, delivery, refines: refines)
         out += [.stopCapture(session), .sound(.stop)]
         if trigger == .hold { out.append(.watchHold(false)) }
         out += [.phase(.recognizing), .recognize(session, delivery)]
@@ -332,6 +371,18 @@ public struct DictationMachine: Sendable {
         out.append(.discard(session))
         finish(trigger: trigger, &out)
         out.append(.phase(.cancelled))
+    }
+
+    /// The text goes in, or is only kept without Accessibility.
+    private mutating func deliver(_ session: Session, _ text: String, _ delivery: Delivery, _ out: inout [Output]) {
+        if delivery == .paste {
+            state = .pasting(session)
+            releaseEscape(&out)
+            out += [.phase(.pasting), .paste(session, text)]
+        } else {
+            finish(&out)
+            out.append(.keep(session, text))
+        }
     }
 
     private mutating func releaseEscape(_ out: inout [Output]) {

@@ -2,6 +2,7 @@
 
 import Foundation
 import os
+import PerekeyVoiceCore
 
 /// The one HTTP client of voice input. Everything voice sends to the network
 /// goes through it: model downloads now, cloud speech and language models
@@ -12,7 +13,9 @@ import os
 /// so a test can show that voice made no request. The record keeps hosts
 /// only, never paths or bodies. A purpose that is not allowed fails before
 /// any request. None is allowed until the app allows one, and the app allows
-/// none while voice is off.
+/// none while voice is off. Cloud speech and language models may reach only
+/// the origins the app allows besides (`allowedOrigins`): servers on this Mac
+/// and those the user agreed to send to.
 ///
 /// Sessions of FluidAudio and WhisperKit are not seen here; their loaders are
 /// kept out of the sources by scripts/check-voice-loaders.sh.
@@ -47,7 +50,7 @@ public final class VoiceHTTP: Sendable {
 
     let session: URLSession
     let router: Router
-    private let state: OSAllocatedUnfairLock<(log: [Request], allowed: Set<Purpose>)>
+    private let state: OSAllocatedUnfairLock<(log: [Request], allowed: Set<Purpose>, origins: Set<String>)>
 
     /// `requestTimeout` is the longest wait for the next bytes of a response.
     /// Without a network a request waits for one up to `connectivityTimeout`,
@@ -69,7 +72,7 @@ public final class VoiceHTTP: Sendable {
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         queue.name = "app.perekey.voice.http"
-        let state = OSAllocatedUnfairLock(initialState: (log: [Request](), allowed: allowed))
+        let state = OSAllocatedUnfairLock(initialState: (log: [Request](), allowed: allowed, origins: Set<String>()))
         self.state = state
         router = Router(connectivityTimeout: connectivityTimeout, redirects: redirects) { host, purpose in
             state.withLock {
@@ -105,6 +108,33 @@ public final class VoiceHTTP: Sendable {
         set { state.withLock { $0.allowed = newValue } }
     }
 
+    /// The origins (`EndpointAddress.origin`) requests of cloud speech and
+    /// language models may go to. None by default.
+    public var allowedOrigins: Set<String> {
+        get { state.withLock { $0.origins } }
+        set { state.withLock { $0.origins = newValue } }
+    }
+
+    /// Purposes that may reach only `allowedOrigins`.
+    static let originBound: Set<Purpose> = [.cloudSpeech, .cloudLanguageModel]
+
+    /// Whether `purpose` may send `request` now.
+    func permits(_ request: URLRequest, _ purpose: Purpose) -> Bool {
+        let (allowed, origins) = state.withLock { ($0.allowed, $0.origins) }
+        guard allowed.contains(purpose) else { return false }
+        guard Self.originBound.contains(purpose) else { return true }
+        guard let url = request.url, let origin = Self.origin(of: url) else { return false }
+        return origins.contains(origin)
+    }
+
+    /// "scheme://host:port" of `url`, as `EndpointAddress.origin` writes it.
+    static func origin(of url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              let host = url.host(percentEncoded: false), !host.isEmpty
+        else { return nil }
+        return EndpointAddress.origin(scheme: scheme, host: host, port: url.port ?? (scheme == "https" ? 443 : 80))
+    }
+
     /// Sends `request` and hands its body to `receive` chunk by chunk, on a
     /// serial queue, as it arrives. `accept` sees the response first; when it
     /// returns false the body is not read and the response is returned as is.
@@ -120,7 +150,7 @@ public final class VoiceHTTP: Sendable {
         waiting: (@Sendable (Bool) -> Void)? = nil,
         receive: @escaping @Sendable (Data) throws -> Void
     ) async throws -> HTTPURLResponse {
-        guard allowed.contains(purpose) else { throw Failure.blocked(purpose) }
+        guard permits(request, purpose) else { throw Failure.blocked(purpose) }
         try Task.checkCancellation()
         let task = session.dataTask(with: request)
         return try await withTaskCancellationHandler {

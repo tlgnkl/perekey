@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import PerekeyCore
 import PerekeyInput
 
 /// `TextPaster` as dictation's paster: the one place that knows its API.
@@ -30,6 +31,24 @@ public final class TextPasterAdapter: DictationPaster {
         case .failed(.timedOut): .timedOut
         case let .failed(failure): .failed(String(describing: failure))
         }
+    }
+
+    /// Return on the target, marked as Perekey's own so the tap lets it
+    /// through. Nothing when another app came to the front since the paste.
+    public func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult {
+        guard let target = target as? PasteTarget,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid
+        else { return .targetChanged }
+        // The app reads the pasted text first: events arrive in order, but
+        // some apps handle ⌘V on their next turn of the run loop.
+        try? await Task.sleep(for: .milliseconds(120))
+        let source = CGEventSource(stateID: .privateState)
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0x24, keyDown: down) else { continue }
+            event.setIntegerValueField(.eventSourceUserData, value: SyntheticMark.own(seq: 0, last: !down).userData)
+            event.post(tap: .cghidEventTap)
+        }
+        return .pasted
     }
 }
 

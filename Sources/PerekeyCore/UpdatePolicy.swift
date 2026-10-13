@@ -18,16 +18,22 @@ public struct ManagedSettings: Hashable, Sendable {
         /// the folder an administrator fills, `VoiceModels/<id>/` in
         /// `/Library/Application Support/Perekey`, checked against the same SHA-256.
         public static let voiceModelDownloadsDisabled = "VoiceModelDownloadsDisabled"
+        /// Bool. `true`: no cloud speech recognition and no cloud language models.
+        public static let voiceCloudDisabled = "VoiceCloudDisabled"
     }
 
     public var updatesDisabled: Bool
     public var voiceDisabled: Bool
     public var voiceModelDownloadsDisabled: Bool
+    public var voiceCloudDisabled: Bool
 
-    public init(updatesDisabled: Bool = false, voiceDisabled: Bool = false, voiceModelDownloadsDisabled: Bool = false) {
+    public init(updatesDisabled: Bool = false, voiceDisabled: Bool = false, voiceModelDownloadsDisabled: Bool = false,
+                voiceCloudDisabled: Bool = false)
+    {
         self.updatesDisabled = updatesDisabled
         self.voiceDisabled = voiceDisabled
         self.voiceModelDownloadsDisabled = voiceModelDownloadsDisabled
+        self.voiceCloudDisabled = voiceCloudDisabled
     }
 
     /// Reads the keys through `forced`, which returns a value only when a profile forces the key.
@@ -35,11 +41,14 @@ public struct ManagedSettings: Hashable, Sendable {
         updatesDisabled = (forced(Key.updatesDisabled) as? Bool) ?? false
         voiceDisabled = (forced(Key.voiceDisabled) as? Bool) ?? false
         voiceModelDownloadsDisabled = (forced(Key.voiceModelDownloadsDisabled) as? Bool) ?? false
+        voiceCloudDisabled = (forced(Key.voiceCloudDisabled) as? Bool) ?? false
     }
 
     /// True when a profile forces any key, updates or voice. A pane with a
     /// "Managed by your organization" note asks about its own key instead.
-    public var forcesAnyKey: Bool { updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled }
+    public var forcesAnyKey: Bool {
+        updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled || voiceCloudDisabled
+    }
 }
 
 /// What the updater may do: the result of the build, the profile and the user's switch.

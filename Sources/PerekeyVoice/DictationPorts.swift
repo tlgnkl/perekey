@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import PerekeyVoiceCore
 
 /// Where a dictation's audio comes from: `AudioCapture` in the app, a fake
@@ -59,10 +60,22 @@ public protocol DictationPaster: AnyObject {
     /// Where the caret is now: app, window, field. Taken when a dictation starts.
     func captureTarget() async -> (any Sendable)?
     func paste(_ text: String, into target: (any Sendable)?) async -> DictationPasteResult
+    /// The text on the pasteboard, for a mode that only copies.
+    func copy(_ text: String)
+    /// Return after a paste, for "Paste and Enter": only if `target` is still in front.
+    func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult
 }
 
 extension DictationPaster {
     public var hasTarget: Bool { true }
+
+    public func copy(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    public func pressReturn(in _: (any Sendable)?) async -> DictationPasteResult { .pasted }
 }
 
 /// The Secure Input rules of a session: no start while it is on; a stop

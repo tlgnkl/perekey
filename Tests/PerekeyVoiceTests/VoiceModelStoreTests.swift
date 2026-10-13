@@ -15,7 +15,7 @@ final class Fixture: @unchecked Sendable {
 
     let root: URL
     let locations: VoiceModelLocations
-    let http = VoiceHTTP(requestTimeout: 5)
+    let http: VoiceHTTP
     let server: TestServer
     /// Server path of every file → its bytes.
     let bodies: [String: Data]
@@ -24,14 +24,21 @@ final class Fixture: @unchecked Sendable {
     let vad: VoiceModelEntry
     var catalog: [VoiceModelEntry] { [asr, other, vad] }
 
-    init(handler: TestServer.Handler? = nil) async throws {
+    init(handler: TestServer.Handler? = nil, connectivityTimeout: TimeInterval = 120) async throws {
+        // Redirects stay on the test server, as they stay on Hugging Face.
+        http = VoiceHTTP(
+            allowed: [.modelDownload], requestTimeout: 5, connectivityTimeout: connectivityTimeout,
+            redirects: { _, url in url.host() == "127.0.0.1" })
         root = FileManager.default.temporaryDirectory.appending(path: "perekey-voice-tests-\(UUID().uuidString)")
         locations = VoiceModelLocations(
             models: root.appending(path: "VoiceModels"), managed: root.appending(path: "Managed"),
             coreMLCache: root.appending(path: "Caches/com.apple.e5rt.e5bundlecache"))
         var bodies: [String: Data] = [:]
         func file(_ path: String, remote: String? = nil, repo: String, size: Int) -> VoiceModelFile {
-            let data = Data((0..<size).map { _ in UInt8.random(in: 0...255) })
+            // Byte by byte, a debug build spends seconds of every core on the
+            // fixtures of the suite and starves the timing tests beside them.
+            var data = Data(count: size)
+            data.withUnsafeMutableBytes { arc4random_buf($0.baseAddress, size) }
             let encoded = (remote ?? path).split(separator: "/").map {
                 $0.addingPercentEncoding(withAllowedCharacters: Self.unreserved) ?? ""
             }.joined(separator: "/")
@@ -67,10 +74,14 @@ final class Fixture: @unchecked Sendable {
 
     deinit { try? FileManager.default.removeItem(at: root) }
 
-    func store(_ managed: ManagedSettings = ManagedSettings(), networkAttempts: Int = 3) -> VoiceModelStore {
+    func store(
+        _ managed: ManagedSettings = ManagedSettings(), networkAttempts: Int = 3,
+        configure: (inout VoiceModelStore.Limits) -> Void = { _ in }
+    ) -> VoiceModelStore {
         var limits = VoiceModelStore.Limits()
         limits.networkAttempts = networkAttempts
         limits.retryDelay = { _ in .zero }
+        configure(&limits)
         return VoiceModelStore(
             catalog: catalog, locations: locations, managed: managed, http: http, host: server.base, limits: limits)
     }
@@ -106,6 +117,17 @@ final class Fixture: @unchecked Sendable {
 
     func filesMatch(_ entry: VoiceModelEntry, in folder: URL) -> Bool {
         (try? VoiceModelStore.verifyChecksums(of: entry, in: folder)) != nil
+    }
+
+    var weightPart: URL {
+        locations.models.appending(path: "asr.partial/Encoder.mlmodelc/weights/weight.bin.part")
+    }
+
+    /// Polls until `condition` holds; the suite's time limit ends a wait that never does.
+    func until(_ condition: () async -> Bool) async throws {
+        while await !condition() {
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     func partFiles() -> [String] {
@@ -213,7 +235,7 @@ final class Fixture: @unchecked Sendable {
         #expect(fixture.filesMatch(fixture.asr, in: fixture.folder("asr")))
     }
 
-    @Test func aWrongContentRangeStartsOver() async throws {
+    @Test func aWrongContentRangeKeepsThePart() async throws {
         let fixture = try await Fixture()
         let weight = fixture.weightPath
         fixture.server.setHandler { request, earlier in
@@ -232,7 +254,8 @@ final class Fixture: @unchecked Sendable {
         let store = fixture.store()
         try await store.download("asr")
         let requests = fixture.server.requests(to: weight)
-        #expect(requests.map(\.range) == [nil, "bytes=100000-", nil])
+        // The wrong answer leaves the part; the next one resumes it.
+        #expect(requests.map(\.range) == [nil, "bytes=100000-", "bytes=100000-"])
         #expect(fixture.filesMatch(fixture.asr, in: fixture.folder("asr")))
     }
 
@@ -243,9 +266,12 @@ final class Fixture: @unchecked Sendable {
         fixture.server.setHandler { request, earlier in
             if request.path.hasPrefix("/cdn/") {
                 let origin = String(request.path.dropFirst(4))
-                // The first signed link has expired by the time it is used.
+                // The first two signed links have expired by the time they are used.
                 if origin == weight, request.target.hasSuffix("sig=0") {
                     return TestServer.Response(status: 403)
+                }
+                if origin == weight, request.target.hasSuffix("sig=1") {
+                    return TestServer.Response(status: 410)
                 }
                 return TestServer.serve(fixture.bodies[origin]!, request: request)
             }
@@ -253,8 +279,8 @@ final class Fixture: @unchecked Sendable {
         }
         let store = fixture.store()
         try await store.download("asr")
-        #expect(fixture.server.requests(to: weight).count == 2)
-        #expect(fixture.server.requests(to: "/cdn" + weight).count == 2)
+        #expect(fixture.server.requests(to: weight).count == 3)
+        #expect(fixture.server.requests(to: "/cdn" + weight).count == 3)
         #expect(fixture.filesMatch(fixture.asr, in: fixture.folder("asr")))
         // Redirects count as requests of the download.
         let requests = fixture.http.requests
@@ -262,11 +288,11 @@ final class Fixture: @unchecked Sendable {
         #expect(requests.count == fixture.server.requests.count)
     }
 
-    @Test func anOrigin403IsNotRetried() async throws {
-        let fixture = try await Fixture { _, _ in TestServer.Response(status: 403) }
+    @Test(arguments: [403, 410]) func anOriginRefusalIsNotRetried(status: Int) async throws {
+        let fixture = try await Fixture { _, _ in TestServer.Response(status: status) }
         let store = fixture.store()
-        await #expect(throws: VoiceModelFailure.http(status: 403, host: "127.0.0.1")) {
-            try await store.download("other")
+        await #expect(throws: VoiceModelFailure.http(status: status, host: "127.0.0.1")) {
+            try await store.download("vad")
         }
         #expect(fixture.server.requests.count == 1)
     }
@@ -346,10 +372,7 @@ final class Fixture: @unchecked Sendable {
         }
         let store = fixture.store()
         let download = Task { try await store.download("asr") }
-        let part = fixture.locations.models.appending(path: "asr.partial/Encoder.mlmodelc/weights/weight.bin.part")
-        while VoiceModelStore.size(of: part) != Int64(cut) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await fixture.until { VoiceModelStore.size(of: fixture.weightPart) == Int64(cut) }
         await store.cancelDownload("asr")
         await #expect(throws: CancellationError.self) { try await download.value }
         #expect(await store.status(of: "asr")?.state == .partial(received: Int64(cut)))
@@ -376,7 +399,8 @@ final class Fixture: @unchecked Sendable {
         await store.release("asr")
         try await store.delete("asr")
         #expect(!fixture.exists(fixture.folder("asr")))
-        #expect(!fixture.exists(fixture.locations.coreMLCache))
+        // Other models' compiled forms stay: compiling one again costs minutes.
+        #expect(fixture.exists(fixture.locations.coreMLCache))
         #expect(await store.status(of: "asr")?.state == .absent)
         #expect(await store.status(of: "vad")?.state == .ready)
     }
@@ -391,6 +415,8 @@ final class Fixture: @unchecked Sendable {
         _ = try await store.acquire("asr")
         _ = try await store.acquire("asr")
         try await store.delete("other")
+        #expect(fixture.exists(fixture.locations.coreMLCache))
+        #expect(try await store.deleteAll() == ["asr", "vad"])
         #expect(!fixture.exists(fixture.folder("other")))
         // A loaded model may still read its compiled form.
         #expect(fixture.exists(fixture.locations.coreMLCache))
@@ -410,9 +436,7 @@ final class Fixture: @unchecked Sendable {
         }
         let store = fixture.store()
         let download = Task { try await store.download("asr") }
-        while fixture.server.requests(to: weight).isEmpty {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await fixture.until { !fixture.server.requests(to: weight).isEmpty }
         try await store.delete("asr")
         await #expect(throws: CancellationError.self) { try await download.value }
         #expect(await store.status(of: "asr")?.state == .absent)
@@ -433,9 +457,11 @@ final class Fixture: @unchecked Sendable {
 
         _ = try await store.acquire("other")
         let kept = try await store.deleteAll()
-        #expect(kept == ["other"])
+        // VAD stays with the held recognizer.
+        #expect(kept == ["other", "vad"])
         #expect(fixture.filesMatch(fixture.other, in: fixture.folder("other")))
-        for gone in ["asr", "vad", "retired-model", "asr.trash-1"] {
+        #expect(fixture.filesMatch(fixture.vad, in: fixture.folder("vad")))
+        for gone in ["asr", "retired-model", "asr.trash-1"] {
             #expect(!fixture.exists(models.appending(path: gone)), "\(gone)")
         }
         #expect(fixture.exists(models.appending(path: "notes.txt")))
@@ -444,7 +470,7 @@ final class Fixture: @unchecked Sendable {
         await store.release("other")
         #expect(!fixture.exists(fixture.locations.coreMLCache))
         #expect(try await store.deleteAll().isEmpty)
-        #expect(!fixture.exists(fixture.folder("other")))
+        #expect(!fixture.exists(fixture.folder("other")) && !fixture.exists(fixture.folder("vad")))
     }
 
     @Test func diskUsageCountsModelsAndTheCache() async throws {
@@ -461,13 +487,18 @@ final class Fixture: @unchecked Sendable {
 
     @Test func statusesShowSizeAndAddress() async throws {
         let fixture = try await Fixture()
-        let status = try #require(await fixture.store().status(of: "asr"))
-        #expect(status.size == 607_010)
+        let store = fixture.store()
+        let status = try #require(await store.status(of: "asr"))
+        // The recognizer brings VAD along.
+        #expect(status.size == 607_010 + 3_000)
         #expect(status.addresses == [
             "https://huggingface.co/org/asr/tree/\(Fixture.commit)",
             "https://huggingface.co/org/tokenizer/tree/\(Fixture.commit)",
         ])
         #expect(status.progress == nil && !status.isInUse && !status.isManaged)
+        try await store.download("vad")
+        #expect(await store.status(of: "asr")?.size == 607_010)
+        #expect(await store.status(of: "vad")?.size == 3_000)
     }
 }
 
@@ -476,6 +507,7 @@ final class Fixture: @unchecked Sendable {
         let fixture = try await Fixture()
         let managed = ManagedSettings(voiceModelDownloadsDisabled: true)
         try fixture.place(fixture.asr, in: fixture.locations.managed.appending(path: "asr"), manifest: false)
+        try fixture.place(fixture.vad, in: fixture.locations.managed.appending(path: "vad"), manifest: false)
         let store = fixture.store(managed)
         #expect(!store.canDownload)
 
@@ -497,6 +529,7 @@ final class Fixture: @unchecked Sendable {
         let fixture = try await Fixture()
         let folder = fixture.locations.managed.appending(path: "asr")
         try fixture.place(fixture.asr, in: folder, manifest: false)
+        try fixture.place(fixture.vad, in: fixture.locations.managed.appending(path: "vad"), manifest: false)
         // Right size, wrong bytes: sizes pass at launch, the checksum does not.
         let vocab = folder.appending(path: "tokenizer/vocab.json")
         try Data(repeating: 7, count: 5_000).write(to: vocab)
@@ -529,7 +562,9 @@ final class Fixture: @unchecked Sendable {
             _ = try await fixture.http.data(for: request, purpose: .modelDownload)
         }
         let blocked = fixture.store()
-        await #expect(throws: VoiceModelFailure.voiceDisabled) { try await blocked.download("other") }
+        await #expect(throws: VoiceModelFailure.networkBlocked) { try await blocked.download("other") }
+        // Closed until the app opens it.
+        #expect(VoiceHTTP().allowed.isEmpty && VoiceHTTP.shared.allowed.isEmpty)
 
         #expect(fixture.http.requests.isEmpty)
         #expect(fixture.server.requests.isEmpty)

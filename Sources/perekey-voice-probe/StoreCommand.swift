@@ -16,6 +16,7 @@ enum StoreCommand {
         let locations = VoiceModelLocations(
             models: models, managed: models.appending(path: "../managed").standardized,
             coreMLCache: models.appending(path: "../coreml-cache").standardized)
+        VoiceHTTP.shared.allowed = [.modelDownload]
         let store = VoiceModelStore(locations: locations, managed: ManagedSettings())
         let ids = Array(arguments.dropFirst())
         switch arguments.first {

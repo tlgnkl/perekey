@@ -37,8 +37,9 @@ public struct ManagedSettings: Hashable, Sendable {
         voiceModelDownloadsDisabled = (forced(Key.voiceModelDownloadsDisabled) as? Bool) ?? false
     }
 
-    /// True when any key is forced, for the note "Managed by your organization".
-    public var isManaged: Bool { updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled }
+    /// True when a profile forces any key, updates or voice. A pane with a
+    /// "Managed by your organization" note asks about its own key instead.
+    public var forcesAnyKey: Bool { updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled }
 }
 
 /// What the updater may do: the result of the build, the profile and the user's switch.

@@ -53,6 +53,12 @@ public enum AudioCaptureError: Error, Equatable {
 /// A subscriber's place in `AudioCapture`; `unsubscribe` takes it back.
 public struct AudioSubscription: Hashable, Sendable {
     let id: UInt64
+
+    /// For other sources of dictation audio (`DictationMicrophone`): files,
+    /// tests. `AudioCapture` ignores a token it did not give.
+    public init(id: UInt64) {
+        self.id = id
+    }
 }
 
 /// The microphone permission (TCC). macOS ties it to the app's signature.

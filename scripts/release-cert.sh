@@ -33,17 +33,23 @@ NAME="Perekey Release"
 DAYS=36500 # 100 years: the certificate must outlive every installed copy
 
 dir="${1:?usage: scripts/release-cert.sh <directory>}"
+# `pkcs12 -legacy` needs OpenSSL 3; /usr/bin/openssl of macOS is LibreSSL.
+if [[ "$(openssl version)" != "OpenSSL "[3-9]* ]]; then
+    echo "error: needs OpenSSL 3 or later, found $(command -v openssl): $(openssl version)" >&2
+    echo "       brew install openssl@3, and put it first in PATH" >&2
+    exit 1
+fi
 if [[ -e "$dir" && -n "$(ls -A "$dir")" ]]; then
     echo "error: $dir is not empty; the script never overwrites a key" >&2
     exit 1
 fi
+umask 077
 mkdir -p "$dir"
 if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "error: $dir is inside a git work tree; keep the key out of every repository" >&2
     rmdir "$dir" 2>/dev/null || true
     exit 1
 fi
-umask 077
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

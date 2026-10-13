@@ -84,6 +84,10 @@ jobs:
           RELEASE_P12: ${{ secrets.PEREKEY_RELEASE_CERT_P12 }}
           RELEASE_PASSWORD: ${{ secrets.PEREKEY_RELEASE_CERT_PASSWORD }}
         run: |
+          umask 077 # cert.p12 below
+          if [[ -n "$DEVELOPER_ID_P12" && -z "$DEVELOPER_ID_IDENTITY" ]] || [[ -z "$DEVELOPER_ID_P12" && -n "$DEVELOPER_ID_IDENTITY" ]]; then
+            echo "::warning::DEVELOPER_ID_CERT_P12 and DEVELOPER_ID_IDENTITY go together: only one is set, so Developer ID is skipped"
+          fi
           if [[ -n "$DEVELOPER_ID_P12" && -n "$DEVELOPER_ID_IDENTITY" ]]; then
             signing=developer-id p12="$DEVELOPER_ID_P12" password="$DEVELOPER_ID_PASSWORD" identity="$DEVELOPER_ID_IDENTITY"
           elif [[ -n "$RELEASE_P12" ]]; then
@@ -105,12 +109,21 @@ jobs:
           security list-keychains -d user -s "$kc" login.keychain-db
           # Without -v find-identity lists the self-signed certificate too, as
           # not trusted. codesign refuses an expired one: fail here, by name.
-          found="$(security find-identity -p codesigning "$kc" | grep -F "\"$identity\"" || true)"
+          # DEVELOPER_ID_IDENTITY may be what codesign takes, a SHA-1 or a part
+          # of the name; "Perekey Release" is the whole name.
+          listing="$(security find-identity -p codesigning "$kc")"
+          if [[ "$signing" == release ]]; then
+            found="$(grep -F "\"$identity\"" <<< "$listing" || true)"
+          else
+            found="$(grep -iF "$identity" <<< "$listing" || true)"
+          fi
           if [[ -z "$found" || "$found" == *EXPIRED* ]]; then
             echo "::error::No usable \"$identity\" in the certificate: ${found:-missing}"
             exit 1
           fi
-          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          # The full name: bundle.sh and dmg.sh tell Developer ID by its prefix.
+          name="$(sed -n '1s/^[^"]*"\(.*\)".*$/\1/p' <<< "$found")"
+          echo "SIGN_IDENTITY=$name" >> "$GITHUB_ENV"
           echo "signing=$signing" >> "$GITHUB_OUTPUT"
 
       - name: Universal build

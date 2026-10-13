@@ -39,6 +39,8 @@ BUILD="${BUILD:-0}"
 DEV_KEYCHAIN="$HOME/Library/Keychains/perekey-dev.keychain-db"
 SIGN_ARGS=()
 if [[ -n "${SIGN_KEYCHAIN:-}" ]]; then
+    # Without an identity the build would quietly fall back to ad hoc.
+    [[ -n "${SIGN_IDENTITY:-}" ]] || { echo "error: SIGN_KEYCHAIN needs SIGN_IDENTITY" >&2; exit 1; }
     SIGN_ARGS=(--keychain "$SIGN_KEYCHAIN")
 elif [[ -z "${SIGN_IDENTITY:-}" && -f "$DEV_KEYCHAIN" ]]; then
     security unlock-keychain -p perekey-dev "$DEV_KEYCHAIN"

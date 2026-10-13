@@ -87,6 +87,8 @@ public struct DictationMachine: Sendable {
         case recognitionFailed(Session, String)
         /// The paste is done, whatever came of it.
         case pasted(Session)
+        /// Dictation is being turned off: whatever runs is dropped.
+        case shutdown
     }
 
     /// What the HUD shows for the machine's part of a session. The level,
@@ -121,9 +123,13 @@ public struct DictationMachine: Sendable {
         case paste(Session, String)
         /// Keep the text without pasting (`Delivery.keep`).
         case keep(Session, String)
-        /// The session is on or over: the tap takes Esc while it is on
-        /// (`InputEvent.voiceSession`), Secure Input rules apply.
+        /// The session is on or over, the paste included: Secure Input rules
+        /// apply while it is on.
         case sessionActive(Bool)
+        /// The tap takes Esc (`InputEvent.voiceSession`): from the start
+        /// until the paste begins. Esc cannot stop a paste, so it goes to
+        /// the app again.
+        case takesEscape(Bool)
         /// Check the hold's keys while a hold session starts and records.
         case watchHold(Bool)
         case sound(Sound)
@@ -134,6 +140,8 @@ public struct DictationMachine: Sendable {
     public private(set) var lastSession: Session = 0
     /// Secure Input is on: dictation does not start, and makes no sound or HUD.
     public private(set) var secureInput = false
+    /// The tap was told to take Esc and not told otherwise yet.
+    private var escapeTaken = false
 
     public init(secureInput: Bool = false) {
         self.secureInput = secureInput
@@ -151,6 +159,15 @@ public struct DictationMachine: Sendable {
             accessibilityLost(&out)
         case .sleep:
             cancelAny(.sleep, &out)
+        case .shutdown:
+            guard let session else { break }
+            var trigger: Trigger?
+            switch state {
+            case let .starting(_, current, _), let .recording(_, current): trigger = current
+            default: break
+            }
+            out.append(.discard(session))
+            finish(trigger: trigger, &out)
         case let .voice(signal):
             voice(signal, &out)
         case let .captureStarted(session):
@@ -167,6 +184,7 @@ public struct DictationMachine: Sendable {
             switch outcome {
             case let .text(text) where delivery == .paste:
                 state = .pasting(session)
+                releaseEscape(&out)
                 out += [.phase(.pasting), .paste(session, text)]
             case let .text(text):
                 finish(&out)
@@ -234,7 +252,8 @@ public struct DictationMachine: Sendable {
         guard !secureInput else { return }
         lastSession += 1
         state = .starting(lastSession, trigger, pending: nil)
-        out += [.sessionActive(true), .phase(.starting), .startCapture(lastSession)]
+        escapeTaken = true
+        out += [.sessionActive(true), .takesEscape(true), .phase(.starting), .startCapture(lastSession)]
         if trigger == .hold { out.append(.watchHold(true)) }
     }
 
@@ -287,6 +306,9 @@ public struct DictationMachine: Sendable {
         switch state {
         case let .recognizing(session, _):
             state = .recognizing(session, .keep)
+        case let .starting(session, trigger, .stop):
+            // Whatever stop waits, the text must not be pasted now.
+            state = .starting(session, trigger, pending: .stop(.accessibilityLost))
         default:
             stopAny(.accessibilityLost, &out)
         }
@@ -312,9 +334,16 @@ public struct DictationMachine: Sendable {
         out.append(.phase(.cancelled))
     }
 
+    private mutating func releaseEscape(_ out: inout [Output]) {
+        guard escapeTaken else { return }
+        escapeTaken = false
+        out.append(.takesEscape(false))
+    }
+
     private mutating func finish(trigger: Trigger? = nil, _ out: inout [Output]) {
         state = .idle
         if trigger == .hold { out.append(.watchHold(false)) }
+        releaseEscape(&out)
         out.append(.sessionActive(false))
     }
 }

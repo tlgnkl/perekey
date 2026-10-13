@@ -73,6 +73,7 @@ public actor FluidAudioEngine: SpeechEngine {
 /// in its `tokenizer/` (`ModelCatalog`). The language is detected.
 public actor WhisperKitEngine: SpeechEngine {
     public nonisolated let id: String
+    public nonisolated var addsSignOffs: Bool { true }
     private let store: VoiceModelStore
     private var kit: WhisperKit?
 
@@ -85,11 +86,19 @@ public actor WhisperKitEngine: SpeechEngine {
         guard kit == nil else { return }
         let folder = try await store.acquire(id)
         do {
+            let tokenizer = folder.appending(path: "tokenizer", directoryHint: .isDirectory)
+            // WhisperKit falls back to the Hub when its tokenizer does not
+            // load from the folder: past the store, its checksums and the
+            // profile. Its tokenizer type cannot be made outside it, so the
+            // same local load runs here first: a tokenizer that fails is a
+            // broken model, and one that loads here loads there too.
+            _ = try await AutoTokenizerWrapper.from(modelFolder: tokenizer)
             let config = WhisperKitConfig(
-                modelFolder: folder.path,
-                tokenizerFolder: folder.appending(path: "tokenizer", directoryHint: .isDirectory),
-                verbose: false, logLevel: .error, prewarm: false, load: true, download: false)
-            kit = try await WhisperKit(config)
+                modelFolder: folder.path, tokenizerFolder: tokenizer,
+                verbose: false, logLevel: .error, prewarm: false, load: false, download: false)
+            let kit = try await WhisperKit(config)
+            try await kit.loadModels()
+            self.kit = kit
         } catch {
             await store.release(id)
             throw error

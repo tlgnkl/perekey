@@ -53,9 +53,16 @@ public enum DictationPasteResult: Hashable, Sendable {
 /// app, through `TextPasterAdapter`: the one place that knows its API.
 @MainActor
 public protocol DictationPaster: AnyObject {
+    /// There is something to paste into: an app in front. Checked, at
+    /// once, before a dictation starts.
+    var hasTarget: Bool { get }
     /// Where the caret is now: app, window, field. Taken when a dictation starts.
     func captureTarget() async -> (any Sendable)?
     func paste(_ text: String, into target: (any Sendable)?) async -> DictationPasteResult
+}
+
+extension DictationPaster {
+    public var hasTarget: Bool { true }
 }
 
 /// The Secure Input rules of a session: no start while it is on; a stop

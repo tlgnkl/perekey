@@ -60,7 +60,7 @@ public enum DictationRecognition {
             return .noSpeech
         }
         let transcript = try await engine.transcribe(audio)
-        let text = HallucinationFilter.clean(transcript.text)
+        let text = HallucinationFilter.clean(transcript.text, signOffTails: engine.addsSignOffs)
         return text.isEmpty ? .nothingLeft : .text(text)
     }
 }

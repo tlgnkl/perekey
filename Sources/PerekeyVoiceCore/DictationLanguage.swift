@@ -3,21 +3,27 @@
 import PerekeyCore
 
 /// The layout to type in after a dictation: the one of the phrase's main
-/// language, so that typing on after "открой pull request в main" goes on in
-/// Russian. Not the last word's language, which here is English.
+/// language, not of its last word. "Сделай коммит и отправь изменения в
+/// main" ends in English and goes on in Russian; in "открой pull request в
+/// main" neither language has the clear lead, and the layout stays.
 public enum DictationLanguage {
-    /// The language with the most letters in `text`. A word counts for the
-    /// installed layout that can type it and whose language model finds it
-    /// likeliest; words no layout types, or that two layouts type equally
-    /// well with no model to choose, count for none. Nil on a tie.
+    /// The share of the counted words the main language needs.
+    public static let lead = 2.0 / 3.0
+
+    /// The language of at least `lead` of the words in `text`. A word
+    /// counts for the installed layout that can type it and whose language
+    /// model finds it likeliest; words no layout types, or that two layouts
+    /// type equally well with no model to choose, count for none.
     public static func dominant(in text: String, layouts: [LayoutMap], model: LanguageModel?) -> String? {
-        var letters: [String: Int] = [:]
+        var words: [String: Int] = [:]
         for word in text.split(whereSeparator: { !$0.isLetter }) {
             guard let language = language(of: word.lowercased(), layouts: layouts, model: model) else { continue }
-            letters[language, default: 0] += word.count
+            words[language, default: 0] += 1
         }
-        let ranked = letters.sorted { $0.value > $1.value }
-        guard let top = ranked.first, ranked.dropFirst().first?.value != top.value else { return nil }
+        let total = words.values.reduce(0, +)
+        guard let top = words.max(by: { $0.value < $1.value }), Double(top.value) >= lead * Double(total) else {
+            return nil
+        }
         return top.key
     }
 

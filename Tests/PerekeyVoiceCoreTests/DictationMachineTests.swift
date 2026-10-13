@@ -32,7 +32,7 @@ private func holdStops(_ session: Machine.Session = 1) -> [Machine.Output] {
     [.stopCapture(session), .sound(.stop), .watchHold(false), .phase(.recognizing), .recognize(session, .paste)]
 }
 
-private let cancels: [Machine.Output] = [.discard(1), .sessionActive(false), .phase(.cancelled)]
+private let cancels: [Machine.Output] = [.discard(1), .takesEscape(false), .sessionActive(false), .phase(.cancelled)]
 
 struct DictationMachineTests {
     struct Case: CustomTestStringConvertible, Sendable {
@@ -48,17 +48,17 @@ struct DictationMachineTests {
     static let cases: [Case] = [
         // Idle
         Case(name: "tap starts", inputs: [tap],
-             out: [.sessionActive(true), .phase(.starting), .startCapture(1)],
+             out: [.sessionActive(true), .takesEscape(true), .phase(.starting), .startCapture(1)],
              state: .starting(1, .tap, pending: nil)),
         Case(name: "hold starts and watches its keys", inputs: [holdDown],
-             out: [.sessionActive(true), .phase(.starting), .startCapture(1), .watchHold(true)],
+             out: [.sessionActive(true), .takesEscape(true), .phase(.starting), .startCapture(1), .watchHold(true)],
              state: .starting(1, .hold, pending: nil)),
         Case(name: "Esc while idle", inputs: [esc], out: [], state: .idle),
         Case(name: "hold up while idle", inputs: [holdUp], out: [], state: .idle),
         Case(name: "Secure Input keeps the tap silent", inputs: [tap], out: [], state: .idle, secureInput: true),
         Case(name: "Secure Input keeps the hold silent", inputs: [holdDown], out: [], state: .idle, secureInput: true),
         Case(name: "Secure Input off again", inputs: [.secureInputChanged(false), tap],
-             out: [.sessionActive(true), .phase(.starting), .startCapture(1)],
+             out: [.sessionActive(true), .takesEscape(true), .phase(.starting), .startCapture(1)],
              state: .starting(1, .tap, pending: nil), secureInput: true),
         Case(name: "nothing to stop while idle", inputs: [.sleep, .sessionLost, .accessibilityLost],
              out: [], state: .idle),
@@ -79,19 +79,23 @@ struct DictationMachineTests {
         Case(name: "a stop does not undo a queued Esc", inputs: [tap, esc, tap, started],
              out: cancels, state: .idle),
         Case(name: "sleep while starting", inputs: [tap, .sleep, started],
-             out: [.discard(1), .sessionActive(false), .phase(.cancelled)], state: .idle),
+             out: [.discard(1), .takesEscape(false), .sessionActive(false), .phase(.cancelled)], state: .idle),
         Case(name: "hold up while starting", inputs: [holdDown, holdUp, started],
              out: holdStops(), state: .recognizing(1, .paste)),
         Case(name: "lost hold while starting", inputs: [holdDown, holdLost],
              out: [], state: .starting(1, .hold, pending: .stop(.holdLost))),
         Case(name: "no microphone permission", inputs: [tap, .captureFailed(1, .notAuthorized)],
-             out: [.sessionActive(false), .phase(.captureFailed(.notAuthorized))], state: .idle),
+             out: [.takesEscape(false), .sessionActive(false), .phase(.captureFailed(.notAuthorized))], state: .idle),
         Case(name: "hold start failed", inputs: [holdDown, .captureFailed(1, .noMicrophone)],
-             out: [.watchHold(false), .sessionActive(false), .phase(.captureFailed(.noMicrophone))], state: .idle),
+             out: [.watchHold(false), .takesEscape(false), .sessionActive(false), .phase(.captureFailed(.noMicrophone))], state: .idle),
         Case(name: "Secure Input while starting", inputs: [tap, .secureInputChanged(true), started],
              out: stops(), state: .recognizing(1, .paste)),
         Case(name: "Accessibility lost while starting", inputs: [tap, .accessibilityLost, started],
              out: stops(1, .keep), state: .recognizing(1, .keep)),
+        Case(name: "Accessibility lost after a queued stop", inputs: [tap, tap, .accessibilityLost, started],
+             out: stops(1, .keep), state: .recognizing(1, .keep)),
+        Case(name: "Accessibility lost does not undo a queued Esc", inputs: [tap, esc, .accessibilityLost, started],
+             out: cancels, state: .idle),
         Case(name: "a second hold down while starting", inputs: [holdDown, holdDown],
              out: [], state: .starting(1, .hold, pending: nil)),
 
@@ -108,7 +112,7 @@ struct DictationMachineTests {
              out: [], state: .recording(1, .tap)),
         Case(name: "Esc cancels", inputs: [tap, started, esc], out: cancels, state: .idle),
         Case(name: "Esc cancels a hold", inputs: [holdDown, started, esc],
-             out: [.discard(1), .watchHold(false), .sessionActive(false), .phase(.cancelled)], state: .idle),
+             out: [.discard(1), .watchHold(false), .takesEscape(false), .sessionActive(false), .phase(.cancelled)], state: .idle),
         Case(name: "silence stops", inputs: [tap, started, .captureEnded(1, .silence)],
              out: stops(), state: .recognizing(1, .paste)),
         Case(name: "ten minutes stop", inputs: [tap, started, .captureEnded(1, .limit)],
@@ -135,17 +139,17 @@ struct DictationMachineTests {
         Case(name: "the dropped result is ignored", inputs: [tap, started, tap, esc, hello],
              out: [], state: .idle),
         Case(name: "text goes to the paste", inputs: [tap, started, tap, hello],
-             out: [.phase(.pasting), .paste(1, "привет")], state: .pasting(1)),
+             out: [.takesEscape(false), .phase(.pasting), .paste(1, "привет")], state: .pasting(1)),
         Case(name: "no speech", inputs: [tap, started, tap, .recognized(1, .noSpeech)],
-             out: [.sessionActive(false), .phase(.nothingHeard)], state: .idle),
+             out: [.takesEscape(false), .sessionActive(false), .phase(.nothingHeard)], state: .idle),
         Case(name: "only made-up phrases", inputs: [tap, started, tap, .recognized(1, .nothingLeft)],
-             out: [.sessionActive(false), .phase(.nothingHeard)], state: .idle),
+             out: [.takesEscape(false), .sessionActive(false), .phase(.nothingHeard)], state: .idle),
         Case(name: "kept text", inputs: [tap, started, .accessibilityLost, hello],
-             out: [.sessionActive(false), .keep(1, "привет")], state: .idle),
+             out: [.takesEscape(false), .sessionActive(false), .keep(1, "привет")], state: .idle),
         Case(name: "Accessibility lost while recognizing", inputs: [tap, started, tap, .accessibilityLost, hello],
-             out: [.sessionActive(false), .keep(1, "привет")], state: .idle),
+             out: [.takesEscape(false), .sessionActive(false), .keep(1, "привет")], state: .idle),
         Case(name: "recognition failed", inputs: [tap, started, tap, .recognitionFailed(1, "boom")],
-             out: [.sessionActive(false), .phase(.recognitionFailed("boom"))], state: .idle),
+             out: [.takesEscape(false), .sessionActive(false), .phase(.recognitionFailed("boom"))], state: .idle),
         Case(name: "sleep while recognizing", inputs: [tap, started, tap, .sleep],
              out: [], state: .recognizing(1, .paste)),
         Case(name: "another session's text", inputs: [tap, started, tap, .recognized(2, .text("x"))],
@@ -160,6 +164,18 @@ struct DictationMachineTests {
              out: [], state: .pasting(1)),
         Case(name: "another session's paste", inputs: [tap, started, tap, hello, .pasted(3)],
              out: [], state: .pasting(1)),
+
+        // Turned off
+        Case(name: "shutdown while idle", inputs: [.shutdown], out: [], state: .idle),
+        Case(name: "shutdown while starting", inputs: [tap, .shutdown],
+             out: [.discard(1), .takesEscape(false), .sessionActive(false)], state: .idle),
+        Case(name: "shutdown while a hold records", inputs: [holdDown, started, .shutdown],
+             out: [.discard(1), .watchHold(false), .takesEscape(false), .sessionActive(false)], state: .idle),
+        Case(name: "shutdown while recognizing", inputs: [tap, started, tap, .shutdown],
+             out: [.discard(1), .takesEscape(false), .sessionActive(false)], state: .idle),
+        Case(name: "shutdown while pasting", inputs: [tap, started, tap, hello, .shutdown],
+             out: [.discard(1), .sessionActive(false)], state: .idle),
+        Case(name: "the start after a shutdown", inputs: [tap, .shutdown, started], out: [], state: .idle),
     ]
 
     @Test(arguments: cases) func transition(_ test: Case) {
@@ -174,7 +190,7 @@ struct DictationMachineTests {
         _ = machine.handle(esc)
         _ = machine.handle(started)
         #expect(machine.state == .idle)
-        #expect(machine.handle(tap) == [.sessionActive(true), .phase(.starting), .startCapture(2)])
+        #expect(machine.handle(tap) == [.sessionActive(true), .takesEscape(true), .phase(.starting), .startCapture(2)])
         // The first session's late answers do nothing to the second.
         #expect(machine.handle(.captureStarted(1)) == [])
         #expect(machine.handle(.recognized(1, .text("old"))) == [])
@@ -192,7 +208,7 @@ struct DictationMachineTests {
         _ = machine.handle(tap)
         // The first recognition finishes late: dropped.
         #expect(machine.handle(hello) == [])
-        #expect(machine.handle(.recognized(2, .text("новое"))) == [.phase(.pasting), .paste(2, "новое")])
+        #expect(machine.handle(.recognized(2, .text("новое"))) == [.takesEscape(false), .phase(.pasting), .paste(2, "новое")])
     }
 
     @Test func secureInputIsRemembered() {

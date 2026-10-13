@@ -15,6 +15,9 @@ public protocol VoiceModel: Sendable {
 public protocol SpeechEngine: VoiceModel {
     /// The `ModelCatalog` id of the model it runs.
     var id: String { get }
+    /// The model ends real speech with video sign-offs ("Продолжение
+    /// следует…") it learned from subtitles: Whisper does.
+    var addsSignOffs: Bool { get }
     /// One dictation, held in memory whole. Throws if not prepared.
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript
     /// Long audio from disk, with timings: a file or a track's segments.
@@ -23,6 +26,8 @@ public protocol SpeechEngine: VoiceModel {
 }
 
 extension SpeechEngine {
+    public var addsSignOffs: Bool { false }
+
     /// Files and call recordings come with stage 5.
     public func transcribe(source _: AudioSource, progress _: @escaping @Sendable (Double) -> Void) async throws
         -> TimedTranscript

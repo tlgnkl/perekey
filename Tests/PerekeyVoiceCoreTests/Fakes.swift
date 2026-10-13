@@ -19,11 +19,22 @@ actor FakeEngine: SpeechEngine {
         self.text = text
     }
 
+    private var holdsPrepare = false
+    private var prepareGate: CheckedContinuation<Void, Never>?
+
     func set(text: String) { self.text = text }
     func set(prepareError: (any Error)?) { self.prepareError = prepareError }
+    func holdPrepare() { holdsPrepare = true }
+
+    func finishPrepare() {
+        holdsPrepare = false
+        prepareGate?.resume()
+        prepareGate = nil
+    }
 
     func prepare() async throws {
         prepares += 1
+        if holdsPrepare { await withCheckedContinuation { prepareGate = $0 } }
         if let prepareError { throw prepareError }
         isPrepared = true
     }

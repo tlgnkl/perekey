@@ -116,11 +116,14 @@ private actor FakeEngine: SpeechEngine {
 }
 
 private actor FakeDetector: SpeechDetector {
+    private(set) var calls = 0
+
     func prepare() async throws {}
     func unload() async {}
 
     func speechProbabilities(_ samples: [Float]) async throws -> [Float] {
-        stride(from: 0, to: samples.count, by: VoiceActivity.chunk).map { start in
+        calls += 1
+        return stride(from: 0, to: samples.count, by: VoiceActivity.chunk).map { start in
             samples[start..<min(samples.count, start + VoiceActivity.chunk)].contains { abs($0) > 0.1 } ? 0.9 : 0.05
         }
     }
@@ -129,6 +132,9 @@ private actor FakeDetector: SpeechDetector {
 @MainActor
 private final class FakePaster: DictationPaster {
     var result: DictationPasteResult = .pasted
+    var hasTarget = true
+    /// Called as the paste begins.
+    var pasting: (() -> Void)?
     private(set) var pasted: [String] = []
     private(set) var targets = 0
 
@@ -139,6 +145,7 @@ private final class FakePaster: DictationPaster {
 
     func paste(_ text: String, into target: (any Sendable)?) async -> DictationPasteResult {
         #expect(target as? String == "front")
+        pasting?()
         pasted.append(text)
         return result
     }
@@ -160,6 +167,8 @@ private final class FakeSecureInput: DictationSecureInputRules {
 private final class Rig {
     let microphone = FakeMicrophone()
     let engine = FakeEngine()
+    let otherEngine = FakeEngine(id: "fake2", text: "Другая модель.")
+    let detector = FakeDetector()
     let paster = FakePaster()
     let secureInput = FakeSecureInput()
     var keysDown = true
@@ -169,17 +178,20 @@ private final class Rig {
     var layoutTexts: [String] = []
     var controller: VoiceController!
 
-    init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil)) {
-        let engine = self.engine
+    init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil),
+         limitSeconds: Int = DictationAudio.limitSeconds)
+    {
+        let engines = ["fake": engine, "fake2": otherEngine]
         controller = VoiceController(
             preferences: preferences, microphone: microphone, paster: paster, secureInput: secureInput,
-            detector: FakeDetector(), makeEngine: { $0 == "fake" ? engine : nil },
+            detector: detector, makeEngine: { engines[$0] },
             hooks: VoiceController.Hooks(
                 sessionChanged: { [weak self] in self?.sessionChanges.append($0) },
                 holdIsDown: { [weak self] in self?.keysDown ?? false },
                 holdLost: { [weak self] in self?.holdLosses += 1 },
                 pasted: { [weak self] in self?.layoutTexts.append($0) },
                 play: { [weak self] in self?.sounds.append($0) }),
+            limitSeconds: limitSeconds,
             sleep: { _ in try await Task.sleep(for: .milliseconds(2)) })
     }
 
@@ -213,8 +225,7 @@ struct VoiceControllerTests {
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.hud == .pasted })
         #expect(rig.paster.pasted == ["Привет, мир."])
-        #expect(rig.controller.lastText == "Привет, мир.")
-        #expect(rig.controller.lastTextPasted)
+        #expect(rig.controller.last == DictatedText(text: "Привет, мир.", pasted: true, isPrivate: false))
         #expect(rig.layoutTexts == ["Привет, мир."])
         #expect(rig.sounds == [.start, .stop])
         #expect(rig.sessionChanges == [true, false])
@@ -262,11 +273,11 @@ struct VoiceControllerTests {
         #expect(rig.hud == .cancelled)
         #expect(rig.state == .idle)
         await rig.engine.finish()
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await rig.until { rig.controller.recognitionsDone == 1 })
         // CoreML finished anyway; its text is dropped.
         #expect(rig.paster.pasted.isEmpty)
         #expect(rig.hud == .cancelled)
-        #expect(rig.controller.lastText == nil)
+        #expect(rig.controller.last == nil)
     }
 
     @Test func anOldSessionsResultIsDropped() async {
@@ -280,7 +291,7 @@ struct VoiceControllerTests {
         await rig.startRecording()
         await rig.engine.set(text: "Второй раз.")
         await rig.engine.finish()
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await rig.until { rig.controller.recognitionsDone == 1 })
         #expect(rig.paster.pasted.isEmpty)
         #expect(rig.state == .recording(2, .tap))
         rig.controller.voice(.toggle)
@@ -317,8 +328,7 @@ struct VoiceControllerTests {
         rig.secureInput.onStop?()
         // Recognized; the paste found the password field and kept out.
         #expect(await rig.until { rig.hud == .notPasted(.secureField) })
-        #expect(rig.controller.lastText == "Привет, мир.")
-        #expect(!rig.controller.lastTextPasted)
+        #expect(rig.controller.last == DictatedText(text: "Привет, мир.", pasted: false, isPrivate: true))
         #expect(rig.layoutTexts.isEmpty)
     }
 
@@ -347,7 +357,7 @@ struct VoiceControllerTests {
         await rig.startRecording()
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.hud == .notPasted(.targetChanged) })
-        #expect(rig.controller.lastText == "Привет, мир.")
+        #expect(rig.controller.last?.text == "Привет, мир.")
         #expect(rig.state == .idle)
     }
 
@@ -358,7 +368,7 @@ struct VoiceControllerTests {
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.hud == .notPasted(.timedOut) })
         #expect(!NotPastedReason.timedOut.offersPaste)
-        #expect(rig.controller.lastText == "Привет, мир.")
+        #expect(rig.controller.last?.text == "Привет, мир.")
         #expect(rig.layoutTexts.isEmpty)
     }
 
@@ -369,7 +379,7 @@ struct VoiceControllerTests {
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.hud == .notPasted(.secureInput(owner: "Terminal")) })
         #expect(NotPastedReason.secureInput(owner: "Terminal").offersPaste)
-        #expect(!rig.controller.lastTextIsPrivate)
+        #expect(rig.controller.last?.isPrivate == true, "Secure Input of another app: not for the history")
     }
 
     @Test func passwordFieldKeepsTheTextPrivate() async {
@@ -378,7 +388,7 @@ struct VoiceControllerTests {
         await rig.startRecording()
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.hud == .notPasted(.secureField) })
-        #expect(rig.controller.lastTextIsPrivate)
+        #expect(rig.controller.last?.isPrivate == true)
         #expect(!NotPastedReason.secureField.offersPaste)
     }
 
@@ -410,7 +420,7 @@ struct VoiceControllerTests {
         let rig = Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: .seconds(1)))
         await rig.startRecording()
         // A second of speech, checked; then two of quiet.
-        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await rig.until { await rig.detector.calls >= 1 })
         rig.microphone.speak(seconds: 2, level: 0.001)
         #expect(await rig.until { rig.hud == .pasted })
         #expect(rig.sounds == [.start, .stop])
@@ -422,7 +432,7 @@ struct VoiceControllerTests {
         rig.controller.accessibilityLost()
         #expect(await rig.until { rig.hud == .notPasted(.noAccessibility) })
         #expect(rig.paster.pasted.isEmpty)
-        #expect(rig.controller.lastText == "Привет, мир.")
+        #expect(rig.controller.last?.text == "Привет, мир.")
     }
 
     @Test func sleepCancels() async {
@@ -512,5 +522,126 @@ struct VoiceControllerTests {
         #expect(await rig.engine.unloads == 0)
         await rig.controller.unloadModels()
         #expect(await rig.engine.unloads == 1)
+    }
+    // MARK: - Review fixes
+
+    @Test func shutdownDuringARecording() async {
+        let rig = Rig()
+        let stream = rig.controller.hudUpdates()
+        await rig.startRecording()
+        await rig.controller.shutdown()
+        #expect(!rig.microphone.isOn)
+        #expect(rig.sessionChanges == [true, false], "the tap gives Esc back")
+        #expect(rig.secureInput.sessions == [true, false])
+        #expect(rig.state == .idle)
+        #expect(rig.hud == .hidden)
+        var states: [DictationHUDState] = []
+        for await state in stream { states.append(state) }
+        #expect(states.last == .hidden, "the stream ended")
+        #expect(await rig.engine.unloads == 1)
+        // Nothing starts again.
+        rig.controller.voice(.toggle)
+        #expect(rig.state == .idle)
+        #expect(rig.microphone.log == ["begin", "end"])
+        #expect(rig.secureInput.onStop == nil)
+    }
+
+    @Test func shutdownWaitsForARecognitionInProgress() async {
+        let rig = Rig()
+        await rig.engine.holdTranscription()
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        let shutdown = Task { await rig.controller.shutdown() }
+        #expect(await rig.until { rig.state == .idle })
+        #expect(await rig.engine.unloads == 0, "the model stays under a running transcription")
+        await rig.engine.finish()
+        await shutdown.value
+        #expect(await rig.engine.unloads == 1)
+        #expect(rig.paster.pasted.isEmpty)
+    }
+
+    @Test func unloadModelsWaitsForATranscription() async {
+        let rig = Rig()
+        await rig.engine.holdTranscription()
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        let unloading = Task { await rig.controller.unloadModels() }
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(await rig.engine.unloads == 0)
+        await rig.engine.finish()
+        #expect(await rig.until { rig.hud == .pasted })
+        await unloading.value
+        #expect(await rig.engine.unloads == 1)
+    }
+
+    @Test func aNewModelWaitsForTheSessionOnTheOldOne() async {
+        let rig = Rig()
+        await rig.engine.holdTranscription()
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        rig.controller.apply(DictationPreferences(modelID: "fake2", silenceStop: nil))
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(await rig.engine.unloads == 0)
+        await rig.engine.finish()
+        // The session keeps the model it started with.
+        #expect(await rig.until { rig.paster.pasted == ["Привет, мир."] })
+        #expect(await rig.until { await rig.engine.unloads == 1 })
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.paster.pasted.count == 2 })
+        #expect(rig.paster.pasted.last == "Другая модель.")
+    }
+
+    @Test func warmUpSharesTheDictationCopy() async throws {
+        let rig = Rig()
+        try await rig.controller.warmUp(model: "fake")
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.prepares == 1)
+    }
+
+    @Test func theLimitStopsAndRecognizes() async {
+        let rig = Rig(limitSeconds: 1)
+        await rig.startRecording()
+        rig.microphone.speak(seconds: 1)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.heard == [16000])
+    }
+
+    @Test func escEndsTheHoldWatch() async {
+        let rig = Rig()
+        rig.controller.voice(.holdBegan)
+        #expect(await rig.until { if case .recording = rig.state { true } else { false } })
+        #expect(rig.controller.isWatchingHold)
+        rig.controller.voice(.cancel)
+        #expect(!rig.controller.isWatchingHold)
+        rig.keysDown = false
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(rig.holdLosses == 0)
+    }
+
+    @Test func escGoesBackToTheAppForThePaste() async {
+        let rig = Rig()
+        var takenDuringPaste: Bool?
+        rig.paster.pasting = { [unowned rig] in takenDuringPaste = rig.sessionChanges.last }
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(takenDuringPaste == false)
+        #expect(rig.sessionChanges == [true, false])
+        #expect(rig.secureInput.sessions == [true, false])
+    }
+
+    @Test func noAppInFrontNoRecording() async {
+        let rig = Rig()
+        rig.paster.hasTarget = false
+        rig.controller.voice(.toggle)
+        #expect(rig.state == .idle)
+        #expect(rig.hud == .hidden)
+        #expect(rig.microphone.log.isEmpty)
     }
 }

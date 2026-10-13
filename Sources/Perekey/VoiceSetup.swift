@@ -51,11 +51,16 @@ final class VoiceSetup {
         input.voiceSettings = isOn ? settings : VoiceSettings()
         // The only request voice makes is a model download the user asks
         // for: allowed while dictation is on and no profile forbids it.
-        VoiceHTTP.shared.allowed = isOn && !managed.voiceModelDownloadsDisabled ? [.modelDownload] : []
+        // The switch, not the trigger: the voice pane downloads a model
+        // first and picks the hotkey after.
+        let downloads = settings.isEnabled && !managed.voiceDisabled && !managed.voiceModelDownloadsDisabled
+        VoiceHTTP.shared.allowed = downloads ? [.modelDownload] : []
         guard isOn else {
             if let controller {
                 self.controller = nil
-                Task { await controller.unloadModels() }
+                // Ends a session in progress: the microphone goes off and
+                // the tap gives Esc back.
+                Task { await controller.shutdown() }
             }
             return
         }

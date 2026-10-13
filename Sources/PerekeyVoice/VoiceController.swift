@@ -23,7 +23,7 @@ public enum DictationHUDState: Hashable, Sendable {
     case pasting
     /// The text is in. A short confirmation, then hidden.
     case pasted
-    /// The text was recognized but not pasted; it is in `lastText`.
+    /// The text was recognized but not pasted; it is in `last`.
     /// `NotPastedReason.offersPaste` says whether "Вставить" goes beside
     /// "Скопировать".
     case notPasted(NotPastedReason)
@@ -72,6 +72,22 @@ public enum NotPastedReason: Hashable, Sendable {
     }
 }
 
+/// The latest recognized text and what came of it.
+public struct DictatedText: Hashable, Sendable {
+    public var text: String
+    /// It went in.
+    public var pasted: Bool
+    /// It was meant for a password field or an app under Secure Input: it
+    /// stays out of the history.
+    public var isPrivate: Bool
+
+    public init(text: String, pasted: Bool, isPrivate: Bool) {
+        self.text = text
+        self.pasted = pasted
+        self.isPrivate = isPrivate
+    }
+}
+
 public enum DictationFailure: Hashable, Sendable {
     /// No microphone permission: "Нет доступа к микрофону".
     case microphoneDenied
@@ -102,16 +118,12 @@ public final class VoiceController {
     }
 
     /// The latest recognized text, pasted or not: for "Вставить · Скопировать"
-    /// and, with stage 3, the history.
-    public private(set) var lastText: String?
-    /// Whether `lastText` went in.
-    public private(set) var lastTextPasted = false
-    /// `lastText` was meant for a password field: it stays out of the history.
-    public private(set) var lastTextIsPrivate = false
+    /// and, with stage 3, the history. Set once the paste has an answer.
+    public private(set) var last: DictatedText?
 
     /// Things the controller asks of the app.
     public struct Hooks {
-        /// Tell the event tap a session is on: Esc then cancels it
+        /// Tell the event tap whether it takes Esc for a session
         /// (`InputEvent.voiceSession`).
         public var sessionChanged: @MainActor (Bool) -> Void
         /// Whether the hold trigger's keys are down now (`VoiceTrigger.isHeldNow`).
@@ -138,6 +150,13 @@ public final class VoiceController {
 
     public typealias Sleep = @Sendable (Duration) async throws -> Void
 
+    /// A speech model and what keeps it in memory. One per model id, so a
+    /// warm-up and dictation share the same copy.
+    private struct Model {
+        let engine: any SpeechEngine
+        let residency: ModelResidency
+    }
+
     @ObservationIgnored private var machine = DictationMachine()
     @ObservationIgnored private let microphone: any DictationMicrophone
     @ObservationIgnored private let paster: any DictationPaster
@@ -145,36 +164,47 @@ public final class VoiceController {
     @ObservationIgnored private let makeEngine: (String) -> (any SpeechEngine)?
     @ObservationIgnored private let hooks: Hooks
     @ObservationIgnored private let sleep: Sleep
+    @ObservationIgnored private let limitSeconds: Int
     @ObservationIgnored private var preferences: DictationPreferences
     /// A microphone chosen during a session, applied once it is over.
     @ObservationIgnored private var pendingMicrophone: String??
-    @ObservationIgnored private var engine: (any SpeechEngine)?
-    @ObservationIgnored private var engineResidency: ModelResidency?
+    @ObservationIgnored private var models: [String: Model] = [:]
     @ObservationIgnored private let detector: (any SpeechDetector)?
     @ObservationIgnored private let detectorResidency: ModelResidency?
     @ObservationIgnored private var current: Work?
-    /// How the failing recognition failed, for the HUD.
-    @ObservationIgnored private var failure: DictationFailure?
+    /// How a session's recognition failed, for the HUD.
+    @ObservationIgnored private var failure: (session: DictationMachine.Session, failure: DictationFailure)?
     @ObservationIgnored private var holdWatch: Task<Void, Never>?
     @ObservationIgnored private var observers: [UUID: AsyncStream<DictationHUDState>.Continuation] = [:]
     @ObservationIgnored private var tokens: [(NotificationCenter, any NSObjectProtocol)] = []
+    @ObservationIgnored private var isShutDown = false
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "voice")
+    /// Recognitions over, whatever came of them: tests wait for it.
+    @ObservationIgnored private(set) var recognitionsDone = 0
 
-    /// One session's audio and the work on it.
+    /// One session's audio and the work on it. The model is the one the
+    /// session started with: changing the setting mid-way does not swap it.
     private final class Work {
         let session: DictationMachine.Session
         let audio: DictationAudio
+        let model: Model?
         var subscription: AudioSubscription?
         var target: Task<(any Sendable)?, Never>?
-        var model: Task<Void, any Error>?
+        /// The session's hold on the model, from `ModelResidency.begin`.
+        var loading: Task<Void, any Error>?
         var modelReady = false
+        /// The session's hold on the speech detector; true once it holds.
+        var detecting: Task<Bool, Never>?
         var stopping: Task<Void, Never>?
         var ticker: Task<Void, Never>?
         var silence: Task<Void, Never>?
+        var isRecognizing = false
+        var isReleased = false
 
-        init(session: DictationMachine.Session, audio: DictationAudio) {
+        init(session: DictationMachine.Session, audio: DictationAudio, model: Model?) {
             self.session = session
             self.audio = audio
+            self.model = model
         }
 
         func stopTimers() {
@@ -183,9 +213,11 @@ public final class VoiceController {
         }
     }
 
+    /// - Parameter limitSeconds: the longest dictation (`DictationAudio.limitSeconds`).
     public init(preferences: DictationPreferences, microphone: any DictationMicrophone, paster: any DictationPaster,
                 secureInput: (any DictationSecureInputRules)?, detector: (any SpeechDetector)?,
                 makeEngine: @escaping (String) -> (any SpeechEngine)?, hooks: Hooks = Hooks(),
+                limitSeconds: Int = DictationAudio.limitSeconds,
                 sleep: @escaping Sleep = { try await Task.sleep(for: $0) })
     {
         self.preferences = preferences
@@ -195,9 +227,9 @@ public final class VoiceController {
         self.detector = detector
         self.makeEngine = makeEngine
         self.hooks = hooks
+        self.limitSeconds = limitSeconds
         self.sleep = sleep
         detectorResidency = detector.map { ModelResidency($0, unloadDelay: preferences.unloadAfter) }
-        setEngine(for: preferences)
         pendingMicrophone = .some(preferences.microphoneUID)
         applyMicrophone()
         secureInput?.onStop = { [weak self] in self?.handle(.secureInputChanged(true)) }
@@ -220,7 +252,10 @@ public final class VoiceController {
 
     /// The voice hotkey, from `EngineMessage.voice`.
     public func voice(_ signal: VoiceSignal) {
+        guard !isShutDown else { return }
         if machine.state == .idle, signal == .toggle || signal == .holdBegan {
+            // No app in front: nowhere to paste, so no recording.
+            guard paster.hasTarget else { return }
             // Secure Input keeps dictation silent: no start, no HUD.
             let allowed = secureInput?.allowsStart ?? true
             if allowed == machine.secureInput { handle(.secureInputChanged(!allowed)) }
@@ -246,20 +281,20 @@ public final class VoiceController {
         }
     }
 
-    /// New preferences. A new model unloads the old one; a new microphone
-    /// applies after the session in progress.
+    /// New preferences. A new model unloads the old one once no session
+    /// uses it; a new microphone applies after the session in progress.
     public func apply(_ preferences: DictationPreferences) {
         let old = self.preferences
         self.preferences = preferences
-        if preferences.modelID != old.modelID {
-            setEngine(for: preferences)
-        } else if preferences.unloadAfter != old.unloadAfter {
-            let delay = preferences.unloadAfter
-            Task { [engineResidency] in await engineResidency?.setUnloadDelay(delay) }
+        if preferences.modelID != old.modelID, let previous = models[old.modelID] {
+            Task { await previous.residency.unload() }
         }
         if preferences.unloadAfter != old.unloadAfter {
             let delay = preferences.unloadAfter
-            Task { [detectorResidency] in await detectorResidency?.setUnloadDelay(delay) }
+            let residencies = models.values.map(\.residency) + [detectorResidency].compactMap { $0 }
+            Task {
+                for residency in residencies { await residency.setUnloadDelay(delay) }
+            }
         }
         if preferences.microphoneUID != old.microphoneUID {
             pendingMicrophone = .some(preferences.microphoneUID)
@@ -275,27 +310,52 @@ public final class VoiceController {
     }
 
     /// Loads a model in the background after its download, so that the
-    /// first dictation does not wait for CoreML. The dictation model stays
-    /// for the idle time; another one is unloaded at once.
+    /// first dictation does not wait for CoreML. It stays for the idle time,
+    /// the same copy dictation then uses.
     public func warmUp(model id: String) async throws {
-        if id == preferences.modelID, let engineResidency {
-            try await engineResidency.warmUp()
-        } else if let engine = makeEngine(id) {
-            defer { Task { await engine.unload() } }
-            try await engine.prepare()
-        }
+        guard let model = model(for: id) else { throw VoiceModelFailure.unknownModel(id) }
+        try await model.residency.warmUp()
     }
 
-    /// Unloads the models now, e.g. when dictation is turned off.
+    /// Unloads the models as soon as no session uses them.
     public func unloadModels() async {
-        await engineResidency?.unload()
+        for model in models.values {
+            await model.residency.unload()
+        }
         await detectorResidency?.unload()
+    }
+
+    /// Dictation is turned off: a session in progress is dropped, the tap
+    /// gives Esc back, the observers go, `hudUpdates()` streams end, and the
+    /// models unload. The controller takes no input after it.
+    public func shutdown() async {
+        guard !isShutDown else { return }
+        handle(.shutdown)
+        isShutDown = true
+        holdWatch?.cancel()
+        holdWatch = nil
+        for (center, token) in tokens {
+            center.removeObserver(token)
+        }
+        tokens = []
+        secureInput?.onStop = nil
+        secureInput?.onEscape = nil
+        hud = .hidden
+        for observer in observers.values {
+            observer.finish()
+        }
+        observers = [:]
+        await unloadModels()
     }
 
     /// The HUD state now and after every change.
     public func hudUpdates() -> AsyncStream<DictationHUDState> {
         let (stream, continuation) = AsyncStream.makeStream(
             of: DictationHUDState.self, bufferingPolicy: .bufferingNewest(1))
+        guard !isShutDown else {
+            continuation.finish()
+            return stream
+        }
         let key = UUID()
         observers[key] = continuation
         continuation.yield(hud)
@@ -329,17 +389,19 @@ public final class VoiceController {
         case let .paste(session, text):
             paste(session, text)
         case let .keep(_, text):
-            lastText = text
-            lastTextPasted = false
-            lastTextIsPrivate = false
+            last = DictatedText(text: text, pasted: false, isPrivate: false)
             hud = .notPasted(.noAccessibility)
-        case let .sessionActive(on):
+        case let .takesEscape(on):
             hooks.sessionChanged(on)
+        case let .sessionActive(on):
             if on {
                 secureInput?.sessionBegan()
             } else {
                 secureInput?.sessionEnded()
-                current?.stopTimers()
+                if let work = current {
+                    work.stopTimers()
+                    release(work)
+                }
                 current = nil
                 applyMicrophone()
             }
@@ -365,7 +427,8 @@ public final class VoiceController {
         case .captureFailed(.noMicrophone): hud = .failed(.noMicrophone)
         case let .captureFailed(.other(message)): hud = .failed(.microphone(message))
         case let .recognitionFailed(message):
-            hud = .failed(failure ?? .recognition(message))
+            let known = failure?.session == machine.lastSession ? failure?.failure : nil
+            hud = .failed(known ?? .recognition(message))
             failure = nil
         }
     }
@@ -377,8 +440,17 @@ public final class VoiceController {
 
     // MARK: - Session work
 
+    private func model(for id: String) -> Model? {
+        if let model = models[id] { return model }
+        guard let engine = makeEngine(id) else { return nil }
+        let model = Model(engine: engine, residency: ModelResidency(engine, unloadDelay: preferences.unloadAfter))
+        models[id] = model
+        return model
+    }
+
     private func start(_ session: DictationMachine.Session) {
         let audio = DictationAudio(
+            seconds: limitSeconds,
             onLimit: { [weak self] in
                 Task { @MainActor in self?.handle(.captureEnded(session, .limit)) }
             },
@@ -386,20 +458,17 @@ public final class VoiceController {
                 // A new device, a lost one, a stall: what was said so far is recognized.
                 Task { @MainActor in self?.handle(.captureEnded(session, .deviceChanged)) }
             })
-        let work = Work(session: session, audio: audio)
+        let work = Work(session: session, audio: audio, model: model(for: preferences.modelID))
         current?.stopTimers()
         current = work
         let paster = self.paster
         work.target = Task { await paster.captureTarget() }
-        if let engineResidency {
-            work.model = Task { [weak self, weak work] in
-                try await engineResidency.load()
+        if let residency = work.model?.residency {
+            work.loading = Task { [weak self, weak work] in
+                try await residency.begin()
                 work?.modelReady = true
                 self?.refreshHUD()
             }
-        } else {
-            let id = preferences.modelID
-            work.model = Task { throw VoiceModelFailure.unknownModel(id) }
         }
         let microphone = self.microphone
         Task {
@@ -431,76 +500,89 @@ public final class VoiceController {
         guard let work = current, work.session == session else { return }
         stop(session)
         current = nil
-        let model = work.model
-        let engineResidency = self.engineResidency
-        // The model loaded for nothing still counts as used: the timer starts.
+        // A recognition under way keeps its hold on the model until it ends:
+        // CoreML is not stopped half way, and the model must not go under it.
+        if !work.isRecognizing { release(work) }
+    }
+
+    /// The session lets go of the model and the detector; their timers start.
+    private func release(_ work: Work) {
+        guard !work.isReleased else { return }
+        work.isReleased = true
+        let loading = work.loading
+        let residency = work.model?.residency
+        let detecting = work.detecting
+        let detectorResidency = self.detectorResidency
         Task {
-            _ = try? await model?.value
-            await engineResidency?.used()
+            if (try? await loading?.value) != nil { await residency?.end() }
+            if await detecting?.value == true { await detectorResidency?.end() }
         }
+    }
+
+    /// The session's hold on the speech detector, taken once.
+    private func detectorReady(_ work: Work) async -> Bool {
+        guard let detectorResidency, !work.isReleased else { return false }
+        if work.detecting == nil {
+            work.detecting = Task { [log] in
+                do {
+                    try await detectorResidency.begin()
+                    return true
+                } catch {
+                    log.error("speech detector: \(String(describing: error), privacy: .public)")
+                    return false
+                }
+            }
+        }
+        return await work.detecting?.value ?? false
     }
 
     private func recognize(_ session: DictationMachine.Session, _: DictationMachine.Delivery) {
         guard let work = current, work.session == session else { return }
-        let engine = self.engine
+        work.isRecognizing = true
         let detector = self.detector
-        let engineResidency = self.engineResidency
-        let detectorResidency = self.detectorResidency
         Task(priority: .userInitiated) {
             await work.stopping?.value
             let audio = AudioBuffer16k(work.audio.samples)
             do {
-                guard let engine, let model = work.model else {
+                guard let engine = work.model?.engine, let loading = work.loading else {
                     throw VoiceModelFailure.unknownModel(preferences.modelID)
                 }
-                try await model.value
-                var loadedDetector: (any SpeechDetector)?
-                if let detector, let detectorResidency {
-                    do {
-                        try await detectorResidency.load()
-                        loadedDetector = detector
-                    } catch {
-                        log.error("speech detector: \(String(describing: error), privacy: .public)")
-                    }
-                }
-                let outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: loadedDetector)
-                await engineResidency?.used()
-                await detectorResidency?.used()
+                try await loading.value
+                let detecting = await detectorReady(work) ? detector : nil
+                let outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting)
+                release(work)
                 handle(.recognized(session, outcome))
             } catch {
-                await engineResidency?.used()
+                release(work)
                 log.error("dictation: \(String(describing: error), privacy: .public)")
                 let message = String(describing: error)
-                if !work.modelReady { failure = .model(message) }
+                failure = (session, work.modelReady ? .recognition(message) : .model(message))
                 handle(.recognitionFailed(session, message))
             }
+            recognitionsDone += 1
         }
     }
 
     private func paste(_ session: DictationMachine.Session, _ text: String) {
-        lastText = text
-        lastTextPasted = false
-        lastTextIsPrivate = false
         let target = current?.session == session ? current?.target : nil
         let paster = self.paster
         Task {
             let result = await paster.paste(text, into: await target?.value)
-            switch result {
-            case .pasted:
-                lastTextPasted = true
+            let reason: NotPastedReason? = switch result {
+            case .pasted: nil
+            case .targetChanged: .targetChanged
+            case .secureField: .secureField
+            case let .secureInput(owner): .secureInput(owner: owner)
+            case .timedOut: .timedOut
+            case let .failed(message): .failed(message)
+            }
+            let isPrivate = reason == .secureField || { if case .secureInput = reason { true } else { false } }()
+            last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
+            if let reason {
+                hud = .notPasted(reason)
+            } else {
                 hud = .pasted
                 if preferences.switchesLayout { hooks.pasted(text) }
-            case .targetChanged:
-                hud = .notPasted(.targetChanged)
-            case .secureField:
-                lastTextIsPrivate = true
-                hud = .notPasted(.secureField)
-            case let .secureInput(owner):
-                hud = .notPasted(.secureInput(owner: owner))
-            case .timedOut:
-                hud = .notPasted(.timedOut)
-            case let .failed(message):
-                hud = .notPasted(.failed(message))
             }
             handle(.pasted(session))
         }
@@ -515,13 +597,13 @@ public final class VoiceController {
                 self?.refreshHUD()
             }
         }
-        guard let silenceStop = preferences.silenceStop, let detector, let detectorResidency else { return }
+        guard let silenceStop = preferences.silenceStop, let detector else { return }
         let limit = silenceStop.components
         var watch = SilenceWatch(limit: Double(limit.seconds) + Double(limit.attoseconds) / 1e18)
         let session = work.session
         let audio = work.audio
         work.silence = Task { [weak self] in
-            guard (try? await detectorResidency.load()) != nil else { return }
+            guard let self, await detectorReady(work) else { return }
             let chunk = VoiceActivity.chunk
             var checked = 0
             while !Task.isCancelled {
@@ -535,7 +617,7 @@ public final class VoiceController {
                 for (index, probability) in fresh.enumerated() {
                     let end = Double(checked + (index + 1) * chunk) / VoiceCore.sampleRate
                     if watch.observe(speech: probability >= VoiceActivity.threshold, upTo: end) {
-                        self?.handle(.captureEnded(session, .silence))
+                        handle(.captureEnded(session, .silence))
                         return
                     }
                 }
@@ -571,13 +653,8 @@ public final class VoiceController {
         }
     }
 
-    private func setEngine(for preferences: DictationPreferences) {
-        if let old = engineResidency {
-            Task { await old.unload() }
-        }
-        engine = makeEngine(preferences.modelID)
-        engineResidency = engine.map { ModelResidency($0, unloadDelay: preferences.unloadAfter) }
-    }
+    /// Whether the hold watch runs, for tests.
+    var isWatchingHold: Bool { holdWatch != nil }
 
     private static func failure(_ error: any Error) -> DictationMachine.CaptureFailure {
         switch error as? AudioCaptureError {

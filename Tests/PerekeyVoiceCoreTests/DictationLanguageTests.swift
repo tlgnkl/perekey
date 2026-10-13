@@ -27,6 +27,20 @@ struct DictationLanguageTests {
         #expect(DictationLanguage.layout(after: text, layouts: [en, ru], current: en.id, model: nil) == ru.id)
     }
 
+    @Test func noClearLeadKeepsTheLayout() {
+        // Two Russian words, three English: neither has two thirds.
+        let text = "открой pull request в main"
+        #expect(DictationLanguage.dominant(in: text, layouts: [en, ru], model: nil) == nil)
+        #expect(DictationLanguage.layout(after: text, layouts: [en, ru], current: en.id, model: nil) == nil)
+        #expect(DictationLanguage.layout(after: text, layouts: [en, ru], current: ru.id, model: nil) == nil)
+    }
+
+    @Test func wordsCountNotLetters() {
+        // Two long English words, four short Russian ones: Russian leads by words.
+        #expect(DictationLanguage.dominant(in: "я и ты в internationalization documentation", layouts: [en, ru],
+                                           model: nil) == "ru")
+    }
+
     @Test func englishPhrase() {
         let text = "Open the pull request in main, please."
         #expect(DictationLanguage.layout(after: text, layouts: [en, ru], current: ru.id, model: nil) == en.id)

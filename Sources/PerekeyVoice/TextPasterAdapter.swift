@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import PerekeyInput
 
 /// `TextPaster` as dictation's paster: the one place that knows its API.
@@ -11,12 +12,15 @@ public final class TextPasterAdapter: DictationPaster {
         self.paster = paster
     }
 
+    public var hasTarget: Bool { NSWorkspace.shared.frontmostApplication != nil }
+
     public func captureTarget() async -> (any Sendable)? {
         await paster.captureTarget()
     }
 
     public func paste(_ text: String, into target: (any Sendable)?) async -> DictationPasteResult {
-        // No target: there was no app in front when dictation started.
+        // No app in front when dictation started: `hasTarget` keeps that
+        // from starting, but the app may have quit in between.
         guard let target = target as? PasteTarget else { return .targetChanged }
         return switch await paster.paste(text, into: target) {
         case .pasted: .pasted

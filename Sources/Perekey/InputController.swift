@@ -34,6 +34,13 @@ final class InputController {
     @ObservationIgnored private var focus: FocusObserver!
     @ObservationIgnored private var selection: SelectionReader!
     @ObservationIgnored private var plainPaste: PlainPaste!
+    #if PEREKEY_VOICE
+    /// Pastes dictated text: the same `PlainPaste` as "Paste without
+    /// formatting", so both keep one saved pasteboard.
+    @ObservationIgnored private(set) var textPaster: TextPaster!
+    /// Secure Input rules for a dictation session.
+    @ObservationIgnored private(set) var dictationSecureInput: DictationSecureInput!
+    #endif
     @ObservationIgnored private var lastSettings: PerekeyCore.Settings
     /// The languages the classifier was loaded for, and its model.
     @ObservationIgnored private var modelLanguages: Set<String> = []
@@ -83,6 +90,12 @@ final class InputController {
         plainPaste = PlainPaste { [weak self] in
             PlainPaste.postCommandV(keyCode: self?.keyCode(typing: "v", fallback: 9) ?? 9) // kVK_ANSI_V
         }
+        #if PEREKEY_VOICE
+        // The tap forgets the word it saw: autoswitching must not retype what
+        // was just pasted.
+        textPaster = TextPaster(plainPaste: plainPaste) { [weak self] in self?.engine.send(.inputLost) }
+        dictationSecureInput = DictationSecureInput(monitor: secureInput)
+        #endif
 
         let textProbe = TextProbe()
         selection = SelectionReader(probe: textProbe)

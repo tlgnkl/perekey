@@ -295,3 +295,34 @@ defaults write app.perekey.Perekey LiquidGlass -bool false
 ```
 
 Включить обратно: `defaults delete app.perekey.Perekey LiquidGlass`.
+
+## Голос: вставка текста (сборка с `PEREKEY_VOICE=1`, 6 мин)
+
+Вставку в программы проверяет `scripts/e2e-paste.sh`: TextEdit, Safari,
+браузер на Chromium (`CHROME_APP=…`), Notes, Terminal, Zen, Slack, VS Code —
+что установлено. Экран должен быть разблокирован, клавиатуру не трогать.
+Slack должен быть с входом в рабочее пространство: на странице входа нет поля.
+
+1. Запустить `scripts/e2e-paste.sh`. Ожидать: `e2e-paste: all passed`.
+2. В строках `PASTE-E2E` ожидать `restored=true` везде.
+3. Ожидать `result=secureField touched=false` у поля пароля.
+4. Ожидать `result=targetChanged touched=false` у смены программы и у
+   второй вкладки Terminal.
+5. Ожидать у страницы `rerender.html` в Chrome: `sameRef=false sameTarget=true result=pasted`.
+6. Где ⌘V не дошёл (`inserted=false`), повторить с `--strategy menu`.
+   `--strategy accessibility` в Safari и Chromium текст не вставляет.
+   Записать программу и стратегию в `docs/compatibility.md`.
+7. С менеджером буфера (Maccy, Alfred) ожидать: вставленный текст не попал в его историю.
+8. Скопировать пароль из 1Password, надиктовать фразу. Ожидать: буфер после
+   вставки пустой, пароль не вернулся. То же для «Вставить без форматирования».
+9. Скопировать пароль из приложения «Пароли» (Apple), выполнить
+   «Вставить без форматирования». Ожидать: буфер пустой. Пароль вернулся —
+   «Пароли» не ставит `org.nspasteboard.ConcealedType`: записать в
+   `docs/compatibility.md`.
+10. Скопировать сниппет из Raycast или TextExpander, надиктовать фразу.
+    Ожидать: сниппет вернулся в буфер.
+11. Скопировать большую картинку (снимок экрана Retina), надиктовать фразу.
+    Ожидать: картинка вернулась в буфер. В журнале (`Pasteboard snapshot`)
+    время снимка — десятки миллисекунд, не секунды.
+12. На macOS 27 ожидать: система не спрашивает доступ к буферу. Спросила —
+    записать текст запроса в `docs/compatibility.md`.

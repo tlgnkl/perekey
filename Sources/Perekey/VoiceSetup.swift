@@ -120,7 +120,10 @@ final class VoiceSetup {
                 }
             },
             hasKey: { modes.hasKey($0) }, key: { modes.key($0) },
-            cloudDisabled: modes.cloudDisabled,
+            cloudDisabled: { modes.cloudDisabled },
+            isModelReady: { [models] id in
+                models.statuses.contains { $0.id == id && $0.state == .ready }
+            },
             askConsent: { [weak self] request in
                 // After the paste, on a turn of its own: the window takes the focus.
                 Task { @MainActor in

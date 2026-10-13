@@ -96,7 +96,9 @@ public struct EndpointAddress: Hashable, Sendable {
     public enum Reach: Hashable, Sendable {
         /// This Mac: `localhost`, 127.0.0.0/8, ::1.
         case loopback
-        /// A private address or a `.local` name: another machine nearby.
+        /// A private IP address or a `.local` name: another machine nearby.
+        /// A one-label name is not: it goes to DNS with the search domains,
+        /// and may name a host anywhere.
         case localNetwork
         case internet
     }
@@ -197,7 +199,7 @@ public struct EndpointAddress: Hashable, Sendable {
             }
             return .internet
         }
-        if host.hasSuffix(".local") || !host.contains(".") { return .localNetwork }
+        if host.hasSuffix(".local") { return .localNetwork }
         return .internet
     }
 

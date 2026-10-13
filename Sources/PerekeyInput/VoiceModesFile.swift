@@ -48,9 +48,14 @@ public struct VoiceModesFile: Sendable {
         public let schemaVersion: Int
     }
 
+    /// The modes came from a file with values this version cannot read.
+    public struct UnreadableContentError: Error, Equatable {}
+
     /// Writes the file atomically over the keys of the one on disk. A file of
-    /// a newer `schemaVersion` is never overwritten.
+    /// a newer `schemaVersion`, or with values this version could not read,
+    /// is never overwritten.
     public func save(_ modes: VoiceModeSet) throws {
+        guard !modes.hasUnreadableContent else { throw UnreadableContentError() }
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         var object = (try? Data(contentsOf: url))

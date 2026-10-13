@@ -17,7 +17,8 @@ struct FakeOpenAI {
     init(_ handler: @escaping TestServer.Handler = FakeOpenAI.answer("Привет, мир.")) async throws {
         server = try await TestServer(handler)
         http = VoiceHTTP(allowed: [.cloudLanguageModel, .cloudSpeech])
-        http.allowedOrigins = [EndpointAddress("\(server.base)/v1")!.origin]
+        let origin = EndpointAddress("\(server.base)/v1")!.origin
+        http.allowedOrigins = [.cloudLanguageModel: [origin], .cloudSpeech: [origin]]
     }
 
     func client(timeout: Duration = .seconds(10)) -> OpenAICompatibleClient {
@@ -100,18 +101,69 @@ struct OpenAICompatibleClientTests {
 
     @Test func anOriginNotAllowedIsNeverReached() async throws {
         let fake = try await FakeOpenAI()
-        fake.http.allowedOrigins = ["https://api.openai.com:443"]
+        fake.http.allowedOrigins = [.cloudLanguageModel: ["https://api.openai.com:443"]]
+        await #expect(throws: OpenAICompatibleClient.Failure.blocked) {
+            try await fake.client().complete(messages, model: "m", address: fake.address, key: "k")
+        }
+        // Consent to the audio is not consent to the text.
+        fake.http.allowedOrigins = [.cloudSpeech: [fake.address.origin]]
         await #expect(throws: OpenAICompatibleClient.Failure.blocked) {
             try await fake.client().complete(messages, model: "m", address: fake.address, key: "k")
         }
         // The purpose closed: blocked as well.
-        fake.http.allowedOrigins = [fake.address.origin]
+        fake.http.allowedOrigins = [.cloudLanguageModel: [fake.address.origin]]
         fake.http.allowed = [.modelDownload]
         await #expect(throws: OpenAICompatibleClient.Failure.blocked) {
             try await fake.client().complete(messages, model: "m", address: fake.address, key: "k")
         }
         #expect(fake.server.requests.isEmpty)
         #expect(fake.http.requests.isEmpty)
+    }
+
+    @Test func aRedirectIsNotFollowedAndTheKeyStays() async throws {
+        let other = try await TestServer { _, _ in FakeOpenAI.json(["choices": []]) }
+        let fake = try await FakeOpenAI { _, _ in
+            TestServer.Response(status: 302, headers: ["Location": "\(other.base)/v1/chat/completions"])
+        }
+        // Even an origin the gate would let out is not followed to.
+        fake.http.allowedOrigins[.cloudLanguageModel]?.insert(EndpointAddress("\(other.base)/v1")!.origin)
+        await #expect(throws: OpenAICompatibleClient.Failure.badResponse) {
+            try await fake.client().complete(messages, model: "m", address: fake.address, key: "sk-secret")
+        }
+        #expect(fake.server.requests.count == 1)
+        #expect(other.requests.isEmpty, "the second server got neither a request nor the key")
+    }
+
+    @Test func anOversizedAnswerIsCut() async throws {
+        let fake = try await FakeOpenAI { _, _ in TestServer.Response(status: 200, body: Data(count: VoiceHTTP.dataLimit + 1)) }
+        await #expect(throws: OpenAICompatibleClient.Failure.badResponse) {
+            try await fake.client().complete(messages, model: "m", address: fake.address, key: nil)
+        }
+        await #expect(throws: VoiceHTTP.Failure.tooLarge) {
+            _ = try await fake.http.data(for: URLRequest(url: URL(string: fake.address.url("/x"))!),
+                                         purpose: .cloudLanguageModel, limit: 10)
+        }
+    }
+
+    @Test func closingTheOriginCancelsTheRequest() async throws {
+        let fake = try await FakeOpenAI { _, _ in TestServer.Response(status: 200, body: Data(count: 100), cutAfter: 1, stall: true) }
+        let client = fake.client(timeout: .seconds(30))
+        let address = fake.address
+        let messages = self.messages
+        let request = Task { try await client.complete(messages, model: "m", address: address, key: nil) }
+        for _ in 0..<200 where fake.server.requests.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        let start = ContinuousClock.now
+        // Consent revoked while the model thinks.
+        fake.http.allowedOrigins = [:]
+        await #expect(throws: (any Error).self) { try await request.value }
+        #expect(ContinuousClock.now - start < .seconds(5))
+    }
+
+    @Test func theTranscriptionWaitGrowsWithTheUpload() {
+        #expect(OpenAICompatibleClient.transcriptionTimeout(bytes: 0) == .seconds(30))
+        #expect(OpenAICompatibleClient.transcriptionTimeout(bytes: 100_000) == .seconds(31))
+        // Ten minutes of 16 kHz audio, the longest dictation: about 19 MB.
+        #expect(OpenAICompatibleClient.transcriptionTimeout(bytes: 19_200_044) > .seconds(220))
     }
 
     @Test func transcription() async throws {
@@ -205,14 +257,16 @@ struct VoiceHTTPOriginTests {
         let managed = ManagedSettings()
         #expect(VoiceNetworkPolicy.allowed(isEnabled: true, managed: managed, modes: modes)
             == [.modelDownload, .cloudSpeech, .cloudLanguageModel])
+        let local: Set = ["http://localhost:11434", "http://localhost:1234"]
         #expect(VoiceNetworkPolicy.origins(isEnabled: true, managed: managed, modes: modes)
-            == ["http://localhost:11434", "http://localhost:1234"])
+            == [.cloudSpeech: local, .cloudLanguageModel: local])
         modes.consent([.text], endpoint: "openai")
-        #expect(VoiceNetworkPolicy.origins(isEnabled: true, managed: managed, modes: modes)
-            .contains("https://api.openai.com:443"))
+        let origins = VoiceNetworkPolicy.origins(isEnabled: true, managed: managed, modes: modes)
+        #expect(origins[.cloudLanguageModel]?.contains("https://api.openai.com:443") == true)
+        #expect(origins[.cloudSpeech]?.contains("https://api.openai.com:443") == false, "the text, not the audio")
         // The cloud off by the profile: this Mac only.
         #expect(VoiceNetworkPolicy.origins(isEnabled: true, managed: ManagedSettings(voiceCloudDisabled: true), modes: modes)
-            == ["http://localhost:11434", "http://localhost:1234"])
+            == [.cloudSpeech: local, .cloudLanguageModel: local])
         // Downloads off by the profile: language models still work.
         #expect(VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings(voiceModelDownloadsDisabled: true),
                                            modes: modes) == [.cloudSpeech, .cloudLanguageModel])
@@ -222,7 +276,7 @@ struct VoiceHTTPOriginTests {
         #expect(VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings(voiceDisabled: true), modes: modes).isEmpty)
         let http = VoiceHTTP()
         VoiceNetworkPolicy.apply(isEnabled: true, managed: managed, modes: modes, to: http)
-        #expect(http.allowedOrigins.contains("https://api.openai.com:443"))
+        #expect(http.allowedOrigins[.cloudLanguageModel]?.contains("https://api.openai.com:443") == true)
         VoiceNetworkPolicy.apply(isEnabled: false, managed: managed, modes: modes, to: http)
         #expect(http.allowedOrigins.isEmpty && http.allowed.isEmpty)
     }

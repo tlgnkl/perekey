@@ -56,7 +56,9 @@ public final class VoiceModeRunner: DictationModeSource {
         public var hasKey: @MainActor (String) -> Bool
         public var key: @MainActor (String) -> String?
         /// `VoiceCloudDisabled`.
-        public var cloudDisabled: Bool
+        public var cloudDisabled: @MainActor () -> Bool
+        /// Whether a speech model of this Mac is downloaded and checked.
+        public var isModelReady: @MainActor (String) -> Bool
         /// Shows the consent window.
         public var askConsent: @MainActor (ConsentRequest) -> Void
 
@@ -64,8 +66,11 @@ public final class VoiceModeRunner: DictationModeSource {
                     host: @escaping @MainActor () -> String?,
                     selection: @escaping @MainActor () -> Task<String?, Never> = { Task { nil } },
                     hasKey: @escaping @MainActor (String) -> Bool, key: @escaping @MainActor (String) -> String?,
-                    cloudDisabled: Bool, askConsent: @escaping @MainActor (ConsentRequest) -> Void)
+                    cloudDisabled: @escaping @MainActor () -> Bool,
+                    isModelReady: @escaping @MainActor (String) -> Bool = { _ in true },
+                    askConsent: @escaping @MainActor (ConsentRequest) -> Void)
         {
+            self.isModelReady = isModelReady
             self.modes = modes
             self.front = front
             self.host = host
@@ -118,9 +123,10 @@ public final class VoiceModeRunner: DictationModeSource {
                 case let .skip(fallback):
                     plan.fallback = fallback
                 }
-            } else {
+            } else if environment.isModelReady(model) {
                 plan.speechModel = model
             }
+            // A model of this Mac that is not downloaded: the voice settings' one hears it.
         }
         if let refine = mode.refine {
             switch check(refine.endpoint, for: mode, in: set) {
@@ -170,7 +176,7 @@ public final class VoiceModeRunner: DictationModeSource {
     func check(_ endpoint: String, for mode: VoiceMode, in set: VoiceModeSet) -> Check {
         guard let found = set.endpoint(endpoint), let address = found.endpointAddress else { return .skip(.failed) }
         if !address.isOnThisMac {
-            if environment.cloudDisabled { return .skip(.cloudOff) }
+            if environment.cloudDisabled() { return .skip(.cloudOff) }
             if found.needsKey, !environment.hasKey(endpoint) { return .skip(.needsKey(endpoint: found.name)) }
             if !set.missingConsent(mode, endpoint: endpoint).isEmpty {
                 return .skip(.needsConsent(host: address.displayHost))
@@ -183,7 +189,7 @@ public final class VoiceModeRunner: DictationModeSource {
     /// mode sends there.
     public func consentRequest(for modeID: String) -> ConsentRequest? {
         let set = environment.modes()
-        guard let mode = set.mode(modeID), !environment.cloudDisabled else { return nil }
+        guard let mode = set.mode(modeID), !environment.cloudDisabled() else { return nil }
         for id in mode.endpoints {
             guard let endpoint = set.endpoint(id), let address = endpoint.endpointAddress,
                   !set.missingConsent(mode, endpoint: id).isEmpty,

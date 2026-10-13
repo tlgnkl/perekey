@@ -245,6 +245,7 @@ final class VoiceHUDController {
         case .openMicrophoneSettings: actions.openMicrophoneSettings()
         case .openAccessibilitySettings: actions.openAccessibilitySettings()
         case .openVoiceSettings: actions.openVoiceSettings()
+        case .retry: voice.retryLast()
         }
     }
 

@@ -41,6 +41,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case microphoneFailed
         /// The speech model is missing or did not load.
         case modelFailed
+        /// The cloud did not answer and no model on this Mac could stand in.
+        case cloudSpeechFailed
         case recognitionFailed
     }
 
@@ -60,6 +62,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case openAccessibilitySettings
         /// Settings → Voice, where the models are.
         case openVoiceSettings
+        /// Send the kept audio to the cloud again.
+        case retry
     }
 
     /// The level and the timer above the message.
@@ -157,6 +161,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
                 self.init(message: .microphoneFailed, hidesAfter: Lifetime.error)
             case .model:
                 self.init(message: .modelFailed, buttons: [.openVoiceSettings], hidesAfter: Lifetime.error)
+            case .cloudSpeech:
+                self.init(message: .cloudSpeechFailed, buttons: [.retry], hidesAfter: Lifetime.notPasted)
             case .recognition:
                 self.init(message: .recognitionFailed, hidesAfter: Lifetime.error)
             }

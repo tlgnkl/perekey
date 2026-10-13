@@ -62,7 +62,7 @@ struct VoiceModeTests {
         object["schemaVersion"] = 7
         let read = try JSONDecoder().decode(VoiceModeSet.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(read.newerSchemaVersion == 7)
-        #expect(read.reachableOrigins(cloudDisabled: false).isEmpty)
+        #expect(read.reachableOrigins(sending: .text, cloudDisabled: false).isEmpty)
     }
 
     @Test func builtInModes() {
@@ -73,10 +73,14 @@ struct VoiceModeTests {
         #expect(set.mode("terminal")?.refine == nil)
         #expect(set.mode("terminal")?.rules.singleLine == true)
         #expect(set.mode("terminal")?.allowsEnter == false)
+        // Made for a language model, they start without one: no knocking on
+        // a localhost where nothing listens, until the user picks a server.
         for id in ["clean", "message", "mail", "english"] {
-            #expect(set.mode(id)?.refine?.endpoint == "ollama", "\(id)")
-            #expect(set.mode(id)?.allowsEnter == false, "\(id)")
+            #expect(set.mode(id)?.refine == nil, "\(id)")
+            #expect(BuiltInMode(rawValue: id)?.wantsLanguageModel == true, "\(id)")
         }
+        #expect(BuiltInMode.asSaid.wantsLanguageModel == false)
+        #expect(BuiltInMode.terminal.wantsLanguageModel == false)
         #expect(set.mode("message")?.bindings.contains(.app("ru.keepcoder.Telegram")) == true)
         #expect(set.mode("message")?.bindings.contains(.app("com.tinyspeck.slackmacgap")) == true)
         #expect(set.mode("message")?.bindings.contains(.app("net.whatsapp.WhatsApp")) == true)
@@ -122,14 +126,61 @@ struct VoiceModeTests {
 
     @Test func reachableOrigins() {
         var set = VoiceModeSet.defaults()
-        #expect(set.reachableOrigins(cloudDisabled: false) == ["http://localhost:11434", "http://localhost:1234"])
+        let local: Set = ["http://localhost:11434", "http://localhost:1234"]
+        #expect(set.reachableOrigins(sending: .text, cloudDisabled: false) == local)
         set.consent([.text], endpoint: "openai")
-        #expect(set.reachableOrigins(cloudDisabled: false).contains("https://api.openai.com:443"))
-        #expect(!set.reachableOrigins(cloudDisabled: false).contains("https://api.groq.com:443"))
-        #expect(set.reachableOrigins(cloudDisabled: true) == ["http://localhost:11434", "http://localhost:1234"])
+        #expect(set.reachableOrigins(sending: .text, cloudDisabled: false).contains("https://api.openai.com:443"))
+        // The text, not the audio: cloud speech may not go there.
+        #expect(!set.reachableOrigins(sending: .audio, cloudDisabled: false).contains("https://api.openai.com:443"))
+        #expect(!set.reachableOrigins(sending: .text, cloudDisabled: false).contains("https://api.groq.com:443"))
+        #expect(set.reachableOrigins(sending: .text, cloudDisabled: true) == local)
         // A server in the local network is not this Mac: consent first.
         set.addEndpoint(name: "Studio", address: "http://192.168.1.20:11434/v1")
-        #expect(!set.reachableOrigins(cloudDisabled: false).contains("http://192.168.1.20:11434"))
+        #expect(!set.reachableOrigins(sending: .text, cloudDisabled: false).contains("http://192.168.1.20:11434"))
+        // Revoked: closed again.
+        set.revokeConsent(endpoint: "openai")
+        #expect(set.reachableOrigins(sending: .text, cloudDisabled: false) == local)
+        #expect(set.consents.isEmpty)
+    }
+
+    @Test func aValueThisVersionCannotReadKeepsTheFileReadOnly() throws {
+        let json = #"""
+        {"schemaVersion":1,"defaultModeID":"a","modes":[
+          {"id":"a","name":"A","output":"pasteAndShout"},
+          {"id":"b","name":"B","bindings":[{"window":"x"}]}
+        ]}
+        """#
+        let read = try JSONDecoder().decode(VoiceModeSet.self, from: Data(json.utf8))
+        // Not dropped silently: both modes are there, and the file is not saved over.
+        #expect(read.modes.map(\.id) == ["a", "b"])
+        #expect(read.hasUnreadableContent)
+        #expect(read.isReadOnly)
+        #expect(read.newerSchemaVersion == nil)
+        let clean = try JSONDecoder().decode(VoiceModeSet.self, from: JSONEncoder().encode(VoiceModeSet.defaults()))
+        #expect(!clean.hasUnreadableContent)
+        // Missing keys are not unreadable ones.
+        let sparse = try JSONDecoder().decode(VoiceModeSet.self, from: Data(#"{"modes":[{"id":"x"}]}"#.utf8))
+        #expect(!sparse.hasUnreadableContent)
+    }
+
+    @Test func newBuiltInModesComeOnceAndDeletedOnesStayDeleted() throws {
+        let defaults = VoiceModeSet.defaults()
+        // A file that saw only "plain" and "clean", and lost "clean".
+        var set = VoiceModeSet(modes: [defaults.mode("plain")!], defaultModeID: "plain", builtIns: ["plain", "clean"])
+        set.adoptNewBuiltIns(from: defaults)
+        #expect(set.mode("clean") == nil, "deleted by the user")
+        #expect(set.mode("message") != nil && set.mode("terminal") != nil, "new to this file")
+        #expect(Set(set.builtIns) == Set(BuiltInMode.allCases.map(\.rawValue)))
+        // Once seen, never added again.
+        set.removeMode("message")
+        set.adoptNewBuiltIns(from: defaults)
+        #expect(set.mode("message") == nil)
+        #expect(set.missingBuiltIns(from: defaults).map(\.id) == ["clean", "message"])
+        set.restoreBuiltIns(from: defaults)
+        #expect(set.missingBuiltIns(from: defaults).isEmpty)
+        // The list is kept in the file.
+        let back = try JSONDecoder().decode(VoiceModeSet.self, from: JSONEncoder().encode(set))
+        #expect(back.builtIns == set.builtIns)
     }
 
     @Test func bindingMovesBetweenModes() {
@@ -219,6 +270,10 @@ struct ModeResolverTests {
         #expect(Terminals.singleLine("git status\nrm -rf /") == "git status rm -rf /")
         #expect(Terminals.singleLine("a  \n\n  b\r\nc") == "a b c")
         #expect(Terminals.singleLine("\nls\n") == "ls")
+        // Ctrl-O runs the line in bash and zsh; ESC[201~ ends a bracketed paste.
+        #expect(Terminals.singleLine("ls\u{0F}") == "ls")
+        #expect(Terminals.singleLine("x\u{1B}[201~rm -rf ~") == "x[201~rm -rf ~")
+        #expect(Terminals.singleLine("a\tb\u{7F}") == "a b")
     }
 }
 
@@ -247,6 +302,9 @@ struct EndpointAddressTests {
         #expect(EndpointAddress("http://172.32.1.1") == nil)
         #expect(EndpointAddress("http://studio.local:1234")?.reach == .localNetwork)
         #expect(EndpointAddress("http://8.8.8.8") == nil)
+        // One label goes to DNS with the search domains: the internet, no plain http.
+        #expect(EndpointAddress("http://ollama:11434/v1") == nil)
+        #expect(EndpointAddress("https://ollama:11434/v1")?.reach == .internet)
     }
 
     @Test func junkIsRefused() {

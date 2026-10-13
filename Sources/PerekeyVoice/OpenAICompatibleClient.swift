@@ -91,10 +91,17 @@ public struct OpenAICompatibleClient: Sendable {
         form.field("response_format", "json")
         if let language { form.field("language", language) }
         form.file("file", name: "dictation.wav", type: "audio/wav", data: WAV.encode(audio))
-        request.httpBody = form.finish()
-        let data = try await send(request, purpose: .cloudSpeech)
+        let body = form.finish()
+        request.httpBody = body
+        let data = try await send(request, purpose: .cloudSpeech, timeout: Self.transcriptionTimeout(bytes: body.count))
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data) else { throw Failure.badResponse }
         return answer.text
+    }
+
+    /// The wait for a transcription grows with the upload: 30 s and 1 s
+    /// for every 100 KB (a minute of 16 kHz audio is about 1.9 MB).
+    static func transcriptionTimeout(bytes: Int) -> Duration {
+        .seconds(30) + .milliseconds(bytes / 100)
     }
 
     // MARK: Requests
@@ -109,9 +116,11 @@ public struct OpenAICompatibleClient: Sendable {
     }
 
     /// The body of a 2xx answer, within `timeout`.
-    private func send(_ request: URLRequest, purpose: VoiceHTTP.Purpose) async throws -> Data {
+    private func send(_ request: URLRequest, purpose: VoiceHTTP.Purpose, timeout: Duration? = nil) async throws
+        -> Data
+    {
         let http = self.http
-        let timeout = self.timeout
+        let timeout = timeout ?? self.timeout
         let (data, response) = try await withThrowingTaskGroup(of: (Data, HTTPURLResponse)?.self) { group in
             group.addTask { try await http.data(for: request, purpose: purpose) }
             group.addTask {
@@ -126,7 +135,7 @@ public struct OpenAICompatibleClient: Sendable {
                 switch failure {
                 case .blocked: throw Failure.blocked
                 case .offline: throw Failure.offline
-                case .redirectRefused: throw Failure.badResponse
+                case .redirectRefused, .tooLarge: throw Failure.badResponse
                 }
             } catch let error as URLError where error.code == .timedOut {
                 throw Failure.timedOut

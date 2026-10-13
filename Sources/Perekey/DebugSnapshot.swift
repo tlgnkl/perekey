@@ -598,9 +598,12 @@ extension DebugSnapshot {
     /// Modes as a person who set up OpenAI for mail would have them.
     static func modesPreview(managed: ManagedSettings = ManagedSettings()) -> VoiceModesStore {
         var modes = VoiceModeSet.defaults(VoiceModesStore.localized)
-        if let index = modes.modes.firstIndex(where: { $0.id == BuiltInMode.mail.rawValue }) {
-            modes.modes[index].refine?.endpoint = VoiceEndpoint.Preset.openAI.rawValue
-            modes.modes[index].refine?.model = VoiceEndpoint.Preset.openAI.suggestedModel
+        // "Message" on Ollama, "Email" on OpenAI, as picked in the tab; "Clean copy" not set up yet.
+        for (mode, preset) in [(BuiltInMode.message, VoiceEndpoint.Preset.ollama), (.mail, .openAI)] {
+            guard let index = modes.modes.firstIndex(where: { $0.id == mode.rawValue }),
+                  let prompt = VoiceModesStore.localized(mode).prompt
+            else { continue }
+            modes.modes[index].refine = RefineConfig(endpoint: preset.rawValue, model: preset.suggestedModel, prompt: prompt)
         }
         modes.consent([.text, .selection, .app], endpoint: VoiceEndpoint.Preset.openAI.rawValue)
         return VoiceModesStore(preview: modes, keyed: [VoiceEndpoint.Preset.openAI.rawValue], managed: managed)

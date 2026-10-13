@@ -46,6 +46,19 @@ struct VoiceModesFileTests {
         #expect(try Data(contentsOf: file.url) == newer)
     }
 
+    @Test func aFileWithUnreadableValuesIsNeverOverwritten() throws {
+        let (file, directory) = try temporaryFile()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let written = Data(#"{"schemaVersion":1,"defaultModeID":"a","modes":[{"id":"a","name":"A","output":"pasteAndShout"}]}"#.utf8)
+        try written.write(to: file.url)
+        var read = file.load(defaults: .defaults())
+        #expect(read.mode("a") != nil)
+        #expect(read.isReadOnly)
+        read.pinnedModeID = "a"
+        #expect(throws: VoiceModesFile.UnreadableContentError.self) { try file.save(read) }
+        #expect(try Data(contentsOf: file.url) == written)
+    }
+
     @Test func aBrokenFileIsSetAside() throws {
         let (file, directory) = try temporaryFile()
         defer { try? FileManager.default.removeItem(at: directory) }

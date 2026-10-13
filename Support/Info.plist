@@ -85,5 +85,13 @@
 	     alone could ship one (docs/release.md, "Signing"). -->
 	<key>SUVerifyUpdateBeforeExtraction</key>
 	<true/>
+	<!-- Voice: OpenAI-compatible servers in the local network (Ollama, LM
+	     Studio on another Mac) speak plain http. Only local hosts are
+	     exempt; every other request keeps App Transport Security. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

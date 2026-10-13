@@ -30,7 +30,9 @@ final class VoiceModesStore {
         self.file = file
         self.keychain = keychain
         self.managed = managed
-        modes = file.load(defaults: VoiceModeSet.defaults(Self.localized))
+        var modes = file.load(defaults: VoiceModeSet.defaults(Self.localized))
+        if !modes.isReadOnly { modes.adoptNewBuiltIns(from: VoiceModeSet.defaults(Self.localized)) }
+        self.modes = modes
         refreshKeys()
     }
 
@@ -46,8 +48,16 @@ final class VoiceModesStore {
 
     @ObservationIgnored private var isPreview = false
 
-    /// The file was written by a newer Perekey: shown, never changed.
-    var isLocked: Bool { modes.newerSchemaVersion != nil }
+    /// The file was written by a newer Perekey, or has values this one
+    /// cannot read: shown, never changed.
+    var isLocked: Bool { modes.isReadOnly }
+
+    /// Built-in modes the user deleted.
+    var missingBuiltIns: [VoiceMode] { modes.missingBuiltIns(from: VoiceModeSet.defaults(Self.localized)) }
+
+    func restoreBuiltIns() {
+        update { $0.restoreBuiltIns(from: VoiceModeSet.defaults(Self.localized)) }
+    }
 
     var cloudDisabled: Bool { managed.voiceCloudDisabled }
 

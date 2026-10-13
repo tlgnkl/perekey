@@ -15,13 +15,20 @@ private final class RunnerRig {
     var keys: [String: String] = [:]
     var cloudDisabled = false
     var selection: String? = "выделенный текст"
+    /// Speech models of this Mac that are downloaded.
+    var readyModels: Set<String> = ["parakeet-tdt-v3"]
     private(set) var consents: [ConsentRequest] = []
     let fake: FakeOpenAI
 
     init(_ fake: FakeOpenAI) {
         self.fake = fake
-        // "Ollama" is the fake server on this Mac.
+        // "Ollama" is the fake server on this Mac, and the modes made for a
+        // language model use it, as after a pick in the Modes tab.
         set.endpoints[set.endpoints.firstIndex { $0.id == "ollama" }!].address = fake.address.url("")
+        for builtIn in BuiltInMode.allCases {
+            guard let prompt = builtIn.englishPrompt else { continue }
+            mode(builtIn.rawValue) { $0.refine = RefineConfig(endpoint: "ollama", model: "qwen2.5:7b", prompt: prompt) }
+        }
     }
 
     lazy var runner = VoiceModeRunner(
@@ -32,7 +39,9 @@ private final class RunnerRig {
                 return Task { selection }
             },
             hasKey: { [unowned self] in keys[$0] != nil }, key: { [unowned self] in keys[$0] },
-            cloudDisabled: cloudDisabled, askConsent: { [unowned self] in consents.append($0) }),
+            cloudDisabled: { [unowned self] in cloudDisabled },
+            isModelReady: { [unowned self] in readyModels.contains($0) },
+            askConsent: { [unowned self] in consents.append($0) }),
         client: fake.client())
 
     func mode(_ id: String, _ change: (inout VoiceMode) -> Void) {
@@ -155,6 +164,28 @@ struct VoiceModeRunnerTests {
         rig.set.consent([.audio], endpoint: "groq")
         #expect(rig.runner.plan().speechModel == "cloud:groq:whisper-large-v3-turbo")
         #expect(rig.runner.plan().speechHost == "api.groq.com")
+    }
+
+    @Test func aModelNotDownloadedLeavesItToTheSettings() async throws {
+        let rig = RunnerRig(try await FakeOpenAI())
+        rig.mode("plain") { $0.model = "whisper-large-v3-turbo-632mb" }
+        #expect(rig.runner.plan().speechModel == nil)
+        rig.readyModels.insert("whisper-large-v3-turbo-632mb")
+        #expect(rig.runner.plan().speechModel == "whisper-large-v3-turbo-632mb")
+    }
+
+    @Test func builtInModesWaitForAServer() async throws {
+        let fake = try await FakeOpenAI()
+        let set = VoiceModeSet.defaults()
+        let runner = VoiceModeRunner(
+            environment: .init(modes: { set }, front: { .init(bundleID: "ru.keepcoder.Telegram", name: "Telegram") },
+                               host: { nil }, hasKey: { _ in false }, key: { _ in nil }, cloudDisabled: { false },
+                               askConsent: { _ in }),
+            client: fake.client())
+        let plan = runner.plan()
+        #expect(plan.modeID == "message")
+        #expect(plan.refine == nil)
+        #expect(plan.fallback == nil, "nothing to say: the mode simply has no model yet")
     }
 
     @Test func aNewerModesFilePastesAsSaid() async throws {

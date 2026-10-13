@@ -52,11 +52,21 @@ public enum Terminals {
         bundleID.map(bundleIDs.contains) ?? false
     }
 
-    /// Line breaks and the spaces around them become one space.
+    /// Line breaks and the spaces around them become one space, a tab a
+    /// space; every other control character goes: Ctrl-O or an escape
+    /// sequence would act in the terminal.
     public static func singleLine(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            if scalar == "\t" {
+                scalars.append(" ")
+            } else if scalar == "\n" || scalar == "\r" || scalar.properties.generalCategory != .control {
+                scalars.append(scalar)
+            }
+        }
         var result = ""
         var pendingBreak = false
-        for character in text {
+        for character in String(scalars) {
             if character.isNewline {
                 pendingBreak = true
                 while result.last == " " || result.last == "\t" { result.removeLast() }

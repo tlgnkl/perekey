@@ -22,6 +22,9 @@ public enum OutputGuard {
         case answers
         /// Repeats the prompt's tags: it did not edit, it echoed.
         case echoesPrompt
+        /// Holds a control or format character other than a line break or a
+        /// tab: Ctrl-O runs a shell's line, ESC[201~ ends a bracketed paste.
+        case controlCharacters
     }
 
     /// A short dictation may grow this much regardless of the ratio: "ок"
@@ -29,8 +32,10 @@ public enum OutputGuard {
     public static let shortAllowance = 24
 
     public static func check(_ output: String, dictation: String) -> Verdict {
-        let text = cleaned(output, dictation: dictation)
+        // A Windows line break is a line break; a lone carriage return is Enter.
+        let text = cleaned(output, dictation: dictation).replacingAll("\r\n", with: "\n")
         guard !text.isEmpty else { return .reject(.empty) }
+        if text.unicodeScalars.contains(where: isForbidden) { return .reject(.controlCharacters) }
         let lower = text.lowercased()
         if lower.contains("<dictation") || lower.contains("</dictation") || lower.contains("<selection")
             || lower.contains("</selection")
@@ -63,9 +68,23 @@ public enum OutputGuard {
         ["привет! я", "hello! i", "hi! i"],
     ]
 
+    /// Control (Cc) and format (Cf) characters, but a line break and a tab,
+    /// and the zero-width joiner of emoji sequences.
+    static func isForbidden(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar {
+        case "\n", "\t", "\u{200D}": false
+        default: scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format
+        }
+    }
+
+    /// Typographic apostrophes as the plain one: "I’m sorry" is "I'm sorry".
+    static func plainApostrophes(_ text: String) -> String {
+        String(text.map { "’‘ʼ".contains($0) ? "'" : $0 })
+    }
+
     /// The index of the group the text opens with, if any.
     static func openingGroup(_ text: String) -> Int? {
-        let lower = Substring(trimmed(text).lowercased()).drop { "\"'«“„*_#>-—– ".contains($0) }
+        let lower = Substring(plainApostrophes(trimmed(text)).lowercased()).drop { "\"'«“„*_#>-—– ".contains($0) }
         for (index, group) in openings.enumerated() {
             for phrase in group where lower.hasPrefix(phrase) {
                 let next = lower.dropFirst(phrase.count).first

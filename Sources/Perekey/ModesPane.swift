@@ -43,7 +43,7 @@ struct ModesPane: View {
                     .padding(.horizontal, 4)
                 if store.isLocked {
                     PKGroup {
-                        PKCallout(voiceText("These modes were written by a newer version of Perekey. Update the app to change them; until then dictation pastes the text as said."))
+                        PKCallout(voiceText("These modes were written by another version of Perekey, and this one cannot read all of them. They are shown, not changed; update Perekey to edit them."))
                     }
                 }
                 PKGroup {
@@ -125,6 +125,17 @@ private struct ModeList: View {
             }
             .buttonStyle(.plain)
             .padding(.top, 4)
+            if !store.missingBuiltIns.isEmpty {
+                Button { store.restoreBuiltIns() } label: {
+                    voiceText("Bring back the built-in modes")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.pkIndigoInk)
+                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal, 8)
+                        .frame(minHeight: 28)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(8)
         .pkAnimation(PK.Motion.thumbSpring, value: selected)
@@ -231,6 +242,9 @@ private struct ModeEditor: View {
                     .onSubmit { commitName() }
                     .onChange(of: name) { commitName() }
             }
+            if let builtIn = BuiltInMode(rawValue: mode.id), let sample = ModeSample.of(builtIn) {
+                field(voiceText("Example")) { sampleView(sample) }
+            }
             speechField
             refineField
             if mode.refine != nil {
@@ -247,6 +261,8 @@ private struct ModeEditor: View {
                 Spacer()
                 if modeSet.modes.count > 1 {
                     Button(role: .destructive) {
+                        // A built-in mode comes back only by "Bring back the built-in modes".
+                        guard BuiltInMode(rawValue: mode.id) == nil || confirmDelete() else { return }
                         store.update { $0.removeMode(mode.id) }
                         removed()
                     } label: { voiceText("Delete mode") }
@@ -260,6 +276,29 @@ private struct ModeEditor: View {
             name = mode.name
             prompt = mode.refine?.prompt ?? ""
         }
+    }
+
+    private func confirmDelete() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = voiceString("Delete the mode “\(mode.name)”?")
+        alert.informativeText = voiceString("It comes back with its settings reset by “Bring back the built-in modes”.")
+        alert.addButton(withTitle: voiceString("Delete"))
+        alert.addButton(withTitle: voiceString("Cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func sampleView(_ sample: ModeSample) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                voiceText("SAID").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Color.pkInk3)
+                Text(verbatim: sample.said).font(.system(size: 12.5)).foregroundStyle(Color.pkInk2)
+            }
+            Text(verbatim: sample.result).font(.system(size: 14)).foregroundStyle(Color.pkInk)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.pkPlate))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.pkRule, lineWidth: 0.5))
     }
 
     private func field<Content: View>(_ label: Text, detail: Text? = nil,
@@ -313,7 +352,10 @@ private struct ModeEditor: View {
                 if let model = mode.model, !ready.contains(where: { $0.id == model }),
                    !cloud.contains(where: { $0.id == model })
                 {
-                    Text(verbatim: model).tag(model)
+                    // Not downloaded: the voice settings' model hears it meanwhile.
+                    Text(verbatim: ModelCatalog.entry(id: model).map {
+                        voiceString("\(ModelNames.display($0)) (not downloaded)")
+                    } ?? model).tag(model)
                 }
             } label: { voiceText("Speech model") }
                 .labelsHidden()
@@ -384,6 +426,9 @@ private struct ModeEditor: View {
     private var refineDetail: Text {
         switch kind {
         case .none:
+            if BuiltInMode(rawValue: mode.id)?.wantsLanguageModel == true {
+                return voiceText("Choose where the LLM works. Until then the text goes in unchanged.")
+            }
             return voiceText("The text goes in as recognized. Only the dictionary and the text rules work.")
         case .local:
             let name = mode.refine.flatMap { modeSet.endpoint($0.endpoint)?.name } ?? "Ollama"
@@ -401,7 +446,8 @@ private struct ModeEditor: View {
             update { $0.refine = nil }
             return
         }
-        let text = prompt.isEmpty ? voiceString("Fix recognition errors. Do not change the meaning.") : prompt
+        let builtIn = BuiltInMode(rawValue: mode.id).flatMap { VoiceModesStore.localized($0).prompt }
+        let text = prompt.isEmpty ? builtIn ?? voiceString("Fix recognition errors. Do not change the meaning.") : prompt
         prompt = text
         update {
             $0.refine = RefineConfig(endpoint: endpoint.id, model: endpoint.preset?.suggestedModel ?? "", prompt: text)
@@ -660,6 +706,13 @@ private struct EndpointsGroup: View {
                     .popover(isPresented: Binding(get: { keyFor == endpoint.id }, set: { if !$0 { keyFor = nil } }),
                              arrowEdge: .bottom) { keyPopover(endpoint) }
                 }
+                if let origin = address?.origin, !(store.modes.consents[origin] ?? []).isEmpty {
+                    Button { store.update { $0.revokeConsent(endpoint: endpoint.id) } } label: {
+                        voiceText("Revoke access")
+                    }
+                    .buttonStyle(.pkLink)
+                    .help(voiceText("Perekey asks again before the next request there"))
+                }
                 if endpoint.preset == nil {
                     Button {
                         store.setKey("", for: endpoint.id)
@@ -790,6 +843,35 @@ private struct FlowLayout: Layout {
             rows[rows.count - 1] = row
         }
         return rows
+    }
+}
+#endif
+
+#if PEREKEY_VOICE
+/// "Сказали → станет" for a built-in mode, from the mockup.
+struct ModeSample {
+    let said: String
+    let result: String
+
+    static func of(_ mode: BuiltInMode) -> ModeSample? {
+        switch mode {
+        case .asSaid:
+            ModeSample(said: voiceString("uh let's call tomorrow after lunch"),
+                       result: voiceString("Let's call tomorrow after lunch."))
+        case .clean:
+            ModeSample(said: voiceString("so we like we'll call tomorrow well after lunch"),
+                       result: voiceString("We'll call tomorrow after lunch."))
+        case .message:
+            ModeSample(said: voiceString("listen I'll look at the pull request tonight and get back"),
+                       result: voiceString("I'll look at the pull request tonight and get back"))
+        case .mail:
+            ModeSample(said: voiceString("hi anna sending the report have a look by friday"),
+                       result: voiceString("Hello Anna, I am sending the report. Please have a look by Friday."))
+        case .terminal:
+            ModeSample(said: "git pull origin main", result: "git pull origin main")
+        case .english:
+            ModeSample(said: voiceString("let's move the call to monday"), result: "Let’s move the call to Monday.")
+        }
     }
 }
 #endif

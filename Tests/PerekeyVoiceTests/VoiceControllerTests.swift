@@ -131,6 +131,38 @@ private actor FakeEngine: SpeechEngine {
     }
 }
 
+/// A cloud speech model that fails, answers or hangs as the test says.
+private actor FakeCloudEngine: SpeechEngine {
+    enum Behavior { case fail, answer(String), hang }
+
+    nonisolated let id = "cloud:groq:whisper"
+    private var behavior: Behavior = .fail
+    private(set) var calls = 0
+    private(set) var cancelled = 0
+
+    func set(_ behavior: Behavior) { self.behavior = behavior }
+    func prepare() async throws {}
+    func unload() async {}
+
+    func transcribe(_: AudioBuffer16k) async throws -> Transcript {
+        calls += 1
+        switch behavior {
+        case .fail:
+            throw OpenAICompatibleClient.Failure.server(status: 503, message: nil)
+        case let .answer(text):
+            return Transcript(text: text)
+        case .hang:
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                cancelled += 1
+                throw error
+            }
+            return Transcript(text: "")
+        }
+    }
+}
+
 private actor FakeDetector: SpeechDetector {
     private(set) var calls = 0
 
@@ -202,6 +234,7 @@ private final class Rig {
     let microphone = FakeMicrophone()
     let engine = FakeEngine()
     let otherEngine = FakeEngine(id: "fake2", text: "Другая модель.")
+    let cloud = FakeCloudEngine()
     let detector = FakeDetector()
     let paster = FakePaster()
     let secureInput = FakeSecureInput()
@@ -218,7 +251,7 @@ private final class Rig {
     init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil),
          limitSeconds: Int = DictationAudio.limitSeconds)
     {
-        let engines = ["fake": engine, "fake2": otherEngine]
+        let engines: [String: any SpeechEngine] = ["fake": engine, "fake2": otherEngine, cloud.id: cloud]
         controller = VoiceController(
             preferences: preferences, microphone: microphone, paster: paster, secureInput: secureInput,
             detector: detector, makeEngine: { engines[$0] },
@@ -1014,13 +1047,15 @@ struct VoiceControllerModeTests {
     @Test func aLocalDictationMakesNoRequest() async throws {
         let fake = try await FakeOpenAI()
         VoiceNetworkPolicy.apply(isEnabled: true, managed: ManagedSettings(), modes: VoiceModeSet.defaults(), to: fake.http)
-        fake.http.allowedOrigins.insert(fake.address.origin)
+        fake.http.allowedOrigins = [.cloudLanguageModel: [fake.address.origin], .cloudSpeech: [fake.address.origin]]
         var set = VoiceModeSet.defaults()
         set.endpoints[set.endpoints.firstIndex { $0.id == "ollama" }!].address = fake.address.url("")
+        set.modes[set.modes.firstIndex { $0.id == "message" }!].refine =
+            RefineConfig(endpoint: "ollama", model: "qwen2.5:7b", prompt: "Short.")
         let front = VoiceModeRunner.Front(bundleID: "com.apple.Notes", name: "Notes")
         let runner = VoiceModeRunner(
             environment: .init(modes: { set }, front: { front }, host: { nil }, hasKey: { _ in false }, key: { _ in nil },
-                               cloudDisabled: false, askConsent: { _ in }),
+                               cloudDisabled: { false }, askConsent: { _ in }),
             client: fake.client())
         let rig = Rig()
         rig.controller.modes = runner
@@ -1039,5 +1074,128 @@ struct VoiceControllerModeTests {
         #expect(await rig.until { rig.paster.pasted.count == 2 })
         #expect(fake.http.requests.map(\.purpose) == [.cloudLanguageModel])
         #expect(fake.server.requests.count == 1)
+    }
+}
+
+/// Cloud speech that fails, and what the dictation does then.
+@MainActor
+struct VoiceControllerCloudSpeechTests {
+    let cloudPlan = DictationPlan(modeID: "x", modeName: "X", speechModel: "cloud:groq:whisper", speechHost: "api.groq.com")
+
+    @Test func aFailingCloudFallsBackToThisMac() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.cloudSpeechFailed) })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.cloud.calls == 1)
+        #expect(await rig.engine.heard == [16000])
+        #expect(!rig.controller.canRetry)
+    }
+
+    @Test func withNothingOnThisMacTheAudioWaitsForRetry() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.controller.canRetry)
+        #expect(DictationHUDPresentation(.failed(.cloudSpeech))?.buttons == [.retry])
+        // The cloud is back: "Повторить" sends the same audio, and the text goes in.
+        await rig.cloud.set(.answer("Облако вернулось."))
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Облако вернулось."])
+        #expect(await rig.cloud.calls == 2)
+        #expect(!rig.controller.canRetry)
+    }
+
+    @Test func aRetryThatFailsKeepsTheAudio() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        rig.controller.retryLast()
+        #expect(await rig.until { await rig.cloud.calls == 2 })
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        #expect(rig.controller.canRetry)
+    }
+
+    @Test func aPasswordFieldKeepsTheAudioHere() async {
+        let rig = Rig()
+        rig.paster.secureField = true
+        rig.paster.result = .secureField
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(await rig.cloud.calls == 0)
+        #expect(await rig.engine.heard == [16000])
+    }
+
+    @Test func secureInputKeepsTheAudioAndTheTextHere() async {
+        let rig = Rig()
+        var plan = cloudPlan
+        plan.refine = .init(endpointName: "OpenAI", isCloud: true)
+        let modes = FakeModes(plan)
+        rig.controller.modes = modes
+        await rig.startRecording()
+        // Secure Input came on during the recording; the paste then refuses.
+        rig.secureInput.allowsStart = false
+        rig.paster.result = .secureInput(owner: nil)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureInput(owner: nil)) })
+        #expect(await rig.cloud.calls == 0)
+        #expect(modes.asked.isEmpty, "nor the language model")
+    }
+
+    @Test func escStopsTheCloudRequest() async {
+        let rig = Rig()
+        await rig.cloud.set(.hang)
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { await rig.cloud.calls == 1 })
+        rig.controller.voice(.cancel)
+        #expect(rig.hud == .cancelled)
+        #expect(await rig.until { await rig.cloud.cancelled == 1 })
+        #expect(await rig.until { rig.controller.recognitionsDone == 1 })
+        // Cancelled, not failed: no fallback, no retry, nothing pasted.
+        #expect(rig.hud == .cancelled)
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(await rig.engine.heard.isEmpty)
+        #expect(!rig.controller.canRetry)
+    }
+
+    @Test func aPasswordIsNeverCopied() async {
+        let rig = Rig()
+        rig.paster.secureField = true
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", output: .copy))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(rig.paster.copied.isEmpty)
+        #expect(rig.controller.last?.isPrivate == true)
+        #expect(DictationHUDPresentation(.notPasted(.secureField))?.buttons.isEmpty == true)
+    }
+
+    @Test func enterGoesOnlyToTheAppStillInFront() async {
+        var front: pid_t? = 42
+        var posted = 0
+        let lost = await TextPasterAdapter.pressReturn(pid: 42, frontmost: { front },
+                                                       wait: { front = 7 }, post: { posted += 1 })
+        #expect(lost == .targetChanged)
+        #expect(posted == 0)
+        front = 42
+        let kept = await TextPasterAdapter.pressReturn(pid: 42, frontmost: { front }, wait: {}, post: { posted += 1 })
+        #expect(kept == .pasted)
+        #expect(posted == 1)
+        front = 3
+        #expect(await TextPasterAdapter.pressReturn(pid: 42, frontmost: { front }, wait: {}, post: { posted += 1 })
+            == .targetChanged)
+        #expect(posted == 1)
     }
 }

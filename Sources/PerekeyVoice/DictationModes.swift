@@ -18,6 +18,8 @@ public enum ModeFallback: Hashable, Sendable {
     case needsKey(endpoint: String)
     /// `VoiceCloudDisabled`.
     case cloudOff
+    /// The cloud speech model did not answer; the model on this Mac heard it.
+    case cloudSpeechFailed
     /// The modes file was written by a newer Perekey.
     case modesLocked
 }

@@ -36,6 +36,8 @@ extension DictationHUDPresentation.Message {
         case .noMicrophone: voiceString("No microphone found")
         case .microphoneFailed: voiceString("Microphone error")
         case .modelFailed: voiceString("The speech model is not ready")
+        case .cloudSpeechFailed: voiceString("The cloud did not answer")
+        case .pastedAsSaid(.cloudSpeechFailed): voiceString("The cloud did not answer: recognized on this Mac")
         case .recognitionFailed: voiceString("Could not recognize the speech")
         }
     }
@@ -44,7 +46,8 @@ extension DictationHUDPresentation.Message {
     var isProblem: Bool {
         switch self {
         case .notPasted, .secureField, .secureInput, .noAccessibility, .timedOut, .nothingHeard,
-             .microphoneDenied, .noMicrophone, .microphoneFailed, .modelFailed, .recognitionFailed: true
+             .microphoneDenied, .noMicrophone, .microphoneFailed, .modelFailed, .recognitionFailed,
+             .cloudSpeechFailed: true
         case .starting, .recording, .preparingModel, .recognizing, .stillRecognizing, .refining, .pasting, .pasted,
              .copied, .cancelled: false
         case let .pastedAsSaid(fallback): fallback != .escape
@@ -60,7 +63,8 @@ extension DictationHUDPresentation.Message {
         case .nothingHeard: "mic.slash"
         case .microphoneDenied, .noMicrophone, .microphoneFailed: "mic.slash.fill"
         case .secureField, .secureInput: "lock.fill"
-        case .notPasted, .noAccessibility, .timedOut, .modelFailed, .recognitionFailed: "exclamationmark.triangle.fill"
+        case .notPasted, .noAccessibility, .timedOut, .modelFailed, .recognitionFailed, .cloudSpeechFailed:
+            "exclamationmark.triangle.fill"
         case .starting, .recording, .preparingModel, .recognizing, .stillRecognizing, .refining, .pasting: nil
         }
     }
@@ -74,6 +78,7 @@ extension DictationHUDPresentation.Button {
         case .paste: voiceString("Paste")
         case .copy: voiceString("Copy")
         case .openMicrophoneSettings, .openAccessibilitySettings, .openVoiceSettings: voiceString("Open Settings")
+        case .retry: voiceString("Retry")
         }
     }
 
@@ -89,6 +94,7 @@ extension DictationHUDPresentation.Button {
         case .openMicrophoneSettings: voiceString("Open the microphone settings")
         case .openAccessibilitySettings: voiceString("Open the Accessibility settings")
         case .openVoiceSettings: voiceString("Open the voice settings")
+        case .retry: voiceString("Send the dictation to the cloud again")
         }
     }
 }

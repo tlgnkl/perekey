@@ -151,7 +151,6 @@
 "Voice modes" = "Режимы голоса";
 "Modes work together with voice. Voice input needs a Mac with Apple Silicon and macOS 15 or newer." = "Режимы работают вместе с голосом. Голосу нужен Mac на Apple Silicon с macOS 15 или новее.";
 "A mode decides what happens to the text after recognition. Perekey picks it by itself: first by the site, then by the app." = "Режим решает, что сделать с текстом после распознавания. Perekey выбирает его сам: сначала по сайту, потом по программе.";
-"These modes were written by a newer version of Perekey. Update the app to change them; until then dictation pastes the text as said." = "Эти режимы записала более новая версия Perekey. Обновите приложение, чтобы их менять; до тех пор диктовка вставляет текст как сказан.";
 "New mode" = "Новый режим";
 "Everywhere by default" = "Везде по умолчанию";
 "From the menu only" = "Только из меню";
@@ -167,7 +166,7 @@
 "On this Mac" = "На этом Mac";
 "In the cloud" = "В облаке";
 "Server" = "Сервер";
-"The text goes in as recognized. Only the dictionary and the text rules work." = "Текст вставляется как распознан. Работают только словарь и правила.";
+"The text goes in as recognized. Only the dictionary and the text rules work." = "Текст вставляется без изменений. Работают только словарь и правила.";
 "%@ on this Mac: the text does not leave it." = "%@ на этом Mac: текст никуда не уходит.";
 "%@ by your key: the text goes to %@." = "%@ по вашему ключу: текст уходит на %@.";
 "Fix recognition errors. Do not change the meaning." = "Исправь ошибки распознавания. Не меняй смысл.";
@@ -227,9 +226,33 @@
 "Send to %@?" = "Отправлять на %@?";
 "Allow" = "Разрешить";
 "Don’t Allow" = "Не разрешать";
-"In the mode “%@”, Perekey will send to %@: %@. Until you allow it, the mode pastes the text as recognized." = "В режиме «%@» на %@ уйдут: %@. Пока вы не разрешите, режим вставляет текст как распознан.";
+"In the mode “%@”, Perekey will send to %@: %@. Until you allow it, the mode pastes the text as recognized." = "В режиме «%@» на %@ уйдут: %@. Пока вы не разрешите, режим вставляет текст без изменений.";
 "the audio of the dictation" = "звук диктовки";
 "the recognized text" = "распознанный текст";
 "the selected text" = "выделенный текст";
 "the app’s name" = "название программы";
 "the site’s address" = "адрес сайта";
+
+/* Review: cloud fallback, examples, built-in modes */
+"The cloud did not answer" = "Облако не ответило";
+"The cloud did not answer: recognized on this Mac" = "Облако не ответило — распознал на Mac";
+"Retry" = "Повторить";
+"Send the dictation to the cloud again" = "Отправить диктовку в облако ещё раз";
+"These modes were written by another version of Perekey, and this one cannot read all of them. They are shown, not changed; update Perekey to edit them." = "Эти режимы записала другая версия Perekey, и эта прочитала не всё. Они показаны, но не меняются; обновите Perekey, чтобы их править.";
+"Bring back the built-in modes" = "Вернуть готовые режимы";
+"Example" = "Пример";
+"SAID" = "СКАЗАЛИ";
+"Delete the mode “%@”?" = "Удалить режим «%@»?";
+"It comes back with its settings reset by “Bring back the built-in modes”." = "Его можно вернуть кнопкой «Вернуть готовые режимы», но настройки сбросятся.";
+"Choose where the LLM works. Until then the text goes in unchanged." = "Выберите, где работает LLM. Пока не выбрано, текст вставляется без изменений.";
+"Revoke access" = "Отозвать доступ";
+"Perekey asks again before the next request there" = "Perekey спросит снова перед следующим запросом туда";
+"uh let's call tomorrow after lunch" = "э-э давай созвонимся завтра после обеда";
+"Let's call tomorrow after lunch." = "Давай созвонимся завтра после обеда.";
+"so we like we'll call tomorrow well after lunch" = "мы короче мы созвонимся завтра ну после обеда";
+"We'll call tomorrow after lunch." = "Созвонимся завтра после обеда.";
+"listen I'll look at the pull request tonight and get back" = "слушай я посмотрю pull request вечером и отпишусь";
+"I'll look at the pull request tonight and get back" = "Посмотрю pull request вечером и отпишусь";
+"hi anna sending the report have a look by friday" = "привет аня отправляю отчёт посмотри до пятницы";
+"Hello Anna, I am sending the report. Please have a look by Friday." = "Здравствуйте, Аня! Отправляю отчёт. Посмотрите, пожалуйста, до пятницы.";
+"let's move the call to monday" = "давай перенесём созвон на понедельник";

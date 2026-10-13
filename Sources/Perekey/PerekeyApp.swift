@@ -84,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if PEREKEY_VOICE
         let voiceModels = VoiceModelsController(settings: VoiceSettingsStore())
         self.voiceModels = voiceModels
-        voice = VoiceSetup(input: input)
+        voice = VoiceSetup(input: input, models: voiceModels)
         #endif
         let settings = SettingsWindow(recording: recording) {
             #if PEREKEY_VOICE

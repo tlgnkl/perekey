@@ -7,54 +7,40 @@ import PerekeyInput
 import PerekeyVoice
 import PerekeyVoiceCore
 
-/// Dictation in the app: reads voice.json, gives the event tap its trigger,
-/// and runs `VoiceController` while dictation is on. With dictation off,
-/// or turned off by a profile, nothing of it runs: no microphone, no
-/// models, no requests.
+/// Dictation in the app, on the voice pane's settings and model store: the
+/// event tap gets the trigger, and `VoiceController` runs while dictation
+/// is on. With dictation off, off by a profile, on a Mac that cannot run the
+/// models, or with voice.json of a newer Perekey, nothing of it runs: no
+/// microphone, no models. The network gate is the pane's
+/// (`VoiceModelsController`).
 @MainActor
 final class VoiceSetup {
     private let input: InputController
-    private let file = VoiceSettingsFile()
-    private let managed = ManagedPreferences.read()
-    private(set) var settings: VoiceSettings
-    /// The plan's defaults until the voice pane's settings reach them.
-    private(set) var preferences = DictationPreferences()
+    private let models: VoiceModelsController
     private(set) var controller: VoiceController?
     private var capture: AudioCapture?
-    private var store: VoiceModelStore?
 
-    init(input: InputController) {
+    init(input: InputController, models: VoiceModelsController) {
         self.input = input
-        settings = file.load()
+        self.models = models
         input.onVoice = { [weak self] in self?.controller?.voice($0) }
         input.onAccessLost.chain { [weak self] in self?.controller?.accessibilityLost() }
-        apply()
+        // A model just downloaded compiles in the background, in the copy
+        // dictation will use.
+        models.onModelReady = { [weak self] id in
+            guard let controller = self?.controller else { return }
+            Task { try? await controller.warmUp(model: id) }
+        }
+        models.settings.observe { [weak self] in self?.apply() }
     }
 
-    /// New dictation preferences, applied at once (a new microphone after
-    /// the session in progress).
-    func update(_ preferences: DictationPreferences) {
-        self.preferences = preferences
-        controller?.apply(preferences)
-    }
+    private var settings: VoiceSettings { models.settings.settings }
 
-    /// New settings from the voice pane: saved, then applied.
-    func update(_ settings: VoiceSettings) throws {
-        try file.save(settings)
-        self.settings = settings
-        apply()
-    }
-
-    private var isOn: Bool { settings.activeTrigger != nil && !managed.voiceDisabled }
+    private var isOn: Bool { models.settings.isOn && models.isSupported && settings.activeTrigger != nil }
 
     private func apply() {
+        // The tap's snapshot: the trigger, and the retype narrowed to the left ⌥.
         input.voiceSettings = isOn ? settings : VoiceSettings()
-        // The only request voice makes is a model download the user asks
-        // for: allowed while dictation is on and no profile forbids it.
-        // The switch, not the trigger: the voice pane downloads a model
-        // first and picks the hotkey after.
-        let downloads = settings.isEnabled && !managed.voiceDisabled && !managed.voiceModelDownloadsDisabled
-        VoiceHTTP.shared.allowed = downloads ? [.modelDownload] : []
         guard isOn else {
             if let controller {
                 self.controller = nil
@@ -64,15 +50,18 @@ final class VoiceSetup {
             }
             return
         }
-        if controller != nil { return }
+        let preferences = DictationPreferences(settings)
+        if let controller {
+            controller.apply(preferences)
+            return
+        }
         let capture = capture ?? AudioCapture()
-        let store = store ?? VoiceModelStore(managed: managed)
         self.capture = capture
-        self.store = store
         let input = self.input
         let trigger = { [weak self] in self?.settings.trigger }
         controller = VoiceController(
-            preferences: preferences, capture: capture, store: store, paster: TextPasterAdapter(input.textPaster), secureInput: input.dictationSecureInput,
+            preferences: preferences, capture: capture, store: models.store,
+            paster: TextPasterAdapter(input.textPaster), secureInput: input.dictationSecureInput,
             hooks: VoiceController.Hooks(
                 sessionChanged: { input.voiceSessionChanged($0) },
                 holdIsDown: { trigger()?.isHeldNow ?? false },

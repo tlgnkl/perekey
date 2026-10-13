@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import PerekeyCore
+
 /// What dictation reads from the user's settings, with the plan's defaults:
 /// Parakeet TDT v3, the system microphone, the layout switch and the sounds
 /// on, a stop after 30 s of silence, the model unloaded after 60 minutes
 /// without dictation.
 public struct DictationPreferences: Hashable, Sendable {
-    /// Parakeet TDT v3: ru, en, uk, and English words kept in Latin letters
-    /// within Russian phrases (stage 0).
-    public static let defaultModel = "parakeet-tdt-v3"
+    /// Parakeet TDT v3, as in the settings.
+    public static let defaultModel = VoiceSettings.defaultModel
 
     /// Nil follows the system microphone.
     public var microphoneUID: String?
@@ -32,5 +33,15 @@ public struct DictationPreferences: Hashable, Sendable {
         self.playsSounds = playsSounds
         self.silenceStop = silenceStop
         self.unloadAfter = unloadAfter
+    }
+}
+
+extension DictationPreferences {
+    /// What dictation reads of the user's settings (voice.json).
+    public init(_ settings: VoiceSettings) {
+        self.init(microphoneUID: settings.microphoneUID, modelID: settings.model,
+                  switchesLayout: settings.switchesLayout, playsSounds: settings.playsSounds,
+                  silenceStop: settings.autoStop.seconds.map { .seconds($0) },
+                  unloadAfter: settings.unload.seconds.map { .seconds($0) })
     }
 }

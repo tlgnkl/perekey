@@ -23,11 +23,14 @@ public struct LanguageModel: @unchecked Sendable {
     public struct Language: @unchecked Sendable {
         public let code: String
         let alphabetSize: Int
+        /// What the pointers below read, and the owner of their bytes: a
+        /// `Language` keeps its model's buffer alive, so it never dangles.
+        let storage: LanguageModel.Storage
         /// Symbol of every scalar below `symbolTableSize`, `ModelBuilder.other` elsewhere.
-        let symbols: [UInt8]
+        var symbols: [UInt8] { storage.symbols }
         /// The small letters of the alphabet in scalar order, joiners left out:
         /// what a dropped letter may have been.
-        public let letters: [UInt32]
+        public var letters: [UInt32] { storage.letters }
         /// `-8·log₂P(c | h0 h1 h2)`, index `((h0·A + h1)·A + h2)·A + c`.
         let costs: UnsafePointer<UInt8>
         let bucketBits: Int
@@ -38,6 +41,20 @@ public struct LanguageModel: @unchecked Sendable {
         let prefixes4: UnsafePointer<UInt64>
         /// Which "е" of a word become "ё" (`ModelFormat.yoTag`); `nil` without the section.
         let yo: FingerprintTable?
+    }
+
+    /// The parts of a `Language` that are not plain pointers, behind one
+    /// reference: a copy of a `Language` costs a single retain.
+    final class Storage: @unchecked Sendable {
+        let symbols: [UInt8]
+        let letters: [UInt32]
+        let owner: AnyObject
+
+        init(symbols: [UInt8], letters: [UInt32], owner: AnyObject) {
+            self.symbols = symbols
+            self.letters = letters
+            self.owner = owner
+        }
     }
 
     /// The bucketed fingerprint table of the "dict" layout: a value byte per
@@ -135,7 +152,7 @@ public struct LanguageModel: @unchecked Sendable {
     /// every file (docs/classifier.md, «Файл на язык»), so a lookup asks each.
     struct File: @unchecked Sendable {
         let bytes: UnsafeRawBufferPointer
-        let owner: AnyObject?
+        let owner: AnyObject
         let meta: String
         let languages: [Language]
         let keepHashes: UnsafePointer<UInt64>
@@ -169,8 +186,9 @@ public struct LanguageModel: @unchecked Sendable {
     /// The codes of `languages`.
     public var codes: Set<String> { Set(languages.map(\.code)) }
 
-    /// Reads a model file from `bytes`. `owner` is retained for the life of the model.
-    public init(bytes: UnsafeRawBufferPointer, owner: AnyObject?) throws {
+    /// Reads a model file from `bytes`. `owner` keeps the bytes alive and is
+    /// retained by the model and by every `Language` read from it.
+    public init(bytes: UnsafeRawBufferPointer, owner: AnyObject) throws {
         var reader = ByteReader(bytes)
         guard bytes.count >= ModelFormat.headerSize else { throw Error.truncated }
         guard reader.u32() == ModelFormat.magic else { throw Error.badMagic }
@@ -240,7 +258,7 @@ public struct LanguageModel: @unchecked Sendable {
                 throw Error.languageIncomplete(code)
             }
             return try Language(code: code, ngram: ngram, dictionary: dict, prefix: prefix,
-                                yo: yo[code].map { try FingerprintTable($0, name: "yo") })
+                                owner: owner, yo: yo[code].map { try FingerprintTable($0, name: "yo") })
         }
         self.init(files: [File(bytes: bytes, owner: owner, meta: meta, languages: languages, keepHashes: keep.0,
                                keepCount: keep.1, cased: cased)])
@@ -307,7 +325,7 @@ public struct LanguageModel: @unchecked Sendable {
 
 extension LanguageModel.Language {
     init(code: String, ngram: UnsafeRawBufferPointer, dictionary: UnsafeRawBufferPointer,
-         prefix: UnsafeRawBufferPointer, yo: LanguageModel.FingerprintTable? = nil) throws
+         prefix: UnsafeRawBufferPointer, owner: AnyObject, yo: LanguageModel.FingerprintTable? = nil) throws
     {
         self.code = code
         self.yo = yo
@@ -330,12 +348,11 @@ extension LanguageModel.Language {
             }
             symbols[scalar] = UInt8(symbol)
         }
-        self.symbols = symbols
         var letters: [UInt32] = []
         for scalar in 0..<symbols.count where symbols[scalar] >= 2 {
             if Unicode.Scalar(UInt32(scalar))?.properties.isAlphabetic == true { letters.append(UInt32(scalar)) }
         }
-        self.letters = letters
+        storage = LanguageModel.Storage(symbols: symbols, letters: letters, owner: owner)
         costs = ngram.baseAddress!.advanced(by: 16 + mapCount * 8).assumingMemoryBound(to: UInt8.self)
 
         reader = ByteReader(dictionary)

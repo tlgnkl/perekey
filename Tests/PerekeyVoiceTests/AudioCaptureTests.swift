@@ -166,11 +166,11 @@ struct AudioCaptureTests {
     /// microphone starts runs after the start, so the microphone is not left on.
     @Test func anUnsubscribeDuringTheStartRunsAfterIt() async throws {
         let input = FakeInput()
-        input.startDelay = 0.15
+        // Long enough to see the start under the load of the whole suite.
+        input.startDelay = 1
         let capture = AudioCapture(input: input)
         let starting = Task { try await capture.subscribe(Collector()) }
-        try await Task.sleep(for: .milliseconds(30))
-        #expect(input.log == ["start system"]) // still starting
+        #expect(await eventually { input.log == ["start system"] }) // still starting
         await capture.unsubscribe(AudioSubscription(id: 1))
         let token = try await starting.value
         #expect(token == AudioSubscription(id: 1))

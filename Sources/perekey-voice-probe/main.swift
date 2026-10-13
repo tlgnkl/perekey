@@ -16,12 +16,13 @@ func usage() -> Never {
         usage: perekey-voice-probe
           download [id...]            fetch models into ~/Library/Caches/perekey-voice-probe
           remote <repo> <commit> [n]  sizes of a repository tree, grouped by n path components
-          catalog <ModelCatalog.swift>
+          catalog <ModelCatalogData.swift>
           recognize <id> <wav>...     text each file gets
           measure <id> <wav>          load time, memory, transcription time (JSON)
           load-check <id> [wav]       MLModel(contentsOf:) for every .mlmodelc
           offline-check <scratch> [--online]  corrupted .mlmodelc with offlineMode on
           net-control                 one HTTPS request, to test the sampler
+          store <command> [id...]     the app's model store in $PEREKEY_VOICE_MODELS
           speech                      Apple Speech locales
         """)
     exit(2)
@@ -67,6 +68,8 @@ do {
         try await Commands.offlineCheck(scratch: scratch, online: rest.contains("--online"))
     case "net-control":
         try await Commands.netControl()
+    case "store":
+        try await StoreCommand.run(rest)
     case "speech":
         await Commands.appleSpeech()
     default:

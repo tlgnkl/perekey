@@ -9,9 +9,11 @@ import PackageDescription
 // (`PEREKEY_VOICE=1 swift build --scratch-path .build/voice`): both graphs
 // then keep their own build state.
 //
-// Package.resolved holds the pins of the flagged graph and is committed. A
-// build without the flag leaves it as is, though SwiftPM still fetches the
-// pinned packages; `swift package update` without the flag deletes it.
+// The pins of the flagged graph live in Support/voice/Package.resolved, and the
+// root Package.resolved is not committed: SwiftPM fetches every pin of a root
+// file, so builds without the flag would clone the voice packages for nothing.
+// The flagged scripts copy the pins to the root; scripts/voice-pins.sh updates
+// and checks them.
 let voice = Context.environment["PEREKEY_VOICE"] == "1"
 
 var dependencies: [Package.Dependency] = []

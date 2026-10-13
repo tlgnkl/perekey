@@ -1,0 +1,22 @@
+{
+  "isEnabled" : true,
+  "microphone" : {
+    "uid" : "BuiltInMicrophoneDevice"
+  },
+  "model" : "parakeet-tdt-0.6b-v3",
+  "modes" : [
+    {
+      "name" : "Письмо",
+      "prompt" : "Fix punctuation."
+    }
+  ],
+  "schemaVersion" : 2,
+  "trigger" : {
+    "keyCode" : 49,
+    "kind" : "hold",
+    "modifiers" : [
+      "option"
+    ],
+    "repeatGuard" : 0.25
+  }
+}

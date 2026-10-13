@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Runs `swift test`. Extra arguments are passed through.
+# Runs `swift test`. Extra arguments are passed through. With PEREKEY_VOICE=1
+# it tests the voice build, in .build/voice unless --scratch-path is given.
 #
 # Command Line Tools (without Xcode) ship the Swift Testing macro plugin outside
 # the default search path, and `swift test` fails with "plugin for module
@@ -33,6 +34,11 @@ if [[ "$(xcode-select -p)" == "$clt" ]]; then
         echo "Install a newer Command Line Tools or Xcode to run the tests." >&2
         exit 1
     fi
+fi
+
+if [[ "${PEREKEY_VOICE:-}" == 1 ]]; then
+    scripts/voice-pins.sh use
+    [[ " $* " == *" --scratch-path "* ]] || extra+=(--scratch-path .build/voice)
 fi
 
 exec swift test ${extra[@]+"${extra[@]}"} "$@"

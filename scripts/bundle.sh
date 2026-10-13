@@ -12,13 +12,16 @@
 #   BUILD          CFBundleVersion (default: 0)
 #   SIGN_IDENTITY  codesign identity; "-" signs ad hoc
 #                  (default: "Perekey Dev" from scripts/dev-cert.sh if present, else -)
+#   SIGN_KEYCHAIN  the keychain that holds SIGN_IDENTITY, e.g. the one with
+#                  "Perekey Release" (docs/release.md); unlock it first
 #   PEREKEY_BINARY a prebuilt executable (a universal one from build-universal.sh)
 #                  to use instead of building the host product
 #   SPARKLE_FRAMEWORK  Sparkle.framework to embed (default: next to the
 #                  executable, where SwiftPM puts it)
 #   SPARKLE_PUBLIC_ED_KEY  replaces SUPublicEDKey of Support/Info.plist
 #   PEREKEY_MODEL  directory of the language model files (default:
-#                  $SCRATCH_PATH/model, built by scripts/build-model.sh if missing)
+#                  $SCRATCH_PATH/model, .build/model with PEREKEY_VOICE=1;
+#                  built by scripts/build-model.sh if missing)
 #   PEREKEY_LANGUAGES  the model files to ship (default: the languages of
 #                  data/languages, the one list the app enables by)
 set -euo pipefail
@@ -26,7 +29,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-release}"
-if [[ "${PEREKEY_VOICE:-}" == 1 ]]; then
+VOICE=0
+[[ "${PEREKEY_VOICE:-}" == 1 ]] && VOICE=1
+if ((VOICE)); then
     SCRATCH_PATH="${SCRATCH_PATH:-.build/voice}"
 else
     SCRATCH_PATH="${SCRATCH_PATH:-.build}"
@@ -36,7 +41,11 @@ VERSION="${VERSION:-0.0.0}"
 BUILD="${BUILD:-0}"
 DEV_KEYCHAIN="$HOME/Library/Keychains/perekey-dev.keychain-db"
 SIGN_ARGS=()
-if [[ -z "${SIGN_IDENTITY:-}" && -f "$DEV_KEYCHAIN" ]]; then
+if [[ -n "${SIGN_KEYCHAIN:-}" ]]; then
+    # Without an identity the build would quietly fall back to ad hoc.
+    [[ -n "${SIGN_IDENTITY:-}" ]] || { echo "error: SIGN_KEYCHAIN needs SIGN_IDENTITY" >&2; exit 1; }
+    SIGN_ARGS=(--keychain "$SIGN_KEYCHAIN")
+elif [[ -z "${SIGN_IDENTITY:-}" && -f "$DEV_KEYCHAIN" ]]; then
     security unlock-keychain -p perekey-dev "$DEV_KEYCHAIN"
     SIGN_IDENTITY="Perekey Dev"
     SIGN_ARGS=(--keychain "$DEV_KEYCHAIN")
@@ -46,6 +55,7 @@ SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 if [[ -n "${PEREKEY_BINARY:-}" ]]; then
     BINARY="$PEREKEY_BINARY"
 else
+    ((VOICE)) && scripts/voice-pins.sh use
     swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --product Perekey
     BINARY="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --show-bin-path)/Perekey"
 fi
@@ -74,7 +84,12 @@ cp Support/Perekey.sdef "$APP/Contents/Resources/Perekey.sdef" # AppleScript dic
 # layouts' languages from Bundle.main: Contents/Resources/<language>.pklm.
 # Each file must match its hash in data/model.sha256: a stale local build
 # would otherwise ship silently.
-MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+# The model has no voice in it: a voice build shares the one of .build.
+if ((VOICE)); then
+    MODEL="${PEREKEY_MODEL:-.build/model}"
+else
+    MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+fi
 LANGUAGES="${PEREKEY_LANGUAGES:-$(grep -v '^#' data/languages | tr '\n' ' ')}"
 if [[ -e "$MODEL" && ! -d "$MODEL" ]]; then
     echo "error: PEREKEY_MODEL=$MODEL is a file; it names the directory of <language>.pklm now" >&2
@@ -125,21 +140,26 @@ if [[ -n "$stray" ]]; then
 fi
 
 # Sign inside out with one identity: Sparkle's helpers, the framework, the app.
-# Library validation lets a hardened app load only libraries of its own team.
-# The local "Perekey Dev" and ad hoc signatures have no team, so those builds
-# get an entitlement that turns the check off; Developer ID builds do not.
+# Every build gets Support/Perekey.entitlements: the hardened runtime gives a
+# signature without the audio input entitlement no microphone. Library
+# validation lets a hardened app load only libraries of its own team. The
+# self-signed "Perekey Dev" and "Perekey Release" and ad hoc signatures have no
+# team, so the file turns the check off; Developer ID builds have one and keep
+# it on.
 SIGN=(codesign --force --options runtime ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} --sign "$SIGN_IDENTITY")
-APP_ENTITLEMENTS=()
+ENTITLEMENTS=Support/Perekey.entitlements
 if [[ "$SIGN_IDENTITY" == "Developer ID Application"* ]]; then
     SIGN+=(--timestamp) # notarization needs a secure timestamp
+    ENTITLEMENTS="$(mktemp -t perekey-entitlements)"
+    trap 'rm -f "$ENTITLEMENTS"' EXIT
+    plutil -remove 'com\.apple\.security\.cs\.disable-library-validation' -o "$ENTITLEMENTS" Support/Perekey.entitlements
 else
     SIGN+=(--timestamp=none)
-    APP_ENTITLEMENTS=(--entitlements Support/Dev.entitlements)
 fi
 SPARKLE="$FRAMEWORKS/Sparkle.framework/Versions/B"
 "${SIGN[@]}" "$SPARKLE/Autoupdate"
 "${SIGN[@]}" "$SPARKLE/Updater.app"
 "${SIGN[@]}" "$FRAMEWORKS/Sparkle.framework"
-"${SIGN[@]}" ${APP_ENTITLEMENTS[@]+"${APP_ENTITLEMENTS[@]}"} "$APP"
+"${SIGN[@]}" --entitlements "$ENTITLEMENTS" "$APP"
 codesign --verify --deep --strict "$APP"
 echo "$APP"

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Checks that every localizable string literal in Sources/Perekey has a key in
-# Support/en.lproj and Support/ru.lproj, and that no key is unused.
+# Support/en.lproj and Support/ru.lproj, and that no key is unused. InfoPlist.strings
+# translates exactly the usage descriptions (NS…UsageDescription) of Support/Info.plist.
 #
 # Literals counted as keys: String(localized: "…"), and the first argument of
 # Text, Label, Button, Section, Picker, TextField, Toggle, .help,

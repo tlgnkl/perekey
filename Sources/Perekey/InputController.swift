@@ -224,6 +224,10 @@ final class InputController {
             secureInput.refresh()
         case .pastePlain:
             plainPaste.paste()
+        case .voice:
+            // Dictation is not wired up yet: voice.json is not read, so the
+            // snapshot has no voice trigger and the tap never sends this.
+            break
         case let .retyped(original, text, origin, decision):
             SystemSounds.play(store.settings.correctionSound)
             // An automatic switch has its own hint, from `corrected`; an undo hides it.

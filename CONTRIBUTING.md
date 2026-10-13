@@ -12,21 +12,30 @@ Requires macOS 14+ and Swift 6. Command Line Tools are enough; Xcode is not need
 | `scripts/test.sh` | Run unit tests. Works around the missing Swift Testing macro plugin on Command Line Tools. Extra arguments go to `swift test`. |
 | `scripts/bench.sh` | Benchmark `InputMachine` in release. `BENCH_BASE=<ref>` compares with another commit and fails on a >20 % slowdown. Run it when you touch `PerekeyCore`. |
 | `scripts/dev-cert.sh` | Run once. Creates a local self-signed "Perekey Dev" identity. macOS ties Accessibility and Input Monitoring grants to the code signature; an ad-hoc signature changes every build, so the grant is lost after each rebuild. |
-| `scripts/bundle.sh` | Build and sign `.build/app/Perekey.app`, with Sparkle embedded in `Contents/Frameworks`. |
+| `scripts/bundle.sh` | Build and sign `.build/app/Perekey.app`, with Sparkle embedded in `Contents/Frameworks`. Every build is signed with `Support/Perekey.entitlements`: without its audio input entitlement macOS gives the app no microphone. Signs with "Perekey Dev" when it exists; `SIGN_IDENTITY=-` signs ad hoc, and `SIGN_IDENTITY` with `SIGN_KEYCHAIN` picks another identity. |
+| `scripts/release-cert.sh` | Maintainers only, once. Creates the self-signed "Perekey Release" identity that signs releases; see [docs/release.md](docs/release.md). |
 | `scripts/appcast.sh` | Write the signed Sparkle appcast for a release DMG. CI runs it; see [docs/release.md](docs/release.md). |
 
 Voice input is in progress and builds only with `PEREKEY_VOICE=1`, in its own
-scratch path: `PEREKEY_VOICE=1 swift build --scratch-path .build/voice`, and
-`PEREKEY_VOICE=1 scripts/test.sh --scratch-path .build/voice`. `bundle.sh` and
-`build-universal.sh` pick their voice scratch path from the variable themselves.
-`Package.resolved` holds the pins of the voice build and is committed. A build
-without the flag leaves it as is (SwiftPM still fetches the pinned packages), but
-`swift package update` without the flag deletes it: update the pins only with
-`PEREKEY_VOICE=1 swift package update --scratch-path .build/voice`.
+scratch path: `scripts/voice-pins.sh use`, then
+`PEREKEY_VOICE=1 swift build --scratch-path .build/voice`. `scripts/test.sh`,
+`bundle.sh`, `build-universal.sh` and `snapshot.sh` take the variable and do both
+themselves. Speech models load only from the app's own store:
+`scripts/check-voice-loaders.sh` fails on the loaders of FluidAudio and WhisperKit.
+The pins of the voice build live in `Support/voice/Package.resolved`; the root
+`Package.resolved` is ignored by git, so builds without the flag fetch no voice
+packages. The flagged scripts copy the pins to the root before they build. Update
+them with `scripts/voice-pins.sh update`, never with a bare `swift package update`.
 
 Start the app with `open .build/app/Perekey.app`, not by running the binary.
 macOS (TCC) attributes permissions to the process that launched it, so a binary
 started from a terminal asks for the terminal's grants, not the app's.
+
+The voice build has hidden checks that need the app's own grants, such as
+the microphone: `open -n -W .build/voice/app/Perekey.app --args --voice-check mic`
+asks for access, reads the microphone, switches devices and starts and stops it
+1000 times. Each check writes its lines to `~/Library/Logs/Perekey/voice-check-<name>.txt`;
+`--voice-check help` lists them.
 
 ## Toolchain notes
 

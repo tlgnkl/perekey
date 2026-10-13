@@ -25,8 +25,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export CONFIG="${CONFIG:-release}"
-if [[ "${PEREKEY_VOICE:-}" == 1 ]]; then
+VOICE=0
+[[ "${PEREKEY_VOICE:-}" == 1 ]] && VOICE=1
+if ((VOICE)); then
     export SCRATCH_PATH="${SCRATCH_PATH:-.build/voice-universal}"
+    scripts/voice-pins.sh use
 else
     export SCRATCH_PATH="${SCRATCH_PATH:-.build/universal}"
 fi
@@ -50,7 +53,12 @@ rm -rf "$SCRATCH_PATH/lipo/Sparkle.framework"
 ditto "$bin_dir/Sparkle.framework" "$SCRATCH_PATH/lipo/Sparkle.framework"
 
 # The model is architecture-independent; build it once, next to the slices.
-export PEREKEY_MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+# It has no voice in it: a voice build shares the one of .build/universal.
+if ((VOICE)); then
+    export PEREKEY_MODEL="${PEREKEY_MODEL:-.build/universal/model}"
+else
+    export PEREKEY_MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+fi
 PEREKEY_BINARY="$SCRATCH_PATH/lipo/Perekey" scripts/bundle.sh >/dev/null
 
 APP="$OUT/Perekey.app"

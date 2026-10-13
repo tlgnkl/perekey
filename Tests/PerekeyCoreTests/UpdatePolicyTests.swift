@@ -77,4 +77,15 @@ import Testing
         #expect(plist["SUEnableAutomaticChecks"] as? Bool == true)
         #expect(plist["SUPublicEDKey"] is String)
     }
+
+    /// Without the flag Sparkle takes a new EdDSA key from an update whose code
+    /// signature matches, so the self-signed release certificate alone could ship one.
+    @Test func infoPlistRequiresTheEdDSAKeyForEveryUpdate() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Support/Info.plist")
+        let plist = try #require(
+            PropertyListSerialization.propertyList(from: Data(contentsOf: url), format: nil) as? [String: Any])
+        #expect(plist["SUVerifyUpdateBeforeExtraction"] as? Bool == true)
+    }
 }

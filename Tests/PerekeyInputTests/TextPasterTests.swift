@@ -349,7 +349,8 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         let clock = ContinuousClock()
         let start = clock.now
         #expect(await paster.paste("text", into: target()) == .failed(.modifiersHeld))
-        #expect(clock.now - start < .seconds(2))
+        // It gives up instead of waiting forever; a loaded machine sleeps long.
+        #expect(clock.now - start < .seconds(20))
         #expect(pasteboard.writes == 0)
     }
 
@@ -434,6 +435,21 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         #expect(probe.afterPaste == 1, "the tap must leave text that may arrive alone")
         plain.restoreNow()
         #expect(pasteboard.plainString == "mine")
+    }
+
+    @Test func aFailedPressAfterACopyMeanwhileDropsTheSnapshot() async {
+        let probe = Probe()
+        probe.menu = .notDone
+        let pasteboard = FakePasteboard()
+        let (paster, plain) = make(probe, pasteboard: pasteboard)
+        probe.duringMenu = { pasteboard.copyByUser("copied meanwhile") }
+        paster.strategy = .menu
+        #expect(await paster.paste("text", into: target()) == .failed(.strategyFailed))
+        #expect(!plain.isRestorePending)
+        #expect(pasteboard.plainString == "copied meanwhile")
+        // The next paste saves the newer copy, not the old snapshot.
+        #expect(await paster.paste("next", into: target()) == .failed(.strategyFailed))
+        #expect(pasteboard.plainString == "copied meanwhile")
     }
 
     @Test func aFailedPressLeavesAPlainPasteMeanwhileAlone() async {

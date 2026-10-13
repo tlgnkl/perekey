@@ -23,8 +23,6 @@ enum PerekeyMain {
         DebugVoiceScenario.runIfRequested()
         #endif
         #if PEREKEY_VOICE
-        // Links the voice layer until the app uses it.
-        withExtendedLifetime(VoiceEngines.linked) {}
         // `--voice-check <name>`: a hidden check of the voice layer that needs
         // the app's own permissions (VoiceCheck.swift). It exits when done.
         if let check = VoiceCheck(arguments: CommandLine.arguments) {
@@ -59,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The voice settings and speech models. Lives with the app, so the
     /// network gate and the downloads do not depend on the Settings window.
     private let voiceModels: VoiceModelsController
+    /// Dictation: the hotkey, the microphone, the engines, the paste.
+    private let voice: VoiceSetup
     #endif
 
     override init() {
@@ -84,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if PEREKEY_VOICE
         let voiceModels = VoiceModelsController(settings: VoiceSettingsStore())
         self.voiceModels = voiceModels
+        voice = VoiceSetup(input: input, models: voiceModels)
         #endif
         let settings = SettingsWindow(recording: recording) {
             #if PEREKEY_VOICE

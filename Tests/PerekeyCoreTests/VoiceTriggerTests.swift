@@ -430,3 +430,86 @@ private extension Output {
         #expect(VoiceTrigger(recorded: .modifiers(.rightOption, taps: .double)) == nil)
     }
 }
+
+@Suite struct VoiceSessionTests {
+    @Test func escCancelsOnlyDuringASession() {
+        var keyboard = Keyboard(voice: .default)
+        let before = keyboard.key(.down, KeyCode.escape)
+        #expect(before.disposition == .pass)
+        #expect(before.voice.isEmpty)
+        #expect(keyboard.key(.up, KeyCode.escape).disposition == .pass)
+
+        keyboard.send(.voiceSession(true))
+        let down = keyboard.key(.down, KeyCode.escape)
+        #expect(down.disposition == .drop)
+        #expect(down.effects == [.voice(.cancel)])
+        #expect(keyboard.key(.up, KeyCode.escape).disposition == .drop, "its key up goes with it")
+
+        keyboard.send(.voiceSession(false))
+        #expect(keyboard.key(.down, KeyCode.escape).disposition == .pass)
+    }
+
+    @Test func escWithModifiersPasses() {
+        var keyboard = Keyboard(voice: .default)
+        keyboard.send(.voiceSession(true))
+        for flags in [EventFlags.command, EventFlags.control, EventFlags.option] {
+            let down = keyboard.key(.down, KeyCode.escape, flags: flags)
+            #expect(down.disposition == .pass)
+            #expect(down.voice.isEmpty)
+            #expect(keyboard.key(.up, KeyCode.escape, flags: flags).disposition == .pass)
+        }
+        #expect(keyboard.key(.down, KeyCode.escape, flags: EventFlags.shift).voice == [.cancel])
+    }
+
+    @Test func escBreaksAModifierTap() {
+        var keyboard = Keyboard(voice: .default)
+        keyboard.send(.voiceSession(true))
+        keyboard.modifiers(.rightOption, flags: rightOption)
+        #expect(keyboard.key(.down, KeyCode.escape, flags: rightOption).disposition == .pass, "⌥Esc is not ours")
+        keyboard.key(.up, KeyCode.escape, flags: rightOption)
+        #expect(keyboard.modifiers(.rightOption, flags: 0).voice.isEmpty, "a chord with a key is no tap")
+
+    }
+
+    @Test func escCancelsAHoldUnderItsModifiers() {
+        var keyboard = Keyboard(voice: optionSpace)
+        keyboard.beginOptionSpace()
+        keyboard.send(.voiceSession(true))
+        let down = keyboard.key(.down, KeyCode.escape, flags: Keyboard.leftOption)
+        #expect(down.disposition == .drop)
+        #expect(down.voice == [.cancel])
+        #expect(keyboard.key(.up, KeyCode.escape, flags: Keyboard.leftOption).disposition == .drop)
+        // ⌘Esc is still not ours.
+        let command = keyboard.key(.down, KeyCode.escape, flags: Keyboard.leftOption | EventFlags.command)
+        #expect(command.disposition == .pass)
+    }
+
+    @Test func aSwallowedEscBreaksAModifierTap() {
+        // Fn is the trigger: fn, Esc (taken for the session), fn up is no tap.
+        var keyboard = Keyboard(voice: .tap(ModifierChord([.function: .either])))
+        keyboard.send(.voiceSession(true))
+        keyboard.time += 0.3
+        keyboard.modifiers(.function, flags: EventFlags.function)
+        #expect(keyboard.key(.down, KeyCode.escape, flags: EventFlags.function).voice == [.cancel])
+        keyboard.key(.up, KeyCode.escape, flags: EventFlags.function)
+        #expect(keyboard.modifiers(.function, flags: 0).voice.isEmpty)
+        // The same without Esc is a tap.
+        var control = Keyboard(voice: .tap(ModifierChord([.function: .either])))
+        control.send(.voiceSession(true))
+        #expect(control.tap(.function, flags: EventFlags.function).voice == [.toggle])
+    }
+
+    @Test func dictationTurnedOffGivesEscBack() {
+        var keyboard = Keyboard(voice: .default)
+        keyboard.send(.voiceSession(true))
+        keyboard.send(.settingsChanged(AppSettings().snapshot))
+        #expect(keyboard.key(.down, KeyCode.escape).disposition == .pass)
+    }
+
+    @Test func otherKeysPassDuringASession() {
+        var keyboard = Keyboard(voice: .default)
+        keyboard.send(.voiceSession(true))
+        keyboard.type("ghbdtn", in: Fixture.abc)
+        #expect(keyboard.key(.down, KeyCode.space).voice.isEmpty)
+    }
+}

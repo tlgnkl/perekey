@@ -141,6 +141,9 @@ public struct InputMachine: Sendable {
 
         case let .settingsChanged(newSettings):
             settings = newSettings
+            // Dictation turned off ends its session here too: Esc is never
+            // taken for a session the system layer forgot to end.
+            if newSettings.voice == nil { voiceSession = false }
             if let signal = shortcuts.apply(newSettings.hotkeys, voice: newSettings.voice) {
                 effects.append(.voice(signal))
             }
@@ -203,7 +206,13 @@ public struct InputMachine: Sendable {
 
         if key.phase == .up { return shortcuts.keyUp(key.keyCode) ? .drop : .pass }
 
-        if voiceSession, key.keyCode == KeyCode.escape {
+        // A plain Esc only: ⌘Esc, ⌃Esc and ⌥Esc are the system's and the apps'.
+        let chordModifiers = ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit
+        if voiceSession, key.keyCode == KeyCode.escape,
+           ModifierKind.kindMask(inEventFlags: key.flags) & chordModifiers == 0
+        {
+            // The key breaks a modifier chord in progress, as typing does.
+            shortcuts.otherInput(at: time)
             shortcuts.swallow(key.keyCode)
             effects.append(.voice(.cancel))
             return .drop

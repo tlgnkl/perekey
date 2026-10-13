@@ -399,6 +399,50 @@ private extension Output {
         #expect(keyboard.key(.down, KeyCode.escape).disposition == .pass)
     }
 
+    @Test func escWithModifiersPasses() {
+        var keyboard = Keyboard(voice: .default)
+        keyboard.send(.voiceSession(true))
+        for flags in [EventFlags.command, EventFlags.control, EventFlags.option] {
+            let down = keyboard.key(.down, KeyCode.escape, flags: flags)
+            #expect(down.disposition == .pass)
+            #expect(down.voice.isEmpty)
+            #expect(keyboard.key(.up, KeyCode.escape, flags: flags).disposition == .pass)
+        }
+        #expect(keyboard.key(.down, KeyCode.escape, flags: EventFlags.shift).voice == [.cancel])
+    }
+
+    @Test func escBreaksAModifierTap() {
+        var keyboard = Keyboard(voice: .default)
+        keyboard.send(.voiceSession(true))
+        keyboard.modifiers(.rightOption, flags: rightOption)
+        #expect(keyboard.key(.down, KeyCode.escape, flags: rightOption).disposition == .pass, "⌥Esc is not ours")
+        keyboard.key(.up, KeyCode.escape, flags: rightOption)
+        #expect(keyboard.modifiers(.rightOption, flags: 0).voice.isEmpty, "a chord with a key is no tap")
+
+    }
+
+    @Test func aSwallowedEscBreaksAModifierTap() {
+        // Fn is the trigger: fn, Esc (taken for the session), fn up is no tap.
+        var keyboard = Keyboard(voice: .tap(ModifierChord([.function: .either])))
+        keyboard.send(.voiceSession(true))
+        keyboard.time += 0.3
+        keyboard.modifiers(.function, flags: EventFlags.function)
+        #expect(keyboard.key(.down, KeyCode.escape, flags: EventFlags.function).voice == [.cancel])
+        keyboard.key(.up, KeyCode.escape, flags: EventFlags.function)
+        #expect(keyboard.modifiers(.function, flags: 0).voice.isEmpty)
+        // The same without Esc is a tap.
+        var control = Keyboard(voice: .tap(ModifierChord([.function: .either])))
+        control.send(.voiceSession(true))
+        #expect(control.tap(.function, flags: EventFlags.function).voice == [.toggle])
+    }
+
+    @Test func dictationTurnedOffGivesEscBack() {
+        var keyboard = Keyboard(voice: .default)
+        keyboard.send(.voiceSession(true))
+        keyboard.send(.settingsChanged(AppSettings().snapshot))
+        #expect(keyboard.key(.down, KeyCode.escape).disposition == .pass)
+    }
+
     @Test func otherKeysPassDuringASession() {
         var keyboard = Keyboard(voice: .default)
         keyboard.send(.voiceSession(true))

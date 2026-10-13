@@ -159,6 +159,10 @@ final class InputController {
         if store.isRecording || pause.isTimedPauseActive || appOff {
             settings.hotkeys = []
         }
+        // The recorder takes every key, the voice trigger's too. A pause of
+        // Perekey, for all apps or one, leaves dictation on: it is a feature
+        // of its own, with app rules of its own to come.
+        if store.isRecording { settings.voice = nil }
         return settings
     }
 

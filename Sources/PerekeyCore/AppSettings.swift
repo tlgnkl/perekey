@@ -123,13 +123,21 @@ public struct AppSettings: Hashable, Sendable {
         AppModes.effectiveMode(bundleID: bundleID, isGame: isGame, rules: apps)
     }
 
+    /// The snapshot for the event tap, with dictation off.
+    public var snapshot: Settings { snapshot(voice: VoiceSettings()) }
+
     /// The snapshot for the event tap. In `.instant` mode Caps Lock arrives as
-    /// F18, which switches the layout.
-    public var snapshot: Settings {
+    /// F18, which switches the layout. While a tap of the right Option key
+    /// starts dictation, the shortcuts on either Option key take only the
+    /// left one. Neither is saved: `hotkeys` stay as the user set them, and
+    /// the shortcuts UI still sees its preset.
+    public func snapshot(voice: VoiceSettings) -> Settings {
         var hotkeys = hotkeys
         if capsLock == .instant {
             hotkeys.append(HotkeyBinding(.key(keyCode: KeyCode.f18, modifiers: []), action: .switchLayout))
         }
+        let voiceTrigger = voice.activeTrigger
+        if let voiceTrigger { hotkeys = voiceTrigger.narrowing(hotkeys) }
         var exceptions = Set(words.mine)
         for learned in words.learned { exceptions.insert(learned.word) }
         // Never-touch wins: an imported file may have a word on both kinds of list.
@@ -138,7 +146,7 @@ public struct AppSettings: Hashable, Sendable {
         }
         return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions, alwaysFix: alwaysFix,
                         learnFromUndos: words.learnFromUndos, corrections: corrections,
-                        typoCorrection: typoCorrection)
+                        typoCorrection: typoCorrection, voice: voiceTrigger)
     }
 }
 

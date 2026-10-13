@@ -45,6 +45,10 @@ public enum EngineMessage: Sendable {
     /// Languages of judged words, counts only (`Effect.languagesCounted`):
     /// add them to the language statistics.
     case languagesCounted(LanguageTally)
+    /// The voice trigger fired (`Effect.voice`). While a hold is on, check
+    /// its keys on the main thread (`VoiceTrigger.isHeldNow`) and send
+    /// `.voiceHoldLost` if they are up: a key up can be lost.
+    case voice(VoiceSignal)
 }
 
 public enum TapState: Hashable, Sendable {
@@ -343,7 +347,8 @@ public final class InputEngine: @unchecked Sendable {
         let flags = event.flags.rawValue
         let input: InputEvent = switch type {
         case .flagsChanged:
-            .flagsChanged(keyCode: keyCode, flags: flags, origin: origin, time: time)
+            .flagsChanged(keyCode: keyCode, flags: flags, origin: origin, time: time,
+                          location: PointerLocation(x: event.location.x, y: event.location.y))
         default:
             .key(KeyEvent(type == .keyDown ? .down : .up, keyCode: keyCode, flags: flags,
                           isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0, origin: origin),
@@ -575,6 +580,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.refused(refusal))
             case let .convertSelection(seq):
                 toMain(.convertSelection(seq: seq))
+            case let .voice(signal):
+                toMain(.voice(signal))
             }
             index += 1
         }

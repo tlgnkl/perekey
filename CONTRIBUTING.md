@@ -12,7 +12,8 @@ Requires macOS 14+ and Swift 6. Command Line Tools are enough; Xcode is not need
 | `scripts/test.sh` | Run unit tests. Works around the missing Swift Testing macro plugin on Command Line Tools. Extra arguments go to `swift test`. |
 | `scripts/bench.sh` | Benchmark `InputMachine` in release. `BENCH_BASE=<ref>` compares with another commit and fails on a >20 % slowdown. Run it when you touch `PerekeyCore`. |
 | `scripts/dev-cert.sh` | Run once. Creates a local self-signed "Perekey Dev" identity. macOS ties Accessibility and Input Monitoring grants to the code signature; an ad-hoc signature changes every build, so the grant is lost after each rebuild. |
-| `scripts/bundle.sh` | Build and sign `.build/app/Perekey.app`, with Sparkle embedded in `Contents/Frameworks`. Every build is signed with `Support/Perekey.entitlements`: without its audio input entitlement macOS gives the app no microphone. |
+| `scripts/bundle.sh` | Build and sign `.build/app/Perekey.app`, with Sparkle embedded in `Contents/Frameworks`. Every build is signed with `Support/Perekey.entitlements`: without its audio input entitlement macOS gives the app no microphone. Signs with "Perekey Dev" when it exists; `SIGN_IDENTITY=-` signs ad hoc, and `SIGN_IDENTITY` with `SIGN_KEYCHAIN` picks another identity. |
+| `scripts/release-cert.sh` | Maintainers only, once. Creates the self-signed "Perekey Release" identity that signs releases; see [docs/release.md](docs/release.md). |
 | `scripts/appcast.sh` | Write the signed Sparkle appcast for a release DMG. CI runs it; see [docs/release.md](docs/release.md). |
 
 Voice input is in progress and builds only with `PEREKEY_VOICE=1`, in its own

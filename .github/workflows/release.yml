@@ -1,14 +1,22 @@
-# Release: on a v* tag, build a universal app, pack a DMG, optionally sign and
-# notarize it, write the signed Sparkle appcast, attach everything to the
-# GitHub release, and publish the appcast on GitHub Pages.
+# Release: on a v* tag, build a universal app, pack a DMG, sign it and
+# notarize it when it can, write the signed Sparkle appcast, attach everything
+# to the GitHub release, and publish the appcast on GitHub Pages.
 #
-# Secrets (all optional; a missing secret skips its step, and the release is
-# then an unsigned preview build):
+# The job runs in the GitHub environment "release", which waits for the
+# owner's approval; the signing secrets live there (docs/release.md).
+#
+# Secrets (all optional; a missing secret skips its step). The app is signed
+# with the first identity whose secrets are set:
+#   1. Developer ID, then notarized:
 #   DEVELOPER_ID_CERT_P12      base64 of the Developer ID Application .p12
 #   DEVELOPER_ID_CERT_PASSWORD password of that .p12
 #   DEVELOPER_ID_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
 #   NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD
 #                              Apple ID, team ID and app-specific password for notarytool
+#   2. "Perekey Release", self-signed (scripts/release-cert.sh); not notarized:
+#   PEREKEY_RELEASE_CERT_P12      base64 of its .p12
+#   PEREKEY_RELEASE_CERT_PASSWORD password of that .p12
+#   3. Neither: ad hoc.
 #   SPARKLE_ED_PRIVATE_KEY     Sparkle EdDSA private key (docs/release.md has the exact command)
 name: Release
 
@@ -27,6 +35,7 @@ permissions:
 
 jobs:
   release:
+    environment: release
     runs-on: macos-26 # the macOS 26 SDK and Swift 6.2+ (Liquid Glass, isolated deinit), as in ci.yml
     steps:
       - uses: actions/checkout@v4
@@ -63,16 +72,25 @@ jobs:
             swift package resolve --scratch-path ".build/universal/$arch"
           done
 
-      - name: Import the Developer ID certificate
+      # Writes the signing identity to a temporary keychain with a random
+      # password; the last step deletes it. Output "signing": developer-id,
+      # release or adhoc.
+      - name: Import the signing certificate
         id: cert
         env:
-          CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
-          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
-          IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          DEVELOPER_ID_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          DEVELOPER_ID_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+          RELEASE_P12: ${{ secrets.PEREKEY_RELEASE_CERT_P12 }}
+          RELEASE_PASSWORD: ${{ secrets.PEREKEY_RELEASE_CERT_PASSWORD }}
         run: |
-          if [[ -z "$CERT_P12" || -z "$IDENTITY" ]]; then
-            echo "No Developer ID secrets: the build stays ad hoc signed."
-            echo "signed=false" >> "$GITHUB_OUTPUT"
+          if [[ -n "$DEVELOPER_ID_P12" && -n "$DEVELOPER_ID_IDENTITY" ]]; then
+            signing=developer-id p12="$DEVELOPER_ID_P12" password="$DEVELOPER_ID_PASSWORD" identity="$DEVELOPER_ID_IDENTITY"
+          elif [[ -n "$RELEASE_P12" ]]; then
+            signing=release p12="$RELEASE_P12" password="$RELEASE_PASSWORD" identity="Perekey Release"
+          else
+            echo "No signing secrets: the build stays ad hoc signed."
+            echo "signing=adhoc" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           kc="$RUNNER_TEMP/release.keychain-db"
@@ -80,13 +98,20 @@ jobs:
           security create-keychain -p "$pw" "$kc"
           security set-keychain-settings -lut 3600 "$kc"
           security unlock-keychain -p "$pw" "$kc"
-          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc"
-          security list-keychains -d user -s "$kc" login.keychain-db
+          echo "$p12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$password" -T /usr/bin/codesign
           rm "$RUNNER_TEMP/cert.p12"
-          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-          echo "signed=true" >> "$GITHUB_OUTPUT"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" login.keychain-db
+          # Without -v find-identity lists the self-signed certificate too, as
+          # not trusted. codesign refuses an expired one: fail here, by name.
+          found="$(security find-identity -p codesigning "$kc" | grep -F "\"$identity\"" || true)"
+          if [[ -z "$found" || "$found" == *EXPIRED* ]]; then
+            echo "::error::No usable \"$identity\" in the certificate: ${found:-missing}"
+            exit 1
+          fi
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "signing=$signing" >> "$GITHUB_OUTPUT"
 
       - name: Universal build
         run: scripts/build-universal.sh
@@ -95,7 +120,7 @@ jobs:
 
       - name: Notarize and staple
         id: notary
-        if: steps.cert.outputs.signed == 'true'
+        if: steps.cert.outputs.signing == 'developer-id'
         env:
           NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
           NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
@@ -127,7 +152,8 @@ jobs:
       - name: Upload to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          # Unsigned builds get the "Open Anyway" steps in their notes.
+          # Builds Apple has not notarized (ad hoc and "Perekey Release") get
+          # the "Open Anyway" steps in their notes.
           SIGNED: ${{ steps.notary.outputs.notarized == 'true' }}
         run: |
           scripts/release-notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
@@ -151,3 +177,12 @@ jobs:
         run: |
           [[ -f .build/appcast/appcast.xml ]] || exit 0
           gh workflow run pages.yml --ref main
+
+      - name: Delete the temporary keychain
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/cert.p12"
+          kc="$RUNNER_TEMP/release.keychain-db"
+          [[ -f "$kc" ]] || exit 0
+          security list-keychains -d user -s login.keychain-db
+          security delete-keychain "$kc"

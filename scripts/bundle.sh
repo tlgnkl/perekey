@@ -12,6 +12,8 @@
 #   BUILD          CFBundleVersion (default: 0)
 #   SIGN_IDENTITY  codesign identity; "-" signs ad hoc
 #                  (default: "Perekey Dev" from scripts/dev-cert.sh if present, else -)
+#   SIGN_KEYCHAIN  the keychain that holds SIGN_IDENTITY, e.g. the one with
+#                  "Perekey Release" (docs/release.md); unlock it first
 #   PEREKEY_BINARY a prebuilt executable (a universal one from build-universal.sh)
 #                  to use instead of building the host product
 #   SPARKLE_FRAMEWORK  Sparkle.framework to embed (default: next to the
@@ -36,7 +38,9 @@ VERSION="${VERSION:-0.0.0}"
 BUILD="${BUILD:-0}"
 DEV_KEYCHAIN="$HOME/Library/Keychains/perekey-dev.keychain-db"
 SIGN_ARGS=()
-if [[ -z "${SIGN_IDENTITY:-}" && -f "$DEV_KEYCHAIN" ]]; then
+if [[ -n "${SIGN_KEYCHAIN:-}" ]]; then
+    SIGN_ARGS=(--keychain "$SIGN_KEYCHAIN")
+elif [[ -z "${SIGN_IDENTITY:-}" && -f "$DEV_KEYCHAIN" ]]; then
     security unlock-keychain -p perekey-dev "$DEV_KEYCHAIN"
     SIGN_IDENTITY="Perekey Dev"
     SIGN_ARGS=(--keychain "$DEV_KEYCHAIN")
@@ -127,9 +131,10 @@ fi
 # Sign inside out with one identity: Sparkle's helpers, the framework, the app.
 # Every build gets Support/Perekey.entitlements: the hardened runtime gives a
 # signature without the audio input entitlement no microphone. Library
-# validation lets a hardened app load only libraries of its own team. The local
-# "Perekey Dev" and ad hoc signatures have no team, so the file turns the check
-# off; Developer ID builds have one and keep it on.
+# validation lets a hardened app load only libraries of its own team. The
+# self-signed "Perekey Dev" and "Perekey Release" and ad hoc signatures have no
+# team, so the file turns the check off; Developer ID builds have one and keep
+# it on.
 SIGN=(codesign --force --options runtime ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} --sign "$SIGN_IDENTITY")
 ENTITLEMENTS=Support/Perekey.entitlements
 if [[ "$SIGN_IDENTITY" == "Developer ID Application"* ]]; then

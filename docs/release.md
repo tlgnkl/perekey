@@ -48,6 +48,103 @@ Perekey обновляется через Sparkle 2. Версия Sparkle зад
    «Network» в README одним коммитом: GitHub будет перенаправлять старый
    адрес, но Little Snitch покажет два хоста.
 
+## Подпись
+
+`release.yml` подписывает приложение первой подписью, для которой заведены
+секреты:
+
+| Подпись | Секреты | Нотаризация | Разрешения после обновления |
+|---|---|---|---|
+| Developer ID | `DEVELOPER_ID_*`, `NOTARY_*` | да | остаются |
+| «Perekey Release», самоподписанная | `PEREKEY_RELEASE_CERT_*` | нет, в заметках шаги «Open Anyway» | остаются |
+| ad hoc | нет | нет, в заметках шаги «Open Anyway» | теряются |
+
+macOS привязывает «Универсальный доступ», «Мониторинг ввода» и микрофон к
+designated requirement подписи. У ad hoc он равен хэшу кода (`cdhash`) и
+меняется в каждой сборке. У «Perekey Release» он один для всех сборок:
+`identifier "app.perekey.Perekey" and certificate leaf = H"<SHA-1 сертификата>"`.
+Gatekeeper «Perekey Release» не доверяет, как и ad hoc: первый запуск
+по-прежнему через «Open Anyway». DMG этой подписью не подписывается — для
+Gatekeeper она ничего не меняет.
+
+### Завести «Perekey Release» (один раз)
+
+1. Создать ключ вне репозитория:
+
+   ```sh
+   scripts/release-cert.sh ~/perekey-release
+   ```
+
+   Скрипт кладёт в каталог `.p12`, его случайный пароль, `.p12` в base64 и
+   открытый сертификат. Сам он ничего в GitHub не отправляет.
+2. Settings → Environments → New environment `release`. Включить «Required
+   reviewers» (владелец) и в «Deployment branches and tags» оставить только
+   теги `v*`.
+3. Положить секреты в это окружение, а не в секреты репозитория:
+
+   ```sh
+   gh secret set PEREKEY_RELEASE_CERT_P12 --env release < ~/perekey-release/perekey-release.p12.base64
+   gh secret set PEREKEY_RELEASE_CERT_PASSWORD --env release < ~/perekey-release/perekey-release.p12.password
+   ```
+
+   Туда же стоит перенести `SPARKLE_ED_PRIVATE_KEY` (`--env release`) и
+   удалить его копию из секретов репозитория.
+4. Скопировать `perekey-release.p12` и `perekey-release.p12.password` в
+   офлайн-хранилище: зашифрованный диск или менеджер паролей.
+5. Удалить каталог: `rm -P ~/perekey-release/* && rmdir ~/perekey-release`.
+
+Задание `release.yml` идёт в окружении `release`, поэтому каждый выпуск ждёт
+подтверждения владельца. Сертификат CI кладёт во временную связку ключей со
+случайным паролем и удаляет её последним шагом, даже если сборка упала.
+
+Чем опасен этот ключ:
+
+- Отозвать его нельзя. С ключом любая программа подпишется как Perekey и
+  получит её разрешения, в том числе «Мониторинг ввода». Поэтому ключ живёт
+  только в окружении `release` и в офлайн-копии.
+- Выпустить обновление через Sparkle с одним этим ключом нельзя: Sparkle
+  сначала проверяет подпись EdDSA.
+- Новый сертификат — новый designated requirement: каждый пользователь заново
+  выдаст разрешения. Сертификат не пересоздавать, потерянный восстановить из
+  офлайн-копии.
+- Срок — 100 лет. `codesign` не подписывает просроченным сертификатом, и
+  `release.yml` падает на шаге импорта, а не в середине сборки.
+
+### Подписать локально
+
+Perekey Dev, «Perekey Release» и ad hoc у `scripts/bundle.sh` задаются
+переменными окружения:
+
+| Подпись | Как |
+|---|---|
+| Perekey Dev | по умолчанию, если есть связка `scripts/dev-cert.sh` |
+| ad hoc | `SIGN_IDENTITY=-` |
+| «Perekey Release» | `SIGN_IDENTITY="Perekey Release" SIGN_KEYCHAIN=<связка>` |
+
+Ключ Release не класть в связку Perekey Dev: у неё открытый пароль. Своя
+связка:
+
+```sh
+kc=~/Library/Keychains/perekey-release.keychain-db
+security create-keychain "$kc"                   # спросит пароль связки
+security import perekey-release.p12 -k "$kc" -T /usr/bin/codesign \
+    -P "$(cat perekey-release.p12.password)"
+security set-key-partition-list -S apple-tool:,apple: -s "$kc"   # снова пароль связки
+security lock-keychain "$kc"
+```
+
+Подписать сборку и проверить requirement:
+
+```sh
+security unlock-keychain "$kc"
+SIGN_IDENTITY="Perekey Release" SIGN_KEYCHAIN="$kc" scripts/bundle.sh
+codesign -d -r- .build/app/Perekey.app
+security lock-keychain "$kc"
+```
+
+У Perekey Dev и «Perekey Release» один bundle ID. Запуск сборки с другой
+подписью перетирает записи TCC, и разрешения придётся выдать заново.
+
 ## Как выпустить версию
 
 1. В `CHANGELOG.md` перенести пункты из `[Unreleased]` в новый раздел
@@ -57,8 +154,9 @@ Perekey обновляется через Sparkle 2. Версия Sparkle зад
 3. Влить это в `main`.
 4. Поставить тег: `git tag -a vX.Y.Z -m "Perekey X.Y.Z"` и
    `git push origin vX.Y.Z`.
-5. Дождаться `release.yml`. Он проверяет раздел в `CHANGELOG.md` до сборки:
-   без раздела или без даты выпуск падает сразу.
+5. Подтвердить запуск `release.yml` в окружении `release` (Actions → запуск →
+   «Review deployments») и дождаться его. Он проверяет раздел в
+   `CHANGELOG.md` до сборки: без раздела или без даты выпуск падает сразу.
 6. Проверить страницу выпуска и ссылку
    `https://github.com/tlgnkl/perekey/releases/latest/download/Perekey.dmg`.
 7. Обновить Homebrew tap по `packaging/README.md`.
@@ -124,15 +222,19 @@ SPARKLE_ED_PRIVATE_KEY=<закрытый> scripts/appcast.sh .build/dmg/Perekey-
   `Contents/Resources/ru.pklm`, `en.pklm`, `uk.pklm` и `be.pklm`. Приложение
   включает ровно те языки, файлы которых нашло в бандле. `release.yml`
   собирает модели из кэша `scripts/fetch-data.sh lexicon wikifreq` отдельным
-  шагом до импорта сертификата Developer ID: пакеты Python для
+  шагом до импорта сертификата подписи: пакеты Python для
   `wiki-freq.py` ставятся с точными версиями и хэшами
   (`scripts/wiki-freq.requirements.txt`, `pip --require-hashes`), и ничего
   стороннего не запускается, пока сертификат лежит в открытой связке. Хэш
   каждого файла, включённого или нет, сверен с `data/model.sha256`. Приложение, которое
   ждёт прежний `perekey.model`, новую модель не найдёт: старые сборки и
   новые файлы не смешивать.
-- Подписывать все выпуски одной подписью. С Developer ID Sparkle проверяет и
-  EdDSA, и совпадение Team ID у старой и новой версии.
+- Подписывать все выпуски одной подписью. Sparkle 2 принимает обновление,
+  если архив подписан тем же ключом EdDSA, что в установленной копии, или
+  если подпись кода новой версии подходит под requirement старой. Поэтому
+  смена подписи (ad hoc → «Perekey Release» → Developer ID) при том же
+  ключе EdDSA обновление не ломает. Подпись кода новой версии при этом
+  должна быть целой. Разрешения macOS при смене подписи теряются.
 - Если у последнего релиза нет `appcast.xml` (не было секрета),
   `pages.yml` опубликует сайт без appcast, и проверки обновлений
   будут получать 404 до следующего релиза с ключом.

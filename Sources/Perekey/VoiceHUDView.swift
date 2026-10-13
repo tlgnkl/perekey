@@ -165,17 +165,18 @@ private struct LevelBars: View {
 /// A small arc that turns. Under Reduce Motion it stays an arc.
 private struct Spinner: View {
     let calm: Bool
-    @State private var angle = 0.0
+    // `State` as a value: the property wrapper's macro needs Xcode's plugin.
+    private let angle = State(initialValue: 0.0)
 
     var body: some View {
         Circle()
             .trim(from: 0, to: 0.72)
             .stroke(Color.pkIndigo, style: StrokeStyle(lineWidth: 2, lineCap: .round))
             .frame(width: 12, height: 12)
-            .rotationEffect(.degrees(angle))
+            .rotationEffect(.degrees(angle.wrappedValue))
             .onAppear {
                 guard !calm else { return }
-                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) { $angle.wrappedValue = 360 }
+                withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) { angle.wrappedValue = 360 }
             }
     }
 }

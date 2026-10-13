@@ -112,6 +112,7 @@ struct VoiceIntroContent: View {
 
     private var caption: Text {
         switch model.trigger {
+        case .default: voiceText("Tap the right ⌥, say a phrase, tap again, and the text lands at the cursor")
         case .tap: voiceText("Tap \(keys), say a phrase, tap again, and the text lands at the cursor")
         case .hold: voiceText("Hold \(keys), say a phrase, let go, and the text lands at the cursor")
         }
@@ -128,7 +129,7 @@ struct VoiceIntroContent: View {
         VoiceIntroCard(tag: model.trigger == .default ? voiceText("RIGHT · TAP") : voiceText("YOUR KEY"),
                        title: voiceText("Start and end a recording"),
                        detail: model.trigger == .default ? voiceText("It retyped a word too") : nil,
-                       keycaps: TriggerText.keycaps(of: model.trigger.shortcut), highlighted: true)
+                       keycaps: model.trigger == .default ? ["⌥"] : TriggerText.keycaps(of: model.trigger.shortcut), highlighted: true)
     }
 
     @ViewBuilder private var keyChoice: some View {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import Dispatch
 import os
 import PerekeyVoiceCore
 
@@ -7,7 +8,8 @@ import PerekeyVoiceCore
 /// allocated whole when the session starts, not as a ring: a ring would
 /// overwrite the start of a long phrase, and growing would reallocate on the
 /// capture thread. Pages are touched only as audio arrives. At the limit it
-/// takes no more audio and calls `onLimit` once.
+/// takes no more audio and calls `onLimit` once, on a queue of its own: the
+/// capture thread must not wait for it.
 public final class DictationAudio: AudioSink, @unchecked Sendable {
     /// The longest dictation: 10 minutes.
     public static let limitSeconds = 600
@@ -46,7 +48,7 @@ public final class DictationAudio: AudioSink, @unchecked Sendable {
             return state.count == capacity
         }
         if reachedLimit {
-            onLimit()
+            DispatchQueue.global(qos: .userInitiated).async(execute: onLimit)
         }
     }
 
@@ -54,9 +56,12 @@ public final class DictationAudio: AudioSink, @unchecked Sendable {
         state.withLock { $0.interruption = $0.interruption ?? reason }
     }
 
-    /// The audio so far, 16 kHz mono.
+    /// The audio so far, 16 kHz mono. Meant for after the dictation stopped,
+    /// but safe while it runs: the copy, up to 38 MB, is made outside the lock,
+    /// of samples the capture thread no longer writes.
     public var samples: [Float] {
-        state.withLockUnchecked { Array(UnsafeBufferPointer(start: storage, count: $0.count)) }
+        let count = state.withLock { $0.count }
+        return Array(UnsafeBufferPointer(start: storage, count: count))
     }
 
     public var count: Int { state.withLock { $0.count } }

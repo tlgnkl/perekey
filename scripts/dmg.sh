@@ -8,7 +8,7 @@
 # Environment:
 #   VERSION        goes into the file name (default: 0.0.0)
 #   DMG_DIR        output directory (default: .build/dmg)
-#   SIGN_IDENTITY  if set and not "-", the DMG itself is signed with it
+#   SIGN_IDENTITY  if a Developer ID, the DMG itself is signed with it
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -31,7 +31,10 @@ ln -s /Applications "$STAGE/Applications"
 hdiutil create -quiet -volname "Perekey $VERSION" -srcfolder "$STAGE" \
     -fs HFS+ -format UDZO -imagekey zlib-level=9 -ov "$DMG"
 
-if [[ -n "${SIGN_IDENTITY:-}" && "$SIGN_IDENTITY" != "-" ]]; then
+# Only a Developer ID signature counts for Gatekeeper on a DMG: it rejects one
+# signed with "Perekey Release" as it rejects an unsigned one. The app inside
+# carries the signature that matters.
+if [[ "${SIGN_IDENTITY:-}" == "Developer ID Application"* ]]; then
     codesign --force --sign "$SIGN_IDENTITY" "$DMG"
 fi
 

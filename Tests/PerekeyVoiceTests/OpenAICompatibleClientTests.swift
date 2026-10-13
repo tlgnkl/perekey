@@ -3,6 +3,7 @@
 import Foundation
 import PerekeyCore
 @testable import PerekeyVoice
+import Security
 import PerekeyVoiceCore
 import Testing
 
@@ -155,8 +156,22 @@ struct OpenAICompatibleClientTests {
 }
 
 struct VoiceKeychainTests {
+    /// A keychain file of its own, unlocked, removed after the test: the
+    /// login keychain is not touched, and need not be reachable.
     @Test func roundTrip() throws {
-        let keychain = VoiceKeychain(service: "app.perekey.tests.\(UUID().uuidString)")
+        let directory = FileManager.default.temporaryDirectory.appending(path: "perekey-keychain-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appending(path: "test.keychain-db").path
+        let password = "perekey-test"
+        var file: SecKeychain?
+        // SecKeychainCreate is deprecated, and the only way to a keychain file
+        // of one's own that needs no user interaction.
+        let created = password.withCString { SecKeychainCreate(path, UInt32(strlen($0)), $0, false, nil, &file) }
+        try #require(created == errSecSuccess)
+        let made = try #require(file)
+        defer { SecKeychainDelete(made) }
+        let keychain = VoiceKeychain(service: "app.perekey.tests.\(UUID().uuidString)", keychain: made)
         defer { try? keychain.removeAll() }
         #expect(try keychain.key(for: "openai") == nil)
         #expect(!keychain.hasKey(for: "openai"))

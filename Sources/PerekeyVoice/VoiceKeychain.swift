@@ -15,9 +15,17 @@ public struct VoiceKeychain: Sendable {
     }
 
     public let service: String
+    /// A keychain file to use instead of the login keychain: for tests.
+    nonisolated(unsafe) let keychain: SecKeychain?
 
     public init(service: String = VoiceKeychain.service) {
         self.service = service
+        keychain = nil
+    }
+
+    init(service: String, keychain: SecKeychain) {
+        self.service = service
+        self.keychain = keychain
     }
 
     /// The key of `endpoint`, nil when there is none.
@@ -50,6 +58,7 @@ public struct VoiceKeychain: Sendable {
             item[kSecValueData as String] = data
             item[kSecAttrLabel as String] = "Perekey: \(endpoint)"
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            if let keychain { item[kSecUseKeychain as String] = keychain }
             let added = SecItemAdd(item as CFDictionary, nil)
             guard added == errSecSuccess else { throw Failure.status(added) }
         } else if status != errSecSuccess {
@@ -64,15 +73,18 @@ public struct VoiceKeychain: Sendable {
 
     /// Removes every key of the service: for tests.
     func removeAll() throws {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: service]
+        if let keychain { query[kSecMatchSearchList as String] = [keychain] }
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.status(status) }
     }
 
     private func base(_ endpoint: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: endpoint]
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: service,
+                                    kSecAttrAccount as String: endpoint]
+        if let keychain { query[kSecMatchSearchList as String] = [keychain] }
+        return query
     }
 }

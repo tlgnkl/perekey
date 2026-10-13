@@ -806,7 +806,7 @@ struct VoiceControllerTests {
 /// fails or hangs as the test says.
 @MainActor
 private final class FakeModes: DictationModeSource {
-    var plan: DictationPlan
+    var fixed: DictationPlan
     var answer: String? = "Привет, мир!"
     var hangs = false
     private(set) var asked: [String] = []
@@ -814,10 +814,10 @@ private final class FakeModes: DictationModeSource {
     private(set) var ended: [String] = []
 
     init(_ plan: DictationPlan) {
-        self.plan = plan
+        fixed = plan
     }
 
-    func plan() -> DictationPlan { plan }
+    func plan() -> DictationPlan { fixed }
 
     func refine(_ text: String, plan: DictationPlan) async throws -> String {
         asked.append(text)

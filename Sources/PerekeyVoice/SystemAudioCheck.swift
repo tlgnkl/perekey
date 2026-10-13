@@ -400,7 +400,7 @@ private struct SyncCheck {
         var minute = 0
         while player.isPlaying {
             try? await Task.sleep(for: .seconds(5))
-            let elapsed = HostClock.seconds(mach_absolute_time() - start)
+            let elapsed = HostTime.seconds(mach_absolute_time() - start)
             guard Int(elapsed / 60) > minute || !player.isPlaying else { continue }
             minute = Int(elapsed / 60)
             let mic = micMeter.takeWindow(), sys = sysMeter.takeWindow()
@@ -595,7 +595,7 @@ private final class VoiceProcessingInput: @unchecked Sendable {
         let resampler = try Resampler(inputRate: format.sampleRate)
         node.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, time in
             let hostTime = time.isHostTimeValid ? time.hostTime : mach_absolute_time()
-            resampler.process(buffer) { sink.receive($0, hostTime: hostTime) }
+            resampler.process(buffer, hostTime: hostTime) { sink.receive($0, hostTime: $1) }
         }
         engine.prepare()
         try engine.start()

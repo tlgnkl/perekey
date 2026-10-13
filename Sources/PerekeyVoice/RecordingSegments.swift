@@ -97,7 +97,7 @@ public final class RecordingStore: Sendable {
 
     /// Seconds on the recording's scale for a host time.
     public func offset(of hostTime: UInt64) -> Double {
-        HostClock.seconds(from: meta.withLock { $0.startHostTime }, to: hostTime)
+        HostTime.seconds(from: meta.withLock { $0.startHostTime }, to: hostTime)
     }
 
     func update(_ change: @Sendable (inout RecordingMeta) -> Void) {

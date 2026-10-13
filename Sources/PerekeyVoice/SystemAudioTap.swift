@@ -296,6 +296,7 @@ public actor SystemAudioTap {
             }
             AudioHardwareDestroyAggregateDevice(aggregateID)
         }
+        reader?.finish()
         ioProc = nil
         aggregateID = AudioObjectID(kAudioObjectUnknown)
         if tapID != kAudioObjectUnknown {
@@ -408,7 +409,7 @@ public actor SystemAudioTap {
         }
         rebuilds += 1
         listen()
-        let gap = HostClock.seconds(mach_absolute_time() - min(lastBlock, started))
+        let gap = HostTime.seconds(mach_absolute_time() - min(lastBlock, started))
         onEvent(.rebuilt(reason: reason, format: describe(format), gap: gap))
     }
 
@@ -497,7 +498,7 @@ final class TapReader: @unchecked Sendable {
                 if state.silentSince == 0 {
                     state.silentSince = hostTime
                 }
-                state.silentSeconds = HostClock.seconds(hostTime - state.silentSince)
+                state.silentSeconds = HostTime.seconds(hostTime - state.silentSince)
             } else {
                 state.silentSince = 0
                 state.silentSeconds = 0
@@ -505,8 +506,17 @@ final class TapReader: @unchecked Sendable {
         }
         guard let sink else { return }
         mono.withUnsafeBufferPointer { all in
-            resampler.process(UnsafeBufferPointer(rebasing: all.prefix(frames))) { sink.receive($0, hostTime: hostTime) }
+            resampler.process(UnsafeBufferPointer(rebasing: all.prefix(frames)), hostTime: hostTime) {
+                sink.receive($0, hostTime: $1)
+            }
         }
+    }
+
+    /// Hands the sink what the converter still holds. Called after the
+    /// device stopped, when no block can come.
+    func finish() {
+        guard let sink else { return }
+        resampler.finish { sink.receive($0, hostTime: $1) }
     }
 
     /// The mean of the channels into `mono`; returns the frame count. Unlike
@@ -570,25 +580,14 @@ private struct Listener {
     }
 }
 
-/// `mach_absolute_time` ticks, the unit of `mHostTime`, in seconds.
-public enum HostClock {
-    private static let timebase: mach_timebase_info_data_t = {
-        var info = mach_timebase_info_data_t()
-        mach_timebase_info(&info)
-        return info
-    }()
-
-    public static func seconds(_ ticks: UInt64) -> Double {
-        Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1e9
+extension HostTime {
+    static func seconds(_ ticks: UInt64) -> Double {
+        Double(ticks) / ticksPerSecond
     }
 
     /// Signed seconds from `start` to `end`.
-    public static func seconds(from start: UInt64, to end: UInt64) -> Double {
+    static func seconds(from start: UInt64, to end: UInt64) -> Double {
         end >= start ? seconds(end - start) : -seconds(start - end)
-    }
-
-    public static func ticks(_ seconds: Double) -> UInt64 {
-        UInt64(max(0, seconds) * 1e9 * Double(timebase.denom) / Double(timebase.numer))
     }
 }
 

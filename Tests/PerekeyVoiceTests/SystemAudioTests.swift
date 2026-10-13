@@ -81,7 +81,7 @@ import Testing
         let detector = ClickDetector()
         let rate = 16_000.0
         let block = 1600
-        let start = HostClock.ticks(1000)
+        let start = HostTime.ticks(1000)
         var samples = [Float](repeating: 0, count: block)
         for n in 0..<(seconds * 10) {
             for i in 0..<block {
@@ -90,7 +90,7 @@ import Testing
                 samples[i] = inClick ? level : 0.0001 * Float((i % 7) - 3)
             }
             let hostSeconds = Double(n * block) / rate * (1 + ppm / 1e6)
-            samples.withUnsafeBufferPointer { detector.receive($0, hostTime: start + HostClock.ticks(hostSeconds)) }
+            samples.withUnsafeBufferPointer { detector.receive($0, hostTime: start + HostTime.ticks(hostSeconds)) }
         }
         return detector
     }
@@ -98,7 +98,7 @@ import Testing
     @Test func findsEveryClick() {
         let detector = clicks(seconds: 30, delay: 0.25, ppm: 0)
         #expect(detector.onsets.count == 30)
-        #expect(abs(detector.onsets[0].host - HostClock.seconds(HostClock.ticks(1000)) - 0.25) < 0.001)
+        #expect(abs(detector.onsets[0].host - HostTime.seconds(HostTime.ticks(1000)) - 0.25) < 0.001)
     }
 
     @Test func constantOffsetIsNoDrift() throws {
@@ -143,7 +143,7 @@ import Testing
         let mic = (0..<system.count).map { i -> Float in
             (i >= delay ? system[i - delay] * 0.1 : 0) + Float.random(in: -0.001...0.001, using: &generator)
         }
-        let start = HostClock.ticks(10)
+        let start = HostTime.ticks(10)
         let measure = try #require(EchoMeasure.measure(system: (start, system), mic: (start, mic)))
         #expect(abs(measure.lag - 0.05) < 0.002)
         #expect(measure.envelopeCorrelation > 0.9)
@@ -165,12 +165,12 @@ import Testing
     func rotatesAndRecordsEachSegment(format: SegmentFormat) throws {
         let dir = directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let start = HostClock.ticks(500)
+        let start = HostTime.ticks(500)
         let store = try RecordingStore(directory: dir, startHostTime: start, format: format)
         let writer = SegmentWriter(track: "mic", store: store, format: format, segmentSeconds: 1)
         let block = sine(1600)
         for n in 0..<25 { // 2.5 s
-            block.withUnsafeBufferPointer { writer.receive($0, hostTime: start + HostClock.ticks(Double(n) / 10)) }
+            block.withUnsafeBufferPointer { writer.receive($0, hostTime: start + HostTime.ticks(Double(n) / 10)) }
         }
         writer.finish()
         store.setState(.stopped)
@@ -183,7 +183,7 @@ import Testing
         #expect(meta.segments.map(\.frames) == [16_000, 16_000, 8_000])
         #expect(meta.segments.allSatisfy { $0.closed })
         #expect(meta.segments.map { ($0.startOffset * 10).rounded() / 10 } == [0, 1, 2])
-        #expect(meta.segments[1].startHostTime == start + HostClock.ticks(1))
+        #expect(meta.segments[1].startHostTime == start + HostTime.ticks(1))
         for segment in meta.segments {
             let file = try AVAudioFile(forReading: dir.appending(path: segment.file))
             #expect(file.fileFormat.sampleRate == 16_000)
@@ -202,7 +202,7 @@ import Testing
         let block = sine(1600)
         block.withUnsafeBufferPointer { writer.receive($0, hostTime: start) }
         writer.captureInterrupted(.deviceChanged)
-        block.withUnsafeBufferPointer { writer.receive($0, hostTime: start + HostClock.ticks(2)) }
+        block.withUnsafeBufferPointer { writer.receive($0, hostTime: start + HostTime.ticks(2)) }
         writer.finish()
         let meta = store.snapshot
         #expect(meta.segments.count == 2)

@@ -45,7 +45,7 @@ final class ClickDetector: AudioSink, @unchecked Sendable {
     var onsets: [Onset] { state.withLock { $0.onsets } }
 
     func receive(_ samples: UnsafeBufferPointer<Float>, hostTime: UInt64) {
-        let blockHost = HostClock.seconds(hostTime)
+        let blockHost = HostTime.seconds(hostTime)
         let rate = rate, minLevel = minLevel, ratio = ratio, refractory = refractory
         let alpha: Float = 1 / Float(rate * 0.2)
         state.withLockUnchecked { state in
@@ -173,7 +173,7 @@ struct EchoMeasure: Equatable {
     /// microphone hears the speakers later).
     static func measure(system: (start: UInt64, samples: [Float]), mic: (start: UInt64, samples: [Float]),
                         rate: Double = VoiceCore.sampleRate, maxLag: Double = 0.3) -> EchoMeasure? {
-        let shift = Int((HostClock.seconds(from: system.start, to: mic.start) * rate).rounded())
+        let shift = Int((HostTime.seconds(from: system.start, to: mic.start) * rate).rounded())
         // Index i of the system track sits at mic index i - shift.
         let step = Int(rate / 1000)
         func envelope(_ x: ArraySlice<Float>) -> [Double] {

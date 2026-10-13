@@ -4,6 +4,10 @@
 import AppKit
 import PerekeyCore
 import PerekeyInput
+#if PEREKEY_VOICE
+import PerekeyVoice
+import PerekeyVoiceCore
+#endif
 import SwiftUI
 
 /// Renders the settings panes to PNG files and quits, for reviewing the UI
@@ -39,6 +43,9 @@ enum DebugSnapshot {
             render(view, dark: item.dark, size: CGSize(width: 560, height: 860), to: directory.appending(path: "\(item.name).png"))
         }
         renderSettingsWindow(in: directory)
+        #if PEREKEY_VOICE
+        renderVoice(in: directory)
+        #endif
         renderApps(in: directory)
         renderSites(in: directory)
         renderWordsAndGeneral(in: directory)
@@ -147,8 +154,11 @@ enum DebugSnapshot {
             for section in SettingsSection.allCases {
                 let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
                                       lastCheck: Date().addingTimeInterval(-3_600 * 5))
-                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
+                var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                         languages: languages, initial: section)
+                #if PEREKEY_VOICE
+                view.voiceController = voicePreview(in: directory, name: "window")
+                #endif
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
             }
@@ -531,4 +541,78 @@ enum DebugSnapshot {
         try? bitmap.representation(using: .png, properties: [:])?.write(to: url)
     }
 }
+
+#if PEREKEY_VOICE
+extension DebugSnapshot {
+    /// A model in each state the Voice tab shows.
+    /// `.running`: a download goes on. `.stopped`: voice is off, so nothing downloads and a stopped one is `partial`.
+    /// `.administrator`: a profile forbids downloads, so the models come from the administrator's folder.
+    enum PreviewStates { case running, stopped, administrator }
+
+    static func voicePreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings(),
+                             enabled: Bool = true, supported: Bool = true,
+                             states: PreviewStates = .running) -> VoiceModelsController
+    {
+        let file = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
+        try? FileManager.default.removeItem(at: file.url)
+        try? file.save(VoiceSettings(isEnabled: enabled, microphoneUID: "gone-usb-mic", microphoneName: "Rode NT-USB"))
+        let settings = VoiceSettingsStore(file: file, managed: managed)
+        let parakeet = ModelCatalog.entry(id: "parakeet-tdt-v3")!
+        let whisper = ModelCatalog.recognizers.first { $0.engine == .whisperKit }!
+        let others = ModelCatalog.recognizers.filter { $0.id != parakeet.id && $0.id != whisper.id }
+        var statuses: [VoiceModelStatus]
+        switch states {
+        case .running:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready, isInUse: true),
+                VoiceModelStatus(entry: whisper, state: .downloading(received: whisper.totalSize * 42 / 100)),
+            ]
+            statuses += others.map {
+                VoiceModelStatus(entry: $0, state: .partial(received: $0.totalSize / 3),
+                                 failure: .notEnoughSpace(needed: $0.totalSize, available: 200_000_000))
+            }
+        case .stopped:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready),
+                VoiceModelStatus(entry: whisper, state: .partial(received: whisper.totalSize * 42 / 100)),
+            ]
+            statuses += others.map { VoiceModelStatus(entry: $0, state: .absent) }
+        case .administrator:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready, isManaged: true),
+                VoiceModelStatus(entry: whisper, state: .absent),
+            ]
+            statuses += others.map {
+                VoiceModelStatus(entry: $0, state: .damaged, failure: .checksumMismatch("model.mil"))
+            }
+        }
+        return VoiceModelsController(preview: settings, statuses: statuses,
+                                     usage: VoiceModelDiskUsage(models: 1_100_000_000, cache: 140_000_000),
+                                     isSupported: supported)
+    }
+
+    /// The Voice tab on its own: on, off, a profile that forbids voice or downloads, an unsupported Mac.
+    static func renderVoice(in directory: URL) {
+        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-hotkeys.json")))
+        let recording = ShortcutRecording(store: store)
+        let cases: [(name: String, controller: VoiceModelsController)] = [
+            ("on", voicePreview(in: directory, name: "on")),
+            ("off", voicePreview(in: directory, name: "off", enabled: false, states: .stopped)),
+            ("voice-disabled", voicePreview(in: directory, name: "vd", managed: ManagedSettings(voiceDisabled: true))),
+            ("downloads-disabled", voicePreview(in: directory, name: "dd",
+                                                managed: ManagedSettings(voiceModelDownloadsDisabled: true),
+                                                states: .administrator)),
+            ("unsupported", voicePreview(in: directory, name: "un", supported: false)),
+        ]
+        for dark in [false, true] {
+            for item in cases {
+                let view = VoicePane(controller: item.controller, store: store, recording: recording)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: CGSize(width: 620, height: 900),
+                       to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+}
+#endif
 #endif

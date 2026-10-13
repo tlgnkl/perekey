@@ -7,6 +7,11 @@ import sys
 
 LANGS = ["en", "ru"]
 SKIP = {"DebugSnapshot.swift"}  # debug-only fixtures, never shown to users
+# The Voice tab (PEREKEY_VOICE) keeps its strings in their own table, Voice.strings: through
+# voiceText("…") / voiceString("…") or any call that names `table: "Voice"` / `tableName: "Voice"`.
+TABLES = ["Localizable", "Voice"]
+VOICE_OPENERS = re.compile(r'\bvoice(?:Text|String)\(\s*"')
+VOICE_TABLE = re.compile(r'\s*,\s*(?:table|tableName):\s*"Voice"')
 OPENERS = re.compile(
     r'(?:String\(localized:\s*|LocalizedStringResource\(\s*|\b(?:Text|Label|Button|Section|Picker|TextField|Toggle)\(\s*'
     r'|\.(?:help|accessibilityLabel)\(\s*|\b(?:title|lead|text):\s*)"')
@@ -35,6 +40,7 @@ def read_literal(src, i):
 
 
 def source_keys():
+    """(table, key) → where. The table is Voice for the voice helpers or a call naming the table."""
     keys = {}
     paths = glob.glob("Sources/Perekey/**/*.swift", recursive=True) + glob.glob("Sources/PerekeyInput/*.swift")
     for path in sorted(paths):
@@ -42,10 +48,16 @@ def source_keys():
             continue
         src = open(path, encoding="utf-8").read()
         for m in OPENERS.finditer(src):
+            key, end = read_literal(src, m.end())
+            if key:
+                line = src.count("\n", 0, m.start()) + 1
+                table = "Voice" if VOICE_TABLE.match(src, end) else "Localizable"
+                keys.setdefault((table, key), f"{path}:{line}")
+        for m in VOICE_OPENERS.finditer(src):
             key, _ = read_literal(src, m.end())
             if key:
                 line = src.count("\n", 0, m.start()) + 1
-                keys.setdefault(key, f"{path}:{line}")
+                keys.setdefault(("Voice", key), f"{path}:{line}")
     return keys
 
 
@@ -94,9 +106,9 @@ def read_strings(path):
     return pairs
 
 
-def file_keys(lang):
-    pairs = read_strings(f"Support/{lang}.lproj/Localizable.strings")
-    for path in glob.glob(f"Support/{lang}.lproj/Localizable.stringsdict"):
+def file_keys(lang, table="Localizable"):
+    pairs = read_strings(f"Support/{lang}.lproj/{table}.strings")
+    for path in glob.glob(f"Support/{lang}.lproj/{table}.stringsdict"):
         with open(path, "rb") as f:
             for key in plistlib.load(f):
                 pairs.setdefault(key, key)
@@ -151,36 +163,41 @@ def check_info_plist(lang):
 def main():
     found = source_keys()
     if "--list" in sys.argv:
-        for key, where in found.items():
-            print(f"{where}\t{key}")
+        for (table, key), where in found.items():
+            print(f"{where}\t{table}\t{key}")
         return 0
 
-    wanted = {norm(k): (k, w) for k, w in found.items()}
     bad = 0
-    for lang in LANGS:
-        have = file_keys(lang)
-        have_n = {norm(k): k for k in have}
-        for n, (k, where) in wanted.items():
-            if n not in have_n:
-                bad += 1
-                print(f"{lang}: missing key used at {where}\n  \"{k}\" = \"{k}\";")
-        for n, k in have_n.items():
-            if n not in wanted:
-                bad += 1
-                print(f"{lang}: unused key {k!r}")
-        for k, v in have.items():
-            problem = spec_problem(k, v)
-            if problem:
-                bad += 1
-                print(f"{lang}: {k!r}: {problem}")
-        bad += check_stringsdict(lang)
-        bad += check_info_plist(lang)
-        if lang != LANGS[0]:
-            first = {norm(k) for k in file_keys(LANGS[0])}
-            for n, k in have_n.items():
-                if n not in first:
+    for table in TABLES:
+        wanted = {norm(k): (k, w) for (t, k), w in found.items() if t == table}
+        for lang in LANGS:
+            have = file_keys(lang, table)
+            have_n = {norm(k): k for k in have}
+            for n, (k, where) in wanted.items():
+                if n not in have_n:
                     bad += 1
-                    print(f"{lang}: key {k!r} is not in {LANGS[0]}")
+                    print(f"{lang}: missing key in {table} used at {where}\n  \"{k}\" = \"{k}\";")
+            for n, k in have_n.items():
+                if n not in wanted:
+                    bad += 1
+                    print(f"{lang}: unused key {k!r} in {table}")
+            for k, v in have.items():
+                problem = spec_problem(k, v)
+                if problem:
+                    bad += 1
+                    print(f"{lang}: {table}: {k!r}: {problem}")
+            if table == "Localizable":
+                bad += check_stringsdict(lang)
+                bad += check_info_plist(lang)
+            for k in sorted(k for k in have if not have[k].strip()):
+                bad += 1
+                print(f"{lang}: {table}: {k!r} is empty")
+            if lang != LANGS[0]:
+                first = {norm(k) for k in file_keys(LANGS[0], table)}
+                for n, k in have_n.items():
+                    if n not in first:
+                        bad += 1
+                        print(f"{lang}: key {k!r} is not in {LANGS[0]} ({table})")
     print(f"{len(found)} strings found in Sources/Perekey, {len(LANGS)} languages, {bad} problems")
     return 1 if bad else 0
 

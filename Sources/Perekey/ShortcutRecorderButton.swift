@@ -49,7 +49,7 @@ struct ShortcutRecorderButton: View {
     }
 }
 
-private struct RecorderPlate: View {
+struct RecorderPlate: View {
     let recording: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 

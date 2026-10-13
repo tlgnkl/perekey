@@ -21,6 +21,16 @@ public enum VoiceTrigger: Hashable, Sendable {
         }
     }
 
+    /// The trigger a recorded shortcut makes: modifiers alone, tapped once, are
+    /// a tap; a key with modifiers is a hold. A double tap is neither.
+    public init?(recorded trigger: Trigger) {
+        switch trigger {
+        case let .modifiers(chord, .single): self = .tap(chord)
+        case let .key(keyCode, modifiers): self = .hold(keyCode: keyCode, modifiers: modifiers)
+        case .modifiers: return nil
+        }
+    }
+
     /// The shortcuts as the event tap gets them while this trigger is on:
     /// when a tap of the right Option key starts dictation, the shortcuts on
     /// either Option key take only the left one. Others stay as they are.
@@ -67,6 +77,27 @@ extension VoiceTrigger: Codable {
     }
 }
 
+/// How long a recording may run before it stops by itself.
+public enum VoiceAutoStop: Int, Hashable, Sendable, CaseIterable, Codable {
+    case off = 0
+    case seconds15 = 15
+    case seconds30 = 30
+    case seconds60 = 60
+
+    /// The limit in seconds, nil when recordings are not limited.
+    public var seconds: Int? { self == .off ? nil : rawValue }
+}
+
+/// How long the speech model stays loaded after the last dictation.
+public enum VoiceUnload: Int, Hashable, Sendable, CaseIterable, Codable {
+    case never = 0
+    case minutes10 = 10
+    case minutes60 = 60
+
+    /// Idle time before the unload, in seconds; nil when the model stays loaded.
+    public var seconds: Int? { self == .never ? nil : rawValue * 60 }
+}
+
 /// What the voice trigger asks of dictation. Comes as `Effect.voice`.
 public enum VoiceSignal: Hashable, Sendable {
     /// The tap trigger: start recording, or stop it if it runs.
@@ -106,6 +137,8 @@ public struct PointerLocation: Hashable, Sendable {
 /// cannot read (a trigger kind added later) keeps dictation off rather than
 /// falling back to a default that would take a key from another shortcut,
 /// and the file keeps that value on save until the user sets the key again.
+/// An unreadable value of any other key falls back to its default and is kept
+/// the same way, but does not switch dictation off.
 public struct VoiceSettings: Hashable, Sendable {
     /// The version of the file's layout. A file of a higher version is read,
     /// but dictation stays off and the file is never overwritten
@@ -121,6 +154,40 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.trigger.stringValue) }
     }
 
+    /// The model dictation uses when the user has not picked one: an id of
+    /// `ModelCatalog` (Parakeet TDT v3).
+    public static let defaultModel = "parakeet-tdt-v3"
+
+    /// The UID of the input device (`Microphone.uid`), nil for the system one.
+    /// A device that is gone keeps its UID here: dictation falls back to the
+    /// system device and the settings show the device as unavailable.
+    public var microphoneUID: String? {
+        didSet { unreadableKeys.remove(CodingKeys.microphoneUID.stringValue) }
+    }
+
+    /// The id of the speech model (`ModelCatalog` entry).
+    public var model: String {
+        didSet { unreadableKeys.remove(CodingKeys.model.stringValue) }
+    }
+
+    /// Switch the layout to the language of the phrase after dictation.
+    public var switchesLayout: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.switchesLayout.stringValue) }
+    }
+
+    /// Start and stop sounds.
+    public var playsSounds: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.playsSounds.stringValue) }
+    }
+
+    public var autoStop: VoiceAutoStop {
+        didSet { unreadableKeys.remove(CodingKeys.autoStop.stringValue) }
+    }
+
+    public var unload: VoiceUnload {
+        didSet { unreadableKeys.remove(CodingKeys.unload.stringValue) }
+    }
+
     /// Keys the file has that this version could not read and the user has
     /// not set since. Encoding leaves them out, so the file keeps its values.
     public private(set) var unreadableKeys: Set<String> = []
@@ -129,23 +196,34 @@ public struct VoiceSettings: Hashable, Sendable {
     /// is higher than this version's.
     public private(set) var newerSchemaVersion: Int?
 
-    public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default) {
+    public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default, microphoneUID: String? = nil,
+                model: String = VoiceSettings.defaultModel, switchesLayout: Bool = true, playsSounds: Bool = true,
+                autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60)
+    {
         self.isEnabled = isEnabled
         self.trigger = trigger
+        self.microphoneUID = microphoneUID
+        self.model = model
+        self.switchesLayout = switchesLayout
+        self.playsSounds = playsSounds
+        self.autoStop = autoStop
+        self.unload = unload
     }
 
     /// The trigger the event tap reacts to: none while dictation is off, and
     /// none when the file is of a newer version or its trigger or switch
     /// could not be read.
     public var activeTrigger: VoiceTrigger? {
-        guard isEnabled, newerSchemaVersion == nil, unreadableKeys.isEmpty else { return nil }
+        guard isEnabled, newerSchemaVersion == nil,
+              unreadableKeys.isDisjoint(with: [CodingKeys.isEnabled.stringValue, CodingKeys.trigger.stringValue])
+        else { return nil }
         return trigger
     }
 }
 
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion, isEnabled, trigger
+        case schemaVersion, isEnabled, trigger, microphoneUID, model, switchesLayout, playsSounds, autoStop, unload
     }
 
     public init(from decoder: any Decoder) throws {
@@ -160,6 +238,17 @@ extension VoiceSettings: Codable {
         let defaults = VoiceSettings()
         isEnabled = read(Bool.self, .isEnabled) ?? defaults.isEnabled
         trigger = read(VoiceTrigger.self, .trigger) ?? defaults.trigger
+        // `null` is a readable "system device"; a value of another type is not.
+        if container.contains(.microphoneUID), (try? container.decodeNil(forKey: .microphoneUID)) == true {
+            microphoneUID = nil
+        } else {
+            microphoneUID = read(String.self, .microphoneUID)
+        }
+        model = read(String.self, .model) ?? defaults.model
+        switchesLayout = read(Bool.self, .switchesLayout) ?? defaults.switchesLayout
+        playsSounds = read(Bool.self, .playsSounds) ?? defaults.playsSounds
+        autoStop = read(VoiceAutoStop.self, .autoStop) ?? defaults.autoStop
+        unload = read(VoiceUnload.self, .unload) ?? defaults.unload
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -174,6 +263,26 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.trigger.stringValue) {
             try container.encode(trigger, forKey: .trigger)
+        }
+        // An explicit null: the save merges over the file, and an absent key
+        // would leave the old device in it.
+        if !unreadableKeys.contains(CodingKeys.microphoneUID.stringValue) {
+            try container.encode(microphoneUID, forKey: .microphoneUID)
+        }
+        if !unreadableKeys.contains(CodingKeys.model.stringValue) {
+            try container.encode(model, forKey: .model)
+        }
+        if !unreadableKeys.contains(CodingKeys.switchesLayout.stringValue) {
+            try container.encode(switchesLayout, forKey: .switchesLayout)
+        }
+        if !unreadableKeys.contains(CodingKeys.playsSounds.stringValue) {
+            try container.encode(playsSounds, forKey: .playsSounds)
+        }
+        if !unreadableKeys.contains(CodingKeys.autoStop.stringValue) {
+            try container.encode(autoStop, forKey: .autoStop)
+        }
+        if !unreadableKeys.contains(CodingKeys.unload.stringValue) {
+            try container.encode(unload, forKey: .unload)
         }
     }
 }

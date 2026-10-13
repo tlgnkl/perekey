@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+import PerekeyCore
+@testable import PerekeyVoice
+import PerekeyVoiceCore
+import Testing
+
+struct VoiceNetworkPolicyTests {
+    @Test func theNetworkIsOpenOnlyForVoiceThatIsOnAndAllowed() {
+        #expect(VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings()) == [.modelDownload])
+        #expect(VoiceNetworkPolicy.allowed(isEnabled: false, managed: ManagedSettings()).isEmpty)
+        #expect(VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings(voiceDisabled: true)).isEmpty)
+        #expect(VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings(voiceModelDownloadsDisabled: true)).isEmpty)
+        // Not even the cloud purposes: nothing is allowed that no feature asked for.
+        #expect(!VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings()).contains(.cloudSpeech))
+    }
+
+    @Test func voiceOffMeansNoRequestsAtAll() async throws {
+        let fixture = try await Fixture()
+        let store = fixture.store()
+
+        VoiceNetworkPolicy.apply(isEnabled: false, managed: ManagedSettings(), to: fixture.http)
+        #expect(fixture.http.allowed.isEmpty)
+        await #expect(throws: VoiceModelFailure.networkBlocked) { try await store.download("asr") }
+        #expect(fixture.http.requests.isEmpty)
+        #expect(fixture.server.requests.isEmpty)
+
+        // Turning voice on opens it, and turning it off closes it again.
+        VoiceNetworkPolicy.apply(isEnabled: true, managed: ManagedSettings(), to: fixture.http)
+        try await store.download("other")
+        #expect(await store.status(of: "other")?.state == .ready)
+        let requests = fixture.server.requests.count
+        #expect(requests > 0)
+
+        VoiceNetworkPolicy.apply(isEnabled: false, managed: ManagedSettings(), to: fixture.http)
+        await #expect(throws: VoiceModelFailure.networkBlocked) { try await store.download("asr") }
+        #expect(fixture.server.requests.count == requests)
+    }
+
+    @Test func theDefaultModelIsInTheCatalog() {
+        #expect(ModelCatalog.entry(id: VoiceSettings.defaultModel)?.engine.recognizes == true)
+    }
+
+    @Test func hostSupportNeedsAppleSiliconAndMacOS15() {
+        #expect(VoiceHost.isSupported(isAppleSilicon: true, osMajorVersion: 15))
+        #expect(VoiceHost.isSupported(isAppleSilicon: true, osMajorVersion: 26))
+        #expect(!VoiceHost.isSupported(isAppleSilicon: true, osMajorVersion: 14))
+        #expect(!VoiceHost.isSupported(isAppleSilicon: false, osMajorVersion: 15))
+    }
+}

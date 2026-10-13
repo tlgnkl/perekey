@@ -196,6 +196,12 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.unload.stringValue) }
     }
 
+    /// The «What's new: voice input» window was answered (turned on or put
+    /// off): it does not come back.
+    public var introAnswered: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.introAnswered.stringValue) }
+    }
+
     /// Keys the file has that this version could not read and the user has
     /// not set since. Encoding leaves them out, so the file keeps its values.
     public private(set) var unreadableKeys: Set<String> = []
@@ -207,7 +213,8 @@ public struct VoiceSettings: Hashable, Sendable {
     public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default, microphoneUID: String? = nil,
                 microphoneName: String? = nil,
                 model: String = VoiceSettings.defaultModel, switchesLayout: Bool = true, playsSounds: Bool = true,
-                autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60)
+                autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
+                introAnswered: Bool = false)
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
@@ -218,6 +225,7 @@ public struct VoiceSettings: Hashable, Sendable {
         self.playsSounds = playsSounds
         self.autoStop = autoStop
         self.unload = unload
+        self.introAnswered = introAnswered
     }
 
     /// The trigger the event tap reacts to: none while dictation is off, and
@@ -233,7 +241,7 @@ public struct VoiceSettings: Hashable, Sendable {
 
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, switchesLayout, playsSounds, autoStop, unload
+        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, switchesLayout, playsSounds, autoStop, unload, introAnswered
     }
 
     public init(from decoder: any Decoder) throws {
@@ -264,6 +272,7 @@ extension VoiceSettings: Codable {
         playsSounds = read(Bool.self, .playsSounds) ?? defaults.playsSounds
         autoStop = read(VoiceAutoStop.self, .autoStop) ?? defaults.autoStop
         unload = read(VoiceUnload.self, .unload) ?? defaults.unload
+        introAnswered = read(Bool.self, .introAnswered) ?? defaults.introAnswered
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -301,6 +310,9 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.unload.stringValue) {
             try container.encode(unload, forKey: .unload)
+        }
+        if !unreadableKeys.contains(CodingKeys.introAnswered.stringValue) {
+            try container.encode(introAnswered, forKey: .introAnswered)
         }
     }
 }

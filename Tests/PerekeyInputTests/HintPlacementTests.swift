@@ -64,4 +64,14 @@ import Testing
         #expect(CaretLocator.caret(fromLineFrame: CGRect(x: 0, y: 0, width: 8, height: 0)) == nil)
         #expect(CaretLocator.caret(fromLineFrame: CGRect(x: CGFloat.nan, y: 0, width: 8, height: 17)) == nil)
     }
+
+    @Test func withoutACaretTheHUDSitsAtTheBottomCentre() {
+        let origin = HintPlacement.bottomCenterOrigin(size: size, visible: visible)
+        #expect(origin.x == 400)
+        #expect(origin.y == 48)
+        // A second screen: the centre of its own visible frame.
+        let second = CGRect(x: 1000, y: -200, width: 1600, height: 900)
+        let other = HintPlacement.bottomCenterOrigin(size: size, visible: second)
+        #expect(other.x == 1700 && other.y == -152)
+    }
 }

@@ -370,8 +370,20 @@ struct PKChip: View {
 struct PKPane<Content: View>: View {
     let title: Text
     @ViewBuilder var content: Content
+    @Environment(\.pkScrollTarget) private var scrollTarget
 
     var body: some View {
+        ScrollViewReader { proxy in
+            scroll
+                .onAppear {
+                    // The pane was opened at a place of it: after its first layout.
+                    guard let scrollTarget else { return }
+                    DispatchQueue.main.async { proxy.scrollTo(scrollTarget, anchor: .top) }
+                }
+        }
+    }
+
+    private var scroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 title
@@ -388,6 +400,18 @@ struct PKPane<Content: View>: View {
             .padding(.bottom, 28)
         }
         .scrollIndicators(.automatic)
+    }
+}
+
+private struct ScrollTargetKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    /// The `id` of a view of the pane to scroll to when the pane opens.
+    var pkScrollTarget: String? {
+        get { self[ScrollTargetKey.self] }
+        set { self[ScrollTargetKey.self] = newValue }
     }
 }
 

@@ -26,6 +26,12 @@ public enum HintPlacement {
               size: size, visible: visible)
     }
 
+    /// Without a caret, for the dictation HUD: at the bottom, centred on the
+    /// pointer's screen (`visible`), above the Dock.
+    public static func bottomCenterOrigin(size: CGSize, visible: CGRect) -> CGPoint {
+        clamp(CGPoint(x: visible.midX - size.width / 2, y: visible.minY + 48), size: size, visible: visible)
+    }
+
     public static func clamp(_ origin: CGPoint, size: CGSize, visible: CGRect) -> CGPoint {
         let maxX = max(visible.minX, visible.maxX - size.width - margin)
         let maxY = max(visible.minY, visible.maxY - size.height - margin)

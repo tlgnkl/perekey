@@ -22,6 +22,9 @@ struct OnboardingView: View {
                     case .access: AccessStep(model: model)
                     case .preset: PresetStep(model: model)
                     case .demo: DemoStep(model: model)
+                    #if PEREKEY_VOICE
+                    case .voice: if let intro = model.voiceIntro { VoiceIntroContent(model: intro, isNews: false) }
+                    #endif
                     }
                 }
                 .padding(.horizontal, 32)
@@ -39,7 +42,7 @@ struct OnboardingView: View {
 
     private var progress: some View {
         HStack(spacing: 6) {
-            ForEach(OnboardingModel.Step.allCases, id: \.self) { step in
+            ForEach(model.steps, id: \.self) { step in
                 let current = step == model.step
                 Capsule()
                     .fill(step.rawValue < model.step.rawValue ? Color.pkIndigo.opacity(0.55) : Color.pkWashDeep)
@@ -51,7 +54,7 @@ struct OnboardingView: View {
         .padding(.top, 22)
         .padding(.bottom, 12)
         .accessibilityElement()
-        .accessibilityLabel("Step \(model.step.rawValue + 1) of \(OnboardingModel.Step.allCases.count)")
+        .accessibilityLabel("Step \((model.steps.firstIndex(of: model.step) ?? 0) + 1) of \(model.steps.count)")
     }
 
     private var footer: some View {
@@ -64,7 +67,15 @@ struct OnboardingView: View {
             if model.step == .access, !model.trusted {
                 Text("Allow access first").font(PK.Font.caption).foregroundStyle(Color.pkInk2)
             }
-            if model.step == .demo {
+            #if PEREKEY_VOICE
+            if model.step == .voice, let intro = model.voiceIntro {
+                Button { intro.notNow(); finish() } label: { voiceText("Not now") }
+                    .buttonStyle(.pkSecondary)
+                Button { intro.turnOn(); finish() } label: { voiceText("Turn on voice") }
+                    .buttonStyle(.pkPrimary)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(intro.isTaken)
+            } else if model.isLastStep {
                 Button("Done") { finish() }
                     .buttonStyle(.pkPrimary)
                     .keyboardShortcut(.defaultAction)
@@ -74,6 +85,18 @@ struct OnboardingView: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(!model.canGoForward)
             }
+            #else
+            if model.isLastStep {
+                Button("Done") { finish() }
+                    .buttonStyle(.pkPrimary)
+                    .keyboardShortcut(.defaultAction)
+            } else {
+                Button("Continue") { model.next() }
+                    .buttonStyle(.pkPrimary)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!model.canGoForward)
+            }
+            #endif
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)

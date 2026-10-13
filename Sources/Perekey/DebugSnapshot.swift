@@ -45,6 +45,8 @@ enum DebugSnapshot {
         renderSettingsWindow(in: directory)
         #if PEREKEY_VOICE
         renderVoice(in: directory)
+        renderVoiceHUD(in: directory)
+        renderVoiceIntro(in: directory)
         #endif
         renderApps(in: directory)
         renderSites(in: directory)
@@ -611,6 +613,87 @@ extension DebugSnapshot {
                 render(view, dark: dark, size: CGSize(width: 620, height: 900),
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
+        }
+    }
+
+    /// The dictation HUD in every state, over a soft backdrop.
+    static func renderVoiceHUD(in directory: URL) {
+        typealias Recording = DictationHUDState.Recording
+        let rec = DictationHUDState.recording(Recording(seconds: 7, level: 0.6, preparingModel: false))
+        let states: [(name: String, state: DictationHUDState, calm: Bool, contrast: Bool)] = [
+            ("starting", .starting, false, false),
+            ("recording", rec, false, false),
+            ("recording-quiet", .recording(Recording(seconds: 2, level: 0.05, preparingModel: false)), false, false),
+            ("recording-loud", .recording(Recording(seconds: 63, level: 1, preparingModel: false)), false, false),
+            ("recording-calm", rec, true, false),
+            ("recording-contrast", rec, false, true),
+            ("recording-preparing", .recording(Recording(seconds: 3, level: 0.4, preparingModel: true)), false, false),
+            ("recognizing", .recognizing(preparingModel: false), false, false),
+            ("recognizing-preparing", .recognizing(preparingModel: true), false, false),
+            ("still-recognizing", .stillRecognizing, false, false),
+            ("pasting", .pasting, false, false),
+            ("pasted", .pasted, false, false),
+            ("not-pasted", .notPasted(.targetChanged), false, false),
+            ("not-pasted-contrast", .notPasted(.targetChanged), false, true),
+            ("not-pasted-timeout", .notPasted(.timedOut), false, false),
+            ("password-field", .notPasted(.secureField), false, false),
+            ("secure-input", .notPasted(.secureInput(owner: "Terminal")), false, false),
+            ("secure-input-unknown", .notPasted(.secureInput(owner: nil)), false, false),
+            ("no-accessibility", .notPasted(.noAccessibility), false, false),
+            ("nothing-heard", .nothingHeard, false, false),
+            ("cancelled", .cancelled, false, false),
+            ("mic-denied", .failed(.microphoneDenied), false, false),
+            ("no-microphone", .failed(.noMicrophone), false, false),
+            ("mic-error", .failed(.microphone("x")), false, false),
+            ("model", .failed(.model("x")), false, false),
+            ("recognition", .failed(.recognition("x")), false, false),
+        ]
+        for dark in [false, true] {
+            for item in states {
+                guard let presentation = DictationHUDPresentation(item.state) else { continue }
+                let model = VoiceHUDModel(presentation, visible: true)
+                let hud = VoiceHUDView(model: model, calmOverride: item.calm, contrastOverride: item.contrast)
+                let size = NSHostingView(rootView: hud).fittingSize
+                let backdrop = LinearGradient(
+                    colors: dark ? [Color(red: 0.13, green: 0.13, blue: 0.2), Color(red: 0.2, green: 0.14, blue: 0.22)]
+                        : [Color(red: 0.86, green: 0.87, blue: 1), Color(red: 0.97, green: 0.88, blue: 0.94)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)
+                render(hud.background(backdrop), dark: dark, size: size,
+                       to: directory.appending(path: "voice-hud-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    /// "What's new: voice input", the voice step of the first-run window, and how each looks with another key.
+    static func renderVoiceIntro(in directory: URL) {
+        let size = NSSize(width: 640, height: 580)
+        func model(_ name: String, hotkeys: AppSettings? = nil) -> VoiceIntroModel {
+            let file = SettingsFile(url: directory.appending(path: "intro-\(name).json"))
+            try? file.save(hotkeys ?? AppSettings())
+            let store = SettingsStore(file: file)
+            let controller = voicePreview(in: directory, name: "intro-\(name)", enabled: false, states: .stopped)
+            return VoiceIntroModel(settings: controller.settings, models: controller, store: store,
+                                   recording: ShortcutRecording(store: store))
+        }
+        for dark in [false, true] {
+            let tag = dark ? "dark" : "light"
+            render(VoiceIntroView(model: model("default")), dark: dark, size: size,
+                   to: directory.appending(path: "voice-intro-\(tag).png"))
+            let own = model("own")
+            own.choose(.hold(keyCode: 49, modifiers: [.option]))
+            own.isPickingKey = true
+            render(VoiceIntroView(model: own), dark: dark, size: size,
+                   to: directory.appending(path: "voice-intro-own-key-\(tag).png"))
+            let taken = model("taken", hotkeys: AppSettings(hotkeys: HotkeyPreset.separateKeys.hotkeys, capsLock: .system))
+            render(VoiceIntroView(model: taken), dark: dark, size: size,
+                   to: directory.appending(path: "voice-intro-taken-\(tag).png"))
+            let step = model("step")
+            let file = SettingsFile(url: directory.appending(path: "intro-step-onboarding.json"))
+            try? file.save(AppSettings())
+            let onboarding = OnboardingModel(store: SettingsStore(file: file), sources: InputSources(), step: .voice, live: false)
+            onboarding.voiceIntro = step
+            render(OnboardingView(model: onboarding, heroPhase: 4.5), dark: dark, size: size,
+                   to: directory.appending(path: "voice-onboarding-step-\(tag).png"))
         }
     }
 }

@@ -473,6 +473,9 @@ public final class VoiceController {
         let microphone = self.microphone
         Task {
             do {
+                // The first time macOS asks here, with the HUD already up.
+                await microphone.requestAccess()
+                guard current === work else { return }
                 let subscription = try await microphone.begin(audio)
                 guard current === work else {
                     await microphone.end(subscription)
@@ -568,25 +571,46 @@ public final class VoiceController {
         let paster = self.paster
         Task {
             let result = await paster.paste(text, into: await target?.value)
-            let reason: NotPastedReason? = switch result {
-            case .pasted: nil
-            case .targetChanged: .targetChanged
-            case .secureField: .secureField
-            case let .secureInput(owner): .secureInput(owner: owner)
-            case .timedOut: .timedOut
-            case let .failed(message): .failed(message)
-            }
             // Dictation went off during the paste: no HUD, no layout switch.
             guard !isShutDown else { return }
-            let isPrivate = reason == .secureField || { if case .secureInput = reason { true } else { false } }()
-            last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
-            if let reason {
-                hud = .notPasted(reason)
-            } else {
-                hud = .pasted
-                if preferences.switchesLayout { hooks.pasted(text) }
-            }
+            finishPaste(text, result)
             handle(.pasted(session))
+        }
+    }
+
+    /// "Вставить" in the HUD: the last text into the field the caret is in
+    /// now, checked like a dictation's own paste (Secure Input, a password
+    /// field). Only after a text that was not pasted, and not while another
+    /// dictation runs.
+    public func pasteLast() {
+        guard !isShutDown, machine.state == .idle, let text = last?.text, last?.pasted == false,
+              case let .notPasted(reason) = hud, reason.offersPaste
+        else { return }
+        hud = .pasting
+        let paster = self.paster
+        Task {
+            let result = await paster.paste(text, into: await paster.captureTarget())
+            guard !isShutDown else { return }
+            finishPaste(text, result)
+        }
+    }
+
+    private func finishPaste(_ text: String, _ result: DictationPasteResult) {
+        let reason: NotPastedReason? = switch result {
+        case .pasted: nil
+        case .targetChanged: .targetChanged
+        case .secureField: .secureField
+        case let .secureInput(owner): .secureInput(owner: owner)
+        case .timedOut: .timedOut
+        case let .failed(message): .failed(message)
+        }
+        let isPrivate = reason == .secureField || { if case .secureInput = reason { true } else { false } }()
+        last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
+        if let reason {
+            hud = .notPasted(reason)
+        } else {
+            hud = .pasted
+            if preferences.switchesLayout { hooks.pasted(text) }
         }
     }
 

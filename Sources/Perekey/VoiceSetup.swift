@@ -19,6 +19,9 @@ final class VoiceSetup {
     private let models: VoiceModelsController
     private(set) var controller: VoiceController?
     private var capture: AudioCapture?
+    private var hud: VoiceHUDController?
+    /// Settings → Voice, for the HUD's "Open Settings" after a model error.
+    var openVoiceSettings: () -> Void = {}
 
     init(input: InputController, models: VoiceModelsController) {
         self.input = input
@@ -44,6 +47,8 @@ final class VoiceSetup {
         guard isOn else {
             if let controller {
                 self.controller = nil
+                hud?.stop()
+                hud = nil
                 // Ends a session in progress: the microphone goes off and
                 // the tap gives Esc back.
                 Task { await controller.shutdown() }
@@ -67,6 +72,18 @@ final class VoiceSetup {
                 holdIsDown: { trigger()?.isHeldNow ?? false },
                 holdLost: { input.voiceHoldLost() },
                 pasted: { input.selectLayout(afterDictating: $0) }))
+        if let controller {
+            hud = VoiceHUDController(
+                voice: controller,
+                actions: VoiceHUDController.Actions(
+                    openMicrophoneSettings: { Self.open("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") },
+                    openAccessibilitySettings: { Self.open("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") },
+                    openVoiceSettings: { [weak self] in self?.openVoiceSettings() }))
+        }
+    }
+
+    private static func open(_ address: String) {
+        if let url = URL(string: address) { NSWorkspace.shared.open(url) }
     }
 }
 

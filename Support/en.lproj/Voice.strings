@@ -113,11 +113,9 @@
 "Paste" = "Paste";
 "Pasting…" = "Pasting…";
 "Perekey lost its Accessibility access" = "Perekey lost its Accessibility access";
-"Pick another key for voice" = "Pick another key for voice";
 "Recognizing…" = "Recognizing…";
 "Recording" = "Recording";
 "Retype a word" = "Retype a word";
-"Retype with the right ⌥? Pick another key for voice, and ⌥ stays as it was." = "Retype with the right ⌥? Pick another key for voice, and ⌥ stays as it was.";
 "RIGHT · TAP" = "RIGHT · TAP";
 "Russian and English in one phrase. The model runs on this Mac, and the sound goes nowhere." = "Russian and English in one phrase. The model runs on this Mac, and the sound goes nowhere.";
 "Start and end a recording" = "Start and end a recording";
@@ -133,3 +131,6 @@
 "What's new: voice input" = "What's new: voice input";
 "YOUR KEY" = "YOUR KEY";
 "Tap the right ⌥, say a phrase, tap again, and the text lands at the cursor" = "Tap the right ⌥, say a phrase, tap again, and the text lands at the cursor";
+"Retype with the right ⌥? Then pick another key for voice — ⌥ will stay as it was." = "Retype with the right ⌥? Then pick another key for voice — ⌥ will stay as it was.";
+"Pick a key…" = "Pick a key…";
+"On either ⌥" = "On either ⌥";

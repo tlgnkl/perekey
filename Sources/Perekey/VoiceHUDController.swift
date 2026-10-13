@@ -57,6 +57,7 @@ final class VoiceHUDController {
         generation += 1
         locating = false
         hideTask?.cancel()
+        stopMouseMonitor()
         panel?.orderOut(nil)
         panel = nil
     }
@@ -64,7 +65,7 @@ final class VoiceHUDController {
     // MARK: - States
 
     private func handle(_ state: DictationHUDState) {
-        let presentation = DictationHUDPresentation(state, hasText: voice.last != nil)
+        let presentation = DictationHUDPresentation(state, hasText: voice.last.map { !$0.isPrivate } ?? false)
         defer { previous = presentation }
         guard let presentation else {
             hide()
@@ -82,10 +83,27 @@ final class VoiceHUDController {
         } else if begins || panel?.isVisible != true {
             if begins { caret = nil }
             show(locate: begins)
-        } else {
+        } else if layoutKey != LayoutKey(presentation) {
+            // The timer and the level tick ~20 times a second and change no size.
             place()
         }
     }
+
+    /// What sizes the capsule: the message, the buttons, the width of the timer.
+    private struct LayoutKey: Equatable {
+        var message: DictationHUDPresentation.Message
+        var buttons: [DictationHUDPresentation.Button]
+        var timerDigits: Int?
+
+        init(_ presentation: DictationHUDPresentation) {
+            message = presentation.message
+            buttons = presentation.buttons
+            timerDigits = presentation.meter?.timerText.count
+        }
+    }
+
+    private var layoutKey: LayoutKey?
+    private var mouseMonitor: Any?
 
     private func show(locate: Bool) {
         generation += 1
@@ -108,6 +126,7 @@ final class VoiceHUDController {
     private func present() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
+        startMouseMonitor()
         let wasVisible = panel.isVisible && model.visible
         place()
         if !wasVisible {
@@ -121,6 +140,7 @@ final class VoiceHUDController {
 
     private func place() {
         guard let panel else { return }
+        layoutKey = LayoutKey(model.presentation)
         let size = NSHostingView(rootView: VoiceHUDContent(presentation: model.presentation)).fittingSize
         let origin: CGPoint
         if let caret, let screen = screen(containing: CGPoint(x: caret.midX, y: caret.midY)) {
@@ -152,6 +172,32 @@ final class VoiceHUDController {
         }
     }
 
+    /// The panel ignores the mouse, so the capsule and the shadow around it never
+    /// swallow a click meant for the app below. It listens only while the
+    /// pointer is over a button.
+    private func startMouseMonitor() {
+        guard mouseMonitor == nil else { return }
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.followPointer() }
+        }
+    }
+
+    private func stopMouseMonitor() {
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        mouseMonitor = nil
+        panel?.ignoresMouseEvents = true
+    }
+
+    private func followPointer() {
+        guard let panel, panel.isVisible else { return }
+        let point = NSEvent.mouseLocation
+        let over = model.buttonFrames.contains { frame in
+            CGRect(x: panel.frame.minX + frame.minX, y: panel.frame.maxY - frame.maxY,
+                   width: frame.width, height: frame.height).contains(point)
+        }
+        if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
+    }
+
     private func hide() {
         hideTask?.cancel()
         hideTask = nil
@@ -160,6 +206,7 @@ final class VoiceHUDController {
         let mine = generation
         guard let panel, panel.isVisible else { return }
         setVisible(false)
+        stopMouseMonitor()
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Self.reduceMotion ? 20 : Int(Self.exit * 1000)))
             guard let self, self.generation == mine, !self.model.visible else { return }
@@ -202,7 +249,8 @@ final class VoiceHUDController {
     }
 
     private func copyLast() {
-        guard let text = voice.last?.text else { return }
+        guard let last = voice.last, !last.isPrivate else { return }
+        let text = last.text
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         let copied = DictationHUDPresentation(message: .copied, hidesAfter: DictationHUDPresentation.Lifetime.confirmation)
@@ -263,6 +311,7 @@ private final class VoiceHUDPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         isReleasedWhenClosed = false
         animationBehavior = .none
+        ignoresMouseEvents = true
     }
 
     override var canBecomeKey: Bool { false }

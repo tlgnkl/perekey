@@ -771,4 +771,23 @@ struct VoiceControllerTests {
         await rig.controller.modelDownloaded("fake")
         #expect(await rig.engine.prepares == 1)
     }
+
+    @Test func aNewDictationKeepsItsHUDWhileThePasteAgainAnswers() async {
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.targetChanged) })
+        var gate: CheckedContinuation<Void, Never>?
+        rig.paster.waits = { await withCheckedContinuation { gate = $0 } }
+        rig.controller.pasteLast()
+        #expect(await rig.until { gate != nil })
+        rig.paster.waits = nil
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { if case .recording = rig.state { true } else { false } })
+        gate?.resume()
+        #expect(await rig.until { rig.paster.finished == 2 })
+        if case .recording = rig.hud {} else { Issue.record("the new dictation's HUD was overwritten: \(rig.hud)") }
+        #expect(rig.controller.last?.pasted == false)
+    }
 }

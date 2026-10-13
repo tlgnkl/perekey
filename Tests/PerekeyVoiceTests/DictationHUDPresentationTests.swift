@@ -85,16 +85,16 @@ import Testing
         #expect(hud?.buttons == [.copy])
     }
 
-    @Test func aPasswordFieldNamesItselfAndOffersNoPaste() {
+    @Test func aPasswordFieldNamesItselfAndOffersNothingToDoWithTheText() {
         let hud = present(.notPasted(.secureField))
         #expect(hud?.message == .secureField)
-        #expect(hud?.buttons == [.copy])
+        #expect(hud?.buttons == [], "the text meant for a password stays off the pasteboard")
     }
 
     @Test func secureInputNamesItsOwner() {
         let named = present(.notPasted(.secureInput(owner: "Terminal")))
         #expect(named?.message == .secureInput(owner: "Terminal"))
-        #expect(named?.buttons == [.paste, .copy])
+        #expect(named?.buttons == [], "a protected app's text is neither pasted again nor copied")
         #expect(present(.notPasted(.secureInput(owner: nil)))?.message == .secureInput(owner: nil))
     }
 
@@ -110,10 +110,17 @@ import Testing
     }
 
     @Test func offeringPasteFollowsTheReason() {
-        let reasons: [NotPastedReason] = [.targetChanged, .secureField, .secureInput(owner: nil), .noAccessibility, .timedOut, .failed("x")]
+        let reasons: [NotPastedReason] = [.targetChanged, .noAccessibility, .timedOut, .failed("x")]
         for reason in reasons {
             let offers = present(.notPasted(reason))?.buttons.contains(.paste)
             #expect(offers == reason.offersPaste, "\(reason)")
+        }
+    }
+
+    @Test func privateTextsGetNoPasteAndNoCopy() {
+        for reason in [NotPastedReason.secureField, .secureInput(owner: "Terminal"), .secureInput(owner: nil)] {
+            let buttons = present(.notPasted(reason))?.buttons ?? [.copy]
+            #expect(!buttons.contains(.paste) && !buttons.contains(.copy), "\(reason)")
         }
     }
 

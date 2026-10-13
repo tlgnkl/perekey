@@ -151,7 +151,13 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case .timedOut: .timedOut
         }
         var buttons: [Button] = []
-        if hasText {
+        // A text meant for a password or a protected field never goes to the
+        // pasteboard or into another field from here.
+        let isPrivate: Bool = switch reason {
+        case .secureField, .secureInput: true
+        default: false
+        }
+        if hasText, !isPrivate {
             if reason.offersPaste { buttons.append(.paste) }
             buttons.append(.copy)
         }

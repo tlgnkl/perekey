@@ -598,7 +598,8 @@ public final class VoiceController {
         let paster = self.paster
         Task {
             let result = await paster.paste(text, into: await paster.captureTarget())
-            guard !isShutDown else { return }
+            // A new dictation began meanwhile: its HUD and its text are the current ones.
+            guard !isShutDown, machine.state == .idle else { return }
             finishPaste(text, result)
         }
     }

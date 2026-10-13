@@ -113,11 +113,9 @@
 "Paste" = "Вставить";
 "Pasting…" = "Вставляю…";
 "Perekey lost its Accessibility access" = "Perekey потерял универсальный доступ";
-"Pick another key for voice" = "Выбрать для голоса другую клавишу";
 "Recognizing…" = "Распознаю…";
 "Recording" = "Запись";
 "Retype a word" = "Перенабрать слово";
-"Retype with the right ⌥? Pick another key for voice, and ⌥ stays as it was." = "Перенабираете правым ⌥? Выберите для голоса другую клавишу, и ⌥ останется как был.";
 "RIGHT · TAP" = "ПРАВЫЙ · ТАП";
 "Russian and English in one phrase. The model runs on this Mac, and the sound goes nowhere." = "Русский и английский в одной фразе. Модель работает на этом Mac, и звук никуда не уходит.";
 "Start and end a recording" = "Начать и закончить запись";
@@ -133,3 +131,6 @@
 "What's new: voice input" = "Новое: голосовой ввод";
 "YOUR KEY" = "ВАША КЛАВИША";
 "Tap the right ⌥, say a phrase, tap again, and the text lands at the cursor" = "Тап правого ⌥, фраза, ещё тап — текст встанет на место курсора";
+"Retype with the right ⌥? Then pick another key for voice — ⌥ will stay as it was." = "Перенабираете правым ⌥? Тогда выберите для голоса другую клавишу — ⌥ останется как был.";
+"Pick a key…" = "Выбрать клавишу…";
+"On either ⌥" = "На любом ⌥";

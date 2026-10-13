@@ -121,14 +121,20 @@ struct VoiceIntroContent: View {
     private var retypeCard: some View {
         VoiceIntroCard(tag: model.keepsRetype ? voiceText("ANY") : voiceText("LEFT"),
                        title: voiceText("Retype a word"),
-                       detail: model.keepsRetype ? voiceText("On either ⌥, as before") : voiceText("As before"),
+                       detail: retypeDetail,
                        keycaps: ["⌥"], highlighted: false)
+    }
+
+    /// The word "before" is for someone who used Perekey before.
+    private var retypeDetail: Text? {
+        if model.keepsRetype { return isNews ? voiceText("On either ⌥, as before") : voiceText("On either ⌥") }
+        return isNews ? voiceText("As before") : nil
     }
 
     private var voiceCard: some View {
         VoiceIntroCard(tag: model.trigger == .default ? voiceText("RIGHT · TAP") : voiceText("YOUR KEY"),
                        title: voiceText("Start and end a recording"),
-                       detail: model.trigger == .default ? voiceText("It retyped a word too") : nil,
+                       detail: isNews && model.trigger == .default ? voiceText("It retyped a word too") : nil,
                        keycaps: model.trigger == .default ? ["⌥"] : TriggerText.keycaps(of: model.trigger.shortcut), highlighted: true)
     }
 
@@ -149,14 +155,14 @@ struct VoiceIntroContent: View {
             if model.isTaken { voiceText("This key is taken. Pick another one for voice.").font(PK.Font.caption).foregroundStyle(Color.pkWarn) }
         } else {
             VStack(alignment: .leading, spacing: 4) {
-                voiceText("Retype with the right ⌥? Pick another key for voice, and ⌥ stays as it was.")
+                voiceText("Retype with the right ⌥? Then pick another key for voice — ⌥ will stay as it was.")
                     .font(PK.Font.caption).foregroundStyle(Color.pkInk2)
                     .fixedSize(horizontal: false, vertical: true)
                 if model.isTaken {
                     // The preset puts a language on the right ⌥: voice cannot take it.
                     voiceText("This key is taken. Pick another one for voice.").font(PK.Font.caption).foregroundStyle(Color.pkWarn)
                 }
-                Button { model.isPickingKey = true } label: { voiceText("Pick another key for voice") }
+                Button { model.isPickingKey = true } label: { voiceText("Pick a key…") }
                     .buttonStyle(.pkLink)
             }
         }

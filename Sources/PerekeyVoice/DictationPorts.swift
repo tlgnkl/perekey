@@ -11,15 +11,24 @@ public protocol DictationMicrophone: Sendable {
     func end(_ subscription: AudioSubscription) async
     /// The microphone by UID, nil for the system one. Called between sessions.
     func select(_ uid: String?) async
+    /// Asks for the permission when the person was not asked yet, and
+    /// returns once they answered. Called before `begin`.
+    func requestAccess() async
 }
 
 extension DictationMicrophone {
     public func select(_: String?) async {}
+    public func requestAccess() async {}
 }
 
 extension AudioCapture: DictationMicrophone {
     public func select(_ uid: String?) async {
         selectMicrophone(uid: uid)
+    }
+
+    public func requestAccess() async {
+        guard MicrophoneAccess.status == .notDetermined else { return }
+        _ = await MicrophoneAccess.request()
     }
 
     public func begin(_ audio: DictationAudio) async throws -> AudioSubscription {

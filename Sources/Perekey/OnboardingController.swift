@@ -15,6 +15,10 @@ final class OnboardingController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var model: OnboardingModel?
 
+    #if PEREKEY_VOICE
+    /// The voice offer for a run of the window, nil when voice is not offered.
+    var makeVoiceIntro: (@MainActor () -> VoiceIntroModel?)?
+    #endif
     private let recording: ShortcutRecording?
     private let engineIsRunning: @MainActor () -> Bool
     private let demoActive: @MainActor (Bool) -> Void
@@ -50,6 +54,9 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         model.engineIsRunning = engineIsRunning
         model.demoActive = demoActive
         model.recording = recording
+        #if PEREKEY_VOICE
+        model.voiceIntro = makeVoiceIntro?()
+        #endif
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 580),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = String(localized: "Welcome to Perekey")
@@ -68,6 +75,11 @@ final class OnboardingController: NSObject, NSWindowDelegate {
 
     /// Closing the window counts as done: it must not come back on every launch.
     func windowWillClose(_ notification: Notification) {
+        #if PEREKEY_VOICE
+        // Closed at the voice step: the offer was seen, and the answer is "Not now".
+        if model?.step == .voice { model?.voiceIntro?.closed() }
+        model?.voiceIntro?.recording.stop()
+        #endif
         model?.stop()
         model = nil
         window = nil

@@ -23,6 +23,7 @@ func usage() -> Never {
           offline-check <scratch> [--online]  corrupted .mlmodelc with offlineMode on
           net-control                 one HTTPS request, to test the sampler
           store <command> [id...]     the app's model store in $PEREKEY_VOICE_MODELS
+          dictate <id> <audio>... [--realtime] [--runs n]  the app's dictation path, from files
           speech                      Apple Speech locales
         """)
     exit(2)
@@ -70,6 +71,8 @@ do {
         try await Commands.netControl()
     case "store":
         try await StoreCommand.run(rest)
+    case "dictate":
+        try await DictateCommand.run(rest)
     case "speech":
         await Commands.appleSpeech()
     default:

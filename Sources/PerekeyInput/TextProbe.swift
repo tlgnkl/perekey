@@ -115,7 +115,7 @@ public final class TextProbe: Sendable {
 
     /// `kAXStringForRangeParameterizedAttribute`, so a long document is not
     /// copied whole; `kAXValueAttribute` where the app lacks it.
-    private static func string(of element: AXUIElement, in range: CFRange) -> String? {
+    static func string(of element: AXUIElement, in range: CFRange) -> String? {
         var range = range
         guard let parameter = AXValueCreate(.cfRange, &range) else { return nil }
         var value: CFTypeRef?

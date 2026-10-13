@@ -106,6 +106,9 @@ public enum VoiceSignal: Hashable, Sendable {
     case holdBegan
     /// The hold trigger is over: stop recording and keep what was said.
     case holdEnded(reason: HoldEndReason)
+    /// Esc while a dictation session is on (`InputEvent.voiceSession`):
+    /// cancel it. The key is swallowed.
+    case cancel
 }
 
 public enum HoldEndReason: Hashable, Sendable {

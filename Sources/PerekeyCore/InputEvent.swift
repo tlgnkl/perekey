@@ -130,4 +130,7 @@ public enum InputEvent: Sendable {
     /// found its key or modifiers up without the event that says so: the
     /// machine ends the hold with `HoldEndReason.lost`.
     case voiceHoldLost
+    /// A dictation session started or ended. While one is on, Esc cancels it
+    /// (`VoiceSignal.cancel`) and goes no further.
+    case voiceSession(Bool)
 }

@@ -37,6 +37,8 @@ public struct InputMachine: Sendable {
     private var shortcuts: Shortcuts
     private var secureInput = false
     private var focus: Focus?
+    /// A dictation session is on: Esc cancels it.
+    private var voiceSession = false
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil,
                 classifier: Classifier? = nil)
@@ -139,6 +141,9 @@ public struct InputMachine: Sendable {
 
         case let .settingsChanged(newSettings):
             settings = newSettings
+            // Dictation turned off ends its session here too: Esc is never
+            // taken for a session the system layer forgot to end.
+            if newSettings.voice == nil { voiceSession = false }
             if let signal = shortcuts.apply(newSettings.hotkeys, voice: newSettings.voice) {
                 effects.append(.voice(signal))
             }
@@ -165,6 +170,9 @@ public struct InputMachine: Sendable {
 
         case .voiceHoldLost:
             if let signal = shortcuts.holdLost() { effects.append(.voice(signal)) }
+
+        case let .voiceSession(on):
+            voiceSession = on
 
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
@@ -197,6 +205,23 @@ public struct InputMachine: Sendable {
         guard !secureInput else { return .pass }
 
         if key.phase == .up { return shortcuts.keyUp(key.keyCode) ? .drop : .pass }
+
+        // A plain Esc only: ⌘Esc, ⌃Esc and ⌥Esc are the system's and the apps'.
+        // The modifiers of a hold trigger are down for the whole session, so
+        // Esc under them is plain too.
+        var foreign = ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit
+        if case let .hold(_, modifiers) = settings.voice {
+            for modifier in modifiers { foreign &= ~modifier.maskBit }
+        }
+        if voiceSession, key.keyCode == KeyCode.escape,
+           ModifierKind.kindMask(inEventFlags: key.flags) & foreign == 0
+        {
+            // The key breaks a modifier chord in progress, as typing does.
+            shortcuts.otherInput(at: time)
+            shortcuts.swallow(key.keyCode)
+            effects.append(.voice(.cancel))
+            return .drop
+        }
 
         // F-keys and arrows always carry the fn bit, so fn never takes part.
         let held = ModifierKind.kindMask(inEventFlags: key.flags) & ~ModifierKind.function.maskBit

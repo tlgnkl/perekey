@@ -327,10 +327,11 @@ import Testing
     @Test func waitingForANetworkShowsAndEnds() async throws {
         let fixture = try await Fixture(connectivityTimeout: 0.5)
         let weight = fixture.weightPath
-        fixture.server.setHandler { request, _ in
+        fixture.server.setHandler { request, earlier in
             var response = TestServer.serve(fixture.bodies[request.path]!, request: request)
             if request.path == weight {
-                response.cutAfter = 100_000
+                // 100 000 bytes, then nothing more.
+                response.cutAfter = earlier == 0 ? 100_000 : 0
                 response.stall = true
             }
             return response
@@ -338,17 +339,138 @@ import Testing
         let store = fixture.store()
         let download = Task { try await store.download("asr") }
         try await fixture.until { VoiceModelStore.size(of: fixture.weightPart) == 100_000 }
-        // URLSession says so when the network goes away; here the test does.
-        for task in await fixture.http.session.allTasks {
-            fixture.http.router.urlSession(fixture.http.session, taskIsWaitingForConnectivity: task)
+        // URLSession says so when the network goes away; here the test does,
+        // for every request, the one after the first wait too.
+        let http = fixture.http
+        let offline = Task {
+            while !Task.isCancelled {
+                for task in await http.session.allTasks {
+                    http.router.urlSession(http.session, taskIsWaitingForConnectivity: task)
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
         }
+        defer { offline.cancel() }
         try await fixture.until {
             guard case .waitingForNetwork = await store.status(of: "asr")?.state else { return false }
             return true
         }
         await #expect(throws: VoiceModelFailure.offline) { try await download.value }
+        // One more request after the first wait: the network may have come back as it ran out.
+        #expect(fixture.server.requests(to: weight).count == 2)
         let status = await store.status(of: "asr")
         #expect(status?.failure == .offline)
         #expect(status?.state == .partial(received: 100_000))
+    }
+    /// A VAD from an older catalog: downloading a ready recognizer repairs it.
+    @Test func aRecognizerDownloadRepairsItsVAD() async throws {
+        let fixture = try await Fixture()
+        let store = fixture.store()
+        try await store.download("asr")
+        try "org/vad@0000\n".write(
+            to: fixture.folder("vad").appending(path: VoiceModelStore.manifestName), atomically: true, encoding: .utf8)
+        await store.refresh()
+        #expect(await store.status(of: "vad")?.state == .damaged)
+        await #expect(throws: VoiceModelFailure.notReady("vad")) { _ = try await store.acquire("asr") }
+
+        try await store.download("asr")
+        #expect(await store.status(of: "vad")?.state == .ready)
+        _ = try await store.acquire("asr")
+        await store.release("asr")
+    }
+
+    /// A 206 for other bytes keeps the `.part`; three in a row start the file over.
+    @Test func foreignRangesStartOverOnlyAfterThree() async throws {
+        let fixture = try await Fixture()
+        let weight = fixture.weightPath
+        fixture.server.setHandler { request, earlier in
+            let body = fixture.bodies[request.path]!
+            guard request.path == weight else { return TestServer.serve(body, request: request) }
+            if earlier == 0 { return TestServer.Response(status: 200, body: body, cutAfter: 100_000) }
+            if request.range != nil {
+                return TestServer.Response(
+                    status: 206, headers: ["Content-Range": "bytes 10-\(body.count - 1)/\(body.count)"],
+                    body: body.subdata(in: 10..<body.count))
+            }
+            return TestServer.serve(body, request: request)
+        }
+        let store = fixture.store(networkAttempts: 6)
+        try await store.download("asr")
+        let ranges = fixture.server.requests(to: weight).map(\.range)
+        #expect(ranges == [nil, "bytes=100000-", "bytes=100000-", "bytes=100000-", nil])
+        #expect(fixture.filesMatch(fixture.asr, in: fixture.folder("asr")))
+    }
+
+    /// The rest of another file: the total in `Content-Range` is not ours.
+    @Test func anotherTotalLeavesThePartAlone() async throws {
+        let fixture = try await Fixture()
+        let weight = fixture.weightPath
+        fixture.server.setHandler { request, earlier in
+            let body = fixture.bodies[request.path]!
+            guard request.path == weight else { return TestServer.serve(body, request: request) }
+            if earlier == 0 { return TestServer.Response(status: 200, body: body, cutAfter: 250_000) }
+            return TestServer.Response(
+                status: 206, headers: ["Content-Range": "bytes 250000-\(body.count - 1)/700000"],
+                body: body.subdata(in: 250_000..<body.count))
+        }
+        let store = fixture.store(networkAttempts: 3)
+        await #expect(throws: VoiceModelFailure.http(status: 206, host: "127.0.0.1")) {
+            try await store.download("asr")
+        }
+        #expect(VoiceModelStore.size(of: fixture.weightPart) == 250_000)
+    }
+
+    /// A server without `Range` that breaks off at random points: only
+    /// getting further than ever counts as progress, so it ends.
+    @Test func breaksShortOfTheFurthestPointAreFailures() async throws {
+        let fixture = try await Fixture()
+        let weight = fixture.weightPath
+        let cuts = [100_000, 60_000, 80_000, 90_000, 70_000]
+        fixture.server.setHandler { request, earlier in
+            var response = TestServer.serve(fixture.bodies[request.path]!, request: request, ranges: false)
+            if request.path == weight { response.cutAfter = cuts[min(earlier, cuts.count - 1)] }
+            return response
+        }
+        let store = fixture.store(networkAttempts: 3)
+        await #expect(throws: VoiceModelFailure.self) { try await store.download("asr") }
+        #expect(fixture.server.requests(to: weight).count == 3)
+    }
+
+    /// Two recognizers wait for one VAD download: stopping one leaves it to the other.
+    @Test func aSharedVADOutlivesOneStoppedRecognizer() async throws {
+        let fixture = try await Fixture()
+        let vad = fixture.path(of: "vad.mlmodelc/weights/weight.bin")
+        fixture.server.setHandler { request, earlier in
+            var response = TestServer.serve(fixture.bodies[request.path]!, request: request)
+            if request.path == vad, earlier == 0 { response.cutAfter = 1_000 }
+            return response
+        }
+        let store = fixture.store()
+        let asr = Task { try await store.download("asr") }
+        let other = Task { try await store.download("other") }
+        try await fixture.until { !fixture.server.requests(to: vad).isEmpty }
+        await store.cancelDownload("asr")
+        await #expect(throws: CancellationError.self) { try await asr.value }
+        try await other.value
+        #expect(await store.status(of: "vad")?.state == .ready)
+        #expect(await store.status(of: "other")?.state == .ready)
+        // VAD resumed once; it did not start again.
+        #expect(fixture.server.requests(to: vad).map(\.range) == [nil, "bytes=1000-"])
+    }
+
+    @Test func aVADIsNotRepairedUnderAHeldRecognizer() async throws {
+        let fixture = try await Fixture()
+        let store = fixture.store()
+        try await store.download("asr")
+        _ = try await store.acquire("asr")
+        try "org/vad@0000\n".write(
+            to: fixture.folder("vad").appending(path: VoiceModelStore.manifestName), atomically: true, encoding: .utf8)
+        await store.refresh()
+        let requests = fixture.server.requests.count
+        await #expect(throws: VoiceModelFailure.inUse("asr")) { try await store.download("vad") }
+        await #expect(throws: VoiceModelFailure.inUse("asr")) { try await store.download("other") }
+        #expect(fixture.server.requests.count == requests)
+        #expect(fixture.exists(fixture.folder("vad")))
+        await store.release("asr")
     }
 }

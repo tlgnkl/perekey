@@ -235,7 +235,7 @@ final class Fixture: @unchecked Sendable {
         #expect(fixture.filesMatch(fixture.asr, in: fixture.folder("asr")))
     }
 
-    @Test func aWrongContentRangeStartsOver() async throws {
+    @Test func aWrongContentRangeKeepsThePart() async throws {
         let fixture = try await Fixture()
         let weight = fixture.weightPath
         fixture.server.setHandler { request, earlier in
@@ -254,7 +254,8 @@ final class Fixture: @unchecked Sendable {
         let store = fixture.store()
         try await store.download("asr")
         let requests = fixture.server.requests(to: weight)
-        #expect(requests.map(\.range) == [nil, "bytes=100000-", nil])
+        // The wrong answer leaves the part; the next one resumes it.
+        #expect(requests.map(\.range) == [nil, "bytes=100000-", "bytes=100000-"])
         #expect(fixture.filesMatch(fixture.asr, in: fixture.folder("asr")))
     }
 

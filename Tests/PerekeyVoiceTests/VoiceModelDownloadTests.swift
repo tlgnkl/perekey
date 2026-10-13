@@ -401,6 +401,36 @@ import Testing
         #expect(fixture.filesMatch(fixture.asr, in: fixture.folder("asr")))
     }
 
+    /// Stray 206 answers between good ones that break off are not "in a row".
+    @Test func strayRangesBetweenBrokenAnswersKeepThePart() async throws {
+        let fixture = try await Fixture()
+        let weight = fixture.weightPath
+        fixture.server.setHandler { request, earlier in
+            let body = fixture.bodies[request.path]!
+            guard request.path == weight else { return TestServer.serve(body, request: request) }
+            switch earlier {
+            case 0:
+                return TestServer.Response(status: 200, body: body, cutAfter: 100_000)
+            case 1, 3, 5:
+                return TestServer.Response(
+                    status: 206, headers: ["Content-Range": "bytes 10-\(body.count - 1)/\(body.count)"],
+                    body: body.subdata(in: 10..<body.count))
+            case 2, 4:
+                var response = TestServer.serve(body, request: request)
+                response.cutAfter = 10_000
+                return response
+            default:
+                return TestServer.serve(body, request: request)
+            }
+        }
+        let store = fixture.store(networkAttempts: 6)
+        try await store.download("asr")
+        #expect(fixture.server.requests(to: weight).map(\.range) == [
+            nil, "bytes=100000-", "bytes=100000-", "bytes=110000-", "bytes=110000-", "bytes=120000-", "bytes=120000-",
+        ])
+        #expect(fixture.filesMatch(fixture.asr, in: fixture.folder("asr")))
+    }
+
     /// The rest of another file: the total in `Content-Range` is not ours.
     @Test func anotherTotalLeavesThePartAlone() async throws {
         let fixture = try await Fixture()

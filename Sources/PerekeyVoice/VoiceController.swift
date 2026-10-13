@@ -497,6 +497,9 @@ public final class VoiceController {
         let microphone = self.microphone
         Task {
             do {
+                // The first time macOS asks here, with the HUD already up.
+                await microphone.requestAccess()
+                guard current === work else { return }
                 let subscription = try await microphone.begin(audio)
                 guard current === work else {
                     await microphone.end(subscription)
@@ -602,35 +605,57 @@ public final class VoiceController {
                 return
             }
             let result = await paster.paste(text, into: target)
-            let reason: NotPastedReason? = switch result {
-            case .pasted: nil
-            case .targetChanged: .targetChanged
-            case .secureField: .secureField
-            case let .secureInput(owner): .secureInput(owner: owner)
-            case .timedOut: .timedOut
-            case let .failed(message): .failed(message)
-            }
             // Dictation went off during the paste: no HUD, no layout switch.
             guard !isShutDown else { return }
-            let isPrivate = reason == .secureField || { if case .secureInput = reason { true } else { false } }()
-            last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
-            let privacy: DictationPrivacy = switch reason {
+            finishPaste(text, result)
+            // One entry per dictation: "Paste" in the HUD or the menu adds none.
+            let privacy: DictationPrivacy = switch result {
             case .secureField: .secureField
             case .secureInput: .secureInput
             default: .normal
             }
-            finish(session, text: text, target: target, pasted: reason == nil, privacy: privacy)
-            if let reason {
-                hud = .notPasted(reason)
-            } else {
-                hud = .pasted
-                if preferences.switchesLayout { hooks.pasted(text) }
-            }
+            finish(session, text: text, target: target, pasted: result == .pasted, privacy: privacy)
             handle(.pasted(session))
         }
     }
 
-    /// The level and the timer while recording, and the silence check.
+    /// "Вставить" in the HUD: the last text into the field the caret is in
+    /// now, checked like a dictation's own paste (Secure Input, a password
+    /// field). Only after a text that was not pasted, and not while another
+    /// dictation runs.
+    public func pasteLast() {
+        guard !isShutDown, machine.state == .idle, let text = last?.text, last?.pasted == false,
+              case let .notPasted(reason) = hud, reason.offersPaste
+        else { return }
+        hud = .pasting
+        let paster = self.paster
+        Task {
+            let result = await paster.paste(text, into: await paster.captureTarget())
+            // A new dictation began meanwhile: its HUD and its text are the current ones.
+            guard !isShutDown, machine.state == .idle else { return }
+            finishPaste(text, result)
+        }
+    }
+
+    private func finishPaste(_ text: String, _ result: DictationPasteResult) {
+        let reason: NotPastedReason? = switch result {
+        case .pasted: nil
+        case .targetChanged: .targetChanged
+        case .secureField: .secureField
+        case let .secureInput(owner): .secureInput(owner: owner)
+        case .timedOut: .timedOut
+        case let .failed(message): .failed(message)
+        }
+        let isPrivate = reason == .secureField || { if case .secureInput = reason { true } else { false } }()
+        last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
+        if let reason {
+            hud = .notPasted(reason)
+        } else {
+            hud = .pasted
+            if preferences.switchesLayout { hooks.pasted(text) }
+        }
+    }
+
     /// Hands the finished dictation to the history and the statistics.
     private func finish(_ session: DictationMachine.Session, text: String, target: (any Sendable)?, pasted: Bool,
                         privacy: DictationPrivacy)
@@ -644,6 +669,7 @@ public final class VoiceController {
             privacy: privacy, audio: samples))
     }
 
+    /// The level and the timer while recording, and the silence check.
     private func startTimers(_ work: Work) {
         let sleep = self.sleep
         work.ticker = Task { [weak self] in

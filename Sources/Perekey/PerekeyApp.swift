@@ -61,6 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let voiceText: VoiceTextController
     /// Dictation: the hotkey, the microphone, the engines, the paste.
     private let voice: VoiceSetup
+    /// "What's new: voice input", once, for someone who already uses Perekey.
+    private let voiceIntro: VoiceIntroController
     #endif
 
     override init() {
@@ -90,18 +92,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.voiceText = voiceText
         voice = VoiceSetup(input: input, models: voiceModels, text: voiceText, usage: usage)
         #endif
-        let settings = SettingsWindow(recording: recording) {
+        let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
-                                    languages: input.languages)
+                                    languages: input.languages, initial: section, scrollTarget: scrollTarget)
             view.voiceController = voiceModels
             view.voiceTextController = voiceText
             return view
             #else
             return SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
-                                languages: input.languages)
+                                languages: input.languages, initial: section, scrollTarget: scrollTarget)
             #endif
         }
+        #if PEREKEY_VOICE
+        let voiceSettings = voiceModels.settings
+        let situation: @MainActor () -> VoiceIntro.Situation = {
+            VoiceIntro.Situation(
+                onboardingDone: store.settings.onboardingDone, answered: voiceSettings.settings.introAnswered,
+                voiceIsOn: voiceSettings.settings.isEnabled, isSupported: voiceModels.isSupported,
+                disabledByProfile: voiceSettings.managed.voiceDisabled, fileIsLocked: voiceSettings.isLocked,
+                hasAccess: AXIsProcessTrusted())
+        }
+        let makeIntro: @MainActor () -> VoiceIntroModel = {
+            let model = VoiceIntroModel(settings: voiceSettings, models: voiceModels, store: store, recording: recording)
+            model.openModels = { settings.show(section: .voice, scrollTarget: "models") }
+            return model
+        }
+        voiceIntro = VoiceIntroController(situation: situation, makeModel: makeIntro)
+        onboarding.makeVoiceIntro = { VoiceIntro.offer(situation()) == .none ? nil : makeIntro() }
+        voice.openVoiceSettings = { settings.show(section: .voice, scrollTarget: "models") }
+        #endif
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
                              settings: settings)
@@ -121,6 +141,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceModels.start()
         #endif
         onboarding.showIfNeeded()
+        #if PEREKEY_VOICE
+        voiceIntro.showIfNeeded()
+        #endif
         // After launch, so the status bar exists.
         shell.start()
     }

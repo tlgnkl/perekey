@@ -36,7 +36,7 @@ struct VoicePane: View {
                 dictationGroup
             } else {
                 dictationGroup
-                ModelsList(controller: controller)
+                ModelsList(controller: controller).id("models")
                 if let textController {
                     VoiceTextGroup(controller: textController)
                     VoiceHistoryGroup(controller: textController)

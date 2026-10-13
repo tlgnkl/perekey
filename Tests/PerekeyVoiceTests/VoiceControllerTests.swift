@@ -32,6 +32,12 @@ private final class FakeMicrophone: DictationMicrophone, @unchecked Sendable {
         }
     }
 
+    private(set) var accessRequests = 0
+
+    func requestAccess() async {
+        lock.withLockUnchecked { accessRequests += 1 }
+    }
+
     func end(_: AudioSubscription) async {
         lock.withLockUnchecked {
             audio = nil
@@ -812,11 +818,87 @@ struct VoiceControllerTests {
         #expect(rig.layoutTexts.isEmpty, "no layout switch either")
     }
 
+    @Test func theMicrophoneIsAskedForBeforeItStarts() async {
+        let rig = Rig()
+        await rig.startRecording()
+        #expect(rig.microphone.accessRequests == 1)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+    }
+
+    @Test func theHUDPastesTheLastTextAgain() async {
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.targetChanged) })
+        rig.paster.result = .pasted
+        rig.controller.pasteLast()
+        #expect(rig.hud == .pasting)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Привет, мир.", "Привет, мир."])
+        #expect(rig.controller.last == DictatedText(text: "Привет, мир.", pasted: true, isPrivate: false))
+        #expect(rig.layoutTexts == ["Привет, мир."])
+    }
+
+    @Test func pastingAgainIntoAPasswordFieldStaysOut() async {
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.targetChanged) })
+        rig.paster.result = .secureField
+        rig.controller.pasteLast()
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(rig.controller.last?.isPrivate == true)
+    }
+
+    @Test func pasteLastAnswersOnlyAfterATextThatWasNotPasted() async {
+        let rig = Rig()
+        // Nothing yet.
+        rig.controller.pasteLast()
+        #expect(rig.hud == .hidden)
+        // A timeout: the first paste may still land, so no second one.
+        rig.paster.result = .timedOut
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.timedOut) })
+        rig.controller.pasteLast()
+        #expect(rig.hud == .notPasted(.timedOut))
+        #expect(rig.paster.pasted.count == 1)
+        // A text that went in is not pasted twice.
+        let done = Rig()
+        await done.startRecording()
+        done.controller.voice(.toggle)
+        #expect(await done.until { done.hud == .pasted })
+        done.controller.pasteLast()
+        #expect(done.hud == .pasted && done.paster.pasted.count == 1)
+    }
+
     @Test func onlyTheDictationModelWarmsUpAfterADownload() async {
         let rig = Rig()
         await rig.controller.modelDownloaded("fake2")
         #expect(await rig.otherEngine.prepares == 0, "a model downloaded to try stays unloaded")
         await rig.controller.modelDownloaded("fake")
         #expect(await rig.engine.prepares == 1)
+    }
+
+    @Test func aNewDictationKeepsItsHUDWhileThePasteAgainAnswers() async {
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.targetChanged) })
+        var gate: CheckedContinuation<Void, Never>?
+        rig.paster.waits = { await withCheckedContinuation { gate = $0 } }
+        rig.controller.pasteLast()
+        #expect(await rig.until { gate != nil })
+        rig.paster.waits = nil
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { if case .recording = rig.state { true } else { false } })
+        gate?.resume()
+        #expect(await rig.until { rig.paster.finished == 2 })
+        if case .recording = rig.hud {} else { Issue.record("the new dictation's HUD was overwritten: \(rig.hud)") }
+        #expect(rig.controller.last?.pasted == false)
     }
 }

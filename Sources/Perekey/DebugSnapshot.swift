@@ -656,6 +656,7 @@ extension DebugSnapshot {
                     VoiceHistoryGroup(controller: controller)
                 }
                 .padding(24)
+                .frame(width: 620, height: 660, alignment: .top)
                 .background(Color(nsColor: .windowBackgroundColor))
                 render(view, dark: dark, size: CGSize(width: 620, height: 660),
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))

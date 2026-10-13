@@ -24,6 +24,12 @@ differently, what was fixed.
 
 - **Conflict warnings read your Mac.** Perekey warns about Spotlight or the
   macOS input switch only when that shortcut really does it on this Mac.
+- **Paste without formatting leaves passwords to your password manager.**
+  If you copied a password (from 1Password, for example), Perekey no longer
+  puts it back on the clipboard after the paste: the clipboard is left empty,
+  so your password manager's own clearing still works. Anything else you
+  copied comes back as before. The plain text Perekey pastes stays on this
+  Mac and is not sent to your iPhone or iPad.
 
 ### Fixed
 

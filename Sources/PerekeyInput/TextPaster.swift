@@ -26,8 +26,12 @@ public enum PasteFailure: Equatable, Sendable {
     case noAccess
     /// A modifier stayed down past the wait: ⌘V would arrive as ⌥⌘V or worse.
     case modifiersHeld
-    /// The fallback strategy found no field or no Paste menu item.
+    /// The fallback strategy found no field or no Paste menu item, or the app
+    /// refused: certainly nothing was pasted.
     case strategyFailed
+    /// The app did not answer the fallback strategy in time: the text may
+    /// still arrive. Offer "Paste again" rather than pasting again by itself.
+    case timedOut
 }
 
 /// How the text gets into the app. ⌘V works in every app tried so far; the
@@ -68,8 +72,8 @@ public final class TextPaster {
     private let plainPaste: PlainPaste
     private let readTarget: @MainActor (_ frontmostPID: pid_t?) async -> PasteTarget?
     private let frontmostPID: @MainActor () -> pid_t?
-    private let setSelectedText: @MainActor (String, _ frontmostPID: pid_t?) async -> Bool
-    private let pressPasteMenuItem: @MainActor (_ frontmostPID: pid_t?) async -> Bool
+    private let setSelectedText: @MainActor (String, AXElementRef) async -> AXActionOutcome
+    private let pressPasteMenuItem: @MainActor (_ pid: pid_t) async -> AXActionOutcome
     private let isTrusted: @MainActor () -> Bool
     private let secureInputOwner: @MainActor () -> SecureInputOwner?
     private let modifierFlags: @MainActor () -> CGEventFlags
@@ -86,8 +90,8 @@ public final class TextPaster {
         self.init(plainPaste: plainPaste,
                   readTarget: { await reader.current(frontmostPID: $0) },
                   frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
-                  setSelectedText: { await reader.setSelectedText($0, frontmostPID: $1) },
-                  pressPasteMenuItem: { await reader.pressPasteMenuItem(frontmostPID: $0) },
+                  setSelectedText: { await reader.setSelectedText($0, in: $1) },
+                  pressPasteMenuItem: { await reader.pressPasteMenuItem(pid: $0) },
                   isTrusted: { AXIsProcessTrusted() },
                   secureInputOwner: {
                       SecureInput.isEnabled ? SecureInput.owner(pid: SecureInput.ownerPID()) : nil
@@ -100,8 +104,8 @@ public final class TextPaster {
     init(plainPaste: PlainPaste,
          readTarget: @escaping @MainActor (_ frontmostPID: pid_t?) async -> PasteTarget?,
          frontmostPID: @escaping @MainActor () -> pid_t? = { nil },
-         setSelectedText: @escaping @MainActor (String, _ frontmostPID: pid_t?) async -> Bool = { _, _ in false },
-         pressPasteMenuItem: @escaping @MainActor (_ frontmostPID: pid_t?) async -> Bool = { _ in false },
+         setSelectedText: @escaping @MainActor (String, AXElementRef) async -> AXActionOutcome = { _, _ in .notDone },
+         pressPasteMenuItem: @escaping @MainActor (_ pid: pid_t) async -> AXActionOutcome = { _ in .notDone },
          isTrusted: @escaping @MainActor () -> Bool = { true },
          secureInputOwner: @escaping @MainActor () -> SecureInputOwner? = { nil },
          modifierFlags: @escaping @MainActor () -> CGEventFlags,
@@ -149,15 +153,33 @@ public final class TextPaster {
         case .commandV:
             plainPaste.paste(text: text, restoreDelay: Self.restoreDelay)
         case .menu:
+            // The menu of the app that was checked, not of a newer focus.
             let pid = current.pid
-            guard await plainPaste.paste(text: text, restoreDelay: Self.restoreDelay,
-                                         post: { await pressPasteMenuItem(pid) })
-            else { return .failed(.strategyFailed) }
+            let outcome = await plainPaste.paste(text: text, restoreDelay: Self.restoreDelay,
+                                                 post: { await pressPasteMenuItem(pid) })
+            if let failure = failure(outcome) { return .failed(failure) }
         case .accessibility:
-            guard await setSelectedText(text, current.pid) else { return .failed(.strategyFailed) }
+            // The element just checked against the target: the same one, or
+            // its rebuilt web twin that the captured reference no longer reaches.
+            guard let element = current.element?.ref else { return .failed(.strategyFailed) }
+            if let failure = failure(await setSelectedText(text, element)) { return .failed(failure) }
         }
         afterPaste()
         return .pasted
+    }
+
+    /// Nil when the strategy worked. Text that may still arrive gets
+    /// `afterPaste` as well: the tap must not retype it either.
+    private func failure(_ outcome: AXActionOutcome) -> PasteFailure? {
+        switch outcome {
+        case .done:
+            return nil
+        case .notDone:
+            return .strategyFailed
+        case .unknown:
+            afterPaste()
+            return .timedOut
+        }
     }
 
     /// The AX target, or the frontmost app's PID when AX did not answer.

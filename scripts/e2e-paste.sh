@@ -70,7 +70,10 @@ setInterval(() => {
 </script>
 HTML
 
-if ioreg -n Root -d1 | grep -q '"CGSSessionScreenIsLocked"=Yes'; then
+# A locked screen: loginwindow holds Secure Input (System Events still names Finder).
+secure_pid=$(ioreg -n Root -d1 | grep -oE '"kCGSSessionSecureInputPID"=[0-9]+' | head -1 | cut -d= -f2 || true)
+if ioreg -n Root -d1 | grep -q '"CGSSessionScreenIsLocked"=Yes' \
+    || { [[ -n "$secure_pid" ]] && ps -p "$secure_pid" -o comm= 2>/dev/null | grep -q loginwindow; }; then
     echo "The screen is locked: unlock it first (loginwindow holds Secure Input)." >&2
     exit 1
 fi

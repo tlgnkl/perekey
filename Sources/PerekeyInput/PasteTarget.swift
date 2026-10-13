@@ -31,18 +31,23 @@ public struct PasteTarget: Sendable, Equatable {
         public var subrole: String?
         /// `AXIdentifier`, or Chromium's `AXDOMIdentifier` (the HTML `id`).
         public var identifier: String?
-        /// For an element inside an `AXWebArea`: the web area's `AXURL`, or
-        /// the window's `AXDocument`. Nil outside web content, or without either.
+        /// For an element inside an `AXWebArea`: the `AXURL` of the topmost
+        /// web area (the page, not an editor's iframe), or the window's
+        /// `AXDocument`. Nil outside web content, without either, or for an
+        /// address that names no page (`about:`, `data:`, empty).
         public var webDocument: String?
+        /// `AXPosition` and `AXSize`, in AX screen coordinates.
+        public var frame: CGRect?
 
         public init(ref: AXElementRef, role: String?, subrole: String?, identifier: String?,
-                    webDocument: String? = nil)
+                    webDocument: String? = nil, frame: CGRect? = nil)
         {
             self.ref = ref
             self.role = role
             self.subrole = subrole
             self.identifier = identifier
             self.webDocument = webDocument
+            self.frame = frame
         }
 
         public var isSecureField: Bool { subrole == kAXSecureTextFieldSubrole }
@@ -78,24 +83,60 @@ public struct PasteTarget: Sendable, Equatable {
     /// window, and only the reference tells them apart. One exception: web
     /// content (Chromium, Electron) hands out a new AX object for the same
     /// field after a re-render. Inside an `AXWebArea` a new reference is the
-    /// same target if the web area shows the same document (`AXURL`, so
-    /// another tab with another page is a change; titles are not compared)
-    /// and the role, subrole and identifier match, an identifier on one side
-    /// only included. An element missing on either side (the app did not
-    /// answer) is not compared.
+    /// same target if
+    /// - the page is the same (`webDocument`: another tab with another page
+    ///   is a change; titles are not compared);
+    /// - role, subrole and identifier match, an identifier on one side only
+    ///   included;
+    /// - and the field is the same one on the page: the same non-empty
+    ///   identifier, or the same frame within `frameTolerance`. The editor
+    ///   and the terminal of VS Code are text areas without identifiers on
+    ///   one page; only their place tells them apart.
+    /// Two tabs of one window showing the same address still look alike when
+    /// the field has an identifier or sits at the same place.
+    ///
+    /// An element the target had and the app no longer reports is a change;
+    /// a target without an element compares no element.
     public func isSame(as current: PasteTarget) -> Bool {
         guard pid == current.pid else { return false }
         if let window, window != current.window { return false }
         return Self.sameElement(element, current.element)
     }
 
+    /// Points a rebuilt web field may move, e.g. after a scroll by a pixel.
+    public static let frameTolerance: CGFloat = 2
+
     static func sameElement(_ old: Element?, _ new: Element?) -> Bool {
-        guard let old, let new else { return true }
+        guard let old else { return true }
+        guard let new else { return false }
         if old.ref == new.ref { return true }
         guard let document = old.webDocument, document == new.webDocument else { return false }
-        guard old.role == new.role, old.subrole == new.subrole else { return false }
-        return old.identifier == new.identifier
+        guard old.role == new.role, old.subrole == new.subrole, old.identifier == new.identifier else { return false }
+        if old.identifier != nil { return true }
+        guard let oldFrame = old.frame, let newFrame = new.frame else { return false }
+        return abs(oldFrame.minX - newFrame.minX) <= frameTolerance
+            && abs(oldFrame.minY - newFrame.minY) <= frameTolerance
+            && abs(oldFrame.width - newFrame.width) <= frameTolerance
+            && abs(oldFrame.height - newFrame.height) <= frameTolerance
     }
+
+    /// Whether `address` names a page that two reads can be compared by.
+    /// `about:blank` is every new iframe (TinyMCE, CKEditor) and `data:` any
+    /// generated one.
+    static func isPageAddress(_ address: String?) -> Bool {
+        guard let address, !address.isEmpty else { return false }
+        let lower = address.lowercased()
+        return !lower.hasPrefix("about:") && !lower.hasPrefix("data:")
+    }
+}
+
+/// What became of an AX action on another app.
+public enum AXActionOutcome: Sendable, Equatable {
+    case done
+    /// Certainly not done: nothing to act on, or the app refused.
+    case notDone
+    /// The app did not answer in time. The action may still happen.
+    case unknown
 }
 
 /// Reads the paste target on a thread of its own, like `CaretLocator`: an app
@@ -122,25 +163,30 @@ public final class PasteTargetReader: Sendable {
         await run { Self.read(frontmostPID: frontmostPID) }
     }
 
-    /// Replaces the selection of the focused element with `text` through AX,
-    /// without the pasteboard. For apps where ⌘V does not arrive.
-    public func setSelectedText(_ text: String, frontmostPID: pid_t? = nil) async -> Bool {
-        await run {
-            guard let element = Self.focused(frontmostPID: frontmostPID)?.element else { return false }
-            return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString,
-                                                text as CFString) == .success
-        } ?? false
+    /// Replaces the selection of `element` with `text` through AX, without
+    /// the pasteboard. For apps where ⌘V does not arrive.
+    public func setSelectedText(_ text: String, in element: AXElementRef) async -> AXActionOutcome {
+        await run { timedOut in
+            guard !timedOut() else { return .notDone }
+            return Self.outcome(AXUIElementSetAttributeValue(element.element, kAXSelectedTextAttribute as CFString,
+                                                             text as CFString))
+        } ?? .unknown
     }
 
-    /// Presses the menu item of the frontmost app that has ⌘V as its shortcut
-    /// (Edit ▸ Paste in any language). `false` if there is none, the press
-    /// failed, or the app did not answer in time.
-    public func pressPasteMenuItem(frontmostPID: pid_t? = nil) async -> Bool {
-        await run { Self.pressPasteMenuItem(frontmostPID: frontmostPID) } ?? false
+    /// Presses the menu item of app `pid` that has ⌘V as its shortcut (Edit ▸
+    /// Paste in any language).
+    public func pressPasteMenuItem(pid: pid_t) async -> AXActionOutcome {
+        await run { timedOut in Self.pressPasteMenuItem(pid: pid, timedOut: timedOut) } ?? .unknown
     }
 
-    /// Runs `work` on the AX thread; nil after `timeout`.
     private func run<T: Sendable>(_ work: @escaping @Sendable () -> T?) async -> T? {
+        await run { _ in work() }
+    }
+
+    /// Runs `work` on the AX thread; nil after `timeout`. `work` gets a check
+    /// that tells whether the caller has given up on it already: an action
+    /// must not start after its caller was told "unknown" and moved on.
+    private func run<T: Sendable>(_ work: @escaping @Sendable (_ timedOut: @Sendable () -> Bool) -> T?) async -> T? {
         let once = OSAllocatedUnfairLock<CheckedContinuation<T?, Never>?>(initialState: nil)
         return await withCheckedContinuation { continuation in
             once.withLock { $0 = continuation }
@@ -150,9 +196,20 @@ public final class PasteTargetReader: Sendable {
                     return pending
                 }?.resume(returning: value)
             }
-            thread.perform { finish(work()) }
+            @Sendable func timedOut() -> Bool { once.withLock { $0 == nil } }
+            thread.perform { finish(work(timedOut)) }
             let deadline = DispatchTime.now() + .milliseconds(Self.timeoutMilliseconds)
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: deadline) { finish(nil) }
+        }
+    }
+
+    /// `cannotComplete` is AX's word for "the app did not answer": the
+    /// message may still arrive.
+    private static func outcome(_ error: AXError) -> AXActionOutcome {
+        switch error {
+        case .success: .done
+        case .cannotComplete: .unknown
+        default: .notDone
         }
     }
 
@@ -197,7 +254,8 @@ public final class PasteTargetReader: Sendable {
                 subrole: string(element, kAXSubroleAttribute),
                 identifier: string(element, kAXIdentifierAttribute).nonEmpty
                     ?? string(element, "AXDOMIdentifier").nonEmpty,
-                webDocument: webDocument(of: element, window: window)
+                webDocument: webDocument(of: element, window: window),
+                frame: frame(of: element)
             )
         }
         return PasteTarget(pid: focus.pid, window: window.map(AXElementRef.init), element: described)
@@ -206,18 +264,19 @@ public final class PasteTargetReader: Sendable {
     /// Deepest a focused field sits below its web area; Electron apps nest deep.
     private static let maxWebAreaDepth = 64
 
-    /// The document of the nearest `AXWebArea` above `element`, see
+    /// The document of the topmost `AXWebArea` above `element`, see
     /// `PasteTarget.Element.webDocument`.
     private static func webDocument(of element: AXUIElement, window: AXUIElement?) -> String? {
         var current: AXUIElement? = element
+        var topmost: AXUIElement?
         for _ in 0..<maxWebAreaDepth {
-            guard let node = current else { return nil }
-            if string(node, kAXRoleAttribute) == "AXWebArea" {
-                return url(node, kAXURLAttribute) ?? window.flatMap { url($0, kAXDocumentAttribute) }
-            }
+            guard let node = current else { break }
+            if string(node, kAXRoleAttribute) == "AXWebArea" { topmost = node }
             current = Self.element(node, kAXParentAttribute)
         }
-        return nil
+        guard let topmost else { return nil }
+        let address = url(topmost, kAXURLAttribute) ?? window.flatMap { url($0, kAXDocumentAttribute) }
+        return PasteTarget.isPageAddress(address) ? address : nil
     }
 
     private static func url(_ element: AXUIElement, _ attribute: String) -> String? {
@@ -228,16 +287,38 @@ public final class PasteTargetReader: Sendable {
         return (value as? String).nonEmpty
     }
 
-    private static func pressPasteMenuItem(frontmostPID: pid_t?) -> Bool {
-        guard let focus = focused(frontmostPID: frontmostPID), let bar = element(focus.app, kAXMenuBarAttribute) else { return false }
+    private static func frame(of element: AXUIElement) -> CGRect? {
+        var position: CFTypeRef?
+        var size: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &position) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &size) == .success,
+              let position, CFGetTypeID(position) == AXValueGetTypeID(),
+              let size, CFGetTypeID(size) == AXValueGetTypeID()
+        else { return nil }
+        var origin = CGPoint.zero
+        var extent = CGSize.zero
+        guard AXValueGetValue(unsafeDowncast(position, to: AXValue.self), .cgPoint, &origin),
+              AXValueGetValue(unsafeDowncast(size, to: AXValue.self), .cgSize, &extent)
+        else { return nil }
+        return CGRect(origin: origin, size: extent)
+    }
+
+    /// The press of the target app's own Paste item, not of whatever app has
+    /// the focus by now. Not started once the caller gave up (`timedOut`).
+    private static func pressPasteMenuItem(pid: pid_t, timedOut: () -> Bool) -> AXActionOutcome {
+        guard AXIsProcessTrusted() else { return .notDone }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, FocusObserver.messagingTimeout)
+        guard let bar = element(app, kAXMenuBarAttribute) else { return .notDone }
         for menu in children(bar) {
             for submenu in children(menu) {
                 for item in children(submenu) where isPaste(item) {
-                    return AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+                    guard !timedOut() else { return .notDone }
+                    return outcome(AXUIElementPerformAction(item, kAXPressAction as CFString))
                 }
             }
         }
-        return false
+        return .notDone
     }
 
     /// ⌘V exactly: `AXMenuItemCmdModifiers` 0 means ⌘ alone (Paste and Match

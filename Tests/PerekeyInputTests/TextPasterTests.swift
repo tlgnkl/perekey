@@ -46,11 +46,12 @@ private final class FakePasteboard: PasteboardStore {
 private func ref(_ pid: pid_t) -> AXElementRef { AXElementRef(AXUIElementCreateApplication(pid)) }
 
 private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, role: String? = "AXTextArea",
-                    subrole: String? = nil, identifier: String? = nil, web: String? = nil) -> PasteTarget
+                    subrole: String? = nil, identifier: String? = nil, web: String? = nil,
+                    frame: CGRect? = CGRect(x: 10, y: 20, width: 300, height: 100)) -> PasteTarget
 {
     PasteTarget(pid: pid, window: window.map(ref),
                 element: element.map { PasteTarget.Element(ref: ref($0), role: role, subrole: subrole,
-                                                           identifier: identifier, webDocument: web) })
+                                                           identifier: identifier, webDocument: web, frame: frame) })
 }
 
 @MainActor
@@ -74,9 +75,12 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
     @Test func aRebuiltWebElementOnTheSamePageIsTheSameTarget() {
         // Chromium and Electron hand out a new AX object for the same field.
         let page = "https://example.com/compose"
-        #expect(target(element: 2, web: page).isSame(as: target(element: 3, web: page)))
         #expect(target(element: 2, identifier: "q", web: page)
-            .isSame(as: target(element: 3, identifier: "q", web: page)))
+            .isSame(as: target(element: 3, identifier: "q", web: page, frame: CGRect(x: 0, y: 0, width: 9, height: 9))),
+            "the same identifier, wherever it is now")
+        #expect(target(element: 2, web: page).isSame(as: target(element: 3, web: page)), "the same place")
+        #expect(target(element: 2, web: page)
+            .isSame(as: target(element: 3, web: page, frame: CGRect(x: 11.5, y: 18.5, width: 301, height: 100))))
     }
 
     @Test func aWebElementOfAnotherPageOrKindIsAChange() {
@@ -89,6 +93,28 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
             .isSame(as: target(element: 3, role: "AXTextField", web: page)))
         #expect(!target(element: 2, identifier: "q", web: page)
             .isSame(as: target(element: 3, identifier: "search", web: page)))
+    }
+
+    @Test func anotherPlaceOnTheSamePageWithoutIdentifiersIsAChange() {
+        // The editor and the terminal of VS Code: one workbench page, two text areas.
+        let workbench = "vscode-file://vscode-app/workbench.html"
+        let editor = target(element: 2, web: workbench, frame: CGRect(x: 0, y: 40, width: 800, height: 500))
+        let terminal = target(element: 3, web: workbench, frame: CGRect(x: 0, y: 560, width: 800, height: 200))
+        #expect(!editor.isSame(as: terminal))
+        #expect(!editor.isSame(as: target(element: 3, web: workbench, frame: nil)), "no frame, no proof")
+    }
+
+    @Test func addressesThatNameNoPageAreNotTrusted() {
+        #expect(PasteTarget.isPageAddress("https://example.com/"))
+        #expect(PasteTarget.isPageAddress("file:///tmp/field.html"))
+        #expect(!PasteTarget.isPageAddress("about:blank"))
+        #expect(!PasteTarget.isPageAddress("About:srcdoc"))
+        #expect(!PasteTarget.isPageAddress("data:text/html,<textarea>"))
+        #expect(!PasteTarget.isPageAddress(""))
+        #expect(!PasteTarget.isPageAddress(nil))
+        // The reader gives an about:blank editor iframe no document: the
+        // reference alone decides.
+        #expect(!target(element: 2, web: nil).isSame(as: target(element: 3, web: nil)))
     }
 
     @Test func anIdentifierOnOneSideOnlyIsAChange() {
@@ -107,9 +133,9 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         #expect(!target().isSame(as: .app(pid: 100)), "the window is gone from the answer")
     }
 
-    @Test func aMissingElementIsNotCompared() {
-        #expect(target(element: nil).isSame(as: target()))
-        #expect(target().isSame(as: target(element: nil)))
+    @Test func anElementThatStoppedAnsweringIsAChange() {
+        #expect(target(element: nil).isSame(as: target()), "nothing to compare with")
+        #expect(!target().isSame(as: target(element: nil)))
     }
 
     @Test func targetWithoutWindowComparesTheApp() {
@@ -132,7 +158,8 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         var current: PasteTarget? = target()
         var frontmost: pid_t? = 100
         var secureInputOwner: SecureInputOwner?
-        var menuWorks = true
+        var menu: AXActionOutcome = .done
+        var duringMenu: (@MainActor () -> Void)?
         var flags: [CGEventFlags] = []
     }
 
@@ -144,7 +171,11 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
             plainPaste: plain,
             readTarget: { _ in probe.current },
             frontmostPID: { probe.frontmost },
-            pressPasteMenuItem: { _ in probe.menuPresses += 1; return probe.menuWorks },
+            pressPasteMenuItem: { _ in
+                probe.menuPresses += 1
+                probe.duringMenu?()
+                return probe.menu
+            },
             secureInputOwner: { probe.secureInputOwner },
             modifierFlags: { probe.flags.isEmpty ? [] : probe.flags.removeFirst() },
             modifierTimeout: modifierTimeout,
@@ -217,6 +248,22 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         #expect(await paster.paste("fourth", into: target()) == .pasted)
         plain.restoreNow()
         #expect(pasteboard.plainString == "copied later")
+    }
+
+    @Test func transientContentsArePutBack() async {
+        // TextExpander and Raycast mark their copies transient; they are no passwords.
+        let probe = Probe()
+        let pasteboard = FakePasteboard()
+        pasteboard.contents = PlainPaste.Snapshot(items: [[
+            .init(type: NSPasteboard.PasteboardType.string.rawValue, data: Data("snippet".utf8)),
+            .init(type: PlainPaste.transientType.rawValue, data: Data()),
+            .init(type: PlainPaste.autoGeneratedType.rawValue, data: Data()),
+        ]])
+        let before = pasteboard.snapshot()
+        let (paster, plain) = make(probe, pasteboard: pasteboard)
+        #expect(await paster.paste("text", into: target()) == .pasted)
+        plain.restoreNow()
+        #expect(pasteboard.snapshot() == before)
     }
 
     @Test func aPasswordOnThePasteboardIsNotPutBack() async {
@@ -321,18 +368,30 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
     @Test func accessibilityStrategySkipsThePasteboard() async {
         final class Field {
             var set: [String] = []
-            var succeeds = true
+            var elements: [AXElementRef] = []
+            var outcome: AXActionOutcome = .done
         }
         let pasteboard = FakePasteboard()
         let field = Field()
-        let paster = TextPaster(plainPaste: PlainPaste(pasteboard: pasteboard) {}, readTarget: { _ in target() },
-                                setSelectedText: { text, _ in field.set.append(text); return field.succeeds },
+        // The focus now: the captured field rebuilt by a web app.
+        let page = "https://example.com/"
+        let rebuilt = target(element: 7, identifier: "q", web: page)
+        let paster = TextPaster(plainPaste: PlainPaste(pasteboard: pasteboard) {}, readTarget: { _ in rebuilt },
+                                setSelectedText: { text, element in
+                                    field.set.append(text)
+                                    field.elements.append(element)
+                                    return field.outcome
+                                },
                                 modifierFlags: { [] }, afterPaste: {})
         paster.strategy = .accessibility
-        #expect(await paster.paste("text", into: target()) == .pasted)
-        field.succeeds = false
-        #expect(await paster.paste("again", into: target()) == .failed(.strategyFailed))
-        #expect(field.set == ["text", "again"])
+        let captured = target(element: 2, identifier: "q", web: page)
+        #expect(await paster.paste("text", into: captured) == .pasted)
+        #expect(field.elements == [ref(7)], "the element that answers now")
+        field.outcome = .notDone
+        #expect(await paster.paste("again", into: captured) == .failed(.strategyFailed))
+        field.outcome = .unknown
+        #expect(await paster.paste("late", into: captured) == .failed(.timedOut))
+        #expect(field.set == ["text", "again", "late"])
         #expect(pasteboard.writes == 0)
     }
 
@@ -352,7 +411,7 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
 
     @Test func aMenuPressThatFailsRestoresAtOnce() async {
         let probe = Probe()
-        probe.menuWorks = false
+        probe.menu = .notDone
         let pasteboard = FakePasteboard()
         let (paster, plain) = make(probe, pasteboard: pasteboard)
         paster.strategy = .menu
@@ -360,6 +419,36 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         #expect(!plain.isRestorePending)
         #expect(pasteboard.plainString == "mine")
         #expect(probe.afterPaste == 0)
+    }
+
+    @Test func aMenuPressWithoutAnswerRestoresLater() async {
+        // The press may still happen: an early restore would paste the old pasteboard.
+        let probe = Probe()
+        probe.menu = .unknown
+        let pasteboard = FakePasteboard()
+        let (paster, plain) = make(probe, pasteboard: pasteboard)
+        paster.strategy = .menu
+        #expect(await paster.paste("text", into: target()) == .failed(.timedOut))
+        #expect(plain.isRestorePending)
+        #expect(pasteboard.plainString == "text")
+        #expect(probe.afterPaste == 1, "the tap must leave text that may arrive alone")
+        plain.restoreNow()
+        #expect(pasteboard.plainString == "mine")
+    }
+
+    @Test func aFailedPressLeavesAPlainPasteMeanwhileAlone() async {
+        let probe = Probe()
+        probe.menu = .notDone
+        let pasteboard = FakePasteboard()
+        pasteboard.copyByUser("user")
+        let (paster, plain) = make(probe, pasteboard: pasteboard)
+        probe.duringMenu = { plain.paste() }
+        paster.strategy = .menu
+        #expect(await paster.paste("text", into: target()) == .failed(.strategyFailed))
+        #expect(plain.isRestorePending, "the plain paste restores by itself")
+        #expect(pasteboard.plainString == "text", "its plain text, still waiting for ⌘V")
+        plain.restoreNow()
+        #expect(pasteboard.plainString == "user")
     }
 }
 

@@ -14,8 +14,9 @@ import Testing
 /// - `secure`: the focus is a password field, nothing may be touched;
 /// - `secureinput`: Secure Input is on in another process, nothing may be touched;
 /// - `changed`: `PEREKEY_E2E_SWITCH_TO` (a bundle ID) is activated, or ⌘ with
-///   the key code `PEREKEY_E2E_SWITCH_KEY` is pressed, between the capture
-///   and the paste; nothing may be touched;
+///   the key code `PEREKEY_E2E_SWITCH_KEY` is pressed, or a person moves the
+///   focus within `PEREKEY_E2E_WAIT_MS`, between the capture and the paste;
+///   nothing may be touched;
 /// - `lost`: ⌘V is "lost" (not posted), the pasteboard must come back anyway.
 ///
 /// `PEREKEY_E2E_STRATEGY` picks a `PasteStrategy` other than ⌘V.
@@ -63,6 +64,10 @@ struct PasteE2ETests {
             // ⌘ and a key code as the user would press them, e.g. ⌘T for a new tab.
             Self.postCommand(key)
             try await Task.sleep(for: .milliseconds(800))
+        } else if mode == "changed", let wait = env["PEREKEY_E2E_WAIT_MS"].flatMap(Int.init) {
+            // A person moves the focus by hand meanwhile.
+            print("PASTE-E2E captured; move the focus now")
+            try await Task.sleep(for: .milliseconds(wait))
         } else {
             try await Task.sleep(for: .milliseconds(300))
         }

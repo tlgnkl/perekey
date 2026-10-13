@@ -39,7 +39,7 @@ extension VoiceCheck.Command {
     /// each second. With `--play` it plays a file with afplay, again and again.
     static let sysTap = Self(name: "sys-tap",
                              summary: "taps an app (bundle ID), pid:<n> or system; level, helpers, zeros, segments",
-                             options: ["source", "seconds", "play", "bundle-ids", "format", "segment", "out"]) { options, report in
+                             options: ["source", "seconds", "play", "matching", "format", "segment", "out"]) { options, report in
         guard #available(macOS 14.2, *) else { return tapUnavailable(report) }
         return await TapCheck(options: options, report: report).run()
     }
@@ -272,12 +272,14 @@ private struct TapCheck {
         let writer = SegmentWriter(track: "sys", store: store, format: format,
                                    segmentSeconds: options.double("segment", default: 60))
         let meter = LevelMeter()
-        let matching: SystemAudioTap.Matching = switch options.string("bundle-ids") {
-        case "off": .processes
-        case "only": .bundleIDOnly
-        default: .processesAndBundleID
+        let matching: SystemAudioTap.Matching = switch options.string("matching") {
+        case "processes": .processes
+        case "bundle-id": .bundleID
+        case "both": .processesAndBundleID
+        default: .automatic
         }
-        report.line("tap: matching \(matching)")
+        report.line("tap: matching by \(matching); responsibility_get_pid_responsible_for_pid "
+            + (AppHelpers.knowsResponsibility ? "found" : "missing"))
         let tap = SystemAudioTap(source: source, matching: matching,
                                  onEvent: eventLogger(report, store: store))
         let started = ContinuousClock.now
@@ -301,7 +303,7 @@ private struct TapCheck {
             let window = meter.takeWindow()
             let counts = await tap.counts
             let silent = await tap.silentSeconds
-            let playing = AudioProcessList.all().filter(\.isRunningOutput).map { $0.bundleID ?? "pid \($0.pid)" }
+            let playing = AudioProcessList.all(withResponsibility: false).filter(\.isRunningOutput).map { $0.bundleID ?? "pid \($0.pid)" }
             report.line(String(format: "%3ld s: rms %6.1f dBFS, peak %6.1f dBFS, %ld blocks, zeros for %.0f s; playing: %@",
                                second, window.rmsDB, window.peakDB, counts.blocks, silent,
                                playing.joined(separator: ", ")))

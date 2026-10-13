@@ -52,7 +52,8 @@ public struct AudioProcess: Sendable, Hashable, CustomStringConvertible {
 
 /// The processes of `kAudioHardwarePropertyProcessObjectList`, read on each call.
 public enum AudioProcessList {
-    public static func all() -> [AudioProcess] {
+    /// `withResponsibility: false` leaves `responsiblePID` as the process itself.
+    public static func all(withResponsibility: Bool = true) -> [AudioProcess] {
         let system = AudioObjectID(kAudioObjectSystemObject)
         guard let ids: [AudioObjectID] = MicrophoneList.array(system, kAudioHardwarePropertyProcessObjectList) else {
             return []
@@ -61,7 +62,7 @@ public enum AudioProcessList {
             guard let pid: pid_t = MicrophoneList.value(id, kAudioProcessPropertyPID) else { return nil }
             let running: UInt32 = MicrophoneList.value(id, kAudioProcessPropertyIsRunningOutput) ?? 0
             let bundleID = MicrophoneList.string(id, kAudioProcessPropertyBundleID).flatMap { $0.isEmpty ? nil : $0 }
-            return AudioProcess(id: id, pid: pid, bundleID: bundleID, responsiblePID: responsiblePID(pid),
+            return AudioProcess(id: id, pid: pid, bundleID: bundleID, responsiblePID: withResponsibility ? AppHelpers.responsiblePID(pid) : pid,
                                 isRunningOutput: running != 0)
         }
     }
@@ -85,18 +86,13 @@ public enum AudioProcessList {
     }
 
     /// The processes a tap of `source` takes, or for `.system` leaves out.
-    /// A helper belongs to an app when its bundle ID extends the app's
-    /// (`com.google.Chrome.helper`) or when the app is responsible for it
-    /// (`com.apple.WebKit.GPU` of Safari).
-    static func members(of source: SystemAudioSource, in processes: [AudioProcess],
-                        appPIDs: Set<pid_t>, ownPID: pid_t) -> [AudioProcess] {
+    /// `byResponsibility: false` matches helpers by bundle ID only.
+    static func members(of source: SystemAudioSource, in processes: [AudioProcess], appPIDs: Set<pid_t>,
+                        ownPID: pid_t, byResponsibility: Bool = true) -> [AudioProcess] {
         switch source {
         case .app(let bundleID):
-            return processes.filter { process in
-                if let id = process.bundleID, id == bundleID || id.hasPrefix(bundleID + ".") {
-                    return true
-                }
-                return appPIDs.contains(process.pid) || appPIDs.contains(process.responsiblePID)
+            return processes.filter {
+                AppHelpers.belongs($0, toApp: bundleID, appPIDs: appPIDs, byResponsibility: byResponsibility)
             }
         case .processes(let pids):
             return processes.filter { pids.contains($0.pid) }
@@ -104,15 +100,40 @@ public enum AudioProcessList {
             return processes.filter { $0.pid == ownPID }
         }
     }
+}
+
+/// Which processes play an app's audio, for a tap by process list (macOS
+/// before 26; from 26 the tap names the bundle ID and Core Audio follows the
+/// app itself, see `SystemAudioTap.Matching`).
+///
+/// An app often plays through helpers. Chrome's carry its bundle ID with a
+/// suffix (`com.google.Chrome.helper`), but Safari plays through WebKit's
+/// GPU process, `com.apple.WebKit.GPU`, which bears no Safari ID and serves
+/// every WebKit app at once. What ties it to Safari is the process macOS holds
+/// responsible for it, and only `responsibility_get_pid_responsible_for_pid`
+/// of libsystem tells that. The function is not in the SDK, so it is looked
+/// up at run time: if a macOS drops it, helpers fall back to the bundle ID
+/// prefix and Safari's audio is missed rather than the app failing to load.
+enum AppHelpers {
+    /// The process plays for the app: the app itself, a helper whose bundle
+    /// ID extends the app's, or a process the app is responsible for.
+    static func belongs(_ process: AudioProcess, toApp bundleID: String, appPIDs: Set<pid_t>,
+                        byResponsibility: Bool = true) -> Bool {
+        if let id = process.bundleID, id == bundleID || id.hasPrefix(bundleID + ".") {
+            return true
+        }
+        return appPIDs.contains(process.pid) || byResponsibility && appPIDs.contains(process.responsiblePID)
+    }
 
     private typealias ResponsibleFunction = @convention(c) (pid_t) -> pid_t
-    /// `responsibility_get_pid_responsible_for_pid` of libsystem: not in the
-    /// SDK, so looked up at run time. Without it a helper is matched by its
-    /// bundle ID only.
     private static let responsible: ResponsibleFunction? = dlsym(UnsafeMutableRawPointer(bitPattern: -2),
                                                                  "responsibility_get_pid_responsible_for_pid")
         .map { unsafeBitCast($0, to: ResponsibleFunction.self) }
 
+    /// Whether the run-time lookup found the function.
+    static var knowsResponsibility: Bool { responsible != nil }
+
+    /// The responsible process, or the process itself when unknown.
     static func responsiblePID(_ pid: pid_t) -> pid_t {
         responsible?(pid) ?? pid
     }
@@ -168,15 +189,30 @@ public actor SystemAudioTap {
     private let ioQueue = DispatchQueue(label: "app.perekey.system-audio.io", qos: .userInteractive)
 
     public let source: SystemAudioSource
-    /// How the description names an app's processes.
-    public enum Matching: Sendable {
-        /// The process objects of the app and its helpers.
+    /// How the description names an app.
+    public enum Matching: Sendable, CustomStringConvertible {
+        /// macOS 26+: the bundle ID in `CATapDescription.bundleIDs` with
+        /// `processRestoreEnabled`; Core Audio takes the app's processes and
+        /// adds them again when the app restarts.
+        case bundleID
+        /// The process objects of the app and its helpers (`AppHelpers`),
+        /// rewritten on the live tap as processes come and go.
         case processes
-        /// On macOS 26+ also its bundle ID in `CATapDescription.bundleIDs`,
-        /// with `processRestoreEnabled`, so Core Audio adds a relaunched app.
+        /// Both, for comparison.
         case processesAndBundleID
-        /// The bundle ID alone, to see what Core Audio takes by itself.
-        case bundleIDOnly
+
+        /// The bundle ID where macOS takes it, else the process list.
+        public static var automatic: Matching {
+            if #available(macOS 26.0, *) { .bundleID } else { .processes }
+        }
+
+        public var description: String {
+            switch self {
+            case .bundleID: "bundle ID"
+            case .processes: "process list"
+            case .processesAndBundleID: "process list and bundle ID"
+            }
+        }
     }
 
     public let matching: Matching
@@ -200,7 +236,7 @@ public actor SystemAudioTap {
     public private(set) var isRunning = false
     public private(set) var rebuilds = 0
 
-    public init(source: SystemAudioSource, matching: Matching = .processesAndBundleID,
+    public init(source: SystemAudioSource, matching: Matching = .automatic,
                 onEvent: @escaping @Sendable (SystemAudioEvent) -> Void = { _ in }) {
         self.source = source
         self.matching = matching
@@ -307,7 +343,8 @@ public actor SystemAudioTap {
     }
 
     private func makeDescription() -> CATapDescription {
-        let ids = matching == .bundleIDOnly ? [] : processes.map(\.id)
+        // `.system` always leaves this process out by its object as well.
+        let ids = matching == .bundleID && source != .system ? [] : processes.map(\.id)
         let description = switch source {
         case .system: CATapDescription(stereoGlobalTapButExcludeProcesses: ids)
         case .app, .processes: CATapDescription(stereoMixdownOfProcesses: ids)
@@ -334,7 +371,11 @@ public actor SystemAudioTap {
 
     private func currentMembers() -> [AudioProcess] {
         let appPIDs = if case .app(let bundleID) = source { AudioProcessList.appPIDs(bundleID: bundleID) } else { Set<pid_t>() }
-        return AudioProcessList.members(of: source, in: AudioProcessList.all(), appPIDs: appPIDs, ownPID: getpid())
+        // With the bundle ID in the description the list only tells the zero
+        // detector whether the app plays, so it does without the private call.
+        let byResponsibility = matching != .bundleID
+        return AudioProcessList.members(of: source, in: AudioProcessList.all(withResponsibility: byResponsibility),
+                                        appPIDs: appPIDs, ownPID: getpid(), byResponsibility: byResponsibility)
     }
 
     // MARK: Changes
@@ -361,6 +402,11 @@ public actor SystemAudioTap {
         let members = currentMembers()
         guard Set(members.map(\.id)) != Set(processes.map(\.id)) else { return }
         processes = members
+        guard matching != .bundleID || source == .system else {
+            // Core Audio follows the bundle ID by itself.
+            onEvent(.processes(members))
+            return
+        }
         let description = makeDescription()
         var address = AudioObjectPropertyAddress(mSelector: kAudioTapPropertyDescription,
                                                  mScope: kAudioObjectPropertyScopeGlobal,
@@ -440,7 +486,7 @@ public actor SystemAudioTap {
     }
 
     private func sourcePlays() -> Bool {
-        let all = AudioProcessList.all()
+        let all = AudioProcessList.all(withResponsibility: false)
         switch source {
         case .system:
             return all.contains { $0.pid != getpid() && $0.isRunningOutput }

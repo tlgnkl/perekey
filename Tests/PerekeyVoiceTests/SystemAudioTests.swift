@@ -29,6 +29,28 @@ import Testing
         #expect(members.map(\.id) == [3])
     }
 
+    @Test func withoutResponsibilityOnlyTheBundleIDCounts() {
+        let members = AudioProcessList.members(of: .app(bundleID: "com.apple.Safari"), in: processes,
+                                               appPIDs: [300], ownPID: 1, byResponsibility: false)
+        #expect(members.isEmpty)
+        #expect(AppHelpers.belongs(processes[1], toApp: "com.google.Chrome", appPIDs: [], byResponsibility: false))
+    }
+
+    @Test func responsibilityIsKnownHere() {
+        // The test runner has one: itself or the app that started it.
+        #expect(AppHelpers.knowsResponsibility)
+        #expect(AppHelpers.responsiblePID(getpid()) > 0)
+    }
+
+    @available(macOS 14.2, *)
+    @Test func automaticMatchingFollowsTheSystem() {
+        if #available(macOS 26.0, *) {
+            #expect(SystemAudioTap.Matching.automatic == .bundleID)
+        } else {
+            #expect(SystemAudioTap.Matching.automatic == .processes)
+        }
+    }
+
     @Test func processesByPID() {
         let members = AudioProcessList.members(of: .processes([600]), in: processes, appPIDs: [], ownPID: 1)
         #expect(members.map(\.id) == [6])

@@ -19,8 +19,14 @@ shift || true
 LANGUAGES=("$@")
 [[ ${#LANGUAGES[@]} -gt 0 ]] || LANGUAGES=(en ru)
 
-swift build --product Perekey >/dev/null
-BIN_DIR="$(swift build --show-bin-path)"
+# With PEREKEY_VOICE=1 the voice build, in its own scratch path.
+build=(swift build)
+if [[ "${PEREKEY_VOICE:-}" == 1 ]]; then
+    scripts/voice-pins.sh use
+    build+=(--scratch-path .build/voice)
+fi
+"${build[@]}" --product Perekey >/dev/null
+BIN_DIR="$("${build[@]}" --show-bin-path)"
 APP="$OUT/.snapshot-app/Perekey.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"

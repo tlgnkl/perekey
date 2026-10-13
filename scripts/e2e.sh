@@ -38,6 +38,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 APP=".build/app/Perekey.app"
+# bundle.sh builds the voice build in .build/voice with PEREKEY_VOICE=1.
+[[ "${PEREKEY_VOICE:-}" == 1 ]] && APP=".build/voice/app/Perekey.app"
 HELPER=".build/release/perekey-e2e"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT_DIR=".build/e2e"
@@ -78,7 +80,7 @@ SETTINGS_BACKUP="$OUT_DIR/settings-backup-$STAMP.json"
 if [[ $BUILD -eq 1 ]]; then
     say "Building Perekey.app and the helper"
     run ~/.claude/bin/heavy-gate -- scripts/bundle.sh
-    run ~/.claude/bin/heavy-gate -- swift build -c release --product perekey-e2e
+    run ~/.claude/bin/heavy-gate -- env -u PEREKEY_VOICE swift build -c release --product perekey-e2e
 fi
 if [[ $DRY -eq 0 && ! -x "$HELPER" ]]; then
     echo "Helper $HELPER not found. Run without --no-build." >&2

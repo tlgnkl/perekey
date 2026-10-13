@@ -8,3 +8,5 @@ DerivedData/
 .impeccable/build/
 .impeccable/*.local.json
 .claude/worktrees/
+# The voice pins live in Support/voice/Package.resolved (scripts/voice-pins.sh).
+/Package.resolved

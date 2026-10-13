@@ -18,7 +18,8 @@
 #                  executable, where SwiftPM puts it)
 #   SPARKLE_PUBLIC_ED_KEY  replaces SUPublicEDKey of Support/Info.plist
 #   PEREKEY_MODEL  directory of the language model files (default:
-#                  $SCRATCH_PATH/model, built by scripts/build-model.sh if missing)
+#                  $SCRATCH_PATH/model, .build/model with PEREKEY_VOICE=1;
+#                  built by scripts/build-model.sh if missing)
 #   PEREKEY_LANGUAGES  the model files to ship (default: the languages of
 #                  data/languages, the one list the app enables by)
 set -euo pipefail
@@ -26,7 +27,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${CONFIG:-release}"
-if [[ "${PEREKEY_VOICE:-}" == 1 ]]; then
+VOICE=0
+[[ "${PEREKEY_VOICE:-}" == 1 ]] && VOICE=1
+if ((VOICE)); then
     SCRATCH_PATH="${SCRATCH_PATH:-.build/voice}"
 else
     SCRATCH_PATH="${SCRATCH_PATH:-.build}"
@@ -46,6 +49,7 @@ SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 if [[ -n "${PEREKEY_BINARY:-}" ]]; then
     BINARY="$PEREKEY_BINARY"
 else
+    ((VOICE)) && scripts/voice-pins.sh use
     swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --product Perekey
     BINARY="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH_PATH" --show-bin-path)/Perekey"
 fi
@@ -74,7 +78,12 @@ cp Support/Perekey.sdef "$APP/Contents/Resources/Perekey.sdef" # AppleScript dic
 # layouts' languages from Bundle.main: Contents/Resources/<language>.pklm.
 # Each file must match its hash in data/model.sha256: a stale local build
 # would otherwise ship silently.
-MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+# The model has no voice in it: a voice build shares the one of .build.
+if ((VOICE)); then
+    MODEL="${PEREKEY_MODEL:-.build/model}"
+else
+    MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"
+fi
 LANGUAGES="${PEREKEY_LANGUAGES:-$(grep -v '^#' data/languages | tr '\n' ' ')}"
 if [[ -e "$MODEL" && ! -d "$MODEL" ]]; then
     echo "error: PEREKEY_MODEL=$MODEL is a file; it names the directory of <language>.pklm now" >&2

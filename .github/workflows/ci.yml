@@ -49,28 +49,19 @@ jobs:
       - run: scripts/test.sh
 
   # Voice input, built only with PEREKEY_VOICE=1 until it ships (Package.swift).
-  # Its own scratch path, as locally.
+  # Its own scratch path, as locally; its pins in Support/voice/Package.resolved.
   voice:
     runs-on: macos-latest
     env:
       PEREKEY_VOICE: 1
     steps:
       - uses: actions/checkout@v4
-      - run: swift --version
       # Speech models are downloaded only by the app's own model store, with
-      # checksums. The loaders of FluidAudio and WhisperKit fetch on their own
-      # and may wipe a model folder to fetch it again, so the app never calls them.
+      # checksums; the loaders of FluidAudio and WhisperKit stay unused.
       - name: No model loaders of FluidAudio or WhisperKit in Sources/
-        run: |
-          pattern='downloadAndLoad|downloadAndPreload|downloadIfNeeded|downloadVariant|[A-Za-z]*Models\.download\b|ModelHub\.download|fetchFile|WhisperKit\.download|fetchAvailableModels|fetchModelSupportConfig|HubApi|ModelDownloader'
-          if grep -rnE "$pattern" Sources/; then
-            echo "::error::Sources/ calls a model loader of FluidAudio or WhisperKit (lines above)"
-            exit 1
-          fi
-      # Package.resolved holds the pins of this graph; a stale one fails here.
-      - name: Package.resolved is up to date
-        run: |
-          swift package resolve --scratch-path .build/voice
-          git diff --exit-code -- Package.resolved
+        run: scripts/check-voice-loaders.sh
+      # Prints swift --version: the pins are compared, not the whole file.
+      - name: The voice pins match Package.swift
+        run: scripts/voice-pins.sh check
       - run: swift build --scratch-path .build/voice
-      - run: scripts/test.sh --scratch-path .build/voice
+      - run: scripts/test.sh

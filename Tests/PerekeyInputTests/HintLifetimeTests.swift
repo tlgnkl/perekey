@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import CoreGraphics
 import Testing
 @testable import PerekeyInput
 
@@ -66,14 +67,13 @@ import Testing
         #expect(life.isExpired(at: 62))
     }
 
-    @Test func hoverHoldsEvenAFinishedWordUntilItLeaves() {
+    @Test func aFinishedWordEndsItEvenUnderThePointer() {
         var life = HintLifetime(now: 0)
         life.setHovering(true, at: 0.5)
         life.record(.wordCharacter, at: 1)
+        #expect(!life.isExpired(at: 1.05))
         life.record(.wordBoundary, at: 1.1)
-        #expect(!life.isExpired(at: 1.2))
-        life.setHovering(false, at: 5)
-        #expect(life.isExpired(at: 5))
+        #expect(life.isExpired(at: 1.2))
     }
 
     @Test func aKeyWhileHoveredRestoresTheFullWait() {
@@ -114,6 +114,33 @@ import Testing
         life.setHovering(false, at: 5)
         #expect(!life.isExpired(at: 14.9))
         #expect(life.isExpired(at: 15))
+    }
+
+    private func on(_ hover: inout HintHover, _ pointer: CGPoint, _ bubble: CGRect) -> Bool {
+        hover.isHovering(pointer: pointer, bubble: bubble)
+    }
+
+    @Test func aPointerLeftUnderTheHintDoesNotHoldIt() {
+        var hover = HintHover(pointer: CGPoint(x: 100, y: 100))
+        let bubble = CGRect(x: 80, y: 90, width: 200, height: 30)
+        #expect(!on(&hover, CGPoint(x: 100, y: 100), bubble))
+        // A tremor of the trackpad is no move.
+        #expect(!on(&hover, CGPoint(x: 101, y: 101), bubble))
+    }
+
+    @Test func aPointerThatCameToTheHintHoldsIt() {
+        var hover = HintHover(pointer: CGPoint(x: 100, y: 300))
+        let bubble = CGRect(x: 80, y: 90, width: 200, height: 30)
+        #expect(!on(&hover, CGPoint(x: 100, y: 200), bubble))
+        #expect(on(&hover, CGPoint(x: 100, y: 100), bubble))
+        // Once it moved, it counts wherever it rests.
+        #expect(on(&hover, CGPoint(x: 100, y: 100), bubble))
+    }
+
+    @Test func aPointerThatMovedOnTheHintHoldsIt() {
+        var hover = HintHover(pointer: CGPoint(x: 100, y: 100))
+        let bubble = CGRect(x: 80, y: 90, width: 200, height: 30)
+        #expect(on(&hover, CGPoint(x: 140, y: 105), bubble))
     }
 
     @Test func classifiesKeys() {

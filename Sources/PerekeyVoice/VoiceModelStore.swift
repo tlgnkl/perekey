@@ -69,7 +69,7 @@ public enum VoiceModelFailure: Error, Equatable, Sendable {
     case untrustedRedirect(host: String)
     case checksumMismatch(String)
     case network(String)
-    /// No network for as long as `VoiceHTTP` waits for one.
+    /// No network for two waits of `VoiceHTTP` in a row.
     case offline
     /// The volume has `available` bytes, the download needs `needed`.
     case notEnoughSpace(needed: Int64, available: Int64)
@@ -152,6 +152,11 @@ public actor VoiceModelStore {
     private var downloads: [String: Task<Void, Error>] = [:]
     /// By the model whose files are coming.
     private var fetches: [String: Task<Void, Error>] = [:]
+    /// Downloads waiting for each fetch.
+    private var fetchUsers: [String: Int] = [:]
+    /// The latest fetch of each model and the last report of it taken:
+    /// reports hop to the actor in no set order, older ones are dropped.
+    private var reports: [String: (generation: Int, sequence: Int)] = [:]
     private var cacheClearPending = false
     private var observers: [UUID: AsyncStream<[VoiceModelStatus]>.Continuation] = [:]
 
@@ -167,6 +172,11 @@ public actor VoiceModelStore {
         var checksumAttempts = 3
         /// Expired CDN links in a row.
         var expiredLinks = 4
+        /// 206 answers for other bytes than asked, in a row, before a file
+        /// starts over from its first byte.
+        var foreignRanges = 3
+        /// Requests in a row that found no network for the whole wait.
+        var offlineAttempts = 2
         var retryDelay: @Sendable (Int) -> Duration = { .seconds(min(30, 1 << min($0, 5))) }
         /// Free bytes on the volume of a folder; nil when unknown.
         var freeSpace: @Sendable (URL) -> Int64? = { folder in
@@ -303,15 +313,18 @@ public actor VoiceModelStore {
             _ = await running.result
         }
         if let running = downloads[id] { return try await Self.wait(for: running) }
-        if states[id] == .ready { return }
 
-        var chain = [entry]
-        if entry.engine.recognizes, let vad, states[vad.id] != .ready {
-            chain.insert(vad, at: 0)
-        }
+        // A recognizer is ready only with Silero VAD: a VAD from an older
+        // catalog is repaired by downloading the recognizer.
+        let chain = ((entry.engine.recognizes ? vad.map { [$0] } : nil) ?? []) + [entry]
+        let missing = chain.filter { states[$0.id] != .ready }
+        guard !missing.isEmpty else { return }
         // A repair moves the files of the model aside.
-        if let held = chain.first(where: { holders[$0.id] != nil }) { throw VoiceModelFailure.inUse(held.id) }
-        let task = Task { try await self.run(chain, for: id) }
+        for part in missing {
+            if holders[part.id] != nil { throw VoiceModelFailure.inUse(part.id) }
+            if part.engine == .fluidAudioVad, let holder = heldRecognizer { throw VoiceModelFailure.inUse(holder) }
+        }
+        let task = Task { try await self.run(missing, for: id) }
         downloads[id] = task
         try await Self.wait(for: task)
     }
@@ -325,13 +338,32 @@ public actor VoiceModelStore {
     private func run(_ chain: [VoiceModelEntry], for id: String) async throws {
         defer { downloads[id] = nil }
         for entry in chain where states[entry.id] != .ready {
+            try Task.checkCancellation()
             let fetch = await fetchTask(entry)
-            try await withTaskCancellationHandler {
-                try await fetch.value
-            } onCancel: {
-                fetch.cancel()
+            // Silero VAD may come for several recognizers at once: a stopped
+            // one leaves it to the others.
+            fetchUsers[entry.id, default: 0] += 1
+            do {
+                try await Self.wait(for: fetch)
+            } catch {
+                // A fetch this download stopped ends first: its files and
+                // state settle before the caller hears of the stop.
+                if leave(fetch, of: entry.id) { _ = await fetch.result }
+                throw error
             }
+            leave(fetch, of: entry.id)
         }
+    }
+
+    /// The last download waiting for a fetch stops it, unless it has ended.
+    /// True when it was the last.
+    @discardableResult
+    private func leave(_ fetch: Task<Void, Error>, of id: String) -> Bool {
+        let left = (fetchUsers[id] ?? 1) - 1
+        fetchUsers[id] = left > 0 ? left : nil
+        guard left <= 0 else { return false }
+        fetch.cancel()
+        return true
     }
 
     /// The running fetch of `entry`, or a new one once a stopped one has ended.
@@ -354,6 +386,9 @@ public actor VoiceModelStore {
             let partial = try preparePartial(entry)
             let files = entry.sources.flatMap { source in source.files.map { (source, $0) } }
             var before: Int64 = 0
+            let generation = (reports[id]?.generation ?? 0) + 1
+            reports[id] = (generation, 0)
+            let sequence = OSAllocatedUnfairLock(initialState: 0)
             states[id] = .downloading(received: Self.receivedBytes(of: files.map(\.1), in: partial))
             publish()
             for (index, (source, file)) in files.enumerated() {
@@ -364,10 +399,12 @@ public actor VoiceModelStore {
                 try await Self.downloadFile(
                     file, of: source, into: partial, http: http, host: host, limits: limits,
                     progress: { [weak self] received in
-                        Task { await self?.progress(id, start + received + after) }
+                        let number = sequence.withLock { $0 += 1; return $0 }
+                        Task { await self?.report(id, generation, number, .progress(start + received + after)) }
                     },
                     waiting: { [weak self] waiting in
-                        Task { await self?.waiting(id, waiting) }
+                        let number = sequence.withLock { $0 += 1; return $0 }
+                        Task { await self?.report(id, generation, number, .waiting(waiting)) }
                     })
                 before += file.size
                 states[id] = .downloading(received: before + after)
@@ -392,7 +429,22 @@ public actor VoiceModelStore {
         publish()
     }
 
-    /// Progress reports come in no set order, so `received` only grows.
+    private enum Report {
+        case progress(Int64)
+        case waiting(Bool)
+    }
+
+    /// Takes a report of the latest fetch that is newer than the last one taken.
+    private func report(_ id: String, _ generation: Int, _ number: Int, _ report: Report) {
+        guard let last = reports[id], last.generation == generation, number > last.sequence else { return }
+        reports[id] = (generation, number)
+        switch report {
+        case .progress(let received): progress(id, received)
+        case .waiting(let waiting): self.waiting(id, waiting)
+        }
+    }
+
+    /// `received` only grows: a file started over does not move the bar back.
     private func progress(_ id: String, _ received: Int64) {
         switch states[id] {
         case .downloading(let now) where received > now, .waitingForNetwork(let now) where received > now:
@@ -501,7 +553,7 @@ public actor VoiceModelStore {
                 await stopDownload(id)
             }
         }
-        let recognizerHeld = catalog.contains { $0.engine.recognizes && holders[$0.id] != nil }
+        let recognizerHeld = heldRecognizer != nil
         let kept = catalog.filter { holders[$0.id] != nil || ($0.engine == .fluidAudioVad && recognizerHeld) }.map(\.id)
         for entry in catalog where !kept.contains(entry.id) {
             try removeUserCopy(entry.id)
@@ -590,6 +642,11 @@ public actor VoiceModelStore {
     private func entry(_ id: String) -> VoiceModelEntry? { catalog.first { $0.id == id } }
 
     private var vad: VoiceModelEntry? { catalog.first { $0.engine == .fluidAudioVad } }
+
+    /// A recognizer an engine holds: its VAD is in use too.
+    private var heldRecognizer: String? {
+        catalog.first { $0.engine.recognizes && holders[$0.id] != nil }?.id
+    }
 
     private func status(_ entry: VoiceModelEntry) -> VoiceModelStatus {
         var size = entry.totalSize
@@ -822,6 +879,11 @@ extension VoiceModelStore {
         var networkFailures = 0
         var checksumFailures = 0
         var expiredLinks = 0
+        var foreignRanges = 0
+        var offlines = 0
+        /// The furthest `.part` got; a request counts as progress only past
+        /// it, so a server that breaks off at random points cannot loop forever.
+        var furthest = size(of: part) ?? 0
         /// The SHA-256 state after the first `bytes` of `.part`, kept from
         /// the last request so a resume does not read them again.
         var known: (bytes: Int64, hasher: SHA256)?
@@ -832,6 +894,13 @@ extension VoiceModelStore {
             return try sha256(of: part)
         }
 
+        /// The `.part` goes; the file comes again from its first byte.
+        func startOver() {
+            try? manager.removeItem(at: part)
+            known = nil
+            furthest = 0
+        }
+
         /// A finished `.part`: into place, or removed for another try.
         func settle(_ digest: String) throws -> Bool {
             if digest == file.sha256 {
@@ -839,15 +908,17 @@ extension VoiceModelStore {
                 progress(file.size)
                 return true
             }
-            try? manager.removeItem(at: part)
-            known = nil
+            startOver()
             checksumFailures += 1
             log.error("\(file.path, privacy: .public): checksum mismatch, try \(checksumFailures)")
             if checksumFailures >= limits.checksumAttempts { throw VoiceModelFailure.checksumMismatch(file.path) }
             return false
         }
 
-        func failed(_ failure: VoiceModelFailure, progressed: Bool) async throws {
+        /// `end` is where the `.part` ended after the request, 0 when nothing came.
+        func failed(_ failure: VoiceModelFailure, end: Int64 = 0) async throws {
+            let progressed = end > furthest
+            furthest = max(furthest, end)
             networkFailures = progressed ? 1 : networkFailures + 1
             if networkFailures >= limits.networkAttempts { throw failure }
             try await Task.sleep(for: limits.retryDelay(networkFailures))
@@ -857,8 +928,7 @@ extension VoiceModelStore {
             try Task.checkCancellation()
             let offset = size(of: part) ?? 0
             if offset > file.size {
-                try? manager.removeItem(at: part)
-                known = nil
+                startOver()
                 continue
             }
             if offset == file.size {
@@ -886,19 +956,24 @@ extension VoiceModelStore {
                 switch error {
                 case is CancellationError:
                     throw CancellationError()
+                case VoiceHTTP.Failure.offline:
+                    // The network may have come back just as the wait ran
+                    // out: one more request before giving up.
+                    offlines += 1
+                    if offlines >= limits.offlineAttempts { throw VoiceModelFailure.offline }
                 case let failure as VoiceHTTP.Failure:
                     throw VoiceModelFailure(failure)
                 case let failure as PartWriter.DiskFailure:
                     throw VoiceModelFailure.disk(failure.description)
                 case let overflow as PartWriter.Overflow:
-                    try? manager.removeItem(at: part)
-                    known = nil
-                    try await failed(.network(overflow.description), progressed: false)
+                    startOver()
+                    try await failed(.network(overflow.description))
                 default:
-                    try await failed(.network(error.localizedDescription), progressed: writer.end > offset)
+                    try await failed(.network(error.localizedDescription), end: writer.end)
                 }
                 continue
             }
+            offlines = 0
             do {
                 try writer.close()
             } catch {
@@ -913,25 +988,29 @@ extension VoiceModelStore {
             switch status {
             case 200, 206:
                 guard writer.started else {
+                    // A 206 for other bytes than asked leaves the `.part`
+                    // alone; only a server that keeps doing it starts the file over.
                     if writer.refusal == .range {
-                        // A 206 for other bytes than asked: start over.
-                        try? manager.removeItem(at: part)
-                        known = nil
+                        foreignRanges += 1
+                        if foreignRanges >= limits.foreignRanges {
+                            foreignRanges = 0
+                            startOver()
+                        }
                     }
-                    try await failed(.http(status: status, host: responseHost), progressed: false)
+                    try await failed(.http(status: status, host: responseHost))
                     continue
                 }
+                foreignRanges = 0
                 if writer.end < file.size {
                     // The connection closed early without an error.
-                    try await failed(
-                        .network("\(file.path): \(writer.end) of \(file.size) bytes"), progressed: writer.end > offset)
+                    try await failed(.network("\(file.path): \(writer.end) of \(file.size) bytes"), end: writer.end)
                     continue
                 }
                 if try settle(try writer.digest() ?? digestOfPart(file.size)) { return }
             case 416:
                 // Nothing past `offset`: the part may be whole already.
                 guard let whole = try? digestOfPart(offset) else {
-                    try await failed(.http(status: status, host: responseHost), progressed: false)
+                    try await failed(.http(status: status, host: responseHost))
                     continue
                 }
                 if try settle(whole) { return }
@@ -941,7 +1020,7 @@ extension VoiceModelStore {
                 log.info("\(file.path, privacy: .public): CDN link expired (\(status)), asking \(originHost, privacy: .public) again")
                 if expiredLinks >= limits.expiredLinks { throw VoiceModelFailure.http(status: status, host: responseHost) }
             case 408, 429, 500...599:
-                try await failed(.http(status: status, host: responseHost), progressed: false)
+                try await failed(.http(status: status, host: responseHost))
             default:
                 throw VoiceModelFailure.http(status: status, host: responseHost)
             }
@@ -967,7 +1046,8 @@ final class PartWriter: @unchecked Sendable {
     enum Refusal: Equatable {
         /// A 206 for other bytes than asked.
         case range
-        /// Not the length the file or its rest has: a proxy's page, a cut answer.
+        /// Not the length the file or its rest has, or another total: a
+        /// proxy's page, a cut answer, another file.
         case length
         /// The `.part` could not be opened.
         case disk(String)
@@ -1021,11 +1101,13 @@ final class PartWriter: @unchecked Sendable {
             }
             start = 0
         case 206:
-            guard Self.rangeStart(response.value(forHTTPHeaderField: "Content-Range")) == offset else {
+            let range = Self.contentRange(response.value(forHTTPHeaderField: "Content-Range"))
+            guard range?.first == offset else {
                 refusal = .range
                 return false
             }
-            guard response.expectedContentLength == size - offset else {
+            // Another total is another file, whatever the rest looks like.
+            guard range?.total == size, response.expectedContentLength == size - offset else {
                 refusal = .length
                 return false
             }
@@ -1092,11 +1174,13 @@ final class PartWriter: @unchecked Sendable {
     /// Nil when the prefix of a resumed file was not hashed here.
     func digest() -> String? { hasher.map { VoiceModelStore.hex($0.finalize()) } }
 
-    /// The first byte of `bytes <first>-<last>/<size>`.
-    static func rangeStart(_ header: String?) -> Int64? {
+    /// The first byte and the total of `bytes <first>-<last>/<total>`;
+    /// the total is nil when it is `*` or missing.
+    static func contentRange(_ header: String?) -> (first: Int64, total: Int64?)? {
         guard let header, header.hasPrefix("bytes ") else { return nil }
-        let range = header.dropFirst(6).prefix { $0 != "/" }
-        guard let first = range.split(separator: "-").first else { return nil }
-        return Int64(first)
+        let parts = header.dropFirst(6).split(separator: "/", maxSplits: 1)
+        guard let range = parts.first, let first = range.split(separator: "-").first.flatMap({ Int64($0) })
+        else { return nil }
+        return (first, parts.count == 2 ? Int64(parts[1]) : nil)
     }
 }

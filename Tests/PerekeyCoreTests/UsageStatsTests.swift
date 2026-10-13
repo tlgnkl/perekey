@@ -110,6 +110,14 @@ import Testing
         #expect(decoded.days["2026-01-01"]?.undone == 1)
     }
 
+    @Test func theFileKeepsItsFormatUntilSomethingIsDictated() throws {
+        var stats = UsageStats()
+        stats.recordUndo(at: date(8), calendar: calendar)
+        let root = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(stats)) as? [String: Any])
+        let days = try #require(root["days"] as? [String: [String: Any]])
+        for day in days.values { #expect(Set(day.keys) == ["corrections", "undone", "manual"]) }
+    }
+
     @Test func roundTrips() throws {
         var stats = UsageStats()
         stats.recordCorrection(.typo, at: date(8), calendar: calendar)

@@ -77,8 +77,25 @@ public actor WhisperKitEngine: SpeechEngine {
     public nonisolated var addsSignOffs: Bool { true }
     private let store: VoiceModelStore
     private var kit: StoreWhisperKit?
-    /// Whisper's context is 448 tokens; half is for the prompt.
-    static let promptTokenLimit = 223
+    /// The tokens of the prompt. WhisperKit's window (`Constants.maxTokenContext`,
+    /// 224) holds the prompt and the answer together and keeps only the last
+    /// `window / 2 - 1` prompt tokens, so a long prompt would be cut from the
+    /// front, in the middle of a term. A dictionary word list stays short:
+    /// whole terms up to this many tokens, and the rest of the window is for the text.
+    public static let promptTokenLimit = min(Constants.maxTokenContext / 2 - 1, 48)
+
+    /// Whole terms ("A, B, C") as token ids, at most `limit`; a term that does not fit ends the list.
+    public static func promptTokens(_ prompt: String, limit: Int = promptTokenLimit, specialTokenBegin: Int,
+                             encode: (String) -> [Int]) -> [Int]
+    {
+        var result: [Int] = []
+        for (index, term) in prompt.components(separatedBy: ", ").enumerated() where !term.isEmpty {
+            let tokens = encode((index == 0 ? " " : ", ") + term).filter { $0 < specialTokenBegin }
+            guard result.count + tokens.count <= limit else { break }
+            result += tokens
+        }
+        return result
+    }
 
     public init(id: String = "whisper-large-v3-turbo-632mb", store: VoiceModelStore) {
         self.id = id
@@ -117,8 +134,9 @@ public actor WhisperKitEngine: SpeechEngine {
         guard let kit else { throw SpeechEngineError.notPrepared }
         var promptTokens: [Int]?
         if let prompt, !prompt.isEmpty, let tokenizer = kit.tokenizer {
-            let tokens = tokenizer.encode(text: " " + prompt).filter { $0 < tokenizer.specialTokens.specialTokenBegin }
-            promptTokens = tokens.isEmpty ? nil : Array(tokens.prefix(Self.promptTokenLimit))
+            let tokens = Self.promptTokens(
+                prompt, specialTokenBegin: tokenizer.specialTokens.specialTokenBegin, encode: { tokenizer.encode(text: $0) })
+            promptTokens = tokens.isEmpty ? nil : tokens
         }
         let options = DecodingOptions(
             task: .transcribe, language: nil, detectLanguage: true, skipSpecialTokens: true, withoutTimestamps: true,

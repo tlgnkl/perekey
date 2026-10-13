@@ -130,6 +130,29 @@ struct TextRulesTests {
         #expect(rules("привет мир", nil) == "привет мир")
     }
 
+    @Test func aSingleCapitalLetterGoesDownExceptTheEnglishI() {
+        #expect(rules("Я пошёл домой", "Вчера ") == "я пошёл домой")
+        #expect(rules("A cat sat", "and then ") == "a cat sat")
+        #expect(rules("I went home", "and then ") == "I went home")
+    }
+
+    @Test func latinNamesAfterRussianWordsKeepTheirCapital() {
+        #expect(rules("Slack упал", "Опять через ") == "Slack упал")
+        #expect(rules("Slack is down", "and then ") == "slack is down")
+    }
+
+    @Test func aNameThatReturnsLaterInTheTextKeepsItsCapital() {
+        #expect(rules("Москва большая, и Москва шумная", "Говорят, что ") == "Москва большая, и Москва шумная")
+        #expect(rules("Москва большая. Москва шумная", "Говорят, что ") == "москва большая. Москва шумная")
+        #expect(rules("Лиса бежит, а лиса спит", "Говорят, что ") == "лиса бежит, а лиса спит")
+    }
+
+    @Test func fillersInsideCompoundsStay() {
+        #expect(rules("uh-huh, yes") == "uh-huh, yes")
+        #expect(rules("Смотрю Эм-Ти-Ви") == "Смотрю Эм-Ти-Ви")
+        #expect(rules("Um, uh-huh") == "Uh-huh")
+    }
+
     // MARK: Space
 
     @Test func spaceAfterLettersDigitsAndClosers() {

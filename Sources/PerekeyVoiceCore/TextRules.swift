@@ -27,7 +27,9 @@ public enum TextRules {
         DictionaryEntry(from: "перекэй", to: "Perekey"),
     ]
 
-    /// Whisper reads at most 224 tokens of prompt; Cyrillic costs up to a token per two letters.
+    /// The most characters of the Whisper prompt. WhisperKit shares its 224-token
+    /// window between the prompt and the answer, so the engine keeps only as many
+    /// whole terms as fit in a few dozen tokens; this is the cap before that.
     public static let whisperPromptLimit = 240
 
     /// Dictated `text` as it goes into the field.
@@ -92,7 +94,7 @@ public enum TextRules {
     // MARK: Fillers
 
     private static let wordEdge = "(?<![\\p{L}\\p{N}_\\-])"
-    private static let wordEnd = "(?![\\p{L}\\p{N}_])"
+    private static let wordEnd = "(?![\\p{L}\\p{N}_\\-])"
     private static let dash = "[-\u{2010}\u{2011}]"
 
     /// Sounds that carry no meaning in either language: removed wherever they stand.
@@ -154,6 +156,11 @@ public enum TextRules {
         if opens { return capitalizingFirst(text) }
         // Only a plain Capitalized word goes down: NASA, iPhone and "I" are not first words but names.
         guard isPlainCapitalized(word) else { return text }
+        // A Latin name after Russian words ("через Slack") is a name, not a sentence start.
+        if word.unicodeScalars.allSatisfy({ $0.isASCII || !$0.properties.isAlphabetic }),
+           lastLetterIsCyrillic(before) { return text }
+        // The same form with a capital further on, inside a sentence, is a name ("Москва … в Москве").
+        if appearsCapitalizedLater(word, in: text) { return text }
         let first = text.startIndex
         return text[first].lowercased() + text[text.index(after: first)...]
     }
@@ -185,10 +192,29 @@ public enum TextRules {
 
     private static func isPlainCapitalized(_ word: String) -> Bool {
         let letters = word.filter(\.isLetter)
-        guard letters.count > 1, letters.first?.isUppercase == true else { return false }
+        guard letters.first?.isUppercase == true else { return false }
+        // One capital letter ("Я", "A") goes down; only the English "I" stays.
+        if letters.count == 1 { return letters != "I" }
         // "I'm", "I'll", "I'd" keep the capital.
         if word.first == "I", word.dropFirst().first == "'" || word.dropFirst().first == "\u{2019}" { return false }
         return letters.dropFirst().allSatisfy(\.isLowercase)
+    }
+
+    private static func lastLetterIsCyrillic(_ before: String) -> Bool {
+        guard let letter = before.last(where: \.isLetter) else { return false }
+        return letter.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }
+    }
+
+    /// `word` itself (same case) stands in `text` after the first word, and not right after a sentence end.
+    private static func appearsCapitalizedLater(_ word: String, in text: String) -> Bool {
+        let pattern = "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: word) + "(?![\\p{L}\\p{N}])"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        let source = text as NSString
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: source.length)) where match.range.location > 0 {
+            let head = source.substring(to: match.range.location).trimmingCharacters(in: .whitespaces)
+            if let last = head.last, !".!?\u{2026}".contains(last), !last.isNewline { return true }
+        }
+        return false
     }
 
     private static func capitalizingFirst(_ text: String) -> String {

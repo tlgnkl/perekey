@@ -126,6 +126,20 @@ public struct DictationHistoryFile: Sendable {
         try? FileManager.default.removeItem(at: audioDirectory)
     }
 
+    /// Half-written audio (`*.part.aac`) a crash left behind.
+    public func removeStrayParts() {
+        let manager = FileManager.default
+        for name in (try? manager.contentsOfDirectory(atPath: audioDirectory.path)) ?? [] where name.contains(".part.") {
+            try? manager.removeItem(at: audioDirectory.appending(path: name, directoryHint: .notDirectory))
+        }
+    }
+
+    /// The history a damaged file was moved to holds texts too: it goes with the term.
+    public func removeBroken(olderThan cutoff: Date) {
+        let modified = (try? brokenURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        if let modified, modified < cutoff { try? FileManager.default.removeItem(at: brokenURL) }
+    }
+
     /// Removes everything the history has on disk.
     public func eraseAll() {
         try? FileManager.default.removeItem(at: directory)
@@ -211,6 +225,10 @@ public final class DictationHistory {
     @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private let sampleRate: Double
     @ObservationIgnored private var lastPurge: Date
+    /// Everything that touches the disk runs here, one job after another: the
+    /// AAC encoder and the JSON writer take seconds on a long recording, and
+    /// the main thread (the HUD) must not wait for them.
+    @ObservationIgnored private let disk = DispatchQueue(label: "app.perekey.history-disk", qos: .utility)
 
     public init(
         file: DictationHistoryFile = DictationHistoryFile(), managed: ManagedSettings = ManagedSettings(),
@@ -258,12 +276,17 @@ public final class DictationHistory {
             text: text, bundleID: item.bundleID, appName: item.appName, date: now(), duration: item.duration,
             model: item.model, pasted: item.pasted)
         if keepsAudio, let samples = item.audio, !samples.isEmpty {
-            entry.hasAudio = (try? file.writeAudio(samples, sampleRate: sampleRate, id: entry.id)) != nil
+            // The file follows on the disk queue; `audioURL(of:)` checks it is there.
+            entry.hasAudio = true
+            let file = self.file, sampleRate = self.sampleRate, id = entry.id
+            disk.async { try? file.writeAudio(samples, sampleRate: sampleRate, id: id) }
         }
         entries.insert(entry, at: 0)
         if entries.count > Self.capacity {
-            for dropped in entries[Self.capacity...] where dropped.hasAudio { file.removeAudio(dropped.id) }
+            let dropped = entries[Self.capacity...].filter(\.hasAudio).map(\.id)
             entries.removeLast(entries.count - Self.capacity)
+            let file = self.file
+            disk.async { dropped.forEach(file.removeAudio) }
         }
         persist()
         return .recorded
@@ -274,8 +297,14 @@ public final class DictationHistory {
     /// Cleans by the term when a day has passed since the last time. Call it
     /// when a dictation is recorded and when the menu opens.
     public func purgeIfDue() {
-        guard now().timeIntervalSince(lastPurge) >= Self.purgeInterval || now() < lastPurge else { return }
+        // The oldest entry past the term does not wait for the day: with "1 day" it would live almost two.
+        let expired = entries.last.map { $0.date < cutoff(for: retention) } ?? false
+        guard now().timeIntervalSince(lastPurge) >= Self.purgeInterval || now() < lastPurge || expired else { return }
         purge()
+    }
+
+    private func cutoff(for term: HistoryRetention) -> Date {
+        now().addingTimeInterval(-Double(term.days) * 24 * 3600)
     }
 
     /// Removes what is past the term, and the audio nobody points at.
@@ -284,26 +313,33 @@ public final class DictationHistory {
         guard !isReadOnly else { return }
         let term = retention
         let before = entries.count
+        let file = self.file
         if term == .off {
             entries = []
-            file.eraseAll()
+            disk.async { file.eraseAll() }
             if before > 0 { revision += 1 }
             return
         }
-        let cutoff = now().addingTimeInterval(-Double(term.days) * 24 * 3600)
+        let cutoff = cutoff(for: term)
         let kept = entries.filter { $0.date >= cutoff }
         var changed = kept.count != entries.count
-        for gone in entries where gone.date < cutoff && gone.hasAudio { file.removeAudio(gone.id) }
+        var gone = entries.filter { $0.date < cutoff && $0.hasAudio }.map(\.id)
         entries = kept
         if !keepsAudio {
             for index in entries.indices where entries[index].hasAudio {
-                file.removeAudio(entries[index].id)
+                gone.append(entries[index].id)
                 entries[index].hasAudio = false
                 changed = true
             }
         }
         let known = Set(entries.filter(\.hasAudio).map(\.id))
-        for orphan in file.audioIDs().subtracting(known) { file.removeAudio(orphan) }
+        disk.async {
+            gone.forEach(file.removeAudio)
+            // Audio nobody points at, a half-written file a crash left, a broken history past the term.
+            for orphan in file.audioIDs().subtracting(known) { file.removeAudio(orphan) }
+            file.removeStrayParts()
+            file.removeBroken(olderThan: cutoff)
+        }
         if changed { persist() }
     }
 
@@ -313,16 +349,23 @@ public final class DictationHistory {
     }
 
     /// The "Clear history" button.
+    ///
+    /// Also with a file of a newer version: deleting is not overwriting, and
+    /// the user asked for the texts to go. New dictations are kept again after.
     public func clear() {
-        guard !isReadOnly else { return }
         entries = []
-        file.eraseAll()
+        isReadOnly = false
+        let file = self.file
+        disk.async { file.eraseAll() }
         revision += 1
     }
 
     public func remove(_ id: UUID) {
         guard !isReadOnly, let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        if entries[index].hasAudio { file.removeAudio(id) }
+        if entries[index].hasAudio {
+            let file = self.file
+            disk.async { file.removeAudio(id) }
+        }
         entries.remove(at: index)
         persist()
     }
@@ -335,12 +378,21 @@ public final class DictationHistory {
     }
 
     public func audioURL(of entry: HistoryEntry) -> URL? {
-        entry.hasAudio ? file.audioURL(for: entry.id) : nil
+        guard entry.hasAudio else { return nil }
+        let url = file.audioURL(for: entry.id)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Waits for the disk jobs queued so far. For tests and for quit.
+    public func flush() {
+        disk.sync {}
     }
 
     private func persist() {
         revision += 1
         // Oldest first on disk, so an append is a tail change in a diff.
-        try? file.save(entries.reversed())
+        let snapshot = Array(entries.reversed())
+        let file = self.file
+        disk.async { try? file.save(snapshot) }
     }
 }

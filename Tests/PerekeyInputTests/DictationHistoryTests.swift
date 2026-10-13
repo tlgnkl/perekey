@@ -10,7 +10,14 @@ import Testing
 struct DictationHistoryTests {
     /// A history in a folder of its own and a clock the test moves.
     @MainActor final class Fixture {
-        let directory = URL.temporaryDirectory.appending(path: "perekey-history-\(UUID().uuidString)", directoryHint: .isDirectory)
+        private let root = URL.temporaryDirectory.appending(path: "perekey-history-\(UUID().uuidString)", directoryHint: .isDirectory)
+        private var histories: [DictationHistory] = []
+
+        /// Reading the disk waits for what the histories queued: the writes run off the main thread.
+        var directory: URL {
+            histories.forEach { $0.flush() }
+            return root
+        }
         var settings = VoiceTextSettings(retention: .week)
         var date = Date(timeIntervalSince1970: 1_800_000_000)
         var excluded: Set<String> = []
@@ -19,16 +26,18 @@ struct DictationHistoryTests {
         var file: DictationHistoryFile { DictationHistoryFile(directory: directory) }
 
         func history() -> DictationHistory {
-            DictationHistory(
+            let history = DictationHistory(
                 file: file, managed: managed, settings: { self.settings },
                 isExcluded: { bundle, host in
                     self.excluded.contains(bundle ?? "") || self.excluded.contains(host ?? "\u{0}")
                 },
                 now: { self.date })
+            histories.append(history)
+            return history
         }
 
         func advance(days: Double) { date = date.addingTimeInterval(days * 24 * 3600) }
-        deinit { try? FileManager.default.removeItem(at: directory) }
+        deinit { try? FileManager.default.removeItem(at: root) }
     }
 
     private func record(_ text: String = "привет мир", bundle: String? = "com.apple.Notes", host: String? = nil,
@@ -111,20 +120,51 @@ struct DictationHistoryTests {
         #expect(again.entries.map(\.text) == ["свежая"])
     }
 
-    @Test func entriesPastTheTermGoOnceADayWhenSomethingHappens() {
+    @Test func cleaningRunsOnceADayUnlessSomethingIsExpired() {
         let fixture = Fixture()
         let history = fixture.history()
         history.record(record("старая"))
-        fixture.advance(days: 6.5)
+        fixture.advance(days: 3)
+        history.record(record("свежая"))
+        // Nothing is past the term and less than a day since launch: nothing to do.
+        fixture.advance(days: 0.5)
         history.purgeIfDue()
-        #expect(history.entries.count == 1)
-        // The entry is past the term now, but the last clean was less than a day ago.
-        fixture.advance(days: 0.9)
+        #expect(history.entries.count == 2)
+        // The older one is now past the week: it goes at once.
+        fixture.advance(days: 4)
         history.purgeIfDue()
-        #expect(history.entries.count == 1)
-        fixture.advance(days: 0.2)
+        #expect(history.entries.map(\.text) == ["свежая"])
+    }
+
+    @Test func theOldestEntryPastTheTermDoesNotWaitForTheDay() {
+        let fixture = Fixture()
+        fixture.settings.retention = .day
+        let history = fixture.history()
+        history.record(record("старая"))
+        fixture.advance(days: 0.95)
+        history.purge()
+        fixture.advance(days: 0.1)
+        // The last clean was 0.1 day ago, but the entry is 1.05 days old.
         history.purgeIfDue()
         #expect(history.entries.isEmpty)
+    }
+
+    @Test func strayHalfWrittenAudioAndOldBrokenFileGoWithThePurge() throws {
+        let fixture = Fixture()
+        fixture.settings.keepsAudio = true
+        let history = fixture.history()
+        history.record(record(audio: [Float](repeating: 0.1, count: 16_000)))
+        let stray = fixture.file.audioDirectory.appending(path: "\(UUID().uuidString.lowercased()).part.aac")
+        try Data([1, 2, 3]).write(to: stray)
+        let broken = fixture.file.brokenURL
+        try Data("old".utf8).write(to: broken)
+        try FileManager.default.setAttributes([.modificationDate: fixture.date.addingTimeInterval(-9 * 24 * 3600)],
+                                              ofItemAtPath: broken.path)
+        history.purge()
+        history.flush()
+        #expect(!FileManager.default.fileExists(atPath: stray.path))
+        #expect(!FileManager.default.fileExists(atPath: broken.path))
+        #expect(fixture.file.audioIDs().count == 1)
     }
 
     @Test func recordingCleansToo() {
@@ -236,13 +276,19 @@ struct DictationHistoryTests {
         #expect(history.isReadOnly)
         #expect(history.entries.map(\.text) == ["из будущего"])
         #expect(history.record(record()) == .skipped(.readOnly))
-        history.clear()
         history.purge()
+        history.settingsChanged()
         #expect(try String(contentsOf: fixture.file.url, encoding: .utf8) == newer)
+        // Deleting is not overwriting: "Clear history" erases it, and dictations are kept again.
+        history.clear()
+        #expect(history.entries.isEmpty && !history.isReadOnly)
+        #expect(!FileManager.default.fileExists(atPath: fixture.file.url.path))
+        #expect(history.record(record()) == .recorded)
     }
 
     @Test func brokenFileIsSetAside() throws {
         let fixture = Fixture()
+        fixture.date = Date()
         try FileManager.default.createDirectory(at: fixture.directory, withIntermediateDirectories: true)
         try "not json".write(to: fixture.file.url, atomically: true, encoding: .utf8)
         let history = fixture.history()
@@ -265,6 +311,7 @@ struct DictationHistoryTests {
         history.record(record("со звуком", audio: samples))
         let entry = history.entries[0]
         #expect(entry.hasAudio)
+        history.flush()
         let url = history.audioURL(of: entry)!
         let head = try? Data(contentsOf: url).prefix(2)
         // ADTS sync word: 12 set bits.

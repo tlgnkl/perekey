@@ -73,6 +73,11 @@ public protocol DictationPaster: AnyObject {
     func caretContext(into target: (any Sendable)?) async -> String?
     /// The program the target belongs to, for the history.
     func application(of target: (any Sendable)?) -> DictationApplication?
+    /// Whether a text dictated into `target` is private: the field is a
+    /// password field, or Secure Input is on now. Asked whatever the paste
+    /// answered: the paste checks the field only after Accessibility, the
+    /// modifiers and the target, and a refusal on the way says nothing about it.
+    func privacy(of target: (any Sendable)?) -> DictationPrivacy
 }
 
 /// A program a dictation went into.
@@ -90,6 +95,7 @@ extension DictationPaster {
     public var hasTarget: Bool { true }
     public func caretContext(into _: (any Sendable)?) async -> String? { nil }
     public func application(of _: (any Sendable)?) -> DictationApplication? { nil }
+    public func privacy(of _: (any Sendable)?) -> DictationPrivacy { .normal }
 }
 
 /// The Secure Input rules of a session: no start while it is on; a stop

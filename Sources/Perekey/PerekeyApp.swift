@@ -151,6 +151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Counters reach the disk at most every few seconds, and here at quit.
         usage.flush()
+        #if PEREKEY_VOICE
+        // The history writes off the main thread: let the last one land.
+        voiceText.history.flush()
+        #endif
         // The Caps Lock remap would outlive the app until logout.
         CapsLockRemapper.apply(.untouched)
     }

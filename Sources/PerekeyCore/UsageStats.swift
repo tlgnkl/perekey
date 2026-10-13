@@ -26,6 +26,16 @@ public struct UsageStats: Equatable, Sendable {
 
         private enum CodingKeys: String, CodingKey { case corrections, undone, manual, dictatedWords }
 
+        // The key is written only once something was dictated: a build without voice
+        // keeps writing the file as it did.
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(corrections, forKey: .corrections)
+            try container.encode(undone, forKey: .undone)
+            try container.encode(manual, forKey: .manual)
+            if dictatedWords > 0 { try container.encode(dictatedWords, forKey: .dictatedWords) }
+        }
+
         // A file of an older version has no `dictatedWords`.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)

@@ -675,6 +675,9 @@ extension DebugSnapshot {
                 .background(Color(nsColor: .windowBackgroundColor))
             render(menu, dark: dark, size: CGSize(width: 318, height: 700),
                    to: directory.appending(path: "voice-menu-\(dark ? "dark" : "light").png"))
+        }
+    }
+
     /// The dictation HUD in every state, over a soft backdrop.
     static func renderVoiceHUD(in directory: URL) {
         typealias Recording = DictationHUDState.Recording

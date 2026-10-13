@@ -177,6 +177,10 @@ private final class FakePaster: DictationPaster {
 
     func application(of _: (any Sendable)?) -> DictationApplication? { application }
 
+    /// What the field `captureTarget` returns is, whatever the paste answers.
+    var targetPrivacy: DictationPrivacy = .normal
+    func privacy(of _: (any Sendable)?) -> DictationPrivacy { targetPrivacy }
+
     func captureTarget() async -> (any Sendable)? {
         targets += 1
         return "front"
@@ -334,18 +338,73 @@ struct VoiceControllerTests {
         #expect(record.duration > 0 && record.audio?.isEmpty == false)
     }
 
-    @Test func passwordFieldAndSecureInputAreMarkedPrivate() async {
-        for (result, privacy) in [(DictationPasteResult.secureField, DictationPrivacy.secureField),
-                                  (.secureInput(owner: "Terminal"), .secureInput)]
-        {
+    @Test func passwordFieldAndSecureInputAreMarkedPrivateAndNotRecorded() async {
+        for result in [DictationPasteResult.secureField, .secureInput(owner: "Terminal")] {
             let rig = Rig()
             rig.paster.result = result
             await rig.startRecording()
             rig.controller.voice(.toggle)
-            #expect(await rig.until { rig.records.count == 1 })
-            #expect(rig.records[0].privacy == privacy)
-            #expect(!rig.records[0].pasted)
+            #expect(await rig.until { rig.controller.last != nil && rig.state == .idle })
+            #expect(rig.controller.last?.isPrivate == true)
+            #expect(rig.records.isEmpty)
         }
+    }
+
+    @Test func aPasswordTargetStaysPrivateWhateverTheRefusal() async {
+        let refusals: [DictationPasteResult] = [.targetChanged, .failed("modifiersHeld"), .failed("noAccess"), .timedOut, .pasted]
+        for result in refusals {
+            let rig = Rig()
+            rig.paster.targetPrivacy = .secureField
+            rig.paster.result = result
+            await rig.startRecording()
+            rig.controller.voice(.toggle)
+            #expect(await rig.until { rig.state == .idle && rig.controller.last != nil })
+            #expect(rig.controller.last?.isPrivate == true, "\(result)")
+            #expect(rig.records.isEmpty, "\(result): nothing private goes to the history")
+        }
+    }
+
+    @Test func secureInputNowKeepsATimedOutDictationOutOfTheHistory() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .secureInput
+        rig.paster.result = .timedOut
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.controller.last != nil && rig.state == .idle })
+        #expect(rig.controller.last?.isPrivate == true)
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func keptTextOfAPasswordTargetIsPrivateAndUnrecorded() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .secureField
+        await rig.startRecording()
+        rig.controller.accessibilityLost()
+        #expect(await rig.until { rig.hud == .notPasted(.noAccessibility) })
+        #expect(rig.controller.last?.isPrivate == true)
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func keptTextOfAnOrdinaryFieldIsRecorded() async {
+        let rig = Rig()
+        await rig.startRecording()
+        rig.controller.accessibilityLost()
+        #expect(await rig.until { rig.hud == .notPasted(.noAccessibility) })
+        #expect(rig.controller.last?.isPrivate == false)
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(!rig.records[0].pasted)
+    }
+
+    @Test func pasteFromTheHUDAddsNoSecondEntry() async {
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.records.count == 1 })
+        rig.paster.result = .pasted
+        rig.controller.pasteLast()
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.records.count == 1)
     }
 
     @Test func notPastedDictationStillGoesToTheHook() async {

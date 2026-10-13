@@ -17,7 +17,8 @@ private final class FakeInput: AudioInput, @unchecked Sendable {
     var isAuthorized = true
     var available: Set<String> = ["built-in", "usb"]
     var failStarts = 0
-    var startDelay: TimeInterval = 0
+    /// When set, a start waits here after it was logged, until the test signals.
+    var startGate: DispatchSemaphore?
     var tail: Float = -1
 
     var log: [String] { lock.withLockUnchecked { _log } }
@@ -32,7 +33,7 @@ private final class FakeInput: AudioInput, @unchecked Sendable {
                deliver: @escaping @Sendable (UnsafeBufferPointer<Float>, UInt64) -> Void,
                event: @escaping @Sendable (AudioInputEvent) -> Void) throws -> Microphone? {
         record("start \(deviceUID ?? "system")")
-        Thread.sleep(forTimeInterval: startDelay)
+        startGate?.wait()
         if failStarts > 0 {
             failStarts -= 1
             record("failed")
@@ -166,15 +167,18 @@ struct AudioCaptureTests {
     /// microphone starts runs after the start, so the microphone is not left on.
     @Test func anUnsubscribeDuringTheStartRunsAfterIt() async throws {
         let input = FakeInput()
-        input.startDelay = 0.15
+        let gate = DispatchSemaphore(value: 0)
+        input.startGate = gate
         let capture = AudioCapture(input: input)
         let starting = Task { try await capture.subscribe(Collector()) }
-        // Wait for the start itself, not a fixed time: on a busy machine the
-        // task may begin late, and an unsubscribe that reaches the actor before
-        // the subscribe finds nothing to remove. Once the start has begun, the
-        // actor is held by it and the unsubscribe queues behind.
-        #expect(await eventually { input.log.contains("start system") })
-        await capture.unsubscribe(AudioSubscription(id: 1))
+        // The start holds the actor until the gate opens, however late the
+        // task began: nothing but the test ends it.
+        #expect(await eventually { input.log == ["start system"] })
+        let stopping = Task { await capture.unsubscribe(AudioSubscription(id: 1)) }
+        for _ in 0..<20 { await Task.yield() } // let the unsubscribe queue behind the start
+        #expect(input.log == ["start system"]) // still starting
+        gate.signal()
+        await stopping.value
         let token = try await starting.value
         #expect(token == AudioSubscription(id: 1))
         #expect(input.log == ["start system", "started", "stop"])

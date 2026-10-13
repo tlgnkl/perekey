@@ -41,6 +41,18 @@ public enum MicrophoneList {
         return running.map { $0 != 0 } ?? false
     }
 
+    /// False once the device is unplugged or otherwise gone, before CoreAudio
+    /// drops it from the list.
+    public static func isAlive(_ id: AudioDeviceID) -> Bool {
+        let alive: UInt32? = value(id, kAudioDevicePropertyDeviceIsAlive)
+        return alive.map { $0 != 0 } ?? false
+    }
+
+    static func address(_ selector: AudioObjectPropertySelector,
+                        scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+    }
+
     static func inputChannels(_ id: AudioDeviceID) -> Int {
         var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamConfiguration,
                                                  mScope: kAudioObjectPropertyScopeInput,

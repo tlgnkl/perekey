@@ -9,9 +9,14 @@ public enum PasteResult: Equatable, Sendable {
     /// The user moved to another app, window or field: nothing was pasted and
     /// the pasteboard was not touched.
     case targetChanged
-    /// The focus is a password field, or Secure Input is on: nothing was
-    /// pasted, and the text must not go to the history either.
+    /// The focus is a password field: nothing was pasted, and the text must
+    /// not go to the history either.
     case secureField
+    /// Secure Input is on in some process while the focus is no password
+    /// field, e.g. Terminal's "Secure Keyboard Entry" or a stuck login
+    /// window: nothing was pasted. Keystrokes are hidden from Perekey, not the
+    /// text from the user, so the text may stay for "Paste again".
+    case secureInput(owner: SecureInputOwner)
     case failed(PasteFailure)
 }
 
@@ -33,7 +38,8 @@ public enum PasteStrategy: String, Sendable, CaseIterable {
     /// The pasteboard and the app's Edit ▸ Paste menu item, pressed through AX.
     case menu
     /// `kAXSelectedTextAttribute` of the focused element: no pasteboard, but
-    /// breaks undo and formatting in many apps.
+    /// breaks undo and formatting in many apps. Safari and Chromium text
+    /// areas answer "success" and insert nothing: not for web content.
     case accessibility
 }
 
@@ -45,6 +51,11 @@ public enum PasteStrategy: String, Sendable, CaseIterable {
 /// Main thread. Without the `PEREKEY_VOICE` flag nothing creates one.
 @MainActor
 public final class TextPaster {
+    /// How long the target app gets to read the text before the pasteboard
+    /// comes back. Longer than "Paste without formatting": a dictation often
+    /// ends in an app busy with its own work. An app that hangs for longer
+    /// reads the restored pasteboard instead.
+    public static let restoreDelay: Duration = .milliseconds(1200)
     /// The longest `paste` waits for modifiers to be released.
     public static let modifierTimeout: Duration = .seconds(1)
     /// Modifiers that change what ⌘V means. Caps Lock and the keypad flag do not.
@@ -55,11 +66,12 @@ public final class TextPaster {
     public var strategy: PasteStrategy = .commandV
 
     private let plainPaste: PlainPaste
-    private let readTarget: @MainActor () async -> PasteTarget?
-    private let setSelectedText: @MainActor (String) async -> Bool
-    private let pressPasteMenuItem: @MainActor () -> Void
+    private let readTarget: @MainActor (_ frontmostPID: pid_t?) async -> PasteTarget?
+    private let frontmostPID: @MainActor () -> pid_t?
+    private let setSelectedText: @MainActor (String, _ frontmostPID: pid_t?) async -> Bool
+    private let pressPasteMenuItem: @MainActor (_ frontmostPID: pid_t?) async -> Bool
     private let isTrusted: @MainActor () -> Bool
-    private let isSecureInputOn: @MainActor () -> Bool
+    private let secureInputOwner: @MainActor () -> SecureInputOwner?
     private let modifierFlags: @MainActor () -> CGEventFlags
     private let modifierTimeout: Duration
     private let afterPaste: @MainActor () -> Void
@@ -72,74 +84,87 @@ public final class TextPaster {
     public convenience init(plainPaste: PlainPaste, afterPaste: @escaping @MainActor () -> Void) {
         let reader = PasteTargetReader()
         self.init(plainPaste: plainPaste,
-                  readTarget: { await reader.current() },
-                  setSelectedText: { await reader.setSelectedText($0) },
-                  pressPasteMenuItem: { reader.pressPasteMenuItem() },
+                  readTarget: { await reader.current(frontmostPID: $0) },
+                  frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+                  setSelectedText: { await reader.setSelectedText($0, frontmostPID: $1) },
+                  pressPasteMenuItem: { await reader.pressPasteMenuItem(frontmostPID: $0) },
                   isTrusted: { AXIsProcessTrusted() },
-                  isSecureInputOn: { SecureInput.isEnabled },
+                  secureInputOwner: {
+                      SecureInput.isEnabled ? SecureInput.owner(pid: SecureInput.ownerPID()) : nil
+                  },
                   modifierFlags: { CGEventSource.flagsState(.combinedSessionState) },
                   afterPaste: afterPaste)
     }
 
     /// The closures replace the system in tests.
     init(plainPaste: PlainPaste,
-         readTarget: @escaping @MainActor () async -> PasteTarget?,
-         setSelectedText: @escaping @MainActor (String) async -> Bool = { _ in false },
-         pressPasteMenuItem: @escaping @MainActor () -> Void = {},
+         readTarget: @escaping @MainActor (_ frontmostPID: pid_t?) async -> PasteTarget?,
+         frontmostPID: @escaping @MainActor () -> pid_t? = { nil },
+         setSelectedText: @escaping @MainActor (String, _ frontmostPID: pid_t?) async -> Bool = { _, _ in false },
+         pressPasteMenuItem: @escaping @MainActor (_ frontmostPID: pid_t?) async -> Bool = { _ in false },
          isTrusted: @escaping @MainActor () -> Bool = { true },
-         isSecureInputOn: @escaping @MainActor () -> Bool,
+         secureInputOwner: @escaping @MainActor () -> SecureInputOwner? = { nil },
          modifierFlags: @escaping @MainActor () -> CGEventFlags,
          modifierTimeout: Duration = TextPaster.modifierTimeout,
          afterPaste: @escaping @MainActor () -> Void)
     {
         self.plainPaste = plainPaste
         self.readTarget = readTarget
+        self.frontmostPID = frontmostPID
         self.setSelectedText = setSelectedText
         self.pressPasteMenuItem = pressPasteMenuItem
         self.isTrusted = isTrusted
-        self.isSecureInputOn = isSecureInputOn
+        self.secureInputOwner = secureInputOwner
         self.modifierFlags = modifierFlags
         self.modifierTimeout = modifierTimeout
         self.afterPaste = afterPaste
     }
 
-    /// The target to paste into later. Read when the user starts speaking;
-    /// nil without Accessibility or when the app does not answer in time.
+    /// The target to paste into later. Read when the user starts speaking.
+    /// Without an AX answer it is the frontmost app's PID alone; nil only
+    /// when there is no frontmost app, and then there is nothing to paste into.
     public func captureTarget() async -> PasteTarget? {
-        await readTarget()
+        await currentTarget()
     }
 
     /// Pastes `text` into `target` if it is still focused.
     ///
     /// In order: the modifiers of the hotkey are up (or `.failed(.modifiersHeld)`);
-    /// the focus is still `target` (or `.targetChanged`); neither Secure Input
-    /// nor a password field (or `.secureField`). Only then is the pasteboard
-    /// touched, and it comes back by itself (`PlainPaste`). A nil `target`
-    /// skips the target check: the start had nothing to compare with.
+    /// the focus is still `target` (or `.targetChanged`); no password field
+    /// (or `.secureField`) and no Secure Input (or `.secureInput`). Only then
+    /// is the pasteboard touched, and it comes back by itself (`PlainPaste`).
     ///
     /// The caller keeps `text` for "Paste again" and decides about history.
-    public func paste(_ text: String, into target: PasteTarget?) async -> PasteResult {
+    public func paste(_ text: String, into target: PasteTarget) async -> PasteResult {
         guard !text.isEmpty else { return .failed(.emptyText) }
         guard isTrusted() else { return .failed(.noAccess) }
         guard await Self.waitForRelease(of: Self.heldModifiers, flags: modifierFlags, timeout: modifierTimeout)
         else { return .failed(.modifiersHeld) }
-        let current = await readTarget()
-        if let target {
-            guard let current, target.isSame(as: current) else { return .targetChanged }
-        }
+        guard let current = await currentTarget(), target.isSame(as: current) else { return .targetChanged }
         // Right before the paste: the read above may have taken a moment.
-        if current?.isSecureField == true || isSecureInputOn() { return .secureField }
+        if current.isSecureField { return .secureField }
+        if let owner = secureInputOwner() { return .secureInput(owner: owner) }
 
         switch strategy {
         case .commandV:
-            plainPaste.paste(text: text)
+            plainPaste.paste(text: text, restoreDelay: Self.restoreDelay)
         case .menu:
-            plainPaste.paste(text: text, post: pressPasteMenuItem)
+            let pid = current.pid
+            guard await plainPaste.paste(text: text, restoreDelay: Self.restoreDelay,
+                                         post: { await pressPasteMenuItem(pid) })
+            else { return .failed(.strategyFailed) }
         case .accessibility:
-            guard await setSelectedText(text) else { return .failed(.strategyFailed) }
+            guard await setSelectedText(text, current.pid) else { return .failed(.strategyFailed) }
         }
         afterPaste()
         return .pasted
+    }
+
+    /// The AX target, or the frontmost app's PID when AX did not answer.
+    private func currentTarget() async -> PasteTarget? {
+        let frontmost = frontmostPID()
+        if let target = await readTarget(frontmost) { return target }
+        return frontmost.map(PasteTarget.app(pid:))
     }
 
     /// Waits until none of `modifiers` is down in `flags()`. `false` after `timeout`.

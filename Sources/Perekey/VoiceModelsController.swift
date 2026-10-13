@@ -45,7 +45,13 @@ final class VoiceModelsController {
     /// The dictation modes: their servers on this Mac and those the user
     /// agreed to open the network for language models and cloud speech.
     @ObservationIgnored var modes: VoiceModesStore? {
-        didSet { modes?.observe { [weak self] in self?.applyNetwork() } }
+        didSet {
+            // The network stays closed until `start`, which applies it.
+            modes?.observe { [weak self] in
+                guard let self, watcher != nil else { return }
+                applyNetwork()
+            }
+        }
     }
 
     @ObservationIgnored private let http: VoiceHTTP

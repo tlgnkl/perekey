@@ -317,6 +317,14 @@ public final class VoiceController {
         try await model.residency.warmUp()
     }
 
+    /// A download is over. Only the model dictation uses warms up: another
+    /// one, downloaded to try, would stay held in memory and in the store
+    /// until its timer, and could not be deleted meanwhile.
+    public func modelDownloaded(_ id: String) async {
+        guard id == preferences.modelID else { return }
+        try? await warmUp(model: id)
+    }
+
     /// Unloads the models as soon as no session uses them.
     public func unloadModels() async {
         for model in models.values {

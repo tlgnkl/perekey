@@ -28,11 +28,11 @@ final class VoiceSetup {
         self.models = models
         input.onVoice = { [weak self] in self?.controller?.voice($0) }
         input.onAccessLost.chain { [weak self] in self?.controller?.accessibilityLost() }
-        // A model just downloaded compiles in the background, in the copy
-        // dictation will use.
+        // The dictation model, just downloaded, compiles in the background
+        // in the copy dictation will use.
         models.onModelReady = { [weak self] id in
             guard let controller = self?.controller else { return }
-            Task { try? await controller.warmUp(model: id) }
+            Task { await controller.modelDownloaded(id) }
         }
         models.settings.observe { [weak self] in self?.apply() }
     }

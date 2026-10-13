@@ -763,4 +763,12 @@ struct VoiceControllerTests {
         done.controller.pasteLast()
         #expect(done.hud == .pasted && done.paster.pasted.count == 1)
     }
+
+    @Test func onlyTheDictationModelWarmsUpAfterADownload() async {
+        let rig = Rig()
+        await rig.controller.modelDownloaded("fake2")
+        #expect(await rig.otherEngine.prepares == 0, "a model downloaded to try stays unloaded")
+        await rig.controller.modelDownloaded("fake")
+        #expect(await rig.engine.prepares == 1)
+    }
 }

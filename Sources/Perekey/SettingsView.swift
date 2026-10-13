@@ -71,6 +71,7 @@ struct SettingsView: View {
     #if PEREKEY_VOICE
     /// The speech models and the voice settings; the Voice tab is empty without it.
     var voiceController: VoiceModelsController?
+    var voiceTextController: VoiceTextController?
     #endif
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
@@ -139,7 +140,9 @@ struct SettingsView: View {
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         #if PEREKEY_VOICE
         case .voice:
-            if let voiceController { VoicePane(controller: voiceController, store: store, recording: recording) }
+            if let voiceController {
+                VoicePane(controller: voiceController, textController: voiceTextController, store: store, recording: recording)
+            }
         #endif
         case .apps: AppsPane(store: store, sources: sources, languages: languages)
         case .sites: SitesPane(store: store, sources: sources)

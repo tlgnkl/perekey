@@ -45,6 +45,7 @@ enum DebugSnapshot {
         renderSettingsWindow(in: directory)
         #if PEREKEY_VOICE
         renderVoice(in: directory)
+        renderVoiceText(in: directory)
         #endif
         renderApps(in: directory)
         renderSites(in: directory)
@@ -611,6 +612,66 @@ extension DebugSnapshot {
                 render(view, dark: dark, size: CGSize(width: 620, height: 900),
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
+        }
+    }
+
+    /// A text controller with a made-up dictionary and a few dictations, in files of its own.
+    static func voiceTextPreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings()) -> VoiceTextController {
+        let folder = directory.appending(path: "\(name)-history", directoryHint: .isDirectory)
+        try? FileManager.default.removeItem(at: folder)
+        let textFile = VoiceTextSettingsFile(url: directory.appending(path: "\(name)-voice-text.json"))
+        try? FileManager.default.removeItem(at: textFile.url)
+        var settings = VoiceTextSettings()
+        settings.dictionary += [DictionaryEntry(from: "ай фон", to: "iPhone"), DictionaryEntry(from: "ка эн ка", to: "KNK")]
+        try? textFile.save(settings)
+        let controller = VoiceTextController(managed: managed, textFile: textFile, historyFile: DictationHistoryFile(directory: folder))
+        var clock = Date().addingTimeInterval(-3 * 3_600)
+        let samples: [(String, String, String)] = [
+            ("Перекей отлично работает в заметках, проверь пожалуйста ещё раз.", "com.apple.Notes", "Notes"),
+            ("Let's move the review to Thursday afternoon.", "com.apple.mail", "Mail"),
+            ("Купить молоко, хлеб и сыр, а ещё забрать посылку.", "com.apple.Notes", "Notes"),
+            ("The build is green, merging now.", "com.apple.Terminal", "Terminal"),
+        ]
+        let history = DictationHistory(file: DictationHistoryFile(directory: folder), managed: managed,
+                                       settings: { controller.text.settings }, now: { clock })
+        for sample in samples {
+            clock = clock.addingTimeInterval(40 * 60)
+            history.record(DictationRecord(text: sample.0, bundleID: sample.1, appName: sample.2, duration: 4,
+                                           model: "parakeet-tdt-v3", pasted: true))
+        }
+        return VoiceTextController(managed: managed, textFile: textFile, historyFile: DictationHistoryFile(directory: folder))
+    }
+
+    /// The Text and History groups, and the menu with the recent dictations.
+    static func renderVoiceText(in directory: URL) {
+        let cases: [(name: String, managed: ManagedSettings)] = [
+            ("text", ManagedSettings()),
+            ("text-limited", ManagedSettings(voiceHistoryMaxDays: 7)),
+        ]
+        for dark in [false, true] {
+            for item in cases {
+                let controller = voiceTextPreview(in: directory, name: item.name, managed: item.managed)
+                let view = VStack(alignment: .leading, spacing: 16) {
+                    VoiceTextGroup(controller: controller)
+                    VoiceHistoryGroup(controller: controller)
+                }
+                .padding(24)
+                .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: CGSize(width: 620, height: 660),
+                       to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+            let controller = voiceTextPreview(in: directory, name: "menu")
+            let sources = InputSources()
+            let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-menu.json")))
+            let pause = PauseState(frozen: PauseSet(), now: Date())
+            let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+            var actions = MenuActions()
+            actions.dictation = controller.menu(pasteAgain: { _ in })
+            let menu = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+                                   appModes: appModes, recents: RecentCorrections(), actions: actions)
+                .background(Color(nsColor: .windowBackgroundColor))
+            render(menu, dark: dark, size: CGSize(width: 318, height: 700),
+                   to: directory.appending(path: "voice-menu-\(dark ? "dark" : "light").png"))
         }
     }
 }

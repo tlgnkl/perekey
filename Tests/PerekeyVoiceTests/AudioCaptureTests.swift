@@ -169,8 +169,11 @@ struct AudioCaptureTests {
         input.startDelay = 0.15
         let capture = AudioCapture(input: input)
         let starting = Task { try await capture.subscribe(Collector()) }
-        try await Task.sleep(for: .milliseconds(30))
-        #expect(input.log == ["start system"]) // still starting
+        // Wait for the start itself, not a fixed time: on a busy machine the
+        // task may begin late, and an unsubscribe that reaches the actor before
+        // the subscribe finds nothing to remove. Once the start has begun, the
+        // actor is held by it and the unsubscribe queues behind.
+        #expect(await eventually { input.log.contains("start system") })
         await capture.unsubscribe(AudioSubscription(id: 1))
         let token = try await starting.value
         #expect(token == AudioSubscription(id: 1))

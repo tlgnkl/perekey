@@ -316,7 +316,9 @@ import Testing
             let added = builder.addForm(ModelBuild.apostrophes(word), language: "uk", rank: 150, weight: 10)
             #expect(added)
         }
-        let language = try #require(try LanguageModel(bytes: builder.build()).language("uk"))
+        let model = try LanguageModel(bytes: builder.build())
+        let language = try #require(model.language("uk"))
+        defer { withExtendedLifetime(model) {} }
         // Ukrainian layouts type U+02BC; the text may have U+2019 (Coverage reads it as ').
         #expect(language.rank(of: ModelFormat.Fingerprint.of("ПʼЯТЬ".unicodeScalars, folded: true)) == 150)
         #expect(language.rank(of: ModelFormat.Fingerprint.of("Ґанок".unicodeScalars, folded: true)) == 150)

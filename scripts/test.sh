@@ -41,4 +41,14 @@ if [[ "${PEREKEY_VOICE:-}" == 1 ]]; then
     [[ " $* " == *" --scratch-path "* ]] || extra+=(--scratch-path .build/voice)
 fi
 
-exec swift test ${extra[@]+"${extra[@]}"} "$@"
+# Do not trust the exit code alone: a run that prints a failed summary but
+# exits 0 would pass a gate. Keep the output (still streamed) and check it.
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+status=0
+swift test ${extra[@]+"${extra[@]}"} "$@" 2>&1 | tee "$log" || status=$?
+if [[ $status -eq 0 ]] && grep -qE '^(✘|✗) Test run .* failed|Executed [0-9]+ tests?, with [1-9][0-9]* failures?|error: fatalError|Fatal error' "$log"; then
+    echo "scripts/test.sh: swift test exited 0, but its output reports a failure." >&2
+    status=1
+fi
+exit "$status"

@@ -24,6 +24,13 @@ final class ShortcutRecording {
     @ObservationIgnored private var resignObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var deadlineTask: Task<Void, Never>?
     @ObservationIgnored private var lastStopped: (action: HotkeyAction, time: Double)?
+    #if PEREKEY_VOICE
+    /// True while the dictation trigger is being recorded: it has no
+    /// `HotkeyAction`, and what is recorded goes to `voiceHandler`.
+    private(set) var isRecordingVoice = false
+    @ObservationIgnored private var voiceHandler: ((VoiceTrigger) -> Void)?
+    @ObservationIgnored private var lastVoiceStop: Double?
+    #endif
 
     init(store: SettingsStore) {
         self.store = store
@@ -45,6 +52,10 @@ final class ShortcutRecording {
         let others = store.settings.hotkeys.filter { $0.action != target }
         recorder = ShortcutRecorder(otherBindings: others)
         action = target
+        listen()
+    }
+
+    private func listen() {
         hint = nil
         conflictTexts = []
         store.isRecording = true
@@ -63,6 +74,11 @@ final class ShortcutRecording {
 
     func stop() {
         if let action { lastStopped = (action, now) }
+        #if PEREKEY_VOICE
+        if isRecordingVoice { lastVoiceStop = now }
+        isRecordingVoice = false
+        voiceHandler = nil
+        #endif
         if let monitor { NSEvent.removeMonitor(monitor) }
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         monitor = nil
@@ -72,6 +88,15 @@ final class ShortcutRecording {
         action = nil
         hint = nil
         store.isRecording = false
+    }
+
+    /// Whether a recording is on, for an action or for the dictation trigger.
+    private var isListening: Bool {
+        #if PEREKEY_VOICE
+        action != nil || isRecordingVoice
+        #else
+        action != nil
+        #endif
     }
 
     private var now: Double { ProcessInfo.processInfo.systemUptime }
@@ -96,7 +121,7 @@ final class ShortcutRecording {
     /// Returns true to swallow the event. Clicks are not swallowed: they end the
     /// recording and still reach the control under the pointer.
     private func handle(_ input: Input) -> Bool {
-        guard action != nil else { return false }
+        guard isListening else { return false }
         switch input.type {
         case .leftMouseDown:
             stop()
@@ -114,6 +139,9 @@ final class ShortcutRecording {
     }
 
     private func finish(_ result: ShortcutRecorder.Result?) {
+        #if PEREKEY_VOICE
+        if isRecordingVoice { return finishVoice(result) }
+        #endif
         guard let target = action else { return }
         switch result {
         case let .recorded(trigger):
@@ -153,3 +181,53 @@ final class ShortcutRecording {
         }
     }
 }
+
+#if PEREKEY_VOICE
+extension ShortcutRecording {
+    /// Starts recording the dictation trigger. `onRecorded` gets a tap
+    /// (modifiers alone, pressed once) or a hold (a key with modifiers);
+    /// Delete gives `.default`. Its conflicts are shown by the pane.
+    func toggleVoice(onRecorded: @escaping (VoiceTrigger) -> Void) {
+        if isRecordingVoice {
+            stop()
+        } else if let lastVoiceStop, now - lastVoiceStop < 0.5 {
+            // The click that ended this recording also pressed the button.
+            self.lastVoiceStop = nil
+        } else {
+            stop()
+            beginVoice(onRecorded)
+        }
+    }
+
+    private func beginVoice(_ handler: @escaping (VoiceTrigger) -> Void) {
+        recorder = ShortcutRecorder()
+        isRecordingVoice = true
+        voiceHandler = handler
+        listen()
+    }
+
+    fileprivate func finishVoice(_ result: ShortcutRecorder.Result?) {
+        switch result {
+        case let .recorded(trigger):
+            guard let voice = VoiceTrigger(recorded: trigger) else {
+                hint = String(localized: "Tap the key once, or hold a key with modifiers.", table: "Voice")
+                return
+            }
+            let handler = voiceHandler
+            stop()
+            handler?(voice)
+        case .cancelled:
+            stop()
+        case .cleared:
+            let handler = voiceHandler
+            stop()
+            handler?(.default)
+        case .needsModifier:
+            hint = String(localized: "Hold a modifier key together with it.", table: "Voice")
+        case nil:
+            hint = nil
+            scheduleDeadline()
+        }
+    }
+}
+#endif

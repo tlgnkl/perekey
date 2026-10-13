@@ -379,6 +379,56 @@ private extension Output {
             #expect(object["schemaVersion"] as? Int == VoiceSettings.schemaVersion)
         }
     }
+
+    @Test func fieldsOfAnOlderFileTakeTheirDefaults() throws {
+        // A file written before the settings tab had these fields.
+        let old = Data(#"{"schemaVersion":1,"isEnabled":true,"trigger":{"kind":"tap","chord":{"requirements":["command","right"]}}}"#.utf8)
+        let settings = try JSONDecoder().decode(VoiceSettings.self, from: old)
+        #expect(settings.activeTrigger == .tap(.rightCommand))
+        #expect(settings.microphoneUID == nil && settings.microphoneName == nil)
+        #expect(settings.model == VoiceSettings.defaultModel)
+        #expect(settings.switchesLayout)
+        #expect(settings.playsSounds)
+        #expect(settings.autoStop == .seconds30)
+        #expect(settings.unload == .minutes60)
+        #expect(settings.unreadableKeys.isEmpty)
+    }
+
+    @Test func otherFieldsRoundTrip() throws {
+        let settings = VoiceSettings(isEnabled: true, microphoneUID: "usb-1", microphoneName: "USB Mic", model: "whisper", switchesLayout: false,
+                                     playsSounds: false, autoStop: .off, unload: .never)
+        let data = try JSONEncoder().encode(settings)
+        #expect(try JSONDecoder().decode(VoiceSettings.self, from: data) == settings)
+        // The system device is written as null, so a save over the file clears the old one.
+        let system = try JSONEncoder().encode(VoiceSettings())
+        let object = try #require(JSONSerialization.jsonObject(with: system) as? [String: Any])
+        #expect(object["microphoneUID"] is NSNull)
+        #expect(try JSONDecoder().decode(VoiceSettings.self, from: system).microphoneUID == nil)
+    }
+
+    @Test func anUnreadableOtherFieldKeepsItsValueAndDictationOn() throws {
+        let data = Data(#"{"isEnabled":true,"autoStop":45,"unload":"soon","microphoneUID":7,"model":3}"#.utf8)
+        var settings = try JSONDecoder().decode(VoiceSettings.self, from: data)
+        #expect(settings.unreadableKeys == ["autoStop", "unload", "microphoneUID", "model"])
+        #expect(settings.autoStop == .seconds30 && settings.unload == .minutes60)
+        #expect(settings.activeTrigger == .default, "a setting of a later version does not switch dictation off")
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        #expect(object["autoStop"] == nil && object["unload"] == nil && object["microphoneUID"] == nil && object["model"] == nil)
+        settings.autoStop = .seconds15
+        #expect(!settings.unreadableKeys.contains("autoStop"))
+        #expect(settings.unreadableKeys.contains("unload"))
+    }
+
+    @Test func limitsInSeconds() {
+        #expect(VoiceAutoStop.off.seconds == nil && VoiceAutoStop.seconds15.seconds == 15)
+        #expect(VoiceUnload.never.seconds == nil && VoiceUnload.minutes10.seconds == 600)
+    }
+
+    @Test func aRecordedShortcutMakesATapOrAHold() {
+        #expect(VoiceTrigger(recorded: .modifiers(.rightOption, taps: .single)) == .default)
+        #expect(VoiceTrigger(recorded: .key(keyCode: 49, modifiers: [.option])) == optionSpace)
+        #expect(VoiceTrigger(recorded: .modifiers(.rightOption, taps: .double)) == nil)
+    }
 }
 
 @Suite struct VoiceSessionTests {

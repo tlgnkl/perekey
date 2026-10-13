@@ -97,6 +97,17 @@ public struct VoiceModelStatus: Sendable, Equatable, Identifiable {
     /// Bytes "Download" brings: a recognizer counts Silero VAD while VAD is not there.
     public var size: Int64
 
+    public init(entry: VoiceModelEntry, state: VoiceModelState, isInUse: Bool = false, isManaged: Bool = false,
+                failure: VoiceModelFailure? = nil, size: Int64? = nil)
+    {
+        self.entry = entry
+        self.state = state
+        self.isInUse = isInUse
+        self.isManaged = isManaged
+        self.failure = failure
+        self.size = size ?? entry.totalSize
+    }
+
     public var id: String { entry.id }
     /// The repository page at the pinned commit of each part.
     public var addresses: [String] { entry.sources.map(\.pageURL) }
@@ -116,6 +127,11 @@ public struct VoiceModelDiskUsage: Sendable, Equatable {
     public var models: Int64
     /// The CoreML compilation cache.
     public var cache: Int64
+    public init(models: Int64, cache: Int64) {
+        self.models = models
+        self.cache = cache
+    }
+
     public var total: Int64 { models + cache }
 }
 

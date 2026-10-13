@@ -43,8 +43,14 @@ private final class FakeMicrophone: DictationMicrophone, @unchecked Sendable {
     private var _selected: [String?] = []
     var selected: [String?] { lock.withLockUnchecked { _selected } }
 
+    /// A microphone was chosen while one was on.
+    private(set) var selectedWhileOn = false
+
     func select(_ uid: String?) async {
-        lock.withLockUnchecked { _selected.append(uid) }
+        lock.withLockUnchecked {
+            _selected.append(uid)
+            if audio != nil { selectedWhileOn = true }
+        }
     }
 
     func release() {
@@ -102,8 +108,12 @@ private actor FakeEngine: SpeechEngine {
         prepared = true
     }
 
+    /// The model went while a transcription ran.
+    private(set) var unloadedWhileTranscribing = false
+
     func unload() async {
         unloads += 1
+        if gate != nil { unloadedWhileTranscribing = true }
         prepared = false
     }
 
@@ -135,7 +145,10 @@ private final class FakePaster: DictationPaster {
     var hasTarget = true
     /// Called as the paste begins.
     var pasting: (() -> Void)?
+    /// Awaited before the paste answers.
+    var waits: (() async -> Void)?
     private(set) var pasted: [String] = []
+    private(set) var finished = 0
     private(set) var targets = 0
 
     func captureTarget() async -> (any Sendable)? {
@@ -147,6 +160,8 @@ private final class FakePaster: DictationPaster {
         #expect(target as? String == "front")
         pasting?()
         pasted.append(text)
+        await waits?()
+        finished += 1
         return result
     }
 }
@@ -175,6 +190,9 @@ private final class Rig {
     var sessionChanges: [Bool] = []
     var sounds: [DictationMachine.Sound] = []
     var holdLosses = 0
+    var holdPolls = 0
+    /// Sleeps of the controller's timers so far: they show time passing.
+    let sleeps = OSAllocatedUnfairLock(initialState: 0)
     var layoutTexts: [String] = []
     var controller: VoiceController!
 
@@ -187,12 +205,18 @@ private final class Rig {
             detector: detector, makeEngine: { engines[$0] },
             hooks: VoiceController.Hooks(
                 sessionChanged: { [weak self] in self?.sessionChanges.append($0) },
-                holdIsDown: { [weak self] in self?.keysDown ?? false },
+                holdIsDown: { [weak self] in
+                    self?.holdPolls += 1
+                    return self?.keysDown ?? false
+                },
                 holdLost: { [weak self] in self?.holdLosses += 1 },
                 pasted: { [weak self] in self?.layoutTexts.append($0) },
                 play: { [weak self] in self?.sounds.append($0) }),
             limitSeconds: limitSeconds,
-            sleep: { _ in try await Task.sleep(for: .milliseconds(2)) })
+            sleep: { [sleeps] _ in
+                sleeps.withLock { $0 += 1 }
+                try await Task.sleep(for: .milliseconds(2))
+            })
     }
 
     var state: DictationMachine.State { controller.state }
@@ -397,10 +421,9 @@ struct VoiceControllerTests {
         #expect(await rig.until { rig.microphone.selected == [nil] })
         await rig.startRecording()
         rig.controller.apply(DictationPreferences(microphoneUID: "usb", modelID: "fake", silenceStop: nil))
-        try? await Task.sleep(for: .milliseconds(20))
-        #expect(rig.microphone.selected == [nil])
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.microphone.selected == [nil, "usb"] })
+        #expect(!rig.microphone.selectedWhileOn)
         rig.controller.apply(DictationPreferences(modelID: "fake", silenceStop: nil))
         #expect(await rig.until { rig.microphone.selected == [nil, "usb", nil] })
     }
@@ -474,14 +497,14 @@ struct VoiceControllerTests {
         let rig = Rig()
         rig.controller.voice(.holdBegan)
         #expect(await rig.until { if case .recording = rig.state { true } else { false } })
-        try? await Task.sleep(for: .milliseconds(20))
+        #expect(await rig.until { rig.holdPolls >= 2 })
         #expect(rig.holdLosses == 0)
         rig.keysDown = false
         #expect(await rig.until { rig.holdLosses == 1 })
         // The tap answers with the hold's end.
         rig.controller.voice(.holdEnded(reason: .lost))
         #expect(await rig.until { rig.state == .idle })
-        try? await Task.sleep(for: .milliseconds(20))
+        #expect(!rig.controller.isWatchingHold)
         #expect(rig.holdLosses == 1)
     }
 
@@ -558,6 +581,7 @@ struct VoiceControllerTests {
         await rig.engine.finish()
         await shutdown.value
         #expect(await rig.engine.unloads == 1)
+        #expect(await !rig.engine.unloadedWhileTranscribing)
         #expect(rig.paster.pasted.isEmpty)
     }
 
@@ -568,12 +592,11 @@ struct VoiceControllerTests {
         rig.controller.voice(.toggle)
         #expect(await rig.until { await rig.engine.isTranscribing })
         let unloading = Task { await rig.controller.unloadModels() }
-        try? await Task.sleep(for: .milliseconds(20))
-        #expect(await rig.engine.unloads == 0)
         await rig.engine.finish()
         #expect(await rig.until { rig.hud == .pasted })
         await unloading.value
         #expect(await rig.engine.unloads == 1)
+        #expect(await !rig.engine.unloadedWhileTranscribing)
     }
 
     @Test func aNewModelWaitsForTheSessionOnTheOldOne() async {
@@ -583,12 +606,11 @@ struct VoiceControllerTests {
         rig.controller.voice(.toggle)
         #expect(await rig.until { await rig.engine.isTranscribing })
         rig.controller.apply(DictationPreferences(modelID: "fake2", silenceStop: nil))
-        try? await Task.sleep(for: .milliseconds(20))
-        #expect(await rig.engine.unloads == 0)
         await rig.engine.finish()
         // The session keeps the model it started with.
         #expect(await rig.until { rig.paster.pasted == ["Привет, мир."] })
         #expect(await rig.until { await rig.engine.unloads == 1 })
+        #expect(await !rig.engine.unloadedWhileTranscribing)
         await rig.startRecording()
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.paster.pasted.count == 2 })
@@ -620,7 +642,10 @@ struct VoiceControllerTests {
         rig.controller.voice(.cancel)
         #expect(!rig.controller.isWatchingHold)
         rig.keysDown = false
-        try? await Task.sleep(for: .milliseconds(20))
+        // A tap session runs its timers: a hold watch left behind would poll meanwhile.
+        await rig.startRecording()
+        let sleeps = rig.sleeps.withLock { $0 }
+        #expect(await rig.until { rig.sleeps.withLock { $0 } >= sleeps + 20 })
         #expect(rig.holdLosses == 0)
     }
 
@@ -643,5 +668,36 @@ struct VoiceControllerTests {
         #expect(rig.state == .idle)
         #expect(rig.hud == .hidden)
         #expect(rig.microphone.log.isEmpty)
+    }
+
+    @Test func shutdownWhileTheMicrophoneStarts() async {
+        let rig = Rig()
+        rig.microphone.hold = true
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.microphone.isWaiting })
+        await rig.controller.shutdown()
+        #expect(rig.state == .idle)
+        #expect(rig.sessionChanges == [true, false])
+        #expect(rig.secureInput.sessions == [true, false])
+        rig.microphone.release()
+        // The start that comes late is stopped at once.
+        #expect(await rig.until { rig.microphone.log == ["begin", "end"] })
+        #expect(!rig.microphone.isOn)
+        #expect(rig.hud == .hidden)
+    }
+
+    @Test func shutdownDuringThePaste() async {
+        let rig = Rig()
+        var gate: CheckedContinuation<Void, Never>?
+        rig.paster.waits = { await withCheckedContinuation { gate = $0 } }
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { gate != nil })
+        await rig.controller.shutdown()
+        gate?.resume()
+        #expect(await rig.until { rig.paster.pasted.count == 1 })
+        #expect(await rig.until { rig.paster.finished == 1 })
+        #expect(rig.hud == .hidden, "no HUD after dictation went off")
+        #expect(rig.layoutTexts.isEmpty, "no layout switch either")
     }
 }

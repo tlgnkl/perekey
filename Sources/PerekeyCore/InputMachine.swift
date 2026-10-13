@@ -207,9 +207,14 @@ public struct InputMachine: Sendable {
         if key.phase == .up { return shortcuts.keyUp(key.keyCode) ? .drop : .pass }
 
         // A plain Esc only: ⌘Esc, ⌃Esc and ⌥Esc are the system's and the apps'.
-        let chordModifiers = ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit
+        // The modifiers of a hold trigger are down for the whole session, so
+        // Esc under them is plain too.
+        var foreign = ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit
+        if case let .hold(_, modifiers) = settings.voice {
+            for modifier in modifiers { foreign &= ~modifier.maskBit }
+        }
         if voiceSession, key.keyCode == KeyCode.escape,
-           ModifierKind.kindMask(inEventFlags: key.flags) & chordModifiers == 0
+           ModifierKind.kindMask(inEventFlags: key.flags) & foreign == 0
         {
             // The key breaks a modifier chord in progress, as typing does.
             shortcuts.otherInput(at: time)

@@ -421,6 +421,19 @@ private extension Output {
 
     }
 
+    @Test func escCancelsAHoldUnderItsModifiers() {
+        var keyboard = Keyboard(voice: optionSpace)
+        keyboard.beginOptionSpace()
+        keyboard.send(.voiceSession(true))
+        let down = keyboard.key(.down, KeyCode.escape, flags: Keyboard.leftOption)
+        #expect(down.disposition == .drop)
+        #expect(down.voice == [.cancel])
+        #expect(keyboard.key(.up, KeyCode.escape, flags: Keyboard.leftOption).disposition == .drop)
+        // ⌘Esc is still not ours.
+        let command = keyboard.key(.down, KeyCode.escape, flags: Keyboard.leftOption | EventFlags.command)
+        #expect(command.disposition == .pass)
+    }
+
     @Test func aSwallowedEscBreaksAModifierTap() {
         // Fn is the trigger: fn, Esc (taken for the session), fn up is no tap.
         var keyboard = Keyboard(voice: .tap(ModifierChord([.function: .either])))

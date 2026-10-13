@@ -576,6 +576,8 @@ public final class VoiceController {
             case .timedOut: .timedOut
             case let .failed(message): .failed(message)
             }
+            // Dictation went off during the paste: no HUD, no layout switch.
+            guard !isShutDown else { return }
             let isPrivate = reason == .secureField || { if case .secureInput = reason { true } else { false } }()
             last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
             if let reason {

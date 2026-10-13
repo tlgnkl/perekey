@@ -70,12 +70,13 @@ public actor FluidAudioEngine: SpeechEngine {
 }
 
 /// Whisper through WhisperKit, from the model's folder; the tokenizer lies
-/// in its `tokenizer/` (`ModelCatalog`). The language is detected.
+/// in its `tokenizer/` (`ModelCatalog`) and loads from there only
+/// (`StoreWhisperKit`). The language is detected.
 public actor WhisperKitEngine: SpeechEngine {
     public nonisolated let id: String
     public nonisolated var addsSignOffs: Bool { true }
     private let store: VoiceModelStore
-    private var kit: WhisperKit?
+    private var kit: StoreWhisperKit?
 
     public init(id: String = "whisper-large-v3-turbo-632mb", store: VoiceModelStore) {
         self.id = id
@@ -86,23 +87,22 @@ public actor WhisperKitEngine: SpeechEngine {
         guard kit == nil else { return }
         let folder = try await store.acquire(id)
         do {
-            let tokenizer = folder.appending(path: "tokenizer", directoryHint: .isDirectory)
-            // WhisperKit falls back to the Hub when its tokenizer does not
-            // load from the folder: past the store, its checksums and the
-            // profile. Its tokenizer type cannot be made outside it, so the
-            // same local load runs here first: a tokenizer that fails is a
-            // broken model, and one that loads here loads there too.
-            _ = try await AutoTokenizerWrapper.from(modelFolder: tokenizer)
-            let config = WhisperKitConfig(
-                modelFolder: folder.path, tokenizerFolder: tokenizer,
-                verbose: false, logLevel: .error, prewarm: false, load: false, download: false)
-            let kit = try await WhisperKit(config)
-            try await kit.loadModels()
-            self.kit = kit
+            kit = try await Self.load(from: folder)
         } catch {
             await store.release(id)
             throw error
         }
+    }
+
+    /// The tokenizer first, once: a broken one stops the load before CoreML.
+    static func load(from folder: URL) async throws -> StoreWhisperKit {
+        let tokenizer = try await LocalWhisperTokenizer(
+            folder: folder.appending(path: "tokenizer", directoryHint: .isDirectory))
+        let config = WhisperKitConfig(
+            modelFolder: folder.path, verbose: false, logLevel: .error, prewarm: false, load: false, download: false)
+        let kit = try await StoreWhisperKit(config, tokenizer: tokenizer)
+        try await kit.loadModels()
+        return kit
     }
 
     public func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {

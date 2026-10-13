@@ -41,7 +41,8 @@ struct VoiceModesFileTests {
         let read = file.load(defaults: .defaults())
         #expect(read.newerSchemaVersion == 5)
         #expect(read.modes.map(\.id) == ["x"])
-        #expect(throws: VoiceModesFile.NewerVersionError(schemaVersion: 5)) { try file.save(read) }
+        let error = #expect(throws: VoiceModesFile.NewerVersionError.self) { try file.save(read) }
+        #expect(error?.schemaVersion == 5)
         #expect(try Data(contentsOf: file.url) == newer)
     }
 

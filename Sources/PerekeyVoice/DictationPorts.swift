@@ -73,6 +73,8 @@ public protocol DictationPaster: AnyObject {
     func copy(_ text: String)
     /// Return after a paste, for "Paste and Enter": only if `target` is still in front.
     func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult
+    /// The target is a password field: nothing of the dictation leaves the Mac for it.
+    func isSecureField(_ target: (any Sendable)?) -> Bool
 }
 
 extension DictationPaster {
@@ -85,6 +87,8 @@ extension DictationPaster {
     }
 
     public func pressReturn(in _: (any Sendable)?) async -> DictationPasteResult { .pasted }
+
+    public func isSecureField(_: (any Sendable)?) -> Bool { false }
 }
 
 /// The Secure Input rules of a session: no start while it is on; a stop

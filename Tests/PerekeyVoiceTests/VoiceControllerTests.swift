@@ -161,6 +161,9 @@ private final class FakePaster: DictationPaster {
 
     func copy(_ text: String) { copied.append(text) }
 
+    var secureField = false
+    func isSecureField(_: (any Sendable)?) -> Bool { secureField }
+
     func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult {
         #expect(target as? String == "front")
         returns += 1
@@ -923,6 +926,18 @@ struct VoiceControllerModeTests {
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.hud == .pastedFallback(.answered) })
         #expect(rig.paster.pasted == ["Какая завтра погода?"])
+    }
+
+    @Test func aPasswordFieldNeverReachesTheLanguageModel() async {
+        let rig = Rig()
+        rig.paster.secureField = true
+        rig.paster.result = .secureField
+        let modes = FakeModes(.refining())
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(modes.asked.isEmpty)
     }
 
     @Test func aSkippedStepIsNamedAfterThePaste() async {

@@ -33,6 +33,10 @@ public final class TextPasterAdapter: DictationPaster {
         }
     }
 
+    public func isSecureField(_ target: (any Sendable)?) -> Bool {
+        (target as? PasteTarget)?.isSecureField ?? false
+    }
+
     /// Return on the target, marked as Perekey's own so the tap lets it
     /// through. Nothing when another app came to the front since the paste.
     public func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult {

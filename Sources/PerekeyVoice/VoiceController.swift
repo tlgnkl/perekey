@@ -644,7 +644,14 @@ public final class VoiceController {
             handle(.refineFailed(session))
             return
         }
+        let paster = self.paster
         work.refining = Task { [weak self] in
+            // A password field: the text goes nowhere, and the paste refuses it.
+            if paster.isSecureField(await work.target?.value) {
+                guard let self, case let .refining(current, _, _) = machine.state, current == session else { return }
+                handle(.refineFailed(session))
+                return
+            }
             let outcome: RefineOutcome
             do {
                 let answer = try await Self.within(step.timeout) { try await modes.refine(text, plan: plan) }

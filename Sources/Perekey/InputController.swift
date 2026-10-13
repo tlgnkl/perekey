@@ -72,8 +72,6 @@ final class InputController {
 
     /// The voice trigger fired.
     @ObservationIgnored var onVoice: ((VoiceSignal) -> Void)?
-    /// Secure Input went on or off.
-    @ObservationIgnored var onSecureInputChanged: ((Bool) -> Void)?
     #endif
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState,
@@ -124,11 +122,8 @@ final class InputController {
             engine.send(.focusChanged(focus))
             Task { @MainActor in pause.setPasswordField(focus.isKnown && focus.isSecureField) }
         }
-        secureInput.onChange = { [weak self, secureInput] isOn in
+        secureInput.onChange = { [secureInput] isOn in
             pause.setSecureInput(isOn, owner: secureInput.ownerName)
-            #if PEREKEY_VOICE
-            self?.onSecureInputChanged?(isOn)
-            #endif
         }
         pause.setSecureInput(secureInput.isOn, owner: secureInput.ownerName)
 

@@ -344,6 +344,37 @@ struct VoiceControllerTests {
         #expect(rig.state == .idle)
     }
 
+    @Test func timeoutOffersOnlyCopy() async {
+        let rig = Rig()
+        rig.paster.result = .timedOut
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.timedOut) })
+        #expect(!NotPastedReason.timedOut.offersPaste)
+        #expect(rig.controller.lastText == "Привет, мир.")
+        #expect(rig.layoutTexts.isEmpty)
+    }
+
+    @Test func secureInputOfAnotherApp() async {
+        let rig = Rig()
+        rig.paster.result = .secureInput(owner: "Terminal")
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureInput(owner: "Terminal")) })
+        #expect(NotPastedReason.secureInput(owner: "Terminal").offersPaste)
+        #expect(!rig.controller.lastTextIsPrivate)
+    }
+
+    @Test func passwordFieldKeepsTheTextPrivate() async {
+        let rig = Rig()
+        rig.paster.result = .secureField
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(rig.controller.lastTextIsPrivate)
+        #expect(!NotPastedReason.secureField.offersPaste)
+    }
+
     @Test func silenceIsNotPasted() async {
         let rig = Rig()
         rig.controller.voice(.toggle)

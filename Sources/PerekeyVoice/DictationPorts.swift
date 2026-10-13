@@ -27,13 +27,20 @@ public enum DictationPasteResult: Hashable, Sendable {
     /// The app, window or field changed since the start: the text was not
     /// pasted and the pasteboard was left alone.
     case targetChanged
-    /// A password field, or Secure Input on, right before ⌘V.
+    /// The caret is in a password field: not pasted, and the text stays out
+    /// of the history.
     case secureField
+    /// Another app holds Secure Input (its name if known): not pasted.
+    case secureInput(owner: String?)
+    /// The app did not answer the paste in time: the text may still arrive,
+    /// so it is not offered for pasting again, only for copying.
+    case timedOut
+    /// Not pasted, for certain.
     case failed(String)
 }
 
 /// Pastes dictated text where the dictation started. `TextPaster` in the
-/// app: the adapter that joins them is the one place that knows its API.
+/// app, through `TextPasterAdapter`: the one place that knows its API.
 @MainActor
 public protocol DictationPaster: AnyObject {
     /// Where the caret is now: app, window, field. Taken when a dictation starts.

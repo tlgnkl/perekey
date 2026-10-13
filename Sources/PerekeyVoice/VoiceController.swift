@@ -23,8 +23,9 @@ public enum DictationHUDState: Hashable, Sendable {
     case pasting
     /// The text is in. A short confirmation, then hidden.
     case pasted
-    /// The text was recognized but not pasted; it is in `lastText`, for
-    /// "Вставить · Скопировать".
+    /// The text was recognized but not pasted; it is in `lastText`.
+    /// `NotPastedReason.offersPaste` says whether "Вставить" goes beside
+    /// "Скопировать".
     case notPasted(NotPastedReason)
     /// No speech, or only phrases a model makes up out of silence.
     case nothingHeard
@@ -50,11 +51,25 @@ public enum DictationHUDState: Hashable, Sendable {
 public enum NotPastedReason: Hashable, Sendable {
     /// Another app, window or field is in front now.
     case targetChanged
-    /// The caret is in a password field, or Secure Input is on.
+    /// The caret is in a password field: "Курсор в поле пароля".
     case secureField
+    /// Another app holds Secure Input; its name if known.
+    case secureInput(owner: String?)
     /// Accessibility was revoked during the dictation.
     case noAccessibility
+    /// The app did not answer in time; the text may still arrive.
+    case timedOut
     case failed(String)
+
+    /// Whether the HUD offers "Вставить" again. Not after a timeout (the
+    /// first paste may still land: twice the text), nor into a password
+    /// field, nor without Accessibility.
+    public var offersPaste: Bool {
+        switch self {
+        case .targetChanged, .secureInput, .failed: true
+        case .secureField, .noAccessibility, .timedOut: false
+        }
+    }
 }
 
 public enum DictationFailure: Hashable, Sendable {
@@ -91,6 +106,8 @@ public final class VoiceController {
     public private(set) var lastText: String?
     /// Whether `lastText` went in.
     public private(set) var lastTextPasted = false
+    /// `lastText` was meant for a password field: it stays out of the history.
+    public private(set) var lastTextIsPrivate = false
 
     /// Things the controller asks of the app.
     public struct Hooks {
@@ -297,6 +314,7 @@ public final class VoiceController {
         case let .keep(_, text):
             lastText = text
             lastTextPasted = false
+            lastTextIsPrivate = false
             hud = .notPasted(.noAccessibility)
         case let .sessionActive(on):
             hooks.sessionChanged(on)
@@ -443,6 +461,7 @@ public final class VoiceController {
     private func paste(_ session: DictationMachine.Session, _ text: String) {
         lastText = text
         lastTextPasted = false
+        lastTextIsPrivate = false
         let target = current?.session == session ? current?.target : nil
         let paster = self.paster
         Task {
@@ -455,7 +474,12 @@ public final class VoiceController {
             case .targetChanged:
                 hud = .notPasted(.targetChanged)
             case .secureField:
+                lastTextIsPrivate = true
                 hud = .notPasted(.secureField)
+            case let .secureInput(owner):
+                hud = .notPasted(.secureInput(owner: owner))
+            case .timedOut:
+                hud = .notPasted(.timedOut)
             case let .failed(message):
                 hud = .notPasted(.failed(message))
             }

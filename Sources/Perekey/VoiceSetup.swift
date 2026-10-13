@@ -20,14 +20,12 @@ final class VoiceSetup {
     private(set) var controller: VoiceController?
     private var capture: AudioCapture?
     private var store: VoiceModelStore?
-    private let secureInput = SecureInputGate()
 
     init(input: InputController) {
         self.input = input
         settings = file.load()
         input.onVoice = { [weak self] in self?.controller?.voice($0) }
         input.onAccessLost.chain { [weak self] in self?.controller?.accessibilityLost() }
-        input.onSecureInputChanged = { [secureInput] in secureInput.changed($0) }
         apply()
     }
 
@@ -60,40 +58,12 @@ final class VoiceSetup {
         let input = self.input
         let trigger = { [weak self] in self?.settings.trigger }
         controller = VoiceController(
-            settings: settings, capture: capture, store: store, paster: PendingPaster(), secureInput: secureInput,
+            settings: settings, capture: capture, store: store, paster: TextPasterAdapter(input.textPaster), secureInput: input.dictationSecureInput,
             hooks: VoiceController.Hooks(
                 sessionChanged: { input.voiceSessionChanged($0) },
                 holdIsDown: { trigger()?.isHeldNow ?? false },
                 holdLost: { input.voiceHoldLost() },
                 pasted: { input.selectLayout(afterDictating: $0) }))
-    }
-}
-
-/// Until `TextPaster` (the paste lane) is in: nothing is pasted, the text
-/// stays in `VoiceController.lastText` and the HUD offers to copy it.
-@MainActor
-private final class PendingPaster: DictationPaster {
-    func captureTarget() async -> (any Sendable)? { nil }
-
-    func paste(_: String, into _: (any Sendable)?) async -> DictationPasteResult {
-        .failed("no paster yet")
-    }
-}
-
-/// Until `DictationSecureInput` (the paste lane) is in: no start under
-/// Secure Input, a stop when it comes on during a session. No Esc hot key.
-@MainActor
-private final class SecureInputGate: DictationSecureInputRules {
-    var onStop: (@MainActor () -> Void)?
-    var onEscape: (@MainActor () -> Void)?
-    private var inSession = false
-
-    var allowsStart: Bool { !SecureInput.isEnabled }
-    func sessionBegan() { inSession = true }
-    func sessionEnded() { inSession = false }
-
-    func changed(_ on: Bool) {
-        if on, inSession { onStop?() }
     }
 }
 

@@ -5,7 +5,8 @@ import CoreGraphics
 import PerekeyCore
 
 /// "Paste without formatting": puts only the plain text on the pasteboard,
-/// posts ⌘V, and puts everything back a moment later.
+/// posts ⌘V, and puts everything back a moment later. `paste(text:)` does the
+/// same with text that is not on the pasteboard, for dictation.
 ///
 /// Main thread only (the pasteboard is not for the event tap thread). The
 /// user's pasteboard is never lost:
@@ -31,7 +32,7 @@ public final class PlainPaste {
         public var items: [[Entry]]
     }
 
-    private let pasteboard: NSPasteboard
+    private let pasteboard: any PasteboardStore
     private let restoreDelay: Duration
     private let post: @MainActor () -> Void
     private var saved: Snapshot?
@@ -40,10 +41,10 @@ public final class PlainPaste {
     private var restoreTask: Task<Void, Never>?
 
     /// - Parameters:
-    ///   - pasteboard: `.general` in the app; a named one in tests.
+    ///   - pasteboard: `.general` in the app; a named one or a fake in tests.
     ///   - restoreDelay: how long the target app gets to read the plain text.
-    ///   - post: posts ⌘V (`post(_:)` for the real one).
-    public init(pasteboard: NSPasteboard = .general, restoreDelay: Duration = .milliseconds(600),
+    ///   - post: posts ⌘V (`postCommandV(keyCode:)` for the real one).
+    public init(pasteboard: any PasteboardStore = NSPasteboard.general, restoreDelay: Duration = .milliseconds(600),
                 post: @escaping @MainActor () -> Void)
     {
         self.pasteboard = pasteboard
@@ -58,20 +59,41 @@ public final class PlainPaste {
     /// nothing is touched then.
     @discardableResult
     public func paste() -> Bool {
-        guard let text = Self.plainString(of: pasteboard), !text.isEmpty else { return false }
+        guard let text = pasteboard.plainString, !text.isEmpty else { return false }
+        put(text, post: post)
+        return true
+    }
+
+    /// Pastes `text`, which need not be on the pasteboard: the pasteboard is
+    /// saved, holds `text` while ⌘V is posted, and comes back after
+    /// `restoreDelay` as for `paste()`. Empty text touches nothing.
+    ///
+    /// The caller checks the target, Secure Input and held modifiers first
+    /// (`TextPaster`); this is the pasteboard part only.
+    /// `post` replaces the ⌘V of `init` for this paste, e.g. a press of the
+    /// app's Paste menu item.
+    @discardableResult
+    public func paste(text: String, post: (@MainActor () -> Void)? = nil) -> Bool {
+        guard !text.isEmpty else { return false }
+        put(text, post: post ?? self.post)
+        return true
+    }
+
+    /// Snapshot, write, ⌘V, restore later. The restore is scheduled before ⌘V
+    /// is posted, so a `post` that fails half way still gets the pasteboard back.
+    private func put(_ text: String, post: @MainActor () -> Void) {
         // A pending snapshot is still the user's, unless they copied since.
         if saved == nil || pasteboard.changeCount != ownChangeCount {
-            saved = Self.snapshot(of: pasteboard)
+            saved = pasteboard.snapshot()
         }
-        ownChangeCount = Self.writePlain(text, to: pasteboard)
-        post()
+        ownChangeCount = pasteboard.writePlain(text)
         restoreTask?.cancel()
         restoreTask = Task { [weak self, restoreDelay] in
             try? await Task.sleep(for: restoreDelay)
             guard !Task.isCancelled else { return }
             self?.restoreNow()
         }
-        return true
+        post()
     }
 
     /// Puts the snapshot back now, if the pasteboard still holds Perekey's text.
@@ -81,7 +103,7 @@ public final class PlainPaste {
         guard let snapshot = saved else { return }
         saved = nil
         guard pasteboard.changeCount == ownChangeCount else { return }
-        Self.restore(snapshot, to: pasteboard)
+        pasteboard.restore(snapshot)
     }
 
     // MARK: - Pasteboard
@@ -136,5 +158,27 @@ public final class PlainPaste {
                                        value: SyntheticMark.own(seq: 0, last: !down).userData)
             event.post(tap: .cghidEventTap)
         }
+    }
+}
+
+/// The few pasteboard operations `PlainPaste` needs, so tests can count and
+/// fail them. `NSPasteboard` is the real one.
+@MainActor
+public protocol PasteboardStore: AnyObject {
+    /// Grows on every write by anyone; tells whether the contents are still ours.
+    var changeCount: Int { get }
+    var plainString: String? { get }
+    func snapshot() -> PlainPaste.Snapshot
+    /// Replaces the contents with `text`, marked transient; the new change count.
+    @discardableResult func writePlain(_ text: String) -> Int
+    @discardableResult func restore(_ snapshot: PlainPaste.Snapshot) -> Int
+}
+
+extension NSPasteboard: PasteboardStore {
+    public var plainString: String? { PlainPaste.plainString(of: self) }
+    public func snapshot() -> PlainPaste.Snapshot { PlainPaste.snapshot(of: self) }
+    @discardableResult public func writePlain(_ text: String) -> Int { PlainPaste.writePlain(text, to: self) }
+    @discardableResult public func restore(_ snapshot: PlainPaste.Snapshot) -> Int {
+        PlainPaste.restore(snapshot, to: self)
     }
 }

@@ -295,3 +295,18 @@ defaults write app.perekey.Perekey LiquidGlass -bool false
 ```
 
 Включить обратно: `defaults delete app.perekey.Perekey LiquidGlass`.
+
+## Голос: вставка текста (сборка с `PEREKEY_VOICE=1`, 6 мин)
+
+Вставку в программы проверяет `scripts/e2e-paste.sh`: TextEdit, Safari,
+браузер на Chromium (`CHROME_APP=…`), Notes, Terminal, Zen, Slack, VS Code —
+что установлено. Экран должен быть разблокирован, клавиатуру не трогать.
+
+1. Запустить `scripts/e2e-paste.sh`. Ожидать: `e2e-paste: all passed`.
+2. В строках `PASTE-E2E` ожидать `restored=true` везде.
+3. Ожидать `result=secureField touched=false` у поля пароля.
+4. Ожидать `result=targetChanged touched=false` у смены программы.
+5. Где ⌘V не дошёл (`inserted=false`), повторить с `--strategy menu`, потом с
+   `--strategy accessibility`. Записать программу и стратегию в
+   `docs/compatibility.md`.
+6. С менеджером буфера (Maccy, Alfred) ожидать: вставленный текст не попал в его историю.

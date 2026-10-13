@@ -545,23 +545,46 @@ enum DebugSnapshot {
 #if PEREKEY_VOICE
 extension DebugSnapshot {
     /// A model in each state the Voice tab shows.
+    /// `.running`: a download goes on. `.stopped`: voice is off, so nothing downloads and a stopped one is `partial`.
+    /// `.administrator`: a profile forbids downloads, so the models come from the administrator's folder.
+    enum PreviewStates { case running, stopped, administrator }
+
     static func voicePreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings(),
-                             enabled: Bool = true, supported: Bool = true) -> VoiceModelsController
+                             enabled: Bool = true, supported: Bool = true,
+                             states: PreviewStates = .running) -> VoiceModelsController
     {
         let file = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
         try? FileManager.default.removeItem(at: file.url)
-        try? file.save(VoiceSettings(isEnabled: enabled, microphoneUID: "gone-usb-mic"))
+        try? file.save(VoiceSettings(isEnabled: enabled, microphoneUID: "gone-usb-mic", microphoneName: "Rode NT-USB"))
         let settings = VoiceSettingsStore(file: file, managed: managed)
         let parakeet = ModelCatalog.entry(id: "parakeet-tdt-v3")!
         let whisper = ModelCatalog.recognizers.first { $0.engine == .whisperKit }!
         let others = ModelCatalog.recognizers.filter { $0.id != parakeet.id && $0.id != whisper.id }
-        var statuses = [
-            VoiceModelStatus(entry: parakeet, state: .ready, isInUse: true),
-            VoiceModelStatus(entry: whisper, state: .downloading(received: whisper.totalSize * 42 / 100)),
-        ]
-        statuses += others.map {
-            VoiceModelStatus(entry: $0, state: .partial(received: $0.totalSize / 3),
-                             failure: .notEnoughSpace(needed: $0.totalSize, available: 200_000_000))
+        var statuses: [VoiceModelStatus]
+        switch states {
+        case .running:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready, isInUse: true),
+                VoiceModelStatus(entry: whisper, state: .downloading(received: whisper.totalSize * 42 / 100)),
+            ]
+            statuses += others.map {
+                VoiceModelStatus(entry: $0, state: .partial(received: $0.totalSize / 3),
+                                 failure: .notEnoughSpace(needed: $0.totalSize, available: 200_000_000))
+            }
+        case .stopped:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready),
+                VoiceModelStatus(entry: whisper, state: .partial(received: whisper.totalSize * 42 / 100)),
+            ]
+            statuses += others.map { VoiceModelStatus(entry: $0, state: .absent) }
+        case .administrator:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready, isManaged: true),
+                VoiceModelStatus(entry: whisper, state: .absent),
+            ]
+            statuses += others.map {
+                VoiceModelStatus(entry: $0, state: .damaged, failure: .checksumMismatch("model.mil"))
+            }
         }
         return VoiceModelsController(preview: settings, statuses: statuses,
                                      usage: VoiceModelDiskUsage(models: 1_100_000_000, cache: 140_000_000),
@@ -574,10 +597,11 @@ extension DebugSnapshot {
         let recording = ShortcutRecording(store: store)
         let cases: [(name: String, controller: VoiceModelsController)] = [
             ("on", voicePreview(in: directory, name: "on")),
-            ("off", voicePreview(in: directory, name: "off", enabled: false)),
+            ("off", voicePreview(in: directory, name: "off", enabled: false, states: .stopped)),
             ("voice-disabled", voicePreview(in: directory, name: "vd", managed: ManagedSettings(voiceDisabled: true))),
             ("downloads-disabled", voicePreview(in: directory, name: "dd",
-                                                managed: ManagedSettings(voiceModelDownloadsDisabled: true))),
+                                                managed: ManagedSettings(voiceModelDownloadsDisabled: true),
+                                                states: .administrator)),
             ("unsupported", voicePreview(in: directory, name: "un", supported: false)),
         ]
         for dark in [false, true] {

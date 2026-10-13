@@ -385,7 +385,7 @@ private extension Output {
         let old = Data(#"{"schemaVersion":1,"isEnabled":true,"trigger":{"kind":"tap","chord":{"requirements":["command","right"]}}}"#.utf8)
         let settings = try JSONDecoder().decode(VoiceSettings.self, from: old)
         #expect(settings.activeTrigger == .tap(.rightCommand))
-        #expect(settings.microphoneUID == nil)
+        #expect(settings.microphoneUID == nil && settings.microphoneName == nil)
         #expect(settings.model == VoiceSettings.defaultModel)
         #expect(settings.switchesLayout)
         #expect(settings.playsSounds)
@@ -395,7 +395,7 @@ private extension Output {
     }
 
     @Test func otherFieldsRoundTrip() throws {
-        let settings = VoiceSettings(isEnabled: true, microphoneUID: "usb-1", model: "whisper", switchesLayout: false,
+        let settings = VoiceSettings(isEnabled: true, microphoneUID: "usb-1", microphoneName: "USB Mic", model: "whisper", switchesLayout: false,
                                      playsSounds: false, autoStop: .off, unload: .never)
         let data = try JSONEncoder().encode(settings)
         #expect(try JSONDecoder().decode(VoiceSettings.self, from: data) == settings)

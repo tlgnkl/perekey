@@ -29,6 +29,12 @@ final class VoiceModelsController {
     /// The input devices, as of the last look. CoreAudio is read when the tab
     /// opens and when the app comes to the front, not on every redraw.
     private(set) var microphones: [Microphone] = MicrophoneList.all()
+    /// Why "Delete all" failed, in words for the person.
+    private(set) var deleteAllError: String?
+    /// What macOS does with its own shortcuts, as of the last look: read when
+    /// the tab opens and when the app comes to the front, not on every redraw
+    /// (it asks another process).
+    private(set) var systemShortcuts = SystemShortcuts.current()
     /// Models "Delete all" kept because an engine holds them.
     private(set) var keptByDeleteAll: [String] = []
 
@@ -98,9 +104,10 @@ final class VoiceModelsController {
     /// The network is open for model downloads only while voice is on and no
     /// profile forbids it; turning voice off stops the running downloads.
     private func applyNetwork() {
-        let on = isSupported && settings.settings.isEnabled
-        VoiceNetworkPolicy.apply(isEnabled: on, managed: settings.managed, to: http)
-        if !(on && !settings.managed.voiceDisabled) {
+        VoiceNetworkPolicy.apply(
+            isEnabled: settings.settings.isEnabled, newerSchemaVersion: settings.settings.newerSchemaVersion,
+            isSupported: isSupported, managed: settings.managed, to: http)
+        if http.allowed.isEmpty {
             for id in downloads.keys { cancel(id) }
         }
     }
@@ -135,9 +142,15 @@ final class VoiceModelsController {
     }
 
     func deleteAll() {
+        deleteAllError = nil
         Task { [weak self, store] in
-            let kept = (try? await store.deleteAll()) ?? []
-            self?.keptByDeleteAll = kept
+            do {
+                self?.keptByDeleteAll = try await store.deleteAll()
+            } catch let failure as VoiceModelFailure {
+                self?.deleteAllError = ModelFailureText.text(failure)
+            } catch {
+                self?.deleteAllError = error.localizedDescription
+            }
             self?.refreshUsage(force: true)
         }
     }
@@ -145,12 +158,14 @@ final class VoiceModelsController {
     /// Re-reads the disk: the administrator may have put a model there.
     func refresh() {
         keptByDeleteAll = []
+        deleteAllError = nil
         Task { [store] in await store.refresh() }
         refreshUsage(force: true)
     }
 
     func refreshMicrophones() {
         microphones = MicrophoneList.all()
+        systemShortcuts = SystemShortcuts.current()
     }
 
     /// Opens the folder the models are read from in Finder.

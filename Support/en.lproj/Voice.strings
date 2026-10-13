@@ -28,7 +28,6 @@
 "A long recording stops and is typed at this limit." = "A long recording stops and is typed at this limit.";
 "Unload the model after" = "Unload the model after";
 "An idle model is dropped from memory. The next dictation loads it again." = "An idle model is dropped from memory. The next dictation loads it again.";
-"Never" = "Never";
 "15 s" = "15 s";
 "30 s" = "30 s";
 "60 s" = "60 s";
@@ -80,3 +79,8 @@
 "No network connection. Download again when it is back." = "No network connection. Download again when it is back.";
 "Not enough disk space: the model needs %@, %@ is free." = "Not enough disk space: the model needs %@, %@ is free.";
 "Perekey cannot write to the disk. Check the free space and the permissions of the folder." = "Perekey cannot write to the disk. Check the free space and the permissions of the folder.";
+"These voice settings were written by a newer version of Perekey. Update the app to change them." = "These voice settings were written by a newer version of Perekey. Update the app to change them.";
+"Don't stop" = "Don't stop";
+"Don't unload" = "Don't unload";
+"The model is in use. Repair it when dictation is done." = "The model is in use. Repair it when dictation is done.";
+"Could not delete the models: %@" = "Could not delete the models: %@";

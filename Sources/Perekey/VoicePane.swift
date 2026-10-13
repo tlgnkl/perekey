@@ -59,6 +59,9 @@ struct VoicePane: View {
                 .toggleStyle(.pkSwitch)
                 .disabled(voice.managed.voiceDisabled)
             }
+            if voice.isLocked {
+                PKCallout(voiceText("These voice settings were written by a newer version of Perekey. Update the app to change them."))
+            }
             if !voice.managed.voiceDisabled {
                 triggerRows
                 Group {
@@ -66,7 +69,7 @@ struct VoicePane: View {
                     microphoneRow
                     // The input level meter goes here: it needs the microphone running.
                     PKDivider()
-                    modelRow
+                    VoiceModelPicker(controller: controller)
                     PKDivider()
                     PKRow(voiceText("Switch the layout to the language of the phrase")) {
                         flag(\.switchesLayout, label: voiceText("Switch the layout to the language of the phrase"))
@@ -82,6 +85,7 @@ struct VoicePane: View {
                 .opacity(settings.isEnabled ? 1 : 0.55)
             }
         }
+        .disabled(voice.isLocked)
     }
 
     private var switchDetail: Text? {
@@ -133,7 +137,7 @@ struct VoicePane: View {
     }
 
     private var conflicts: [ShortcutConflict] {
-        ShortcutConflicts.check(voice: settings.trigger, among: store.settings.hotkeys, system: .current())
+        ShortcutConflicts.check(voice: settings.trigger, among: store.settings.hotkeys, system: controller.systemShortcuts)
     }
 
     /// The right ⌥ is voice, so the retype on ⌥ takes the left one only.
@@ -146,12 +150,15 @@ struct VoicePane: View {
     private var microphoneRow: some View {
         PKRow(voiceText("Microphone"), detail: microphoneDetail) {
             Picker(selection: Binding(get: { settings.microphoneUID ?? "" },
-                                      set: { uid in voice.update { $0.microphoneUID = uid.isEmpty ? nil : uid } })) {
+                                      set: { uid in
+                                          let name = microphones.first { $0.uid == uid }?.name
+                                          voice.update { $0.microphoneUID = uid.isEmpty ? nil : uid; $0.microphoneName = name }
+                                      })) {
                 voiceText("System").tag("")
                 ForEach(microphones, id: \.uid) { Text(verbatim: $0.name).tag($0.uid) }
                 if let missing = missingMicrophone {
                     Divider()
-                    Text(verbatim: voiceString("Unavailable: \(missing)")).tag(missing)
+                    Text(verbatim: voiceString("Unavailable: \(settings.microphoneName ?? missing)")).tag(missing)
                 }
             } label: {
                 voiceText("Microphone")
@@ -169,23 +176,6 @@ struct VoicePane: View {
 
     private var microphoneDetail: Text? {
         missingMicrophone == nil ? nil : voiceText("This microphone is not connected. Perekey uses the system one meanwhile.")
-    }
-
-    private var modelRow: some View {
-        let ready = controller.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
-        return PKRow(voiceText("Model"), detail: ready.isEmpty ? voiceText("Download a model below first.") : nil) {
-            Picker(selection: Binding(get: { settings.model }, set: { id in voice.update { $0.model = id } })) {
-                ForEach(ready) { Text(verbatim: $0.entry.title).tag($0.id) }
-                if !ready.contains(where: { $0.id == settings.model }) {
-                    Text(verbatim: ModelCatalog.entry(id: settings.model).map { voiceString("\($0.title) (not downloaded)") }
-                        ?? settings.model).tag(settings.model)
-                }
-            } label: {
-                voiceText("Model")
-            }
-            .labelsHidden()
-            .frame(width: 240)
-        }
     }
 
     private var autoStopRow: some View {
@@ -218,10 +208,36 @@ struct VoicePane: View {
     }
 }
 
+/// The model choice on its own, so that a progress tick of a download redraws
+/// this row and not the whole tab.
+private struct VoiceModelPicker: View {
+    let controller: VoiceModelsController
+
+    var body: some View {
+        let settings = controller.settings.settings
+        let ready = controller.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
+        PKRow(voiceText("Model"), detail: ready.isEmpty ? voiceText("Download a model below first.") : nil) {
+            Picker(selection: Binding(get: { settings.model },
+                                      set: { id in controller.settings.update { $0.model = id } })) {
+                ForEach(ready) { Text(verbatim: ModelNames.display($0.entry)).tag($0.id) }
+                if !ready.contains(where: { $0.id == settings.model }) {
+                    Text(verbatim: ModelCatalog.entry(id: settings.model).map {
+                        voiceString("\(ModelNames.display($0)) (not downloaded)")
+                    } ?? settings.model).tag(settings.model)
+                }
+            } label: {
+                voiceText("Model")
+            }
+            .labelsHidden()
+            .frame(width: 240)
+        }
+    }
+}
+
 extension VoiceAutoStop {
     var title: String {
         switch self {
-        case .off: voiceString("Never")
+        case .off: voiceString("Don't stop")
         case .seconds15: voiceString("15 s")
         case .seconds30: voiceString("30 s")
         case .seconds60: voiceString("60 s")
@@ -234,7 +250,7 @@ extension VoiceUnload {
         switch self {
         case .minutes10: voiceString("10 min")
         case .minutes60: voiceString("60 min")
-        case .never: voiceString("Never")
+        case .never: voiceString("Don't unload")
         }
     }
 }

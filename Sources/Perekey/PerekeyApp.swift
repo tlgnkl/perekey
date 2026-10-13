@@ -86,12 +86,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.voiceModels = voiceModels
         #endif
         let settings = SettingsWindow(recording: recording) {
+            #if PEREKEY_VOICE
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                     languages: input.languages)
-            #if PEREKEY_VOICE
             view.voiceController = voiceModels
-            #endif
             return view
+            #else
+            return SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
+                                languages: input.languages)
+            #endif
         }
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,

@@ -51,6 +51,11 @@ struct ModelsList: View {
                     .buttonStyle(.pkSmall)
                     .disabled(downloadsForbidden || !hasAnythingOnDisk)
             }
+            if let failure = controller.deleteAllError {
+                Text(verbatim: voiceString("Could not delete the models: \(failure)"))
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkRose)
+            }
             if !controller.keptByDeleteAll.isEmpty {
                 Text(verbatim: voiceString("In use, so kept: \(keptTitles)"))
                     .font(PK.Font.caption)
@@ -63,7 +68,7 @@ struct ModelsList: View {
     }
 
     private var keptTitles: String {
-        controller.keptByDeleteAll.compactMap { ModelCatalog.entry(id: $0)?.title }.joined(separator: ", ")
+        controller.keptByDeleteAll.compactMap { ModelCatalog.entry(id: $0).map(ModelNames.display) }.joined(separator: ", ")
     }
 
     private var hasAnythingOnDisk: Bool {
@@ -85,6 +90,15 @@ struct ModelsList: View {
     }
 }
 
+enum ModelNames {
+    /// The name for people: the catalog's title without the variant's size, "(632 MB)".
+    static func display(_ entry: VoiceModelEntry) -> String {
+        guard let open = entry.title.range(of: " (", options: .backwards), entry.title.hasSuffix(" MB)") || entry.title.hasSuffix(" GB)")
+        else { return entry.title }
+        return String(entry.title[..<open.lowerBound])
+    }
+}
+
 enum ModelSize {
     static func text(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
@@ -96,7 +110,7 @@ private struct ModelRow: View {
     let controller: VoiceModelsController
     let error: VoiceModelFailure?
 
-    private var title: String { status.entry.title }
+    private var title: String { ModelNames.display(status.entry) }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -166,12 +180,14 @@ private struct ModelRow: View {
 
     private func progressLine(received: Int64, waiting: Bool) -> some View {
         let fraction = status.progress ?? 0
+        // Percent and bytes share one denominator: the model's own files.
+        let total = ModelSize.text(status.entry.totalSize)
         return VStack(alignment: .leading, spacing: 3) {
             ProgressBar(fraction: fraction)
                 .frame(width: 220, height: 5)
             line(waiting
                  ? voiceText("Waiting for the network… \(percent(received))")
-                 : Text(verbatim: voiceString("\(ModelSize.text(received)) of \(ModelSize.text(status.size))")))
+                 : Text(verbatim: voiceString("\(ModelSize.text(received)) of \(total)")))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(voiceText("Downloading \(title)"))
@@ -211,7 +227,10 @@ private struct ModelRow: View {
             HStack(spacing: 6) {
                 if !forbidden {
                     action(voiceText("Repair"), label: voiceString("Repair \(title)"), primary: true,
-                           enabled: controller.canDownload && !status.isInUse) { controller.download(status.id) }
+                           enabled: controller.canDownload && !status.isInUse,
+                           help: status.isInUse ? voiceText("The model is in use. Repair it when dictation is done.") : nil) {
+                        controller.download(status.id)
+                    }
                 }
                 deleteButton
             }
@@ -229,11 +248,12 @@ private struct ModelRow: View {
     }
 
     private func action(_ text: Text, label: String, primary: Bool = false, enabled: Bool = true,
-                        _ run: @escaping () -> Void) -> some View
+                        help: Text? = nil, _ run: @escaping () -> Void) -> some View
     {
         Button(action: run) { text }
             .buttonStyle(PKButtonStyle(kind: primary ? .primary : .secondary, small: true))
             .disabled(!enabled)
+            .help(help ?? Text(verbatim: ""))
             .accessibilityLabel(Text(verbatim: label))
     }
 }

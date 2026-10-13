@@ -16,6 +16,24 @@ struct VoiceNetworkPolicyTests {
         #expect(!VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings()).contains(.cloudSpeech))
     }
 
+    @Test func aNewerFileAndAnUnsupportedMacKeepTheNetworkClosed() async throws {
+        let managed = ManagedSettings()
+        #expect(VoiceNetworkPolicy.allowed(isEnabled: true, newerSchemaVersion: 2, managed: managed).isEmpty)
+        #expect(VoiceNetworkPolicy.allowed(isEnabled: true, isSupported: false, managed: managed).isEmpty)
+        #expect(VoiceNetworkPolicy.allowed(isEnabled: true, newerSchemaVersion: nil, isSupported: true, managed: managed)
+            == [.modelDownload])
+
+        // A real voice.json of a newer version with the switch on opens nothing.
+        let data = Data(#"{"schemaVersion":99,"isEnabled":true}"#.utf8)
+        let settings = try JSONDecoder().decode(VoiceSettings.self, from: data)
+        let fixture = try await Fixture()
+        VoiceNetworkPolicy.apply(isEnabled: settings.isEnabled, newerSchemaVersion: settings.newerSchemaVersion,
+                                 managed: managed, to: fixture.http)
+        #expect(fixture.http.allowed.isEmpty)
+        await #expect(throws: VoiceModelFailure.networkBlocked) { try await fixture.store().download("asr") }
+        #expect(fixture.server.requests.isEmpty)
+    }
+
     @Test func voiceOffMeansNoRequestsAtAll() async throws {
         let fixture = try await Fixture()
         let store = fixture.store()

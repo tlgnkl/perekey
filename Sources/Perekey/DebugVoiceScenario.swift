@@ -9,9 +9,11 @@ import PerekeyVoiceCore
 import SwiftUI
 
 /// A live run of the Voice tab's model handling against Hugging Face, for
-/// checking by hand: `PEREKEY_VOICE_SCENARIO=<dir> PEREKEY_VOICE_MODELS=<dir>/models Perekey`.
+/// checking by hand: `PEREKEY_VOICE_SCENARIO=<dir> Perekey`.
 ///
-/// Uses a settings file in `<dir>`, never the user's. Prints one line per step
+/// Everything lives in `<dir>`: the settings file, the models, the managed
+/// folder and the CoreML cache. The user's models and cache are never opened,
+/// so "Delete all" here deletes nothing of theirs. Prints one line per step
 /// and exits with 0 when every check held.
 @MainActor
 enum DebugVoiceScenario {
@@ -49,7 +51,12 @@ enum DebugVoiceScenario {
         let file = VoiceSettingsFile(url: directory.appending(path: "voice.json"))
         try? FileManager.default.removeItem(at: file.url)
         let settings = VoiceSettingsStore(file: file, managed: ManagedSettings())
-        let controller = VoiceModelsController(settings: settings)
+        let locations = VoiceModelLocations(
+            models: directory.appending(path: "models", directoryHint: .isDirectory),
+            managed: directory.appending(path: "managed", directoryHint: .isDirectory),
+            coreMLCache: directory.appending(path: "cache", directoryHint: .isDirectory))
+        let controller = VoiceModelsController(
+            settings: settings, store: VoiceModelStore(locations: locations, managed: settings.managed))
         var ready: [String] = []
         controller.onModelReady = { ready.append($0) }
         controller.start()

@@ -165,6 +165,11 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.microphoneUID.stringValue) }
     }
 
+    /// The name the device had when it was picked, to name it while it is not connected.
+    public var microphoneName: String? {
+        didSet { unreadableKeys.remove(CodingKeys.microphoneName.stringValue) }
+    }
+
     /// The id of the speech model (`ModelCatalog` entry).
     public var model: String {
         didSet { unreadableKeys.remove(CodingKeys.model.stringValue) }
@@ -197,12 +202,14 @@ public struct VoiceSettings: Hashable, Sendable {
     public private(set) var newerSchemaVersion: Int?
 
     public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default, microphoneUID: String? = nil,
+                microphoneName: String? = nil,
                 model: String = VoiceSettings.defaultModel, switchesLayout: Bool = true, playsSounds: Bool = true,
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60)
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
         self.microphoneUID = microphoneUID
+        self.microphoneName = microphoneName
         self.model = model
         self.switchesLayout = switchesLayout
         self.playsSounds = playsSounds
@@ -223,7 +230,7 @@ public struct VoiceSettings: Hashable, Sendable {
 
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion, isEnabled, trigger, microphoneUID, model, switchesLayout, playsSounds, autoStop, unload
+        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, switchesLayout, playsSounds, autoStop, unload
     }
 
     public init(from decoder: any Decoder) throws {
@@ -243,6 +250,11 @@ extension VoiceSettings: Codable {
             microphoneUID = nil
         } else {
             microphoneUID = read(String.self, .microphoneUID)
+        }
+        if container.contains(.microphoneName), (try? container.decodeNil(forKey: .microphoneName)) == true {
+            microphoneName = nil
+        } else {
+            microphoneName = read(String.self, .microphoneName)
         }
         model = read(String.self, .model) ?? defaults.model
         switchesLayout = read(Bool.self, .switchesLayout) ?? defaults.switchesLayout
@@ -268,6 +280,9 @@ extension VoiceSettings: Codable {
         // would leave the old device in it.
         if !unreadableKeys.contains(CodingKeys.microphoneUID.stringValue) {
             try container.encode(microphoneUID, forKey: .microphoneUID)
+        }
+        if !unreadableKeys.contains(CodingKeys.microphoneName.stringValue) {
+            try container.encode(microphoneName, forKey: .microphoneName)
         }
         if !unreadableKeys.contains(CodingKeys.model.stringValue) {
             try container.encode(model, forKey: .model)

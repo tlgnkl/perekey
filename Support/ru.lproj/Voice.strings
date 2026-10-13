@@ -7,7 +7,7 @@
 "Shortcut" = "Клавиша";
 "Right ⌥" = "Правый ⌥";
 "Back to a tap of the right Option key" = "Вернуть тап правого Option";
-"Tap to start, tap again to stop. Or record a key with modifiers to hold while you speak." = "Тап — запись пошла, ещё тап — конец. Можно записать клавишу с модификаторами: тогда её нужно держать, пока говорите.";
+"Tap to start, tap again to stop. Or record a key with modifiers to hold while you speak." = "Нажмите — запись начнётся, нажмите ещё раз — закончится. Можно записать сочетание с модификаторами: тогда его нужно держать, пока говорите.";
 "Hold while you speak, let go to type. Or record modifiers alone to tap." = "Держите, пока говорите, отпустите — текст напечатается. Можно записать одни модификаторы: тогда это тап.";
 "tap" = "тап";
 "Voice shortcut" = "Клавиша голоса";
@@ -28,7 +28,6 @@
 "A long recording stops and is typed at this limit." = "Долгая запись остановится и напечатается, когда выйдет это время.";
 "Unload the model after" = "Выгружать модель через";
 "An idle model is dropped from memory. The next dictation loads it again." = "Модель без дела уходит из памяти. Следующая диктовка загрузит её снова.";
-"Never" = "Никогда";
 "15 s" = "15 с";
 "30 s" = "30 с";
 "60 s" = "60 с";
@@ -80,3 +79,8 @@
 "No network connection. Download again when it is back." = "Нет сети. Продолжите загрузку, когда она появится.";
 "Not enough disk space: the model needs %@, %@ is free." = "Мало места на диске: модели нужно %@, свободно %@.";
 "Perekey cannot write to the disk. Check the free space and the permissions of the folder." = "Perekey не может записать на диск. Проверьте свободное место и права на папку.";
+"These voice settings were written by a newer version of Perekey. Update the app to change them." = "Настройки голоса записала более новая версия Perekey. Обновите приложение, чтобы их менять.";
+"Don't stop" = "Не останавливать";
+"Don't unload" = "Не выгружать";
+"The model is in use. Repair it when dictation is done." = "Модель сейчас работает. Почините её, когда диктовка закончится.";
+"Could not delete the models: %@" = "Не удалось удалить модели: %@";

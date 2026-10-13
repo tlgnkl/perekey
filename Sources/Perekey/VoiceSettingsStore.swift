@@ -34,10 +34,16 @@ final class VoiceSettingsStore {
         handler()
     }
 
-    /// The switch as the user set it, unless a profile turns voice off.
-    var isOn: Bool { settings.isEnabled && !managed.voiceDisabled }
+    /// The file was written by a newer Perekey: its settings are shown, and not changed.
+    var isLocked: Bool { settings.newerSchemaVersion != nil }
+
+    /// The switch as the user set it, unless a profile turns voice off or the
+    /// file is of a newer version.
+    var isOn: Bool { settings.isEnabled && !managed.voiceDisabled && !isLocked }
 
     func update(_ change: (inout VoiceSettings) -> Void) {
+        // `VoiceSettingsFile.save` would refuse anyway; the memory must not drift from the disk.
+        guard !isLocked else { return }
         var copy = settings
         change(&copy)
         guard copy != settings else { return }

@@ -75,6 +75,9 @@ public enum VoiceSignal: Hashable, Sendable {
     case holdBegan
     /// The hold trigger is over: stop recording and keep what was said.
     case holdEnded(reason: HoldEndReason)
+    /// Esc while a dictation session is on (`InputEvent.voiceSession`):
+    /// cancel it. The key is swallowed.
+    case cancel
 }
 
 public enum HoldEndReason: Hashable, Sendable {
@@ -121,6 +124,31 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.trigger.stringValue) }
     }
 
+    /// The speech model dictation uses, a `ModelCatalog` id.
+    public var model: String {
+        didSet { unreadableKeys.remove(CodingKeys.model.stringValue) }
+    }
+
+    /// Recording stops after this many seconds without speech; 0 never.
+    public var silenceStopSeconds: Int {
+        didSet { unreadableKeys.remove(CodingKeys.silenceStopSeconds.stringValue) }
+    }
+
+    /// The model leaves memory after this many minutes without dictation; 0 never.
+    public var unloadAfterMinutes: Int {
+        didSet { unreadableKeys.remove(CodingKeys.unloadAfterMinutes.stringValue) }
+    }
+
+    /// The system sounds at the start and the end of a recording.
+    public var sounds: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.sounds.stringValue) }
+    }
+
+    /// After pasting, select the layout of the phrase's main language.
+    public var switchesLayout: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.switchesLayout.stringValue) }
+    }
+
     /// Keys the file has that this version could not read and the user has
     /// not set since. Encoding leaves them out, so the file keeps its values.
     public private(set) var unreadableKeys: Set<String> = []
@@ -129,23 +157,37 @@ public struct VoiceSettings: Hashable, Sendable {
     /// is higher than this version's.
     public private(set) var newerSchemaVersion: Int?
 
-    public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default) {
+    /// Parakeet TDT v3: the default since stage 0 (ru, en, uk, and English
+    /// words kept in Latin letters within Russian phrases).
+    public static let defaultModel = "parakeet-tdt-v3"
+
+    public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default, model: String = VoiceSettings.defaultModel,
+                silenceStopSeconds: Int = 30, unloadAfterMinutes: Int = 60, sounds: Bool = true,
+                switchesLayout: Bool = true)
+    {
         self.isEnabled = isEnabled
         self.trigger = trigger
+        self.model = model
+        self.silenceStopSeconds = silenceStopSeconds
+        self.unloadAfterMinutes = unloadAfterMinutes
+        self.sounds = sounds
+        self.switchesLayout = switchesLayout
     }
 
     /// The trigger the event tap reacts to: none while dictation is off, and
     /// none when the file is of a newer version or its trigger or switch
     /// could not be read.
     public var activeTrigger: VoiceTrigger? {
-        guard isEnabled, newerSchemaVersion == nil, unreadableKeys.isEmpty else { return nil }
+        guard isEnabled, newerSchemaVersion == nil,
+              unreadableKeys.isDisjoint(with: [CodingKeys.isEnabled.stringValue, CodingKeys.trigger.stringValue])
+        else { return nil }
         return trigger
     }
 }
 
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion, isEnabled, trigger
+        case schemaVersion, isEnabled, trigger, model, silenceStopSeconds, unloadAfterMinutes, sounds, switchesLayout
     }
 
     public init(from decoder: any Decoder) throws {
@@ -160,6 +202,11 @@ extension VoiceSettings: Codable {
         let defaults = VoiceSettings()
         isEnabled = read(Bool.self, .isEnabled) ?? defaults.isEnabled
         trigger = read(VoiceTrigger.self, .trigger) ?? defaults.trigger
+        model = read(String.self, .model) ?? defaults.model
+        silenceStopSeconds = read(Int.self, .silenceStopSeconds) ?? defaults.silenceStopSeconds
+        unloadAfterMinutes = read(Int.self, .unloadAfterMinutes) ?? defaults.unloadAfterMinutes
+        sounds = read(Bool.self, .sounds) ?? defaults.sounds
+        switchesLayout = read(Bool.self, .switchesLayout) ?? defaults.switchesLayout
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -175,5 +222,13 @@ extension VoiceSettings: Codable {
         if !unreadableKeys.contains(CodingKeys.trigger.stringValue) {
             try container.encode(trigger, forKey: .trigger)
         }
+        func write(_ value: some Encodable, _ key: CodingKeys) throws {
+            if !unreadableKeys.contains(key.stringValue) { try container.encode(value, forKey: key) }
+        }
+        try write(model, .model)
+        try write(silenceStopSeconds, .silenceStopSeconds)
+        try write(unloadAfterMinutes, .unloadAfterMinutes)
+        try write(sounds, .sounds)
+        try write(switchesLayout, .switchesLayout)
     }
 }

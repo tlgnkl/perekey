@@ -380,3 +380,54 @@ private extension Output {
         }
     }
 }
+
+@Suite struct VoiceSessionTests {
+    @Test func escCancelsOnlyDuringASession() {
+        var keyboard = Keyboard(voice: .default)
+        let before = keyboard.key(.down, KeyCode.escape)
+        #expect(before.disposition == .pass)
+        #expect(before.voice.isEmpty)
+        #expect(keyboard.key(.up, KeyCode.escape).disposition == .pass)
+
+        keyboard.send(.voiceSession(true))
+        let down = keyboard.key(.down, KeyCode.escape)
+        #expect(down.disposition == .drop)
+        #expect(down.effects == [.voice(.cancel)])
+        #expect(keyboard.key(.up, KeyCode.escape).disposition == .drop, "its key up goes with it")
+
+        keyboard.send(.voiceSession(false))
+        #expect(keyboard.key(.down, KeyCode.escape).disposition == .pass)
+    }
+
+    @Test func otherKeysPassDuringASession() {
+        var keyboard = Keyboard(voice: .default)
+        keyboard.send(.voiceSession(true))
+        keyboard.type("ghbdtn", in: Fixture.abc)
+        #expect(keyboard.key(.down, KeyCode.space).voice.isEmpty)
+    }
+
+    @Test func dictationKeysRoundTrip() throws {
+        let settings = VoiceSettings(isEnabled: true, model: "whisper-large-v3-turbo-632mb", silenceStopSeconds: 0,
+                                     unloadAfterMinutes: 10, sounds: false, switchesLayout: false)
+        let data = try JSONEncoder().encode(settings)
+        #expect(try JSONDecoder().decode(VoiceSettings.self, from: data) == settings)
+        let defaults = try JSONDecoder().decode(VoiceSettings.self, from: Data(#"{"isEnabled":true}"#.utf8))
+        #expect(defaults.model == "parakeet-tdt-v3")
+        #expect(defaults.silenceStopSeconds == 30)
+        #expect(defaults.unloadAfterMinutes == 60)
+        #expect(defaults.sounds)
+        #expect(defaults.switchesLayout)
+    }
+
+    @Test func anUnreadableDictationKeyKeepsTheTrigger() throws {
+        var settings = try JSONDecoder().decode(
+            VoiceSettings.self, from: Data(#"{"isEnabled":true,"sounds":"loud","unloadAfterMinutes":"soon"}"#.utf8))
+        #expect(settings.unreadableKeys == ["sounds", "unloadAfterMinutes"])
+        #expect(settings.sounds)
+        #expect(settings.activeTrigger == .default)
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        #expect(object["sounds"] == nil, "the file keeps its value")
+        settings.sounds = false
+        #expect(settings.unreadableKeys == ["unloadAfterMinutes"])
+    }
+}

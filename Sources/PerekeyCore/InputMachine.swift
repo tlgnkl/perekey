@@ -37,6 +37,8 @@ public struct InputMachine: Sendable {
     private var shortcuts: Shortcuts
     private var secureInput = false
     private var focus: Focus?
+    /// A dictation session is on: Esc cancels it.
+    private var voiceSession = false
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil,
                 classifier: Classifier? = nil)
@@ -166,6 +168,9 @@ public struct InputMachine: Sendable {
         case .voiceHoldLost:
             if let signal = shortcuts.holdLost() { effects.append(.voice(signal)) }
 
+        case let .voiceSession(on):
+            voiceSession = on
+
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
             guard undo.isLast(seq: seq) else { break }
@@ -197,6 +202,12 @@ public struct InputMachine: Sendable {
         guard !secureInput else { return .pass }
 
         if key.phase == .up { return shortcuts.keyUp(key.keyCode) ? .drop : .pass }
+
+        if voiceSession, key.keyCode == KeyCode.escape {
+            shortcuts.swallow(key.keyCode)
+            effects.append(.voice(.cancel))
+            return .drop
+        }
 
         // F-keys and arrows always carry the fn bit, so fn never takes part.
         let held = ModifierKind.kindMask(inEventFlags: key.flags) & ~ModifierKind.function.maskBit

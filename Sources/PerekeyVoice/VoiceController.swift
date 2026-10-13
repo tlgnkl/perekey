@@ -278,12 +278,15 @@ public final class VoiceController {
 
     /// The app's controller: the microphone, the store's models, and the
     /// system events that stop or cancel a recording.
+    /// - Parameter cloudEngine: the engine of a cloud speech model id
+    ///   (`CloudSpeechModel`), nil for any other.
     public convenience init(preferences: DictationPreferences, capture: AudioCapture, store: VoiceModelStore,
                             paster: any DictationPaster, secureInput: (any DictationSecureInputRules)?,
-                            hooks: Hooks)
+                            hooks: Hooks, cloudEngine: @escaping (String) -> (any SpeechEngine)? = { _ in nil })
     {
         self.init(preferences: preferences, microphone: capture, paster: paster, secureInput: secureInput,
-                  detector: SileroVAD(store: store), makeEngine: { VoiceEngines.make(model: $0, store: store) },
+                  detector: SileroVAD(store: store),
+                  makeEngine: { cloudEngine($0) ?? VoiceEngines.make(model: $0, store: store) },
                   hooks: hooks)
         observeSystem()
     }

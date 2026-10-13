@@ -17,6 +17,10 @@ struct MenuActions {
     /// (names and numbers) filled in.
     var report: (String, String) -> Void = { _, _ in }
     var close: () -> Void = {}
+    #if PEREKEY_VOICE
+    /// The voice mode switch; nil hides it.
+    var voiceModes: VoiceModeMenu?
+    #endif
 }
 
 // MARK: - Keyboard navigation
@@ -155,6 +159,12 @@ struct MenuContent: View {
                     )
                 )
                 LaunchAtLoginRow(launch: launch, nav: nav)
+                #if PEREKEY_VOICE
+                if let voiceModes = actions.voiceModes, voiceModes.isOn() {
+                    VoiceModeMenuRow(menu: voiceModes, appModes: appModes, lit: nav.highlighted == "voice-mode")
+                        .menuItem("voice-mode", nav: nav, step: { voiceModes.step($0) }, run: { voiceModes.step(1) })
+                }
+                #endif
             }
             .padding(.vertical, 6)
             PKDivider(leading: 12, trailing: 12)

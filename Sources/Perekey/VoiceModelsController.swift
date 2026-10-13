@@ -42,6 +42,12 @@ final class VoiceModelsController {
     /// model up here.
     @ObservationIgnored var onModelReady: (@MainActor (String) -> Void)?
 
+    /// The dictation modes: their servers on this Mac and those the user
+    /// agreed to open the network for language models and cloud speech.
+    @ObservationIgnored var modes: VoiceModesStore? {
+        didSet { modes?.observe { [weak self] in self?.applyNetwork() } }
+    }
+
     @ObservationIgnored private let http: VoiceHTTP
     @ObservationIgnored private var downloads: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var watcher: Task<Void, Never>?
@@ -106,8 +112,8 @@ final class VoiceModelsController {
     private func applyNetwork() {
         VoiceNetworkPolicy.apply(
             isEnabled: settings.settings.isEnabled, newerSchemaVersion: settings.settings.newerSchemaVersion,
-            isSupported: isSupported, managed: settings.managed, to: http)
-        if http.allowed.isEmpty {
+            isSupported: isSupported, managed: settings.managed, modes: modes?.modes, to: http)
+        if !http.allowed.contains(.modelDownload) {
             for id in downloads.keys { cancel(id) }
         }
     }

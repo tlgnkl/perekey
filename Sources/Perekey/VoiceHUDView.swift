@@ -105,10 +105,10 @@ struct VoiceHUDContent: View {
         HStack(spacing: 5) {
             Text(verbatim: mode)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.pkIndigoInk)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 1.5)
-                .background(Capsule().fill(Color.accentColor.opacity(0.14)))
+                .background(Capsule().fill(Color.pkMist))
             if presentation.cloud || presentation.endpointName != nil {
                 HStack(spacing: 3) {
                     if presentation.cloud { Image(systemName: "cloud").font(.system(size: 10, weight: .semibold)) }

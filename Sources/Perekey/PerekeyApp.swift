@@ -86,13 +86,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if PEREKEY_VOICE
         let voiceModels = VoiceModelsController(settings: VoiceSettingsStore())
         self.voiceModels = voiceModels
-        voice = VoiceSetup(input: input, models: voiceModels)
+        let voiceModes = VoiceModesStore()
+        voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes)
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                     languages: input.languages, initial: section, scrollTarget: scrollTarget)
             view.voiceController = voiceModels
+            view.voiceModes = voiceModes
             return view
             #else
             return SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
@@ -117,9 +119,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboarding.makeVoiceIntro = { VoiceIntro.offer(situation()) == .none ? nil : makeIntro() }
         voice.openVoiceSettings = { settings.show(section: .voice, scrollTarget: "models") }
         #endif
+        #if PEREKEY_VOICE
+        let voiceIsOn: @MainActor () -> Bool = { voiceModels.settings.isOn && voiceModels.isSupported }
+        shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
+                             input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
+                             settings: settings) { actions in
+            actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
+        }
+        #else
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
                              settings: settings)
+        #endif
         super.init()
         ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
     }
@@ -207,7 +218,7 @@ final class MenuBarShell {
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
          recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates,
-         settings: SettingsWindow)
+         settings: SettingsWindow, extend: @escaping @MainActor (inout MenuActions) -> Void = { _ in })
     {
         self.sources = sources
         self.store = store
@@ -219,7 +230,7 @@ final class MenuBarShell {
             sources: sources, store: store, pause: pause, launch: launch, appModes: input.appModes,
             recents: recents, usage: usage, updates: updates
         ) { menu in
-            MenuActions(
+            var actions = MenuActions(
                 openSettings: { menu.close(); settings.show() },
                 showOnboarding: { menu.close(); onboarding.show() },
                 showAbout: {
@@ -233,6 +244,8 @@ final class MenuBarShell {
                     reportWindow.show(word: word, reason: reason, layouts: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
                 }
             )
+            extend(&actions)
+            return actions
         }
     }
 

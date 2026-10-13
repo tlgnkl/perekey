@@ -47,6 +47,7 @@ enum DebugSnapshot {
         renderVoice(in: directory)
         renderVoiceHUD(in: directory)
         renderVoiceIntro(in: directory)
+        renderModes(in: directory)
         #endif
         renderApps(in: directory)
         renderSites(in: directory)
@@ -160,6 +161,7 @@ enum DebugSnapshot {
                                         languages: languages, initial: section)
                 #if PEREKEY_VOICE
                 view.voiceController = voicePreview(in: directory, name: "window")
+                view.voiceModes = modesPreview()
                 #endif
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
@@ -593,6 +595,37 @@ extension DebugSnapshot {
                                      isSupported: supported)
     }
 
+    /// Modes as a person who set up OpenAI for mail would have them.
+    static func modesPreview(managed: ManagedSettings = ManagedSettings()) -> VoiceModesStore {
+        var modes = VoiceModeSet.defaults(VoiceModesStore.localized)
+        if let index = modes.modes.firstIndex(where: { $0.id == BuiltInMode.mail.rawValue }) {
+            modes.modes[index].refine?.endpoint = VoiceEndpoint.Preset.openAI.rawValue
+            modes.modes[index].refine?.model = VoiceEndpoint.Preset.openAI.suggestedModel
+        }
+        modes.consent([.text, .selection, .app], endpoint: VoiceEndpoint.Preset.openAI.rawValue)
+        return VoiceModesStore(preview: modes, keyed: [VoiceEndpoint.Preset.openAI.rawValue], managed: managed)
+    }
+
+    /// The Voice modes tab, tall enough to show it whole: a local LLM mode,
+    /// a cloud one, the terminal mode, and the cloud off by a profile.
+    static func renderModes(in directory: URL) {
+        let models = voicePreview(in: directory, name: "modes")
+        let cases: [(name: String, mode: String, managed: ManagedSettings)] = [
+            ("modes-message", BuiltInMode.message.rawValue, ManagedSettings()),
+            ("modes-mail", BuiltInMode.mail.rawValue, ManagedSettings()),
+            ("modes-terminal", BuiltInMode.terminal.rawValue, ManagedSettings()),
+            ("modes-cloud-disabled", BuiltInMode.clean.rawValue, ManagedSettings(voiceCloudDisabled: true)),
+        ]
+        for item in cases {
+            for dark in [false, true] {
+                let view = ModesPane(store: modesPreview(managed: item.managed), models: models, selected: item.mode)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: CGSize(width: 624, height: 1560),
+                       to: directory.appending(path: "\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
     /// The Voice tab on its own: on, off, a profile that forbids voice or downloads, an unsupported Mac.
     static func renderVoice(in directory: URL) {
         let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-hotkeys.json")))
@@ -647,6 +680,14 @@ extension DebugSnapshot {
             ("mic-error", .failed(.microphone("x")), false, false),
             ("model", .failed(.model("x")), false, false),
             ("recognition", .failed(.recognition("x")), false, false),
+            ("recording-mode-cloud", .recording(Recording(seconds: 4, level: 0.5, preparingModel: false,
+                                                          mode: "Письмо", cloudHost: "api.openai.com")), false, false),
+            ("refining", .refining(.init(mode: "Сообщение", endpoint: "Ollama", isCloud: false)), false, false),
+            ("refining-cloud", .refining(.init(mode: "Письмо", endpoint: "OpenAI", isCloud: true)), false, false),
+            ("pasted-as-said", .pastedFallback(.answered), false, false),
+            ("pasted-as-said-escape", .pastedFallback(.escape), false, false),
+            ("pasted-needs-consent", .pastedFallback(.needsConsent(host: "api.openai.com")), false, false),
+            ("copied", .copied, false, false),
         ]
         for dark in [false, true] {
             for item in states {

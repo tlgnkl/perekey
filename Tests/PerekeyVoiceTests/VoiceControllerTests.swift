@@ -40,6 +40,13 @@ private final class FakeMicrophone: DictationMicrophone, @unchecked Sendable {
 
     var isWaiting: Bool { lock.withLockUnchecked { gate != nil } }
 
+    private var _selected: [String?] = []
+    var selected: [String?] { lock.withLockUnchecked { _selected } }
+
+    func select(_ uid: String?) async {
+        lock.withLockUnchecked { _selected.append(uid) }
+    }
+
     func release() {
         let gate = lock.withLockUnchecked {
             hold = false
@@ -162,10 +169,10 @@ private final class Rig {
     var layoutTexts: [String] = []
     var controller: VoiceController!
 
-    init(settings: VoiceSettings = VoiceSettings(isEnabled: true, model: "fake", silenceStopSeconds: 0)) {
+    init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil)) {
         let engine = self.engine
         controller = VoiceController(
-            settings: settings, microphone: microphone, paster: paster, secureInput: secureInput,
+            preferences: preferences, microphone: microphone, paster: paster, secureInput: secureInput,
             detector: FakeDetector(), makeEngine: { $0 == "fake" ? engine : nil },
             hooks: VoiceController.Hooks(
                 sessionChanged: { [weak self] in self?.sessionChanges.append($0) },
@@ -375,6 +382,19 @@ struct VoiceControllerTests {
         #expect(!NotPastedReason.secureField.offersPaste)
     }
 
+    @Test func aNewMicrophoneWaitsForTheSessionToEnd() async {
+        let rig = Rig()
+        #expect(await rig.until { rig.microphone.selected == [nil] })
+        await rig.startRecording()
+        rig.controller.apply(DictationPreferences(microphoneUID: "usb", modelID: "fake", silenceStop: nil))
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(rig.microphone.selected == [nil])
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.microphone.selected == [nil, "usb"] })
+        rig.controller.apply(DictationPreferences(modelID: "fake", silenceStop: nil))
+        #expect(await rig.until { rig.microphone.selected == [nil, "usb", nil] })
+    }
+
     @Test func silenceIsNotPasted() async {
         let rig = Rig()
         rig.controller.voice(.toggle)
@@ -387,7 +407,7 @@ struct VoiceControllerTests {
     }
 
     @Test func silenceStopsTheRecording() async {
-        let rig = Rig(settings: VoiceSettings(isEnabled: true, model: "fake", silenceStopSeconds: 1))
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: .seconds(1)))
         await rig.startRecording()
         // A second of speech, checked; then two of quiet.
         try? await Task.sleep(for: .milliseconds(50))
@@ -431,7 +451,7 @@ struct VoiceControllerTests {
     }
 
     @Test func noModel() async {
-        let rig = Rig(settings: VoiceSettings(isEnabled: true, model: "missing", silenceStopSeconds: 0))
+        let rig = Rig(preferences: DictationPreferences(modelID: "missing", silenceStop: nil))
         await rig.startRecording()
         rig.controller.voice(.toggle)
         #expect(await rig.until {
@@ -456,7 +476,7 @@ struct VoiceControllerTests {
     }
 
     @Test func soundsCanBeOff() async {
-        let rig = Rig(settings: VoiceSettings(isEnabled: true, model: "fake", silenceStopSeconds: 0, sounds: false))
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", playsSounds: false, silenceStop: nil))
         await rig.startRecording()
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.hud == .pasted })
@@ -464,8 +484,7 @@ struct VoiceControllerTests {
     }
 
     @Test func layoutSwitchCanBeOff() async {
-        let rig = Rig(settings: VoiceSettings(isEnabled: true, model: "fake", silenceStopSeconds: 0,
-                                              switchesLayout: false))
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", switchesLayout: false, silenceStop: nil))
         await rig.startRecording()
         rig.controller.voice(.toggle)
         #expect(await rig.until { rig.hud == .pasted })

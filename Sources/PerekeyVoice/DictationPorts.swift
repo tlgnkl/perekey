@@ -9,9 +9,19 @@ public protocol DictationMicrophone: Sendable {
     func begin(_ audio: DictationAudio) async throws -> AudioSubscription
     /// After it returns, `audio` gets nothing more.
     func end(_ subscription: AudioSubscription) async
+    /// The microphone by UID, nil for the system one. Called between sessions.
+    func select(_ uid: String?) async
+}
+
+extension DictationMicrophone {
+    public func select(_: String?) async {}
 }
 
 extension AudioCapture: DictationMicrophone {
+    public func select(_ uid: String?) async {
+        selectMicrophone(uid: uid)
+    }
+
     public func begin(_ audio: DictationAudio) async throws -> AudioSubscription {
         try subscribe(audio)
     }

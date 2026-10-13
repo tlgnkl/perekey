@@ -17,6 +17,8 @@ final class VoiceSetup {
     private let file = VoiceSettingsFile()
     private let managed = ManagedPreferences.read()
     private(set) var settings: VoiceSettings
+    /// The plan's defaults until the voice pane's settings reach them.
+    private(set) var preferences = DictationPreferences()
     private(set) var controller: VoiceController?
     private var capture: AudioCapture?
     private var store: VoiceModelStore?
@@ -27,6 +29,13 @@ final class VoiceSetup {
         input.onVoice = { [weak self] in self?.controller?.voice($0) }
         input.onAccessLost.chain { [weak self] in self?.controller?.accessibilityLost() }
         apply()
+    }
+
+    /// New dictation preferences, applied at once (a new microphone after
+    /// the session in progress).
+    func update(_ preferences: DictationPreferences) {
+        self.preferences = preferences
+        controller?.apply(preferences)
     }
 
     /// New settings from the voice pane: saved, then applied.
@@ -47,10 +56,7 @@ final class VoiceSetup {
             }
             return
         }
-        if let controller {
-            controller.apply(settings)
-            return
-        }
+        if controller != nil { return }
         let capture = capture ?? AudioCapture()
         let store = store ?? VoiceModelStore(managed: managed)
         self.capture = capture
@@ -58,7 +64,7 @@ final class VoiceSetup {
         let input = self.input
         let trigger = { [weak self] in self?.settings.trigger }
         controller = VoiceController(
-            settings: settings, capture: capture, store: store, paster: TextPasterAdapter(input.textPaster), secureInput: input.dictationSecureInput,
+            preferences: preferences, capture: capture, store: store, paster: TextPasterAdapter(input.textPaster), secureInput: input.dictationSecureInput,
             hooks: VoiceController.Hooks(
                 sessionChanged: { input.voiceSessionChanged($0) },
                 holdIsDown: { trigger()?.isHeldNow ?? false },

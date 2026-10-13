@@ -38,10 +38,10 @@ enum DictateCommand {
 
         let microphone = FileMicrophone()
         let paster = PrintPaster()
-        let settings = VoiceSettings(isEnabled: true, model: id, silenceStopSeconds: 0, unloadAfterMinutes: 0,
-                                     sounds: false, switchesLayout: false)
+        let preferences = DictationPreferences(modelID: id, switchesLayout: false, playsSounds: false,
+                                               silenceStop: nil, unloadAfter: nil)
         let controller = VoiceController(
-            settings: settings, microphone: microphone, paster: paster, secureInput: nil,
+            preferences: preferences, microphone: microphone, paster: paster, secureInput: nil,
             detector: SileroVAD(store: store), makeEngine: { VoiceEngines.make(model: $0, store: store) },
             hooks: VoiceController.Hooks(play: { _ in }))
         let before = MemorySnapshot.now()

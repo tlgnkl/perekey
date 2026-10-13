@@ -51,11 +51,11 @@ struct VoiceSettingsFileTests {
 
     @Test func saveKeepsUnknownKeys() throws {
         try withFile { file in
-            try write(#"{"schemaVersion":1,"isEnabled":true,"llmMode":"polish","microphone":{"uid":"X"}}"#, to: file)
+            try write(#"{"schemaVersion":1,"isEnabled":true,"model":"parakeet","microphone":{"uid":"X"}}"#, to: file)
             #expect(file.load() == VoiceSettings(isEnabled: true))
             try file.save(VoiceSettings(isEnabled: false, trigger: optionSpace))
             let saved = try object(file)
-            #expect(saved["llmMode"] as? String == "polish")
+            #expect(saved["model"] as? String == "parakeet")
             #expect((saved["microphone"] as? [String: Any])?["uid"] as? String == "X")
             #expect(saved["schemaVersion"] as? Int == VoiceSettings.schemaVersion)
             #expect(saved["isEnabled"] as? Bool == false)

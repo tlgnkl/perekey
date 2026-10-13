@@ -145,7 +145,9 @@ public final class VoiceController {
     @ObservationIgnored private let makeEngine: (String) -> (any SpeechEngine)?
     @ObservationIgnored private let hooks: Hooks
     @ObservationIgnored private let sleep: Sleep
-    @ObservationIgnored private var settings: VoiceSettings
+    @ObservationIgnored private var preferences: DictationPreferences
+    /// A microphone chosen during a session, applied once it is over.
+    @ObservationIgnored private var pendingMicrophone: String??
     @ObservationIgnored private var engine: (any SpeechEngine)?
     @ObservationIgnored private var engineResidency: ModelResidency?
     @ObservationIgnored private let detector: (any SpeechDetector)?
@@ -181,12 +183,12 @@ public final class VoiceController {
         }
     }
 
-    public init(settings: VoiceSettings, microphone: any DictationMicrophone, paster: any DictationPaster,
+    public init(preferences: DictationPreferences, microphone: any DictationMicrophone, paster: any DictationPaster,
                 secureInput: (any DictationSecureInputRules)?, detector: (any SpeechDetector)?,
                 makeEngine: @escaping (String) -> (any SpeechEngine)?, hooks: Hooks = Hooks(),
                 sleep: @escaping Sleep = { try await Task.sleep(for: $0) })
     {
-        self.settings = settings
+        self.preferences = preferences
         self.microphone = microphone
         self.paster = paster
         self.secureInput = secureInput
@@ -194,19 +196,21 @@ public final class VoiceController {
         self.makeEngine = makeEngine
         self.hooks = hooks
         self.sleep = sleep
-        detectorResidency = detector.map { ModelResidency($0, unloadDelay: Self.unloadDelay(settings)) }
-        setEngine(for: settings)
+        detectorResidency = detector.map { ModelResidency($0, unloadDelay: preferences.unloadAfter) }
+        setEngine(for: preferences)
+        pendingMicrophone = .some(preferences.microphoneUID)
+        applyMicrophone()
         secureInput?.onStop = { [weak self] in self?.handle(.secureInputChanged(true)) }
         secureInput?.onEscape = { [weak self] in self?.handle(.voice(.cancel)) }
     }
 
     /// The app's controller: the microphone, the store's models, and the
     /// system events that stop or cancel a recording.
-    public convenience init(settings: VoiceSettings, capture: AudioCapture, store: VoiceModelStore,
+    public convenience init(preferences: DictationPreferences, capture: AudioCapture, store: VoiceModelStore,
                             paster: any DictationPaster, secureInput: (any DictationSecureInputRules)?,
                             hooks: Hooks)
     {
-        self.init(settings: settings, microphone: capture, paster: paster, secureInput: secureInput,
+        self.init(preferences: preferences, microphone: capture, paster: paster, secureInput: secureInput,
                   detector: SileroVAD(store: store), makeEngine: { VoiceEngines.make(model: $0, store: store) },
                   hooks: hooks)
         observeSystem()
@@ -242,26 +246,39 @@ public final class VoiceController {
         }
     }
 
-    /// New settings from voice.json. A new model unloads the old one.
-    public func apply(_ settings: VoiceSettings) {
-        let old = self.settings
-        self.settings = settings
-        if settings.model != old.model {
-            setEngine(for: settings)
-        } else if settings.unloadAfterMinutes != old.unloadAfterMinutes {
-            let delay = Self.unloadDelay(settings)
-            Task { [engineResidency, detectorResidency] in
-                await engineResidency?.setUnloadDelay(delay)
-                await detectorResidency?.setUnloadDelay(delay)
-            }
+    /// New preferences. A new model unloads the old one; a new microphone
+    /// applies after the session in progress.
+    public func apply(_ preferences: DictationPreferences) {
+        let old = self.preferences
+        self.preferences = preferences
+        if preferences.modelID != old.modelID {
+            setEngine(for: preferences)
+        } else if preferences.unloadAfter != old.unloadAfter {
+            let delay = preferences.unloadAfter
+            Task { [engineResidency] in await engineResidency?.setUnloadDelay(delay) }
         }
+        if preferences.unloadAfter != old.unloadAfter {
+            let delay = preferences.unloadAfter
+            Task { [detectorResidency] in await detectorResidency?.setUnloadDelay(delay) }
+        }
+        if preferences.microphoneUID != old.microphoneUID {
+            pendingMicrophone = .some(preferences.microphoneUID)
+            applyMicrophone()
+        }
+    }
+
+    private func applyMicrophone() {
+        guard machine.state == .idle, let uid = pendingMicrophone else { return }
+        pendingMicrophone = nil
+        let microphone = self.microphone
+        Task { await microphone.select(uid) }
     }
 
     /// Loads a model in the background after its download, so that the
     /// first dictation does not wait for CoreML. The dictation model stays
     /// for the idle time; another one is unloaded at once.
     public func warmUp(model id: String) async throws {
-        if id == settings.model, let engineResidency {
+        if id == preferences.modelID, let engineResidency {
             try await engineResidency.warmUp()
         } else if let engine = makeEngine(id) {
             defer { Task { await engine.unload() } }
@@ -324,11 +341,12 @@ public final class VoiceController {
                 secureInput?.sessionEnded()
                 current?.stopTimers()
                 current = nil
+                applyMicrophone()
             }
         case let .watchHold(on):
             watchHold(on)
         case let .sound(sound):
-            if settings.sounds { hooks.play(sound) }
+            if preferences.playsSounds { hooks.play(sound) }
         case let .phase(phase):
             show(phase)
         }
@@ -380,7 +398,8 @@ public final class VoiceController {
                 self?.refreshHUD()
             }
         } else {
-            work.model = Task { throw VoiceModelFailure.unknownModel(self.settings.model) }
+            let id = preferences.modelID
+            work.model = Task { throw VoiceModelFailure.unknownModel(id) }
         }
         let microphone = self.microphone
         Task {
@@ -432,7 +451,7 @@ public final class VoiceController {
             let audio = AudioBuffer16k(work.audio.samples)
             do {
                 guard let engine, let model = work.model else {
-                    throw VoiceModelFailure.unknownModel(settings.model)
+                    throw VoiceModelFailure.unknownModel(preferences.modelID)
                 }
                 try await model.value
                 var loadedDetector: (any SpeechDetector)?
@@ -470,7 +489,7 @@ public final class VoiceController {
             case .pasted:
                 lastTextPasted = true
                 hud = .pasted
-                if settings.switchesLayout { hooks.pasted(text) }
+                if preferences.switchesLayout { hooks.pasted(text) }
             case .targetChanged:
                 hud = .notPasted(.targetChanged)
             case .secureField:
@@ -496,8 +515,9 @@ public final class VoiceController {
                 self?.refreshHUD()
             }
         }
-        guard settings.silenceStopSeconds > 0, let detector, let detectorResidency else { return }
-        var watch = SilenceWatch(limit: Double(settings.silenceStopSeconds))
+        guard let silenceStop = preferences.silenceStop, let detector, let detectorResidency else { return }
+        let limit = silenceStop.components
+        var watch = SilenceWatch(limit: Double(limit.seconds) + Double(limit.attoseconds) / 1e18)
         let session = work.session
         let audio = work.audio
         work.silence = Task { [weak self] in
@@ -551,16 +571,12 @@ public final class VoiceController {
         }
     }
 
-    private func setEngine(for settings: VoiceSettings) {
+    private func setEngine(for preferences: DictationPreferences) {
         if let old = engineResidency {
             Task { await old.unload() }
         }
-        engine = makeEngine(settings.model)
-        engineResidency = engine.map { ModelResidency($0, unloadDelay: Self.unloadDelay(settings)) }
-    }
-
-    private static func unloadDelay(_ settings: VoiceSettings) -> Duration? {
-        settings.unloadAfterMinutes > 0 ? .seconds(settings.unloadAfterMinutes * 60) : nil
+        engine = makeEngine(preferences.modelID)
+        engineResidency = engine.map { ModelResidency($0, unloadDelay: preferences.unloadAfter) }
     }
 
     private static func failure(_ error: any Error) -> DictationMachine.CaptureFailure {

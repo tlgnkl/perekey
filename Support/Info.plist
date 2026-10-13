@@ -48,6 +48,14 @@
 	<true/>
 	<key>OSAScriptingDefinition</key>
 	<string>Perekey.sdef</string>
+	<!-- Voice input. Shown by macOS when the app first asks; translated in
+	     Support/*.lproj/InfoPlist.strings (scripts/check-strings.sh). -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Perekey listens to the microphone only while you dictate or record a call.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Perekey records the other side of a call from the system audio, only while you record the call.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Perekey connects to a language model on your network, such as Ollama, only if you set one up.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Perekey contributors. Licensed under GPL-3.0-or-later.</string>
 	<!-- Sparkle 2. The only network address of the app; README, "Network", names it. -->

@@ -22,6 +22,13 @@ enum PerekeyMain {
         #if PEREKEY_VOICE
         // Links the voice layer until the app uses it.
         withExtendedLifetime(VoiceEngines.linked) {}
+        // `--voice-check <name>`: a hidden check of the voice layer that needs
+        // the app's own permissions (VoiceCheck.swift). It exits when done.
+        if let check = VoiceCheck(arguments: CommandLine.arguments) {
+            Task.detached { exit(await check.run()) }
+            NSApplication.shared.setActivationPolicy(.accessory)
+            NSApplication.shared.run()
+        }
         #endif
         let app = NSApplication.shared
         let delegate = AppDelegate()

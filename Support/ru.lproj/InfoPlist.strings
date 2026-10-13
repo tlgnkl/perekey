@@ -1,0 +1,6 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* The usage descriptions of Support/Info.plist. scripts/check-strings.sh keeps the keys in step. */
+
+"NSMicrophoneUsageDescription" = "Perekey слушает микрофон, только пока вы диктуете или записываете созвон.";
+"NSAudioCaptureUsageDescription" = "Perekey записывает собеседников из системного звука, только пока вы записываете созвон.";
+"NSLocalNetworkUsageDescription" = "Perekey подключается к языковой модели в вашей сети, например Ollama, только если вы её настроили.";

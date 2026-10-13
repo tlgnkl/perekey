@@ -5,6 +5,9 @@ import Observation
 import os
 import PerekeyCore
 import PerekeyInput
+#if PEREKEY_VOICE
+import PerekeyVoiceCore
+#endif
 
 /// Connects the event engine to the rest of the app: layouts, settings, the
 /// pause reasons, focus and Secure Input, sleep and session changes.
@@ -54,6 +57,17 @@ final class InputController {
     /// Corrections of the onboarding demo, by `seq`: they count for nothing,
     /// neither the menu's list nor the statistics, nor their undo.
     @ObservationIgnored private var demoCorrections = Set<UInt32>()
+    #if PEREKEY_VOICE
+    /// The dictation settings (voice.json): the tap gets their trigger.
+    @ObservationIgnored var voiceSettings = VoiceSettings() {
+        didSet { pushSettings() }
+    }
+
+    /// The voice trigger fired.
+    @ObservationIgnored var onVoice: ((VoiceSignal) -> Void)?
+    /// Secure Input went on or off.
+    @ObservationIgnored var onSecureInputChanged: ((Bool) -> Void)?
+    #endif
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState,
          languages: LanguageStatsStore = LanguageStatsStore())
@@ -97,8 +111,11 @@ final class InputController {
             engine.send(.focusChanged(focus))
             Task { @MainActor in pause.setPasswordField(focus.isKnown && focus.isSecureField) }
         }
-        secureInput.onChange = { [secureInput] isOn in
+        secureInput.onChange = { [weak self, secureInput] isOn in
             pause.setSecureInput(isOn, owner: secureInput.ownerName)
+            #if PEREKEY_VOICE
+            self?.onSecureInputChanged?(isOn)
+            #endif
         }
         pause.setSecureInput(secureInput.isOn, owner: secureInput.ownerName)
 
@@ -125,7 +142,11 @@ final class InputController {
     /// The settings the tap uses: no shortcuts while the user records one, or
     /// while Perekey is paused by the user or for this app.
     private var effectiveSettings: PerekeyCore.Settings {
+        #if PEREKEY_VOICE
+        var settings = store.settings.snapshot(voice: voiceSettings)
+        #else
         var settings = store.snapshot
+        #endif
         let appOff: Bool = if case .appOff = pause.current { true } else { false }
         if store.isRecording || pause.isTimedPauseActive || appOff {
             settings.hotkeys = []
@@ -182,6 +203,26 @@ final class InputController {
         return languages.context(app: app, site: site)
     }
 
+    #if PEREKEY_VOICE
+    /// A dictation session started or ended: Esc cancels it while on.
+    func voiceSessionChanged(_ on: Bool) {
+        engine.send(.voiceSession(on))
+    }
+
+    /// The hold trigger's keys were found up without their key up.
+    func voiceHoldLost() {
+        engine.send(.voiceHoldLost)
+    }
+
+    /// After dictated text went in: the layout of the phrase's main language.
+    func selectLayout(afterDictating text: String) {
+        guard let id = DictationLanguage.layout(after: text, layouts: sources.layouts, current: sources.currentLayout,
+                                                model: model)
+        else { return }
+        _ = sources.select(id)
+    }
+    #endif
+
     /// Undoes the automatic switch the hint shows, as its Undo button does.
     func undoLastCorrection() {
         guard let shownCorrection else { return }
@@ -224,10 +265,14 @@ final class InputController {
             secureInput.refresh()
         case .pastePlain:
             plainPaste.paste()
-        case .voice:
-            // Dictation is not wired up yet: voice.json is not read, so the
-            // snapshot has no voice trigger and the tap never sends this.
-            break
+        case let .voice(signal):
+            #if PEREKEY_VOICE
+            onVoice?(signal)
+            #else
+            // Without the voice build the snapshot has no voice trigger, and
+            // the tap never sends this.
+            _ = signal
+            #endif
         case let .retyped(original, text, origin, decision):
             SystemSounds.play(store.settings.correctionSound)
             // An automatic switch has its own hint, from `corrected`; an undo hides it.

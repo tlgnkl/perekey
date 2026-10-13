@@ -10,6 +10,9 @@ struct Shortcuts: Sendable {
         case runs(HotkeyAction)
         /// The voice hold trigger went down: swallow the key.
         case voice(VoiceSignal)
+        /// The voice hold key came down with other modifiers: the hold was
+        /// lost (`HoldTrigger.KeyDown.lost`). The key is typing.
+        case typingAfterLostHold(VoiceSignal)
         /// Swallow it: the repeat of a key that ran a shortcut or was dropped.
         case swallowed
         /// Not a shortcut: typing.
@@ -85,9 +88,18 @@ struct Shortcuts: Sendable {
             return .hotkey(action)
         case .voiceTap:
             // ⌥ held while hovering (Figma, an open menu) is a gesture.
-            if let pressLocation, let location, pressLocation != location { return nil }
+            if let pressLocation, let location, Self.moved(from: pressLocation, to: location) { return nil }
             return .voice(.toggle)
         }
+    }
+
+    /// How far the pointer may drift during a voice tap, in points: a hand on
+    /// a mouse nudges it, hovering moves it further.
+    static let pointerTolerance = 3.0
+
+    static func moved(from start: PointerLocation, to end: PointerLocation) -> Bool {
+        let dx = end.x - start.x, dy = end.y - start.y
+        return dx * dx + dy * dy > pointerTolerance * pointerTolerance
     }
 
     /// A modifier changed, Secure Input or not: the end of the voice hold if
@@ -111,6 +123,7 @@ struct Shortcuts: Sendable {
         switch hold.keyDown(keyCode: key.keyCode, isRepeat: key.isRepeat, held: held) {
         case .began: return .voice(.holdBegan)
         case .swallowed: return .swallowed
+        case let .lost(signal): return .typingAfterLostHold(signal)
         case .other: break
         }
         // Auto-repeat of a key whose press was swallowed (the undoing Backspace).
@@ -126,7 +139,10 @@ struct Shortcuts: Sendable {
     /// A key up, Secure Input or not: whether it is the voice hold key's, to
     /// swallow, and the end of the hold if it was still on.
     mutating func holdKeyUp(_ keyCode: UInt16) -> (swallow: Bool, signal: VoiceSignal?) {
-        hold.keyUp(keyCode: keyCode)
+        let up = hold.keyUp(keyCode: keyCode)
+        // A key released while modifiers are held breaks their chord, swallowed or not.
+        if up.swallow { detector.keyReleased() }
+        return up
     }
 
     /// The system layer found the voice hold keys up: the end of the hold.

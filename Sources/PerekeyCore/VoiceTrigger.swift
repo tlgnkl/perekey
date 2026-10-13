@@ -102,23 +102,45 @@ public struct PointerLocation: Hashable, Sendable {
 /// beside the settings file (`VoiceSettingsFile`). Off by default: without
 /// the file Perekey behaves as it did before dictation.
 ///
-/// Decoding tolerates missing keys, unknown keys and values it cannot read:
-/// later versions add their own, and the file keeps them (see `VoiceSettingsFile`).
+/// Decoding tolerates missing keys and unknown keys. A value this version
+/// cannot read (a trigger kind added later) keeps dictation off rather than
+/// falling back to a default that would take a key from another shortcut,
+/// and the file keeps that value on save until the user sets the key again.
 public struct VoiceSettings: Hashable, Sendable {
-    /// The version of the layout of the file. Raise it when a key changes
-    /// meaning; new keys need no new version.
+    /// The version of the file's layout. A file of a higher version is read,
+    /// but dictation stays off and the file is never overwritten
+    /// (`VoiceSettingsFile.save`). New keys need no new version: raise it
+    /// only when an older Perekey must not act on the file at all.
     public static let schemaVersion = 1
 
-    public var isEnabled: Bool
-    public var trigger: VoiceTrigger
+    public var isEnabled: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.isEnabled.stringValue) }
+    }
+
+    public var trigger: VoiceTrigger {
+        didSet { unreadableKeys.remove(CodingKeys.trigger.stringValue) }
+    }
+
+    /// Keys the file has that this version could not read and the user has
+    /// not set since. Encoding leaves them out, so the file keeps its values.
+    public private(set) var unreadableKeys: Set<String> = []
+
+    /// The `schemaVersion` of the file these settings were read from, if it
+    /// is higher than this version's.
+    public private(set) var newerSchemaVersion: Int?
 
     public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default) {
         self.isEnabled = isEnabled
         self.trigger = trigger
     }
 
-    /// The trigger the event tap reacts to: none while dictation is off.
-    public var activeTrigger: VoiceTrigger? { isEnabled ? trigger : nil }
+    /// The trigger the event tap reacts to: none while dictation is off, and
+    /// none when the file is of a newer version or its trigger or switch
+    /// could not be read.
+    public var activeTrigger: VoiceTrigger? {
+        guard isEnabled, newerSchemaVersion == nil, unreadableKeys.isEmpty else { return nil }
+        return trigger
+    }
 }
 
 extension VoiceSettings: Codable {
@@ -128,15 +150,30 @@ extension VoiceSettings: Codable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        var unreadable: Set<String> = []
+        func read<T: Decodable>(_ type: T.Type, _ key: CodingKeys) -> T? {
+            guard container.contains(key) else { return nil }
+            if let value = try? container.decode(type, forKey: key) { return value }
+            unreadable.insert(key.stringValue)
+            return nil
+        }
         let defaults = VoiceSettings()
-        isEnabled = (try? container.decodeIfPresent(Bool.self, forKey: .isEnabled)) ?? defaults.isEnabled
-        trigger = (try? container.decodeIfPresent(VoiceTrigger.self, forKey: .trigger)) ?? defaults.trigger
+        isEnabled = read(Bool.self, .isEnabled) ?? defaults.isEnabled
+        trigger = read(VoiceTrigger.self, .trigger) ?? defaults.trigger
+        if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
+            newerSchemaVersion = version
+        }
+        unreadableKeys = unreadable
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(Self.schemaVersion, forKey: .schemaVersion)
-        try container.encode(isEnabled, forKey: .isEnabled)
-        try container.encode(trigger, forKey: .trigger)
+        if !unreadableKeys.contains(CodingKeys.isEnabled.stringValue) {
+            try container.encode(isEnabled, forKey: .isEnabled)
+        }
+        if !unreadableKeys.contains(CodingKeys.trigger.stringValue) {
+            try container.encode(trigger, forKey: .trigger)
+        }
     }
 }

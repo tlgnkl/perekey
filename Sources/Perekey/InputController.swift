@@ -225,7 +225,8 @@ final class InputController {
         case .pastePlain:
             plainPaste.paste()
         case .voice:
-            // Dictation is not wired up yet; the trigger is off without voice.json.
+            // Dictation is not wired up yet: voice.json is not read, so the
+            // snapshot has no voice trigger and the tap never sends this.
             break
         case let .retyped(original, text, origin, decision):
             SystemSounds.play(store.settings.correctionSound)

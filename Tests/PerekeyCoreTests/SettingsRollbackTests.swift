@@ -72,13 +72,8 @@ import Testing
     @Test func dictationWritesNothingNewToSettings() throws {
         let saved = try Self.object(Self.encode(Self.filled))
         #expect(Set(saved.allKeys.compactMap { $0 as? String }) == LegacyAppSettings_0_1_1.keys)
-        // Dictation on narrows the retype to the left Option key in the
-        // snapshot only; the shortcuts as saved stay the preset's.
-        let voice = VoiceSettings(isEnabled: true)
-        var settings = AppSettings()
-        _ = settings.snapshot(voice: voice)
-        #expect(settings.preset == .standard)
-        #expect(try Self.encode(settings) == Self.encode(AppSettings()))
+        // The snapshot with dictation on saved and loaded through
+        // `SettingsFile`: VoiceSettingsFileTests.snapshotWithVoiceChangesNoSavedSetting.
     }
 
     @Test func fileOf0_1_1OpensAndSavesBack() throws {
@@ -96,6 +91,9 @@ import Testing
     @Test func voiceFileOfLaterVersionsLoads() throws {
         let data = try Self.fixture("voice-later")
         let voice = try JSONDecoder().decode(VoiceSettings.self, from: data)
-        #expect(voice == VoiceSettings(isEnabled: true, trigger: .hold(keyCode: KeyCode.space, modifiers: [.option])))
+        #expect(voice.isEnabled)
+        #expect(voice.trigger == .hold(keyCode: KeyCode.space, modifiers: [.option]))
+        #expect(voice.newerSchemaVersion == 2)
+        #expect(voice.activeTrigger == nil, "a newer file keeps dictation off here")
     }
 }

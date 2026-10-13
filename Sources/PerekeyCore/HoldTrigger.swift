@@ -17,6 +17,10 @@ struct HoldTrigger: Sendable {
         /// The key is already down as the trigger: a repeat, or a press whose
         /// key up was lost.
         case swallowed
+        /// The trigger key came down with other modifiers while the hold was
+        /// on: its key up and the modifier's were lost (the tap was off).
+        /// The hold is over; the key is typing.
+        case lost(VoiceSignal)
         case other
     }
 
@@ -53,6 +57,7 @@ struct HoldTrigger: Sendable {
     /// without fn).
     mutating func keyDown(keyCode: UInt16, isRepeat: Bool, held: UInt8) -> KeyDown {
         guard keyCode == self.keyCode else { return .other }
+        if isHolding, held != modifiers, let signal = lost() { return .lost(signal) }
         if keyIsDown, isRepeat || isHolding { return .swallowed }
         guard !isRepeat, held == modifiers else {
             keyIsDown = false

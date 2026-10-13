@@ -12,9 +12,10 @@ import PerekeyCore
 /// who goes back every setting they had. This file is new; an older Perekey
 /// does not read it.
 ///
-/// Keys this version does not know are kept on save: a newer version may
-/// have written them, and the user may go back and forth. A file that cannot
-/// be read is moved aside, as `SettingsFile` does.
+/// Keys this version does not know, or could not read, are kept on save: a
+/// newer version may have written them, and the user may go back and forth.
+/// A file of a newer `schemaVersion` is read with dictation off and never
+/// written. A file that cannot be read is moved aside, as `SettingsFile` does.
 public struct VoiceSettingsFile: Sendable {
     public let url: URL
 
@@ -51,19 +52,24 @@ public struct VoiceSettingsFile: Sendable {
         }
     }
 
+    /// The file on disk is of a newer version: `save` leaves it alone.
+    public struct NewerVersionError: Error, Equatable {
+        public let schemaVersion: Int
+    }
+
     /// Writes the file atomically, over the keys of the file on disk: those
-    /// this version does not know stay as they are.
+    /// this version does not know or could not read stay as they are. A file
+    /// of a newer `schemaVersion` is never overwritten: throws `NewerVersionError`.
     public func save(_ settings: VoiceSettings) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         var object = (try? Data(contentsOf: url))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        if let theirs = object["schemaVersion"] as? Int, theirs > VoiceSettings.schemaVersion {
+            throw NewerVersionError(schemaVersion: theirs)
+        }
         let ours = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any] ?? [:]
-        // A newer version's file keeps its version: it may read keys of ours differently.
-        let version = "schemaVersion"
-        let theirVersion = object[version] as? Int ?? 0
         object.merge(ours) { _, new in new }
-        object[version] = max(theirVersion, VoiceSettings.schemaVersion)
         let data = try JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try data.write(to: url, options: .atomic)

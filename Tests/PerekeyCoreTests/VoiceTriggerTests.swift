@@ -92,6 +92,17 @@ private extension Output {
         keyboard.time += 0.1
         #expect(keyboard.modifiers(.rightOption, flags: 0, at: PointerLocation(x: 512, y: 300)).effects
             == [.voice(.toggle)])
+
+        // So is one nudged by a hand on the mouse, up to 3 points.
+        keyboard.time += 0.3
+        keyboard.modifiers(.rightOption, flags: rightOption, at: PointerLocation(x: 512, y: 300))
+        keyboard.time += 0.1
+        #expect(keyboard.modifiers(.rightOption, flags: 0, at: PointerLocation(x: 514, y: 302)).effects
+            == [.voice(.toggle)])
+        keyboard.time += 0.3
+        keyboard.modifiers(.rightOption, flags: rightOption, at: PointerLocation(x: 512, y: 300))
+        keyboard.time += 0.1
+        #expect(keyboard.modifiers(.rightOption, flags: 0, at: PointerLocation(x: 515, y: 302)).effects.isEmpty)
     }
 
     @Test func longPressIsNoTap() {
@@ -232,6 +243,28 @@ private extension Output {
         keyboard.beginOptionSpace()
     }
 
+    @Test func bareKeyAfterLostKeyUpsEndsTheHoldAndTypes() {
+        var keyboard = Keyboard(voice: optionSpace)
+        keyboard.beginOptionSpace()
+        // The tap was disabled by timeout; the key ups of Space and ⌥ were lost.
+        keyboard.send(.inputLost)
+        let space = keyboard.key(.down, KeyCode.space)
+        #expect(space.disposition == .pass)
+        #expect(space.effects == [.voice(.holdEnded(reason: .lost))])
+        #expect(keyboard.key(.up, KeyCode.space).disposition == .pass)
+    }
+
+    @Test func swallowedKeyUpBreaksAChord() {
+        var keyboard = Keyboard(voice: optionSpace)
+        keyboard.beginOptionSpace()
+        #expect(keyboard.modifiers(.leftOption, flags: 0).effects == [.voice(.holdEnded(reason: .released))])
+        // ⇧ goes down while Space is still held, then Space comes up: ⇧ is no tap.
+        keyboard.time += 0.3
+        keyboard.modifiers(.leftShift, flags: Keyboard.leftShift)
+        #expect(keyboard.key(.up, KeyCode.space).disposition == .drop)
+        #expect(keyboard.modifiers(.leftShift, flags: 0).effects.isEmpty, "no layout switch")
+    }
+
     @Test func turningVoiceOffEndsTheHold() {
         var keyboard = Keyboard(voice: optionSpace)
         keyboard.beginOptionSpace()
@@ -296,10 +329,43 @@ private extension Output {
     @Test func decodingIsTolerant() throws {
         let decoder = JSONDecoder()
         #expect(try decoder.decode(VoiceSettings.self, from: Data("{}".utf8)) == VoiceSettings())
+        #expect(try decoder.decode(VoiceSettings.self, from: Data(#"{"isEnabled":true}"#.utf8)).activeTrigger
+            == .default, "a missing trigger is the default one")
+
+        // A trigger of a later version: dictation stays off, it takes no key.
         let unknownTrigger = Data(#"{"isEnabled":true,"trigger":{"kind":"fnTwice"},"model":"x"}"#.utf8)
-        #expect(try decoder.decode(VoiceSettings.self, from: unknownTrigger) == VoiceSettings(isEnabled: true))
-        let wrongType = Data(#"{"isEnabled":"yes","trigger":7}"#.utf8)
-        #expect(try decoder.decode(VoiceSettings.self, from: wrongType) == VoiceSettings())
+        var later = try decoder.decode(VoiceSettings.self, from: unknownTrigger)
+        #expect(later.isEnabled)
+        #expect(later.unreadableKeys == ["trigger"])
+        #expect(later.activeTrigger == nil)
+        #expect(AppSettings().snapshot(voice: later) == AppSettings().snapshot, "⌥ still retypes on both sides")
+        // Until the user picks a trigger.
+        later.trigger = .tap(.rightCommand)
+        #expect(later.unreadableKeys.isEmpty)
+        #expect(later.activeTrigger == .tap(.rightCommand))
+
+        let wrongType = try decoder.decode(VoiceSettings.self, from: Data(#"{"isEnabled":"yes","trigger":7}"#.utf8))
+        #expect(wrongType.unreadableKeys == ["isEnabled", "trigger"])
+        #expect(wrongType.activeTrigger == nil)
+    }
+
+    @Test func unreadableKeysAreNotWritten() throws {
+        let data = Data(#"{"isEnabled":true,"trigger":{"kind":"fnTwice"}}"#.utf8)
+        let settings = try JSONDecoder().decode(VoiceSettings.self, from: data)
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        #expect(object["trigger"] == nil)
+        #expect(object["isEnabled"] as? Bool == true)
+    }
+
+    @Test func newerSchemaKeepsDictationOff() throws {
+        let data = Data(#"{"schemaVersion":2,"isEnabled":true,"trigger":{"kind":"tap","chord":{"requirements":["command","right"]}}}"#.utf8)
+        let settings = try JSONDecoder().decode(VoiceSettings.self, from: data)
+        #expect(settings.isEnabled)
+        #expect(settings.trigger == .tap(.rightCommand))
+        #expect(settings.newerSchemaVersion == 2)
+        #expect(settings.activeTrigger == nil)
+        let current = Data(#"{"schemaVersion":1,"isEnabled":true}"#.utf8)
+        #expect(try JSONDecoder().decode(VoiceSettings.self, from: current).activeTrigger == .default)
     }
 
     @Test func roundTrip() throws {

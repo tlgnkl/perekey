@@ -207,6 +207,8 @@ public struct InputMachine: Sendable {
         case let .voice(signal):
             effects.append(.voice(signal))
             return .drop
+        case let .typingAfterLostHold(signal):
+            effects.append(.voice(signal))
         case .swallowed:
             return .drop
         case .typing:

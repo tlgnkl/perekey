@@ -12,21 +12,33 @@ public struct ManagedSettings: Hashable, Sendable {
     public enum Key {
         /// Bool. `true`: no update checks, not even by hand. Perekey makes no network requests.
         public static let updatesDisabled = "UpdatesDisabled"
+        /// Bool. `true`: voice input is off and hidden.
+        public static let voiceDisabled = "VoiceDisabled"
+        /// Bool. `true`: no "Download" for speech models; they load only from
+        /// the folder an administrator fills, `VoiceModels/<id>/` in
+        /// `/Library/Application Support/Perekey`, checked against the same SHA-256.
+        public static let voiceModelDownloadsDisabled = "VoiceModelDownloadsDisabled"
     }
 
     public var updatesDisabled: Bool
+    public var voiceDisabled: Bool
+    public var voiceModelDownloadsDisabled: Bool
 
-    public init(updatesDisabled: Bool = false) {
+    public init(updatesDisabled: Bool = false, voiceDisabled: Bool = false, voiceModelDownloadsDisabled: Bool = false) {
         self.updatesDisabled = updatesDisabled
+        self.voiceDisabled = voiceDisabled
+        self.voiceModelDownloadsDisabled = voiceModelDownloadsDisabled
     }
 
     /// Reads the keys through `forced`, which returns a value only when a profile forces the key.
     public init(forced: (String) -> Any?) {
         updatesDisabled = (forced(Key.updatesDisabled) as? Bool) ?? false
+        voiceDisabled = (forced(Key.voiceDisabled) as? Bool) ?? false
+        voiceModelDownloadsDisabled = (forced(Key.voiceModelDownloadsDisabled) as? Bool) ?? false
     }
 
     /// True when any key is forced, for the note "Managed by your organization".
-    public var isManaged: Bool { updatesDisabled }
+    public var isManaged: Bool { updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled }
 }
 
 /// What the updater may do: the result of the build, the profile and the user's switch.

@@ -86,7 +86,7 @@
 "Could not delete the models: %@" = "Could not delete the models: %@";
 "Text" = "Text";
 "Remove filler words" = "Remove filler words";
-"Drops “um”, “uh” and “э-э”. “Ну” and “как бы” go only when commas set them off." = "Drops “um”, “uh” and “э-э”. “Ну” and “как бы” go only when commas set them off.";
+"Drops “um”, “uh”, “э-э”. “Ну” and “как бы”: only between commas." = "Drops “um”, “uh”, “э-э”. “Ну” and “как бы”: only between commas.";
 "Replacements. When Perekey hears the left side, it types the right side. Case does not matter; only whole words match." = "Replacements. When Perekey hears the left side, it types the right side. Case does not matter; only whole words match.";
 "You say" = "You say";
 "Perekey types" = "Perekey types";

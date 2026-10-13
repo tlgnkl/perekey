@@ -38,7 +38,7 @@ struct DictationMenuSection: View {
                     }
                 }
             }
-            .frame(maxHeight: Self.visibleRows * 46)
+            .frame(maxHeight: Self.visibleRows * 56)
             .scrollIndicators(.automatic)
         }
         .padding(.horizontal, 12)
@@ -46,34 +46,40 @@ struct DictationMenuSection: View {
     }
 
     private func row(_ entry: HistoryEntry, shows: Bool) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(verbatim: shows ? DictationHistoryText.preview(entry.text) : (entry.appName ?? "—"))
-                    .font(PK.Font.body)
-                    .foregroundStyle(Color.pkInk)
-                    .lineLimit(1)
-                Text(verbatim: caption(entry, shows: shows))
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: shows ? DictationHistoryText.preview(entry.text) : (entry.appName ?? "—"))
+                .font(PK.Font.body)
+                .foregroundStyle(Color.pkInk)
+                .lineLimit(1)
+            HStack(spacing: 8) {
+                Text(verbatim: caption(entry))
                     .font(PK.Font.caption)
                     .foregroundStyle(Color.pkInk3)
                     .lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            Button { menu.copy(entry) } label: { voiceText("Copy") }
-                .buttonStyle(.pkSmall)
-            if let pasteAgain = menu.pasteAgain {
-                Button { close(); pasteAgain(entry) } label: { voiceText("Paste again") }
-                    .buttonStyle(.pkSmall)
+                    .layoutPriority(1)
+                    .help(Text(verbatim: entry.appName ?? ""))
+                Spacer(minLength: 4)
+                Button { menu.copy(entry) } label: { voiceText("Copy").font(PK.Font.caption) }
+                    .buttonStyle(.pkLink)
+                    .fixedSize()
+                if let pasteAgain = menu.pasteAgain {
+                    Button { close(); pasteAgain(entry) } label: { voiceText("Paste again").font(PK.Font.caption) }
+                        .buttonStyle(.pkLink)
+                        .fixedSize()
+                }
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
     }
 
-    private func caption(_ entry: HistoryEntry, shows: Bool) -> String {
-        let when = entry.date.formatted(.relative(presentation: .named))
-        guard shows, let app = entry.appName else { return when }
-        return app + " · " + when
+    private func caption(_ entry: HistoryEntry) -> String {
+        let when = Calendar.current.isDateInToday(entry.date)
+            ? entry.date.formatted(date: .omitted, time: .shortened)
+            : entry.date.formatted(date: .abbreviated, time: .shortened)
+        return when
     }
 }
 #endif

@@ -22,7 +22,7 @@ struct VoiceTextGroup: View {
     var body: some View {
         PKGroup(header: voiceText("Text")) {
             PKRow(voiceText("Remove filler words"),
-                  detail: voiceText("Drops “um”, “uh” and “э-э”. “Ну” and “как бы” go only when commas set them off.")) {
+                  detail: voiceText("Drops “um”, “uh”, “э-э”. “Ну” and “как бы”: only between commas.")) {
                 Toggle(isOn: Binding(get: { settings.removesFillers },
                                      set: { on in store.update { $0.removesFillers = on } })) {
                     voiceText("Remove filler words")

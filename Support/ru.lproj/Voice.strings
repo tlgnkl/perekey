@@ -86,7 +86,7 @@
 "Could not delete the models: %@" = "Не удалось удалить модели: %@";
 "Text" = "Текст";
 "Remove filler words" = "Убирать слова-паразиты";
-"Drops “um”, “uh” and “э-э”. “Ну” and “как бы” go only when commas set them off." = "Убирает «um», «uh» и «э-э». «Ну» и «как бы» уходят, только если их выделяют запятые.";
+"Drops “um”, “uh”, “э-э”. “Ну” and “как бы”: only between commas." = "Убирает «um», «uh», «э-э». «Ну» и «как бы» — только между запятыми.";
 "Replacements. When Perekey hears the left side, it types the right side. Case does not matter; only whole words match." = "Замены. Услышав левую часть, Perekey напечатает правую. Регистр не важен; совпадают только целые слова.";
 "You say" = "Вы говорите";
 "Perekey types" = "Perekey печатает";

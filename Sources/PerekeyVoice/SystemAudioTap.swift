@@ -250,17 +250,34 @@ public actor SystemAudioTap {
         guard !isRunning else { return }
         self.sink = sink
         processes = currentMembers()
-        do {
-            try build()
-        } catch {
-            teardown()
-            self.sink = nil
-            throw error
+        if !waitsForProcesses {
+            do {
+                try build()
+            } catch {
+                teardown()
+                self.sink = nil
+                throw error
+            }
         }
         isRunning = true
         listen()
         startWatchdog()
     }
+
+    /// A tap of listed processes with none of them playing yet takes
+    /// nothing, so it is not made: the first process to come builds it.
+    private var waitsForProcesses: Bool {
+        source != .system && processes.isEmpty && !namesBundleID
+    }
+
+    /// The description names the app by bundle ID (macOS 26+).
+    private var namesBundleID: Bool {
+        guard #available(macOS 26.0, *), case .app = source else { return false }
+        return matching != .processes
+    }
+
+    /// The bundle ID alone: Core Audio keeps the app's processes, no list.
+    private var followsBundleID: Bool { namesBundleID && matching == .bundleID }
 
     public func stop() {
         guard isRunning else { return }
@@ -343,13 +360,14 @@ public actor SystemAudioTap {
     }
 
     private func makeDescription() -> CATapDescription {
-        // `.system` always leaves this process out by its object as well.
-        let ids = matching == .bundleID && source != .system ? [] : processes.map(\.id)
+        // An app named by bundle ID needs no list; `.system` always leaves
+        // this process out by its object as well.
+        let ids = followsBundleID ? [] : processes.map(\.id)
         let description = switch source {
         case .system: CATapDescription(stereoGlobalTapButExcludeProcesses: ids)
         case .app, .processes: CATapDescription(stereoMixdownOfProcesses: ids)
         }
-        if #available(macOS 26.0, *), matching != .processes {
+        if #available(macOS 26.0, *), namesBundleID || source == .system && matching != .processes {
             switch source {
             case .app(let bundleID):
                 description.bundleIDs = [bundleID]
@@ -373,7 +391,7 @@ public actor SystemAudioTap {
         let appPIDs = if case .app(let bundleID) = source { AudioProcessList.appPIDs(bundleID: bundleID) } else { Set<pid_t>() }
         // With the bundle ID in the description the list only tells the zero
         // detector whether the app plays, so it does without the private call.
-        let byResponsibility = matching != .bundleID
+        let byResponsibility = !followsBundleID
         return AudioProcessList.members(of: source, in: AudioProcessList.all(withResponsibility: byResponsibility),
                                         appPIDs: appPIDs, ownPID: getpid(), byResponsibility: byResponsibility)
     }
@@ -402,7 +420,23 @@ public actor SystemAudioTap {
         let members = currentMembers()
         guard Set(members.map(\.id)) != Set(processes.map(\.id)) else { return }
         processes = members
-        guard matching != .bundleID || source == .system else {
+        if tapID == kAudioObjectUnknown {
+            guard !waitsForProcesses else { return }
+            do {
+                try build()
+            } catch {
+                teardown()
+                onEvent(.failed(String(describing: error)))
+                return
+            }
+            for listener in listeners {
+                listener.remove()
+            }
+            listen()
+            onEvent(.processes(members))
+            return
+        }
+        guard !followsBundleID else {
             // Core Audio follows the bundle ID by itself.
             onEvent(.processes(members))
             return
@@ -445,6 +479,11 @@ public actor SystemAudioTap {
         teardown()
         sink?.captureInterrupted(.deviceChanged)
         processes = currentMembers()
+        guard !waitsForProcesses else {
+            // The app went quiet meanwhile: the next process builds the tap.
+            listen()
+            return
+        }
         do {
             try build()
         } catch {

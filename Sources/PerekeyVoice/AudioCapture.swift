@@ -87,6 +87,9 @@ public actor AudioCapture {
     private var generation = 0
     /// How long a running engine may give no audio before it counts as stalled.
     private let stallTimeout: Duration
+    /// The same before its first block: Bluetooth headsets switching to their
+    /// microphone profile give the first buffers only after 1–2 s.
+    private let firstBlockTimeout: Duration
     private var watchdog: Task<Void, Never>?
     /// The block count when a stall last restarted the engine: no block since
     /// then means the new engine stalled too.
@@ -101,10 +104,12 @@ public actor AudioCapture {
         self.init(input: EngineInput(), preferredUID: preferredUID)
     }
 
-    init(input: any AudioInput, preferredUID: String? = nil, stallTimeout: Duration = .milliseconds(1500)) {
+    init(input: any AudioInput, preferredUID: String? = nil, stallTimeout: Duration = .milliseconds(1500),
+         firstBlockTimeout: Duration = .seconds(4)) {
         self.input = input
         self.preferredUID = preferredUID
         self.stallTimeout = stallTimeout
+        self.firstBlockTimeout = firstBlockTimeout
     }
 
     /// Adds a subscriber and starts the microphone if it is the first. Throws,
@@ -115,6 +120,7 @@ public actor AudioCapture {
         let token = AudioSubscription(id: nextID)
         sinks.add(sink, id: token.id)
         if !isRunning {
+            blocksAtStall = nil
             do {
                 try start()
             } catch {
@@ -190,18 +196,22 @@ public actor AudioCapture {
 
     /// A device can stop giving audio with neither a configuration change nor
     /// a word from CoreAudio. A running engine always gives blocks, silence
-    /// too, so none for `stallTimeout` means it stalled: restart once, and
-    /// give up if the new engine stalls as well.
+    /// too, so none for `stallTimeout` (`firstBlockTimeout` before the first)
+    /// means it stalled: restart once, and give up if the new engine stalls
+    /// as well.
     private func watch(generation: Int) {
         let timeout = stallTimeout
+        let firstTimeout = firstBlockTimeout
         let sinks = self.sinks
         watchdog = Task { [weak self] in
             var seen = sinks.blockCount
+            var heard = false
             while !Task.isCancelled {
-                try? await Task.sleep(for: timeout)
+                try? await Task.sleep(for: heard ? timeout : firstTimeout)
                 let blocks = sinks.blockCount
                 if blocks != seen {
                     seen = blocks
+                    heard = true
                     continue
                 }
                 await self?.stalled(generation: generation)
@@ -218,7 +228,9 @@ public actor AudioCapture {
         }
         let lost = preferredUID.map { !input.isAvailable(uid: $0) } ?? false
         restart(after: lost ? .deviceLost : .stalled)
-        blocksAtStall = sinks.blockCount // after the stop's tail, which is no new audio
+        if isRunning {
+            blocksAtStall = sinks.blockCount // after the stop's tail, which is no new audio
+        }
     }
 
     private func restart(after reason: AudioCaptureInterruption) {
@@ -354,7 +366,9 @@ final class EngineInput: AudioInput, @unchecked Sendable {
         guard format.sampleRate > 0, format.channelCount > 0 else { throw AudioCaptureError.noInputDevice }
         let resampler = try Resampler(inputRate: format.sampleRate)
         node.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, time in
-            let hostTime = time.isHostTimeValid ? time.hostTime : mach_absolute_time()
+            // Without a time from the engine the buffer ends about now.
+            let hostTime = time.isHostTimeValid ? time.hostTime
+                : mach_absolute_time() - HostTime.ticks(Double(buffer.frameLength) / buffer.format.sampleRate)
             resampler.process(buffer, hostTime: hostTime, deliver)
         }
         // Both listeners are in place before the engine starts: a change during
@@ -453,9 +467,10 @@ final class Resampler: @unchecked Sendable {
     private var output: AVAudioPCMBuffer
     private var inputFrames = 0
     private var outputFrames = 0
-    /// The last block's stamp, which the next one passes, and its end.
+    /// The host time of the last input buffer and its first frame's index.
+    private var lastInput: (hostTime: UInt64, frame: Int)?
+    /// The last block's stamp, which the next one passes.
     private var lastStamp: UInt64?
-    private var lastEnd: UInt64 = 0
     private var finished = false
 
     init(inputRate: Double) throws {
@@ -498,16 +513,10 @@ final class Resampler: @unchecked Sendable {
             }
             mono.floatChannelData![0].update(from: samples.baseAddress!, count: samples.count)
             mono.frameLength = frames
-            // The converter's output starts where its input started, so the
-            // next output sample was heard `held` samples before this buffer.
-            let held = max(0, Double(inputFrames) * VoiceCore.sampleRate / inputRate - Double(outputFrames))
-            let back = HostTime.ticks(held / VoiceCore.sampleRate)
-            let anchored = hostTime > back ? hostTime - back : 0
-            let stamp = lastStamp.map { max(anchored, $0 + 1) } ?? anchored
+            lastInput = (hostTime, inputFrames)
             let source = InputOnce(mono)
-            let produced = convert(frames: frames, stamp: stamp, body) { source.next($0) }
             inputFrames += Int(frames)
-            outputFrames += produced
+            convert(frames: frames, body) { source.next($0) }
         }
     }
 
@@ -518,32 +527,49 @@ final class Resampler: @unchecked Sendable {
             guard !finished else { return }
             finished = true
             guard inputFrames > 0 else { return }
-            outputFrames += convert(frames: 0, stamp: max(lastEnd, (lastStamp ?? 0) + 1), body) { status in
+            convert(frames: 0, body) { status in
                 status.pointee = .endOfStream
                 return nil
             }
         }
     }
 
-    /// Converts, hands the output to `body` stamped `stamp`, and returns its
-    /// length. Called under `lock`.
-    private func convert(frames: AVAudioFrameCount, stamp: UInt64,
-                         _ body: (UnsafeBufferPointer<Float>, UInt64) -> Void,
-                         input: @escaping (UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer?) -> Int {
+    /// When output sample `outputFrames` was heard. The converter's output
+    /// starts where its input started, so it lies as far from the last input
+    /// buffer's start as their sample positions do: before it while the
+    /// converter holds samples back. Never before the last stamp.
+    private func nextStamp() -> UInt64 {
+        guard let lastInput else { return 0 }
+        let offset = Double(outputFrames) / VoiceCore.sampleRate - Double(lastInput.frame) / inputRate
+        let ticks = Int64((offset * HostTime.ticksPerSecond).rounded())
+        let anchored = UInt64(max(0, Int64(lastInput.hostTime) + ticks))
+        return lastStamp.map { max(anchored, $0 + 1) } ?? anchored
+    }
+
+    /// Converts until the converter has nothing more for now, hands each
+    /// output block to `body` with its stamp. Called under `lock`.
+    private func convert(frames: AVAudioFrameCount, _ body: (UnsafeBufferPointer<Float>, UInt64) -> Void,
+                         input: @escaping (UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer?) {
         let wanted = AVAudioFrameCount((Double(frames) * VoiceCore.sampleRate / inputRate).rounded(.up)) + 1024
         if output.frameCapacity < wanted {
-            guard let bigger = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: wanted) else { return 0 }
+            guard let bigger = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: wanted) else { return }
             output = bigger
         }
-        output.frameLength = 0
-        var error: NSError?
-        let status = converter.convert(to: output, error: &error) { _, outStatus in input(outStatus) }
-        let count = Int(output.frameLength)
-        guard status != .error, count > 0 else { return 0 }
-        lastStamp = stamp
-        lastEnd = stamp + HostTime.ticks(Double(count) / VoiceCore.sampleRate)
-        body(UnsafeBufferPointer(start: output.floatChannelData![0], count: count), stamp)
-        return count
+        while true {
+            output.frameLength = 0
+            var error: NSError?
+            let status = converter.convert(to: output, error: &error) { _, outStatus in input(outStatus) }
+            let count = Int(output.frameLength)
+            guard status != .error else { return }
+            if count > 0 {
+                let stamp = nextStamp()
+                lastStamp = stamp
+                outputFrames += count
+                body(UnsafeBufferPointer(start: output.floatChannelData![0], count: count), stamp)
+            }
+            // .haveData: the output buffer filled up and more is waiting.
+            guard status == .haveData, count > 0 else { return }
+        }
     }
 
     /// Hands the converter one buffer, then says there is no more for now: the

@@ -263,7 +263,7 @@ struct AudioCaptureTests {
 
     @Test func blocksKeepTheWatchdogQuiet() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(200))
+        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(200), firstBlockTimeout: .milliseconds(200))
         let sink = Collector()
         _ = try await capture.subscribe(sink)
         for _ in 0..<40 {
@@ -277,7 +277,7 @@ struct AudioCaptureTests {
     /// No blocks from a running engine: restart once, then give up.
     @Test func aStalledEngineRestartsOnceThenFails() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(80))
+        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(80), firstBlockTimeout: .milliseconds(80))
         let sink = Collector()
         _ = try await capture.subscribe(sink)
         #expect(await eventually { !sink.reasons.isEmpty })
@@ -292,13 +292,46 @@ struct AudioCaptureTests {
     /// A stall, then audio again: the next stall restarts once more instead of failing.
     @Test func audioAfterAStallResetsTheWatchdog() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(80))
+        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(80), firstBlockTimeout: .milliseconds(80))
         let sink = Collector()
         _ = try await capture.subscribe(sink)
         #expect(await eventually { !sink.reasons.isEmpty })
         input.push([0])
         #expect(await eventually { sink.reasons.count >= 2 })
         #expect(sink.reasons.prefix(2) == [.stalled, .stalled])
+    }
+
+    /// A headset switching to its microphone profile is slow to give its first
+    /// buffers: the watchdog waits longer for the first block than between blocks.
+    @Test func theFirstBlockMayTakeLonger() async throws {
+        let input = FakeInput()
+        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(60), firstBlockTimeout: .milliseconds(400))
+        let sink = Collector()
+        let clock = ContinuousClock()
+        let started = clock.now
+        _ = try await capture.subscribe(sink)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(sink.reasons.isEmpty)
+        input.push([0]) // the first block, late
+        #expect(await eventually { !sink.reasons.isEmpty })
+        #expect(sink.reasons == [.stalled])
+        #expect(clock.now - started >= .milliseconds(400))
+    }
+
+    /// A stall whose restart fails, then a new subscriber: its first stall
+    /// restarts again instead of failing at once on the old count.
+    @Test func aNewSessionStartsWithACleanWatchdog() async throws {
+        let input = FakeInput()
+        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(50), firstBlockTimeout: .milliseconds(50))
+        let first = Collector()
+        _ = try await capture.subscribe(first)
+        input.failStarts = 1
+        #expect(await eventually { first.reasons.count == 2 })
+        #expect(first.reasons == [.stalled, .failed("engine(\"fake\")")])
+        let second = Collector()
+        _ = try await capture.subscribe(second)
+        #expect(await eventually { !second.reasons.isEmpty })
+        #expect(second.reasons.first == .stalled)
     }
 }
 
@@ -442,6 +475,29 @@ struct ResamplerTests {
         }
         let truth = Double(click) / rate * clockRatio
         #expect(abs(best.time - truth) < 0.000_1)
+    }
+
+    /// The whole second in one call, and in calls of 100 frames: the
+    /// converter is drained each time, nothing stays behind.
+    @Test(arguments: [100, 48_000])
+    func anyBlockSizeGivesItAll(block: Int) throws {
+        let out = try resample(tone(440, rate: 48_000, seconds: 1), rate: 48_000, block: block, finish: true)
+        #expect(abs(out.count - 16_000) <= 2)
+    }
+
+    /// Input too short for any output: the flushed tail is stamped from the
+    /// input's host time, not from zero.
+    @Test func aTailAloneKeepsTheInputTime() throws {
+        let resampler = try Resampler(inputRate: 48_000)
+        let hostTime: UInt64 = 5_000_000_000
+        var stamps: [UInt64] = []
+        tone(440, rate: 48_000, seconds: 0.002).withUnsafeBufferPointer {
+            resampler.process($0, hostTime: hostTime) { _, stamp in stamps.append(stamp) }
+        }
+        resampler.finish { _, stamp in stamps.append(stamp) }
+        #expect(!stamps.isEmpty)
+        let offset = abs(Double(Int64(stamps[0]) - Int64(hostTime))) / HostTime.ticksPerSecond
+        #expect(offset < 0.001)
     }
 
     /// A clock that jumps back (a host time earlier than the last block's end)

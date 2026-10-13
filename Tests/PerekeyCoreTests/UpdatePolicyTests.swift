@@ -40,9 +40,9 @@ import Testing
 
     @Test func voiceKeysAreOffUnlessForcedTrue() {
         let none = ManagedSettings { _ in nil }
-        #expect(!none.voiceDisabled && !none.voiceModelDownloadsDisabled && !none.isManaged)
+        #expect(!none.voiceDisabled && !none.voiceModelDownloadsDisabled && !none.forcesAnyKey)
         let voice = ManagedSettings { $0 == "VoiceDisabled" ? true : nil }
-        #expect(voice.voiceDisabled && !voice.voiceModelDownloadsDisabled && voice.isManaged)
+        #expect(voice.voiceDisabled && !voice.voiceModelDownloadsDisabled && voice.forcesAnyKey)
         let downloads = ManagedSettings { $0 == "VoiceModelDownloadsDisabled" ? true : nil }
         #expect(downloads.voiceModelDownloadsDisabled && !downloads.voiceDisabled && !downloads.updatesDisabled)
         #expect(ManagedSettings { $0 == "VoiceDisabled" ? 1 as Int : nil }.voiceDisabled == false)

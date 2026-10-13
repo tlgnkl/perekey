@@ -169,8 +169,7 @@ struct AudioCaptureTests {
         input.startDelay = 0.15
         let capture = AudioCapture(input: input)
         let starting = Task { try await capture.subscribe(Collector()) }
-        try await Task.sleep(for: .milliseconds(30))
-        #expect(input.log == ["start system"]) // still starting
+        #expect(await eventually { input.log == ["start system"] }) // still starting
         await capture.unsubscribe(AudioSubscription(id: 1))
         let token = try await starting.value
         #expect(token == AudioSubscription(id: 1))

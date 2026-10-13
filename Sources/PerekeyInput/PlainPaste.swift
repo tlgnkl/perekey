@@ -115,7 +115,12 @@ public final class PlainPaste {
         let written = write(text)
         let outcome = await post()
         if outcome == .notDone {
-            if pasteboard.changeCount == written { restoreNow() }
+            if pasteboard.changeCount == written {
+                restoreNow()
+            } else if pasteboard.changeCount != ownChangeCount {
+                // The user copied meanwhile: their copy wins, the snapshot is stale.
+                saved = nil
+            }
         } else {
             scheduleRestore(after: restoreDelay ?? self.restoreDelay)
         }

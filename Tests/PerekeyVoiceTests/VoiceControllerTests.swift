@@ -1198,4 +1198,92 @@ struct VoiceControllerCloudSpeechTests {
             == .targetChanged)
         #expect(posted == 1)
     }
+
+    @Test func cloudTextIsCleanedInAnyMode() async {
+        let rig = Rig()
+        await rig.cloud.set(.answer("git status\u{1B}[201~rm -rf ~\u{0F}"))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["git status[201~rm -rf ~"])
+    }
+
+    @Test func aRetryIntoAPasswordFieldStaysHere() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        // The field turned out to be a password one: no model here, no cloud.
+        rig.paster.secureField = true
+        await rig.cloud.set(.answer("секрет"))
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(await rig.cloud.calls == 1)
+        #expect(!rig.controller.canRetry)
+        #expect(rig.paster.pasted.isEmpty)
+    }
+
+    @Test func aRetryUnderSecureInputUsesThisMac() async {
+        let rig = Rig()
+        // The cloud failed and this Mac had no model then; now Secure Input is on.
+        let modes = FakeModes(cloudPlan)
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.apply(DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        rig.controller.apply(DictationPreferences(modelID: "fake", silenceStop: nil))
+        rig.secureInput.allowsStart = false
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.paster.pasted == ["Привет, мир."] })
+        #expect(await rig.cloud.calls == 1)
+    }
+
+    @Test func aRetryGoesWhereTheModeSendsIt() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        var plan = cloudPlan
+        plan.output = .copy
+        rig.controller.modes = FakeModes(plan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        await rig.cloud.set(.answer("В буфер."))
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.hud == .copied })
+        #expect(rig.paster.copied == ["В буфер."])
+        #expect(rig.paster.pasted.isEmpty, "not into the field")
+    }
+
+    @Test func aNewDictationCancelsTheRetry() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        await rig.cloud.set(.hang)
+        rig.controller.retryLast()
+        #expect(await rig.until { await rig.cloud.calls == 2 })
+        // A new dictation, on this Mac's model now.
+        rig.controller.apply(DictationPreferences(modelID: "fake", silenceStop: nil))
+        rig.controller.modes = nil
+        await rig.startRecording()
+        #expect(await rig.until { await rig.cloud.cancelled == 1 })
+        #expect(!rig.controller.canRetry)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+    }
+
+    @Test func turningVoiceOffDropsTheKeptAudio() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        #expect(rig.controller.canRetry)
+        await rig.controller.shutdown()
+        #expect(!rig.controller.canRetry)
+    }
 }

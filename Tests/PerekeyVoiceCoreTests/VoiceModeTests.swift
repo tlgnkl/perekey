@@ -304,6 +304,15 @@ struct EndpointAddressTests {
         #expect(EndpointAddress("http://8.8.8.8") == nil)
         // One label goes to DNS with the search domains: the internet, no plain http.
         #expect(EndpointAddress("http://ollama:11434/v1") == nil)
+        // A leading zero is octal to some resolvers: a name, not this address.
+        #expect(EndpointAddress("http://010.0.0.1/v1") == nil)
+        #expect(EndpointAddress("https://010.0.0.1/v1")?.reach == .internet)
+        #expect(EndpointAddress("http://10.0.0.1/v1")?.reach == .localNetwork)
+        // Only localhost itself is this Mac.
+        #expect(EndpointAddress("http://api.localhost:11434") == nil)
+        #expect(EndpointAddress("https://api.localhost")?.isOnThisMac == false)
+        // Tailscale's addresses are not a local network: https there.
+        #expect(EndpointAddress("http://100.101.1.2:11434/v1") == nil)
         #expect(EndpointAddress("https://ollama:11434/v1")?.reach == .internet)
     }
 

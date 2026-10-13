@@ -779,6 +779,10 @@ private struct EndpointsGroup: View {
             voiceText("https, or http on this Mac and in the local network. The address ends where /chat/completions would begin.")
                 .font(PK.Font.caption).foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
+            if address == nil, newAddress.lowercased().hasPrefix("http://"), newAddress.count > 7 {
+                PKCallout(voiceText("http is allowed only for this Mac and the local network. For a server over Tailscale use https (tailscale serve)."))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
             HStack {
                 Spacer()
                 Button {

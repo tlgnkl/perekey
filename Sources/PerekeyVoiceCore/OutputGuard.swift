@@ -35,7 +35,7 @@ public enum OutputGuard {
         // A Windows line break is a line break; a lone carriage return is Enter.
         let text = cleaned(output, dictation: dictation).replacingAll("\r\n", with: "\n")
         guard !text.isEmpty else { return .reject(.empty) }
-        if text.unicodeScalars.contains(where: isForbidden) { return .reject(.controlCharacters) }
+        if hasForbiddenScalars(text) { return .reject(.controlCharacters) }
         let lower = text.lowercased()
         if lower.contains("<dictation") || lower.contains("</dictation") || lower.contains("<selection")
             || lower.contains("</selection")
@@ -68,13 +68,23 @@ public enum OutputGuard {
         ["привет! я", "hello! i", "hi! i"],
     ]
 
-    /// Control (Cc) and format (Cf) characters, but a line break and a tab,
-    /// and the zero-width joiner of emoji sequences.
-    static func isForbidden(_ scalar: Unicode.Scalar) -> Bool {
-        switch scalar {
-        case "\n", "\t", "\u{200D}": false
-        default: scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format
+    /// Control (Cc) and format (Cf) characters, but a line break, a tab,
+    /// and a zero-width joiner between two pictographs (👩‍💻).
+    static func hasForbiddenScalars(_ text: String) -> Bool {
+        let scalars = Array(text.unicodeScalars)
+        for (index, scalar) in scalars.enumerated() {
+            switch scalar {
+            case "\n", "\t":
+                continue
+            case "\u{200D}":
+                if Emoji.joins(scalars, at: index) { continue }
+                return true
+            default:
+                let category = scalar.properties.generalCategory
+                if category == .control || category == .format { return true }
+            }
         }
+        return false
     }
 
     /// Typographic apostrophes as the plain one: "I’m sorry" is "I'm sorry".

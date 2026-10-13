@@ -94,7 +94,8 @@ public struct EndpointAddress: Hashable, Sendable {
     }
 
     public enum Reach: Hashable, Sendable {
-        /// This Mac: `localhost`, 127.0.0.0/8, ::1.
+        /// This Mac: `localhost`, 127.0.0.0/8, ::1. Not a `*.localhost` name:
+        /// a resolver may send it elsewhere.
         case loopback
         /// A private IP address or a `.local` name: another machine nearby.
         /// A one-label name is not: it goes to DNS with the search domains,
@@ -181,7 +182,7 @@ public struct EndpointAddress: Hashable, Sendable {
     }
 
     public var reach: Reach {
-        if host == "localhost" || host.hasSuffix(".localhost") || host == "::1" { return .loopback }
+        if host == "localhost" || host == "::1" { return .loopback }
         if let octets = Self.ipv4(host) {
             switch (octets[0], octets[1]) {
             case (127, _): return .loopback
@@ -207,9 +208,13 @@ public struct EndpointAddress: Hashable, Sendable {
     /// and needs consent.
     public var isOnThisMac: Bool { reach == .loopback }
 
+    /// The octets of a dotted IPv4 literal. "010" is no octet: some
+    /// resolvers read it as octal, so such a host is a name, not this address.
     private static func ipv4(_ host: String) -> [Int]? {
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else { return nil }
+        guard parts.count == 4,
+              parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCII) && ($0 == "0" || !$0.hasPrefix("0")) })
+        else { return nil }
         let octets = parts.compactMap { Int($0) }.filter { (0...255).contains($0) }
         return octets.count == 4 ? octets : nil
     }

@@ -184,6 +184,14 @@ public final class VoiceHTTP: Sendable {
                         task: task, origin: request.url.flatMap(Self.origin(of:)),
                         purpose: purpose, range: request.value(forHTTPHeaderField: "Range"),
                         accept: accept, receive: receive, waiting: waiting, continuation: continuation))
+                // The gate may have closed between the first check and the
+                // handler going in, where `cancelDisallowed` could not see it.
+                guard permits(request, purpose) else {
+                    router.remove(task)
+                    task.cancel()
+                    continuation.resume(throwing: Failure.blocked(purpose))
+                    return
+                }
                 router.record(request.url?.host() ?? "", purpose)
                 task.resume()
             }
@@ -245,6 +253,11 @@ final class Router: NSObject, URLSessionDataDelegate, Sendable {
 
     func add(_ task: URLSessionTask, _ handler: Handler) {
         handlers.withLockUnchecked { $0[task.taskIdentifier] = handler }
+    }
+
+    /// Forgets a task that never started.
+    func remove(_ task: URLSessionTask) {
+        _ = handlers.withLockUnchecked { $0.removeValue(forKey: task.taskIdentifier) }
     }
 
     /// Cancels the tasks `drop` names by purpose and origin.

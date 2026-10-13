@@ -143,6 +143,18 @@ struct OutputGuardTests {
             == .accept("Hi Anna,\n\nThe report is attached."))
         #expect(OutputGuard.check("a\tb", dictation: "a tab b") == .accept("a\tb"))
         #expect(OutputGuard.check("Привет 👩‍💻", dictation: "привет эмодзи") == .accept("Привет 👩‍💻"))
+        #expect(OutputGuard.check("Ура ❤️‍🔥 👩🏽‍💻", dictation: "ура эмодзи") == .accept("Ура ❤️‍🔥 👩🏽‍💻"))
+        // A joiner anywhere else hides something.
+        #expect(OutputGuard.check("rm\u{200D}-rf", dictation: "rm rf") == .reject(.controlCharacters))
+        #expect(OutputGuard.check("👩\u{200D}", dictation: "эмодзи") == .reject(.controlCharacters))
+    }
+
+    @Test func dictatedTextIsCleanedWhoeverWroteIt() {
+        #expect(DictatedTextFilter.clean("git status\u{1B}[201~rm -rf ~\u{0F}") == "git status[201~rm -rf ~")
+        #expect(DictatedTextFilter.clean("a\r\nb\rc\td") == "a\nbc\td")
+        #expect(DictatedTextFilter.clean("report\u{202E}fdp.exe\u{200F}\u{2066}x\u{2069}") == "reportfdp.exex")
+        // Emoji and letters stay.
+        #expect(DictatedTextFilter.clean("Привет 👩‍💻 ok") == "Привет 👩‍💻 ok")
     }
 
     @Test func wrappingIsTakenOff() {

@@ -256,3 +256,6 @@
 "hi anna sending the report have a look by friday" = "hi anna sending the report have a look by friday";
 "Hello Anna, I am sending the report. Please have a look by Friday." = "Hello Anna, I am sending the report. Please have a look by Friday.";
 "let's move the call to monday" = "let's move the call to monday";
+
+/* Review 2: plain http */
+"http is allowed only for this Mac and the local network. For a server over Tailscale use https (tailscale serve)." = "http is allowed only for this Mac and the local network. For a server over Tailscale use https (tailscale serve).";

@@ -67,6 +67,7 @@ public struct OpenAICompatibleClient: Sendable {
         var request = try request(address, "/chat/completions", key: key)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(Body(model: model, messages: messages, temperature: temperature))
+        request.timeoutInterval = Self.seconds(timeout)
         let data = try await send(request, purpose: .cloudLanguageModel)
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
               let content = answer.choices.first?.message.content
@@ -93,7 +94,11 @@ public struct OpenAICompatibleClient: Sendable {
         form.file("file", name: "dictation.wav", type: "audio/wav", data: WAV.encode(audio))
         let body = form.finish()
         request.httpBody = body
-        let data = try await send(request, purpose: .cloudSpeech, timeout: Self.transcriptionTimeout(bytes: body.count))
+        let timeout = Self.transcriptionTimeout(bytes: body.count)
+        // The wait for the next bytes too, over the session's 60 s: a long
+        // upload is answered only once the server has transcribed it.
+        request.timeoutInterval = Self.seconds(timeout)
+        let data = try await send(request, purpose: .cloudSpeech, timeout: timeout)
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data) else { throw Failure.badResponse }
         return answer.text
     }
@@ -102,6 +107,11 @@ public struct OpenAICompatibleClient: Sendable {
     /// for every 100 KB (a minute of 16 kHz audio is about 1.9 MB).
     static func transcriptionTimeout(bytes: Int) -> Duration {
         .seconds(30) + .milliseconds(bytes / 100)
+    }
+
+    static func seconds(_ duration: Duration) -> TimeInterval {
+        let parts = duration.components
+        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
     }
 
     // MARK: Requests

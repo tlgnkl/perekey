@@ -165,13 +165,20 @@ import Testing
         // Hundreds of classifications of a long word in well under a millisecond each.
         let strokes = abc.strokes("ghbdtn") + abc.strokes("vbh") + abc.strokes("[jhjij") + abc.strokes("ds,jh")
         let first = classifier.classify(strokes, typed: abc, other: russian)
+        // Stability is exact. Speed is the fastest of several batches: a busy
+        // machine slows some batches, rarely all of them, so the bound holds
+        // under load. The strict per-decision budget is perekey-bench's.
         let clock = ContinuousClock()
-        let elapsed = clock.measure {
-            for _ in 0..<200 {
-                #expect(classifier.classify(strokes, typed: abc, other: russian) == first)
+        var fastest = Duration.seconds(60)
+        for _ in 0..<5 {
+            let elapsed = clock.measure {
+                for _ in 0..<200 {
+                    #expect(classifier.classify(strokes, typed: abc, other: russian) == first)
+                }
             }
+            fastest = min(fastest, elapsed)
         }
-        #expect(elapsed < .milliseconds(200))
+        #expect(fastest < .milliseconds(200))
     }
 }
 
@@ -219,7 +226,11 @@ import Testing
             words.append(word)
             builder.addForm(word, language: "en", rank: UInt8(index % 256), weight: 1)
         }
-        let language = try #require(try LanguageModel(bytes: builder.build()).language("en"))
+        // A `Language` reads the model's buffer in place and does not own it:
+        // the model must outlive every lookup.
+        let model = try LanguageModel(bytes: builder.build())
+        let language = try #require(model.language("en"))
+        defer { withExtendedLifetime(model) {} }
         for (index, word) in words.enumerated() {
             #expect(language.rank(of: ModelFormat.Fingerprint.of(word.unicodeScalars, folded: true)) == UInt8(index % 256))
         }

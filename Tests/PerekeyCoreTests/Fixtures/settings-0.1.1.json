@@ -1,0 +1,166 @@
+{
+  "apps" : {
+    "com.apple.Terminal" : {
+      "mode" : "manualOnly",
+      "rememberLastLayout" : false
+    },
+    "com.tinyspeck.slackmacgap" : {
+      "defaultLayout" : "com.apple.keylayout.Russian",
+      "mode" : "auto",
+      "rememberLastLayout" : false
+    }
+  },
+  "autoswitch" : false,
+  "capsLock" : "instant",
+  "caretHint" : "automatic",
+  "checkForUpdates" : false,
+  "correctionSound" : {
+    "isOn" : true,
+    "name" : "Purr"
+  },
+  "corrections" : {
+    "abbreviations" : false,
+    "capsLock" : true,
+    "doubleCapitals" : true,
+    "phraseRetype" : false,
+    "yo" : false
+  },
+  "hotkeys" : [
+    {
+      "action" : {
+        "toggleAutoswitch" : {
+
+        }
+      },
+      "trigger" : {
+        "modifiers" : {
+          "_0" : {
+            "requirements" : [
+              "shift",
+              "both"
+            ]
+          },
+          "taps" : 1
+        }
+      }
+    },
+    {
+      "action" : {
+        "selectLanguage" : {
+          "_0" : "en"
+        }
+      },
+      "trigger" : {
+        "modifiers" : {
+          "_0" : {
+            "requirements" : [
+              "command",
+              "right"
+            ]
+          },
+          "taps" : 1
+        }
+      }
+    },
+    {
+      "action" : {
+        "selectLanguage" : {
+          "_0" : "ru"
+        }
+      },
+      "trigger" : {
+        "modifiers" : {
+          "_0" : {
+            "requirements" : [
+              "option",
+              "right"
+            ]
+          },
+          "taps" : 1
+        }
+      }
+    },
+    {
+      "action" : {
+        "convertLastWord" : {
+
+        }
+      },
+      "trigger" : {
+        "modifiers" : {
+          "_0" : {
+            "requirements" : [
+              "option",
+              "left"
+            ]
+          },
+          "taps" : 1
+        }
+      }
+    },
+    {
+      "action" : {
+        "pastePlain" : {
+
+        }
+      },
+      "trigger" : {
+        "key" : {
+          "keyCode" : 9,
+          "modifiers" : [
+            "control",
+            "option"
+          ]
+        }
+      }
+    },
+    {
+      "action" : {
+        "changeCase" : {
+
+        }
+      },
+      "trigger" : {
+        "modifiers" : {
+          "_0" : {
+            "requirements" : [
+              "shift",
+              "either"
+            ]
+          },
+          "taps" : 2
+        }
+      }
+    }
+  ],
+  "layoutSound" : {
+    "isOn" : true,
+    "name" : "Pop"
+  },
+  "onboardingDone" : true,
+  "sites" : {
+    "github.com" : {
+      "rememberLastLayout" : true
+    }
+  },
+  "statistics" : true,
+  "typoCorrection" : false,
+  "words" : {
+    "always" : [
+      "артём"
+    ],
+    "learnFromUndos" : true,
+    "learned" : [
+      {
+        "lastUndoneAt" : 1790000000,
+        "learnedAt" : 1790000000,
+        "undoCount" : 2,
+        "word" : "ghbdtn"
+      }
+    ],
+    "mine" : [
+      "kubectl",
+      "перекей"
+    ]
+  }
+}

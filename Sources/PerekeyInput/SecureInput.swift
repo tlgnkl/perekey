@@ -114,6 +114,8 @@ public final class SecureInputMonitor {
 
     /// Called when `isOn` changes, after the properties are updated.
     @ObservationIgnored public var onChange: (@MainActor (Bool) -> Void)?
+    /// More receivers of the same change, after `onChange`; see `addListener`.
+    @ObservationIgnored private var listeners: [UUID: @MainActor (Bool) -> Void] = [:]
 
     @ObservationIgnored private var ownerPID: pid_t?
     @ObservationIgnored private var observers: NotificationTokens?
@@ -154,6 +156,179 @@ public final class SecureInputMonitor {
         guard on != isOn else { return }
         isOn = on
         onChange?(on)
+        for listener in listeners.values { listener(on) }
+    }
+
+    /// Calls `listener` on every change of `isOn`, as `onChange`; for a second
+    /// receiver such as dictation. Remove it with the returned token.
+    public func addListener(_ listener: @escaping @MainActor (Bool) -> Void) -> UUID {
+        let token = UUID()
+        listeners[token] = listener
+        return token
+    }
+
+    public func removeListener(_ token: UUID) {
+        listeners[token] = nil
+    }
+}
+
+/// Secure Input rules for dictation.
+///
+/// - Secure Input on: dictation does not start (`allowsStart`). The tap sees no
+///   key presses then and `InputMachine` passes modifier changes before the
+///   voice trigger, so the trigger stays quiet by itself; this is for any
+///   other way to start.
+/// - Secure Input comes on during a session (a password field got focus):
+///   `onStop` tells the session to stop and transcribe what it has. The paste
+///   then refuses by itself (`TextPaster`, `.secureField`).
+/// - Esc does not reach the tap under Secure Input. While a session runs with
+///   Secure Input on and `onEscape` is set, Esc is a Carbon hot key instead,
+///   which the system still delivers; it is released as soon as either ends.
+///
+/// No key event announces Secure Input, so while a session runs the monitor
+/// is read every `pollInterval`. The timer lives only inside a session: idle
+/// CPU stays at 0.
+@MainActor
+public final class DictationSecureInput {
+    public static let pollInterval: Duration = .milliseconds(250)
+
+    /// Secure Input came on during a session: stop recording, transcribe.
+    /// Called once per session.
+    public var onStop: (@MainActor () -> Void)?
+    /// Esc was pressed under Secure Input during a session: cancel. Nil keeps
+    /// Esc unregistered.
+    public var onEscape: (@MainActor () -> Void)? {
+        didSet { updateEscape() }
+    }
+
+    public private(set) var isSessionActive = false
+
+    private let monitor: SecureInputMonitor
+    private let escape: any EscapeHotKey
+    private let pollInterval: Duration
+    private var listener: UUID?
+    private var poll: Task<Void, Never>?
+    private var stopSent = false
+
+    public convenience init(monitor: SecureInputMonitor) {
+        self.init(monitor: monitor, escape: CarbonEscapeHotKey(), pollInterval: Self.pollInterval)
+    }
+
+    init(monitor: SecureInputMonitor, escape: any EscapeHotKey, pollInterval: Duration) {
+        self.monitor = monitor
+        self.escape = escape
+        self.pollInterval = pollInterval
+    }
+
+    /// Whether a dictation may start now. Reads the state first.
+    public var allowsStart: Bool {
+        monitor.refresh()
+        return !monitor.isOn
+    }
+
+    /// A session started: watch Secure Input until `sessionEnded()`.
+    public func sessionBegan() {
+        guard !isSessionActive else { return }
+        isSessionActive = true
+        stopSent = false
+        listener = monitor.addListener { [weak self] on in self?.secureInputChanged(on) }
+        poll = Task { [weak self, monitor, pollInterval] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: pollInterval)
+                guard !Task.isCancelled, self != nil else { return }
+                monitor.refresh()
+            }
+        }
+        monitor.refresh()
+        // Already on when the session began (started by other means than the tap).
+        if monitor.isOn { secureInputChanged(true) }
+    }
+
+    /// The session ended, pasted or not: stop watching, release Esc.
+    public func sessionEnded() {
+        guard isSessionActive else { return }
+        isSessionActive = false
+        poll?.cancel()
+        poll = nil
+        if let listener { monitor.removeListener(listener) }
+        listener = nil
+        updateEscape()
+    }
+
+    private func secureInputChanged(_ on: Bool) {
+        guard isSessionActive else { return }
+        updateEscape()
+        if on, !stopSent {
+            stopSent = true
+            onStop?()
+        }
+    }
+
+    private func updateEscape() {
+        if isSessionActive, monitor.isOn, let onEscape {
+            escape.register(onEscape)
+        } else {
+            escape.unregister()
+        }
+    }
+}
+
+/// A global Esc while the tap cannot see it.
+@MainActor
+public protocol EscapeHotKey: AnyObject {
+    /// Registers Esc, or replaces the handler if it is registered already.
+    func register(_ onPress: @escaping @MainActor () -> Void)
+    /// Does nothing if not registered.
+    func unregister()
+}
+
+/// Esc as a Carbon hot key: Secure Input keeps key presses from event taps,
+/// not from `RegisterEventHotKey`. Held only for a moment: while registered,
+/// Esc goes to Perekey and no other app.
+@MainActor
+public final class CarbonEscapeHotKey: EscapeHotKey {
+    private static let signature: OSType = 0x5052_4B45 // "PRKE"
+
+    // Touched by the nonisolated `deinit` as well, after the last main-actor use.
+    private nonisolated(unsafe) var hotKey: EventHotKeyRef?
+    private nonisolated(unsafe) var handler: EventHandlerRef?
+    private var onPress: (@MainActor () -> Void)?
+
+    public init() {}
+
+    public var isRegistered: Bool { hotKey != nil }
+
+    public func register(_ onPress: @escaping @MainActor () -> Void) {
+        self.onPress = onPress
+        guard hotKey == nil else { return }
+        if handler == nil {
+            var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+            InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+                guard let event, let context else { return OSStatus(eventNotHandledErr) }
+                var id = EventHotKeyID()
+                guard GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                        nil, MemoryLayout<EventHotKeyID>.size, nil, &id) == noErr,
+                    id.signature == CarbonEscapeHotKey.signature
+                else { return OSStatus(eventNotHandledErr) }
+                // Carbon events arrive on the main run loop.
+                let key = Unmanaged<CarbonEscapeHotKey>.fromOpaque(context).takeUnretainedValue()
+                MainActor.assumeIsolated { key.onPress?() }
+                return noErr
+            }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handler)
+        }
+        let id = EventHotKeyID(signature: Self.signature, id: 1)
+        RegisterEventHotKey(UInt32(kVK_Escape), 0, id, GetApplicationEventTarget(), 0, &hotKey)
+    }
+
+    public func unregister() {
+        if let hotKey { UnregisterEventHotKey(hotKey) }
+        hotKey = nil
+        onPress = nil
+    }
+
+    deinit {
+        if let hotKey { UnregisterEventHotKey(hotKey) }
+        if let handler { RemoveEventHandler(handler) }
     }
 }
 

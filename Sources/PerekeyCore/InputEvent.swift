@@ -74,8 +74,10 @@ public struct Focus: Hashable, Sendable {
 /// Not `Hashable`: `.classifierChanged` carries a memory-mapped model.
 public enum InputEvent: Sendable {
     case key(KeyEvent, time: Double)
-    /// A modifier changed. Carries the raw flags and the key that changed.
-    case flagsChanged(keyCode: UInt16, flags: UInt64, origin: EventOrigin, time: Double)
+    /// A modifier changed. Carries the raw flags and the key that changed,
+    /// and where the pointer was: a voice tap must not move it.
+    case flagsChanged(keyCode: UInt16, flags: UInt64, origin: EventOrigin, time: Double,
+                      location: PointerLocation? = nil)
     /// A mouse click. Moves the caret, so the remembered word is gone, and so
     /// is the chance to undo the last automatic switch. `onHint`: the click
     /// landed on the hint's button, which takes it without moving the caret;
@@ -124,4 +126,11 @@ public enum InputEvent: Sendable {
     /// counts give (`LanguageStats`). The words counted so far go out first
     /// (`Effect.languagesCounted`), under the context they were typed in.
     case languageContextChanged(LanguageContext)
+    /// While a voice hold is on (`VoiceSignal.holdBegan`), the system layer
+    /// found its key or modifiers up without the event that says so: the
+    /// machine ends the hold with `HoldEndReason.lost`.
+    case voiceHoldLost
+    /// A dictation session started or ended. While one is on, Esc cancels it
+    /// (`VoiceSignal.cancel`) and goes no further.
+    case voiceSession(Bool)
 }

@@ -79,5 +79,11 @@
 	<false/>
 	<key>SUAllowsAutomaticUpdates</key>
 	<false/>
+	<!-- Every update must carry the EdDSA signature of SUPublicEDKey, checked before
+	     Sparkle unpacks it. Without this Sparkle also takes an update with a new key when
+	     its code signature matches, so the self-signed "Perekey Release" certificate
+	     alone could ship one (docs/release.md, "Signing"). -->
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 </dict>
 </plist>

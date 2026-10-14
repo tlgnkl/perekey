@@ -5,6 +5,9 @@ import Observation
 import os
 import PerekeyCore
 import PerekeyInput
+#if PEREKEY_VOICE
+import PerekeyVoiceCore
+#endif
 
 /// Connects the event engine to the rest of the app: layouts, settings, the
 /// pause reasons, focus and Secure Input, sleep and session changes.
@@ -31,6 +34,13 @@ final class InputController {
     @ObservationIgnored private var focus: FocusObserver!
     @ObservationIgnored private var selection: SelectionReader!
     @ObservationIgnored private var plainPaste: PlainPaste!
+    #if PEREKEY_VOICE
+    /// Pastes dictated text: the same `PlainPaste` as "Paste without
+    /// formatting", so both keep one saved pasteboard.
+    @ObservationIgnored private(set) var textPaster: TextPaster!
+    /// Secure Input rules for a dictation session.
+    @ObservationIgnored private(set) var dictationSecureInput: DictationSecureInput!
+    #endif
     @ObservationIgnored private var lastSettings: PerekeyCore.Settings
     /// The languages the classifier was loaded for, and its model.
     @ObservationIgnored private var modelLanguages: Set<String> = []
@@ -54,6 +64,15 @@ final class InputController {
     /// Corrections of the onboarding demo, by `seq`: they count for nothing,
     /// neither the menu's list nor the statistics, nor their undo.
     @ObservationIgnored private var demoCorrections = Set<UInt32>()
+    #if PEREKEY_VOICE
+    /// The dictation settings (voice.json): the tap gets their trigger.
+    @ObservationIgnored var voiceSettings = VoiceSettings() {
+        didSet { pushSettings() }
+    }
+
+    /// The voice trigger fired.
+    @ObservationIgnored var onVoice: ((VoiceSignal) -> Void)?
+    #endif
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState,
          languages: LanguageStatsStore = LanguageStatsStore())
@@ -69,6 +88,12 @@ final class InputController {
         plainPaste = PlainPaste { [weak self] in
             PlainPaste.postCommandV(keyCode: self?.keyCode(typing: "v", fallback: 9) ?? 9) // kVK_ANSI_V
         }
+        #if PEREKEY_VOICE
+        // The tap forgets the word it saw: autoswitching must not retype what
+        // was just pasted.
+        textPaster = TextPaster(plainPaste: plainPaste) { [weak self] in self?.engine.send(.inputLost) }
+        dictationSecureInput = DictationSecureInput(monitor: secureInput)
+        #endif
 
         let textProbe = TextProbe()
         selection = SelectionReader(probe: textProbe)
@@ -125,11 +150,19 @@ final class InputController {
     /// The settings the tap uses: no shortcuts while the user records one, or
     /// while Perekey is paused by the user or for this app.
     private var effectiveSettings: PerekeyCore.Settings {
+        #if PEREKEY_VOICE
+        var settings = store.settings.snapshot(voice: voiceSettings)
+        #else
         var settings = store.snapshot
+        #endif
         let appOff: Bool = if case .appOff = pause.current { true } else { false }
         if store.isRecording || pause.isTimedPauseActive || appOff {
             settings.hotkeys = []
         }
+        // The recorder takes every key, the voice trigger's too. A pause of
+        // Perekey, for all apps or one, leaves dictation on: it is a feature
+        // of its own, with app rules of its own to come.
+        if store.isRecording { settings.voice = nil }
         return settings
     }
 
@@ -182,6 +215,26 @@ final class InputController {
         return languages.context(app: app, site: site)
     }
 
+    #if PEREKEY_VOICE
+    /// A dictation session started or ended: Esc cancels it while on.
+    func voiceSessionChanged(_ on: Bool) {
+        engine.send(.voiceSession(on))
+    }
+
+    /// The hold trigger's keys were found up without their key up.
+    func voiceHoldLost() {
+        engine.send(.voiceHoldLost)
+    }
+
+    /// After dictated text went in: the layout of the phrase's main language.
+    func selectLayout(afterDictating text: String) {
+        guard let id = DictationLanguage.layout(after: text, layouts: sources.layouts, current: sources.currentLayout,
+                                                model: model)
+        else { return }
+        _ = sources.select(id)
+    }
+    #endif
+
     /// Undoes the automatic switch the hint shows, as its Undo button does.
     func undoLastCorrection() {
         guard let shownCorrection else { return }
@@ -224,6 +277,14 @@ final class InputController {
             secureInput.refresh()
         case .pastePlain:
             plainPaste.paste()
+        case let .voice(signal):
+            #if PEREKEY_VOICE
+            onVoice?(signal)
+            #else
+            // Without the voice build the snapshot has no voice trigger, and
+            // the tap never sends this.
+            _ = signal
+            #endif
         case let .retyped(original, text, origin, decision):
             SystemSounds.play(store.settings.correctionSound)
             // An automatic switch has its own hint, from `corrected`; an undo hides it.

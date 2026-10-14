@@ -38,6 +38,16 @@ import Testing
         #expect(ManagedSettings { $0 == "UpdatesDisabled" ? "yes" : nil }.updatesDisabled == false)
     }
 
+    @Test func voiceKeysAreOffUnlessForcedTrue() {
+        let none = ManagedSettings { _ in nil }
+        #expect(!none.voiceDisabled && !none.voiceModelDownloadsDisabled && !none.forcesAnyKey)
+        let voice = ManagedSettings { $0 == "VoiceDisabled" ? true : nil }
+        #expect(voice.voiceDisabled && !voice.voiceModelDownloadsDisabled && voice.forcesAnyKey)
+        let downloads = ManagedSettings { $0 == "VoiceModelDownloadsDisabled" ? true : nil }
+        #expect(downloads.voiceModelDownloadsDisabled && !downloads.voiceDisabled && !downloads.updatesDisabled)
+        #expect(ManagedSettings { $0 == "VoiceDisabled" ? 1 as Int : nil }.voiceDisabled == false)
+    }
+
     @Test func feedNeedsHTTPSAndA32ByteKey() {
         let key = Data(repeating: 7, count: 32).base64EncodedString()
         #expect(UpdateFeed.isConfigured(feedURL: UpdateFeed.url, publicKey: key))
@@ -66,5 +76,16 @@ import Testing
         #expect(plist["SUEnableSystemProfiling"] as? Bool == false)
         #expect(plist["SUEnableAutomaticChecks"] as? Bool == true)
         #expect(plist["SUPublicEDKey"] is String)
+    }
+
+    /// Without the flag Sparkle takes a new EdDSA key from an update whose code
+    /// signature matches, so the self-signed release certificate alone could ship one.
+    @Test func infoPlistRequiresTheEdDSAKeyForEveryUpdate() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Support/Info.plist")
+        let plist = try #require(
+            PropertyListSerialization.propertyList(from: Data(contentsOf: url), format: nil) as? [String: Any])
+        #expect(plist["SUVerifyUpdateBeforeExtraction"] as? Bool == true)
     }
 }

@@ -7,7 +7,11 @@ import SwiftUI
 
 /// The sidebar sections of the Settings window.
 enum SettingsSection: Int, CaseIterable, Identifiable {
-    case general, shortcuts, apps, sites, words, privacy
+    case general, shortcuts
+    #if PEREKEY_VOICE
+    case voice
+    #endif
+    case apps, sites, words, privacy
 
     var id: Int { rawValue }
 
@@ -15,6 +19,9 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         switch self {
         case .general: Text("General")
         case .shortcuts: Text("Shortcuts")
+        #if PEREKEY_VOICE
+        case .voice: voiceText("Voice")
+        #endif
         case .apps: Text("Apps")
         case .sites: Text("Sites")
         case .words: Text("Words")
@@ -26,6 +33,9 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape.fill"
         case .shortcuts: "keyboard.fill"
+        #if PEREKEY_VOICE
+        case .voice: "mic.fill"
+        #endif
         case .apps: "square.grid.2x2.fill"
         case .sites: "globe"
         case .words: "text.badge.xmark"
@@ -38,6 +48,9 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         switch self {
         case .general: [Color(white: 0.62), Color(white: 0.45)]
         case .shortcuts: [Color(red: 0.55, green: 0.53, blue: 1), Color(red: 0.36, green: 0.34, blue: 0.9)]
+        #if PEREKEY_VOICE
+        case .voice: [Color(red: 1, green: 0.45, blue: 0.52), Color(red: 0.88, green: 0.27, blue: 0.42)]
+        #endif
         case .apps: [Color(red: 0.30, green: 0.62, blue: 1), Color(red: 0.12, green: 0.40, blue: 0.85)]
         case .sites: [Color(red: 0.25, green: 0.78, blue: 0.72), Color(red: 0.08, green: 0.58, blue: 0.55)]
         case .words: [Color(red: 1, green: 0.62, blue: 0.30), Color(red: 0.90, green: 0.42, blue: 0.10)]
@@ -55,11 +68,19 @@ struct SettingsView: View {
     let updates: Updates
     let languages: LanguageStatsStore?
     let usage: UsageRecorder?
+    #if PEREKEY_VOICE
+    /// The speech models and the voice settings; the Voice tab is empty without it.
+    var voiceController: VoiceModelsController?
+    #endif
+    /// A view of the first pane to scroll to when it opens; gone once the person picks another pane.
+    private let scrollTarget: State<String?>
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
-         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general) {
+         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general,
+         scrollTarget: String? = nil) {
+        self.scrollTarget = State(initialValue: scrollTarget)
         self.usage = usage
         self.languages = languages
         self.updates = updates
@@ -89,6 +110,7 @@ struct SettingsView: View {
                 set: { new in
                     guard new != current else { return }
                     recording.stop()
+                    scrollTarget.wrappedValue = nil
                     direction.wrappedValue = new.rawValue > current.rawValue ? 1 : -1
                     withAnimation(reduceMotionFree(PK.Motion.easeOut(0.32))) { selection.wrappedValue = new }
                 }
@@ -98,6 +120,7 @@ struct SettingsView: View {
 
             ZStack {
                 pane
+                    .environment(\.pkScrollTarget, scrollTarget.wrappedValue)
                     .id(current)
                     .transition(.asymmetric(
                         insertion: .offset(x: CGFloat(direction.wrappedValue) * 14).combined(with: .opacity),
@@ -120,6 +143,10 @@ struct SettingsView: View {
         switch current {
         case .general: GeneralPane(store: store, updates: updates, layouts: sources.layouts)
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
+        #if PEREKEY_VOICE
+        case .voice:
+            if let voiceController { VoicePane(controller: voiceController, store: store, recording: recording) }
+        #endif
         case .apps: AppsPane(store: store, sources: sources, languages: languages)
         case .sites: SitesPane(store: store, sources: sources)
         case .words: WordsPane(store: store, layouts: sources.layouts)
@@ -207,10 +234,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private static weak var current: NSWindow?
 
     private let recording: ShortcutRecording
-    private let content: @MainActor () -> SettingsView
+    private let content: @MainActor (SettingsSection, String?) -> SettingsView
     private var window: NSWindow?
 
-    init(recording: ShortcutRecording, content: @escaping @MainActor () -> SettingsView) {
+    init(recording: ShortcutRecording, content: @escaping @MainActor (SettingsSection, String?) -> SettingsView) {
         self.recording = recording
         self.content = content
     }
@@ -223,8 +250,21 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func make() -> NSWindow {
-        let host = NSHostingView(rootView: content())
+    /// Opens Settings at `section`, scrolled to the view with `scrollTarget`. A
+    /// window that is open is rebuilt, so that it opens there.
+    func show(section: SettingsSection, scrollTarget: String? = nil) {
+        if let window {
+            self.window = nil
+            window.delegate = nil
+            window.close()
+        }
+        let window = make(section: section, scrollTarget: scrollTarget)
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func make(section: SettingsSection = .general, scrollTarget: String? = nil) -> NSWindow {
+        let host = NSHostingView(rootView: content(section, scrollTarget))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
                               styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = String(localized: "Perekey Settings")

@@ -37,8 +37,9 @@ report() {
     found=1
 }
 
-# The loaders by name.
-loaders='downloadAndLoad|downloadAndPreload|downloadIfNeeded|downloadVariant|[A-Za-z]*Models\.download\b|ModelHub\.download|fetchFile|DownloadUtils|WhisperKit\.download|fetchAvailableModels|fetchModelSupportConfig|HubApi|ModelDownloader'
+# The loaders by name. A tokenizer `from(pretrained:` comes from the Hub, and
+# ModelUtilities.loadTokenizer falls back to it.
+loaders='downloadAndLoad|downloadAndPreload|downloadIfNeeded|downloadVariant|[A-Za-z]*Models\.download\b|ModelHub\.download|fetchFile|DownloadUtils|WhisperKit\.download|fetchAvailableModels|fetchModelSupportConfig|HubApi|ModelDownloader|from\(pretrained:|ModelUtilities\.loadTokenizer'
 search -E "$loaders"
 report "Model loaders of FluidAudio or WhisperKit" "$hits"
 

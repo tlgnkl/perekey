@@ -22,6 +22,12 @@ if [[ -f "$KEYCHAIN" ]]; then
     echo "$KEYCHAIN already exists."
     exit 0
 fi
+# `pkcs12 -legacy` needs OpenSSL 3; /usr/bin/openssl of macOS is LibreSSL.
+if [[ "$(openssl version)" != "OpenSSL "[3-9]* ]]; then
+    echo "error: needs OpenSSL 3 or later, found $(command -v openssl): $(openssl version)" >&2
+    echo "       brew install openssl@3, and put it first in PATH" >&2
+    exit 1
+fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

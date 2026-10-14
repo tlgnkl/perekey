@@ -4,6 +4,10 @@
 import AppKit
 import PerekeyCore
 import PerekeyInput
+#if PEREKEY_VOICE
+import PerekeyVoice
+import PerekeyVoiceCore
+#endif
 import SwiftUI
 
 /// Renders the settings panes to PNG files and quits, for reviewing the UI
@@ -39,6 +43,11 @@ enum DebugSnapshot {
             render(view, dark: item.dark, size: CGSize(width: 560, height: 860), to: directory.appending(path: "\(item.name).png"))
         }
         renderSettingsWindow(in: directory)
+        #if PEREKEY_VOICE
+        renderVoice(in: directory)
+        renderVoiceHUD(in: directory)
+        renderVoiceIntro(in: directory)
+        #endif
         renderApps(in: directory)
         renderSites(in: directory)
         renderWordsAndGeneral(in: directory)
@@ -147,8 +156,11 @@ enum DebugSnapshot {
             for section in SettingsSection.allCases {
                 let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
                                       lastCheck: Date().addingTimeInterval(-3_600 * 5))
-                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
+                var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                         languages: languages, initial: section)
+                #if PEREKEY_VOICE
+                view.voiceController = voicePreview(in: directory, name: "window")
+                #endif
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
             }
@@ -531,4 +543,159 @@ enum DebugSnapshot {
         try? bitmap.representation(using: .png, properties: [:])?.write(to: url)
     }
 }
+
+#if PEREKEY_VOICE
+extension DebugSnapshot {
+    /// A model in each state the Voice tab shows.
+    /// `.running`: a download goes on. `.stopped`: voice is off, so nothing downloads and a stopped one is `partial`.
+    /// `.administrator`: a profile forbids downloads, so the models come from the administrator's folder.
+    enum PreviewStates { case running, stopped, administrator }
+
+    static func voicePreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings(),
+                             enabled: Bool = true, supported: Bool = true,
+                             states: PreviewStates = .running) -> VoiceModelsController
+    {
+        let file = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
+        try? FileManager.default.removeItem(at: file.url)
+        try? file.save(VoiceSettings(isEnabled: enabled, microphoneUID: "gone-usb-mic", microphoneName: "Rode NT-USB"))
+        let settings = VoiceSettingsStore(file: file, managed: managed)
+        let parakeet = ModelCatalog.entry(id: "parakeet-tdt-v3")!
+        let whisper = ModelCatalog.recognizers.first { $0.engine == .whisperKit }!
+        let others = ModelCatalog.recognizers.filter { $0.id != parakeet.id && $0.id != whisper.id }
+        var statuses: [VoiceModelStatus]
+        switch states {
+        case .running:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready, isInUse: true),
+                VoiceModelStatus(entry: whisper, state: .downloading(received: whisper.totalSize * 42 / 100)),
+            ]
+            statuses += others.map {
+                VoiceModelStatus(entry: $0, state: .partial(received: $0.totalSize / 3),
+                                 failure: .notEnoughSpace(needed: $0.totalSize, available: 200_000_000))
+            }
+        case .stopped:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready),
+                VoiceModelStatus(entry: whisper, state: .partial(received: whisper.totalSize * 42 / 100)),
+            ]
+            statuses += others.map { VoiceModelStatus(entry: $0, state: .absent) }
+        case .administrator:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready, isManaged: true),
+                VoiceModelStatus(entry: whisper, state: .absent),
+            ]
+            statuses += others.map {
+                VoiceModelStatus(entry: $0, state: .damaged, failure: .checksumMismatch("model.mil"))
+            }
+        }
+        return VoiceModelsController(preview: settings, statuses: statuses,
+                                     usage: VoiceModelDiskUsage(models: 1_100_000_000, cache: 140_000_000),
+                                     isSupported: supported)
+    }
+
+    /// The Voice tab on its own: on, off, a profile that forbids voice or downloads, an unsupported Mac.
+    static func renderVoice(in directory: URL) {
+        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-hotkeys.json")))
+        let recording = ShortcutRecording(store: store)
+        let cases: [(name: String, controller: VoiceModelsController)] = [
+            ("on", voicePreview(in: directory, name: "on")),
+            ("off", voicePreview(in: directory, name: "off", enabled: false, states: .stopped)),
+            ("voice-disabled", voicePreview(in: directory, name: "vd", managed: ManagedSettings(voiceDisabled: true))),
+            ("downloads-disabled", voicePreview(in: directory, name: "dd",
+                                                managed: ManagedSettings(voiceModelDownloadsDisabled: true),
+                                                states: .administrator)),
+            ("unsupported", voicePreview(in: directory, name: "un", supported: false)),
+        ]
+        for dark in [false, true] {
+            for item in cases {
+                let view = VoicePane(controller: item.controller, store: store, recording: recording)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: CGSize(width: 620, height: 900),
+                       to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    /// The dictation HUD in every state, over a soft backdrop.
+    static func renderVoiceHUD(in directory: URL) {
+        typealias Recording = DictationHUDState.Recording
+        let rec = DictationHUDState.recording(Recording(seconds: 7, level: 0.6, preparingModel: false))
+        let states: [(name: String, state: DictationHUDState, calm: Bool, contrast: Bool)] = [
+            ("starting", .starting, false, false),
+            ("recording", rec, false, false),
+            ("recording-quiet", .recording(Recording(seconds: 2, level: 0.05, preparingModel: false)), false, false),
+            ("recording-loud", .recording(Recording(seconds: 63, level: 1, preparingModel: false)), false, false),
+            ("recording-calm", rec, true, false),
+            ("recording-contrast", rec, false, true),
+            ("recording-preparing", .recording(Recording(seconds: 3, level: 0.4, preparingModel: true)), false, false),
+            ("recognizing", .recognizing(preparingModel: false), false, false),
+            ("recognizing-preparing", .recognizing(preparingModel: true), false, false),
+            ("still-recognizing", .stillRecognizing, false, false),
+            ("pasting", .pasting, false, false),
+            ("pasted", .pasted, false, false),
+            ("not-pasted", .notPasted(.targetChanged), false, false),
+            ("not-pasted-contrast", .notPasted(.targetChanged), false, true),
+            ("not-pasted-timeout", .notPasted(.timedOut), false, false),
+            ("password-field", .notPasted(.secureField), false, false),
+            ("secure-input", .notPasted(.secureInput(owner: "Terminal")), false, false),
+            ("secure-input-unknown", .notPasted(.secureInput(owner: nil)), false, false),
+            ("no-accessibility", .notPasted(.noAccessibility), false, false),
+            ("nothing-heard", .nothingHeard, false, false),
+            ("cancelled", .cancelled, false, false),
+            ("mic-denied", .failed(.microphoneDenied), false, false),
+            ("no-microphone", .failed(.noMicrophone), false, false),
+            ("mic-error", .failed(.microphone("x")), false, false),
+            ("model", .failed(.model("x")), false, false),
+            ("recognition", .failed(.recognition("x")), false, false),
+        ]
+        for dark in [false, true] {
+            for item in states {
+                guard let presentation = DictationHUDPresentation(item.state) else { continue }
+                let model = VoiceHUDModel(presentation, visible: true)
+                let hud = VoiceHUDView(model: model, calmOverride: item.calm, contrastOverride: item.contrast)
+                let size = NSHostingView(rootView: hud).fittingSize
+                let backdrop = LinearGradient(
+                    colors: dark ? [Color(red: 0.13, green: 0.13, blue: 0.2), Color(red: 0.2, green: 0.14, blue: 0.22)]
+                        : [Color(red: 0.86, green: 0.87, blue: 1), Color(red: 0.97, green: 0.88, blue: 0.94)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)
+                render(hud.background(backdrop), dark: dark, size: size,
+                       to: directory.appending(path: "voice-hud-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    /// "What's new: voice input", the voice step of the first-run window, and how each looks with another key.
+    static func renderVoiceIntro(in directory: URL) {
+        let size = NSSize(width: 640, height: 580)
+        func model(_ name: String, hotkeys: AppSettings? = nil) -> VoiceIntroModel {
+            let file = SettingsFile(url: directory.appending(path: "intro-\(name).json"))
+            try? file.save(hotkeys ?? AppSettings())
+            let store = SettingsStore(file: file)
+            let controller = voicePreview(in: directory, name: "intro-\(name)", enabled: false, states: .stopped)
+            return VoiceIntroModel(settings: controller.settings, models: controller, store: store,
+                                   recording: ShortcutRecording(store: store))
+        }
+        for dark in [false, true] {
+            let tag = dark ? "dark" : "light"
+            render(VoiceIntroView(model: model("default")), dark: dark, size: size,
+                   to: directory.appending(path: "voice-intro-\(tag).png"))
+            let own = model("own")
+            own.choose(.hold(keyCode: 49, modifiers: [.option]))
+            own.isPickingKey = true
+            render(VoiceIntroView(model: own), dark: dark, size: size,
+                   to: directory.appending(path: "voice-intro-own-key-\(tag).png"))
+            let taken = model("taken", hotkeys: AppSettings(hotkeys: HotkeyPreset.separateKeys.hotkeys, capsLock: .system))
+            render(VoiceIntroView(model: taken), dark: dark, size: size,
+                   to: directory.appending(path: "voice-intro-taken-\(tag).png"))
+            let step = model("step")
+            let file = SettingsFile(url: directory.appending(path: "intro-step-onboarding.json"))
+            try? file.save(AppSettings())
+            let onboarding = OnboardingModel(store: SettingsStore(file: file), sources: InputSources(), step: .voice, live: false)
+            onboarding.voiceIntro = step
+            render(OnboardingView(model: onboarding, heroPhase: 4.5), dark: dark, size: size,
+                   to: directory.appending(path: "voice-onboarding-step-\(tag).png"))
+        }
+    }
+}
+#endif
 #endif

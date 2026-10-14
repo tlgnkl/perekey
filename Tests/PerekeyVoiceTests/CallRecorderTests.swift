@@ -308,6 +308,53 @@ import Testing
         #expect(folder.recordings().isEmpty)
         #expect(mic.sink == nil)
         #expect(mic.holds == 0)
+        #expect(recorder.liveRecording == nil)
+    }
+
+    @Test func nothingIsLiveOnceStopped() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mic = FakeMic()
+        let status = StatusLog()
+        let recorder = recorder(mic: mic, status: status)
+        let id = try await recorder.start(Self.options)
+        #expect(recorder.liveRecording == id)
+        #expect(status.last?.recording == id)
+        mic.feed(seconds: 0.3, clock: clock)
+        await recorder.stop()
+        #expect(recorder.liveRecording == nil)
+        #expect(status.last?.recording == nil)
+    }
+
+    @Test func deleteAllTakesTheRecordingJustStopped() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mic = FakeMic()
+        let recorder = recorder(mic: mic)
+        let id = try await recorder.start(Self.options)
+        mic.feed(seconds: 0.3, clock: clock)
+        let library = TranscriptsLibrary(folder: folder, queue: nil)
+        // While it records, «Удалить все» leaves it.
+        #expect(await library.deleteAll(live: Set([recorder.liveRecording].compactMap { $0 })) == 0)
+        #expect(folder.recordings() == [id])
+        await recorder.stop()
+        #expect(await library.deleteAll(live: Set([recorder.liveRecording].compactMap { $0 })) == 0)
+        #expect(folder.recordings().isEmpty)
+    }
+
+    @Test func theLastCallsAudioGoesOnceTranscribed() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mic = FakeMic()
+        let recorder = recorder(mic: mic)
+        let id = try await recorder.start(Self.options)
+        mic.feed(seconds: 0.3, clock: clock)
+        await recorder.stop()
+        // As the queue leaves it.
+        try folder.updateMeta(id) { meta in
+            meta.state = .done
+            meta.pendingJob = nil
+        }
+        let policy = CallAudioPolicy(retention: .untilTranscribed, keepDisabled: false)
+        #expect(CallRecordings.removeExpiredAudio(in: folder, policy: policy, except: recorder.liveRecording) == [id])
+        #expect(try load(id).audioRemovedAt != nil)
     }
 
     @Test func aSecondStartIsRefused() async throws {

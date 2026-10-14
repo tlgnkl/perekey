@@ -121,7 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         callRecording.transcriptionModel = { [voice] in voice.files.model }
         voice.files.observeQueue { [callRecording] _ in callRecording.queueChanged() }
         // «Удалить» and resume leave the recording being written alone.
-        transcriptsController.live = { [callRecording] in callRecording.status.recording.map { [$0] } ?? [] }
+        transcriptsController.live = { [callRecording] in callRecording.liveRecording.map { [$0] } ?? [] }
+        callRecording.recordingsChanged = { [transcriptsController] in transcriptsController.reload() }
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE

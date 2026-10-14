@@ -261,6 +261,12 @@ public actor CallRecorder {
     public var isRecording: Bool { session != nil || starting }
     public var recording: UUID? { session?.id }
 
+    /// The recording being written, from its folder's creation until
+    /// `meta.json` says `stopped`: the one «Удалить» and the audio's term
+    /// leave alone. Nil otherwise. Any thread.
+    public nonisolated var liveRecording: UUID? { live.withLock { $0 } }
+    private nonisolated let live = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+
     // MARK: Start
 
     /// Starts a recording: checks the room on disk, makes the folder, takes
@@ -283,6 +289,7 @@ public actor CallRecorder {
         } catch {
             throw StartError.folder(Self.describe(error))
         }
+        live.withLock { $0 = id }
         generation += 1
         let generation = generation
         let log = CallLog(folder: folder, id: id,
@@ -304,12 +311,14 @@ public actor CallRecorder {
         } catch {
             await mic.release()
             try? folder.remove(id)
+            live.withLock { $0 = nil }
             throw StartError.microphone(Self.describe(error))
         }
         guard !startCancelled else {
             await mic.unsubscribe(token)
             await mic.release()
             try? folder.remove(id)
+            live.withLock { $0 = nil }
             throw StartError.cancelled
         }
         let session = Session(generation: generation, id: id, options: options, log: log, mic: micWriter,
@@ -524,6 +533,7 @@ public actor CallRecorder {
         self.session = nil
         meters.set(mic: nil, sys: nil)
         status.phase = .idle
+        status.recording = nil
         status.lastStop = reason
         status.timeline = nil
         let job = TranscriptionJob(recording: session.id, model: session.options.model,
@@ -539,13 +549,15 @@ public actor CallRecorder {
         } catch {
             Self.log.error("meta.json at the stop: \(Self.describe(error), privacy: .public)")
         }
-        publish()
-        Self.log.info("recording stopped: \(reason.rawValue, privacy: .public)")
-        guard kept else {
+        if !kept {
             // Nothing reached the disk: no empty recording in the list.
             try? folder.remove(session.id)
-            return nil
         }
+        // Only now, with meta.json stopped or the folder gone.
+        live.withLock { $0 = nil }
+        publish()
+        Self.log.info("recording stopped: \(reason.rawValue, privacy: .public)")
+        guard kept else { return nil }
         // Read now: the app's queue is made anew each time voice turns on.
         // With none, meta.json keeps the job for the queue to find.
         if let queue = await transcriber() {

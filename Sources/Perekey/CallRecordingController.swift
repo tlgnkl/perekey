@@ -41,6 +41,9 @@ final class CallRecordingController {
     private(set) var notice: String?
     /// The capsule's ● and time; the menu bar sets it.
     @ObservationIgnored var indicator: CallIndicatorModel?
+    /// A recording started or stopped: the Transcripts window reads the folder
+    /// again, voice on or off.
+    @ObservationIgnored var recordingsChanged: @MainActor () -> Void = {}
 
     /// The file queue while voice is on. It is made anew each time voice
     /// turns on, so it is read when a call stops, never kept.
@@ -131,9 +134,10 @@ final class CallRecordingController {
             .app(bundleID: bundleID, name: apps.first { $0.bundleID == bundleID }?.name ?? bundleID)
         }
         let voice = settings.settings
-        let retention = RecordingMeta.AudioRetention(rawValue: voice.callAudioRetention.rawValue) ?? .always
+        let retention = RecordingMeta.AudioRetention(
+            rawValue: voice.effectiveCallAudioRetention(managed: managed).rawValue) ?? .always
         let options = CallRecorder.Options(
-            source: source, retention: managed.callAudioKeepDisabled ? .untilTranscribed : retention,
+            source: source, retention: retention,
             excludedFromBackup: excludedFromBackup, model: transcriptionModel(), diarize: voice.callDiarize)
         problem = nil
         let capture = capture
@@ -156,8 +160,12 @@ final class CallRecordingController {
 
     /// «Включать в Time Machine», unless a profile keeps recordings out.
     private var excludedFromBackup: Bool {
-        !settings.settings.includesRecordingsInBackup || managed.transcriptsBackupDisabled
+        !settings.settings.includesRecordingsInBackup(managed: managed)
     }
+
+    /// The recording being written, from its folder's creation until it is
+    /// stopped: the window and the audio's term leave it alone.
+    var liveRecording: UUID? { recorder.liveRecording }
 
     func togglePause() {
         Task {
@@ -208,7 +216,9 @@ final class CallRecordingController {
                 MainActor.assumeIsolated { self?.outputIsSpeakers = AudioOutput.isBuiltInSpeakers }
             }
             panelController().show()
+            recordingsChanged()
         } else if !isRecording, wasRecording {
+            recordingsChanged()
             outputTimer?.invalidate()
             outputTimer = nil
             if status.lastStop == .limit {
@@ -306,10 +316,11 @@ final class CallRecordingController {
 
     private func purge() {
         lastPurge = Date()
-        let retention = RecordingMeta.AudioRetention(rawValue: settings.settings.callAudioRetention.rawValue) ?? .always
+        let retention = RecordingMeta.AudioRetention(
+            rawValue: settings.settings.effectiveCallAudioRetention(managed: managed).rawValue) ?? .always
         let policy = CallAudioPolicy(retention: retention, keepDisabled: managed.callAudioKeepDisabled)
         let folder = folder
-        let active = status.recording
+        let active = liveRecording
         Task.detached(priority: .utility) {
             CallRecordings.removeExpiredAudio(in: folder, policy: policy, except: active)
         }

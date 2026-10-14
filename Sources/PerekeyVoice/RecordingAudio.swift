@@ -30,6 +30,18 @@ public struct VoiceAudioOpener: LongAudioOpener {
         }
     }
 
+    /// Removes decoded files older than `date`: those of a queue that
+    /// crashed or was stopped. Files decoded since stay.
+    public func clearScratch(before date: Date) {
+        let manager = FileManager.default
+        let files = (try? manager.contentsOfDirectory(at: scratch, includingPropertiesForKeys: [.contentModificationDateKey]))
+            ?? []
+        for file in files {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if (modified ?? .distantPast) < date { try? manager.removeItem(at: file) }
+        }
+    }
+
     /// The file by its bookmark, which follows a move or a rename; by its
     /// path if there is no bookmark or it fails.
     static func resolve(_ reference: FileReference) throws -> URL {

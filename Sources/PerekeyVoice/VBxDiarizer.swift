@@ -16,12 +16,10 @@ public actor VBxDiarizer: DiarizerEngine {
     public static let modelID = "diarizer-offline-vbx"
     public nonisolated let id = VBxDiarizer.modelID
     private let store: VoiceModelStore
-    private let opener: any LongAudioOpener
     private var manager: OfflineDiarizerManager?
 
-    public init(store: VoiceModelStore, opener: any LongAudioOpener = VoiceAudioOpener()) {
+    public init(store: VoiceModelStore) {
         self.store = store
-        self.opener = opener
     }
 
     public func prepare() async throws {
@@ -44,15 +42,13 @@ public actor VBxDiarizer: DiarizerEngine {
         await store.release(Self.modelID)
     }
 
-    public func diarize(_ source: PerekeyVoiceCore.AudioSource, progress: @escaping @Sendable (Double) -> Void)
+    public func diarize(_ audio: any LongAudio, progress: @escaping @Sendable (Double) -> Void)
         async throws -> [SpeakerTurn]
     {
         // The manager is not Sendable; this actor is its only user, and one
         // diarization runs at a time.
         guard let found = manager else { throw SpeechEngineError.notPrepared }
         nonisolated(unsafe) let manager = found
-        let audio = try await opener.open(source)
-        defer { audio.close() }
         guard let samples = audio as? any AudioSampleSource else { throw LongAudioError.unreadable }
         let result = try await manager.process(audioSource: samples, audioLoadingSeconds: 0) { done, total in
             if total > 0 { progress(Double(done) / Double(total)) }

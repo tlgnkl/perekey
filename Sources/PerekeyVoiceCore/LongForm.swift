@@ -71,7 +71,8 @@ public enum WindowCut {
 /// Joins the windows of one track. A window's words count from its start
 /// on the track and are kept from the middle of the overlap with the window
 /// before to the middle of the overlap with the next: a word at the edge is
-/// neither lost nor doubled. A phrase without word timings is kept by its start.
+/// neither lost nor doubled. A phrase without word timings is kept by its
+/// start; such windows do not overlap (`TranscriptionCheckpoint.wordless`).
 public struct WindowStitcher: Codable, Sendable, Equatable {
     /// Seconds on the track from which the next window's words are kept.
     public private(set) var keepFrom: Double = 0
@@ -164,8 +165,30 @@ public struct TranscriptionCheckpoint: Codable, Sendable, Equatable {
     public var stitcher = WindowStitcher()
     /// The language found in the track's first window with speech.
     public var language: String?
+    /// The engine gave phrases without word timings on this track: windows
+    /// no longer overlap, for a phrase on an edge cannot be split by its words.
+    public var wordless = false
 
     public init(model: String) {
         self.model = model
+    }
+}
+
+/// The model files and calls are transcribed with. The cloud only by the
+/// user's own choice for transcriptions: a recording holds other people's
+/// voices, and a cloud model for dictation is no consent to send them.
+public enum TranscriptionModel {
+    /// - Parameters:
+    ///   - chosen: the setting «Модель для расшифровок»; nil for none.
+    ///   - dictation: the dictation model.
+    public static func resolve(chosen: String?, dictation: String) -> String {
+        if let chosen, !chosen.isEmpty { return chosen }
+        if ModelCatalog.entry(id: dictation)?.engine.recognizes == true { return dictation }
+        return DictationPreferences.defaultModel
+    }
+
+    /// A model of a server, not of this Mac.
+    public static func isCloud(_ id: String) -> Bool {
+        CloudSpeechModel(id: id) != nil
     }
 }

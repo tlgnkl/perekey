@@ -178,6 +178,13 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.model.stringValue) }
     }
 
+    /// «Модель для расшифровок»: the model files and calls are transcribed
+    /// with; nil for the dictation model when it runs on this Mac. A cloud
+    /// model only by this choice (`TranscriptionModel`).
+    public var transcriptionModel: String? {
+        didSet { unreadableKeys.remove(CodingKeys.transcriptionModel.stringValue) }
+    }
+
     /// Switch the layout to the language of the phrase after dictation.
     public var switchesLayout: Bool {
         didSet { unreadableKeys.remove(CodingKeys.switchesLayout.stringValue) }
@@ -212,7 +219,8 @@ public struct VoiceSettings: Hashable, Sendable {
 
     public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default, microphoneUID: String? = nil,
                 microphoneName: String? = nil,
-                model: String = VoiceSettings.defaultModel, switchesLayout: Bool = true, playsSounds: Bool = true,
+                model: String = VoiceSettings.defaultModel, transcriptionModel: String? = nil,
+                switchesLayout: Bool = true, playsSounds: Bool = true,
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
                 introAnswered: Bool = false)
     {
@@ -221,6 +229,7 @@ public struct VoiceSettings: Hashable, Sendable {
         self.microphoneUID = microphoneUID
         self.microphoneName = microphoneName
         self.model = model
+        self.transcriptionModel = transcriptionModel
         self.switchesLayout = switchesLayout
         self.playsSounds = playsSounds
         self.autoStop = autoStop
@@ -241,7 +250,8 @@ public struct VoiceSettings: Hashable, Sendable {
 
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, switchesLayout, playsSounds, autoStop, unload, introAnswered
+        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, transcriptionModel, switchesLayout,
+             playsSounds, autoStop, unload, introAnswered
     }
 
     public init(from decoder: any Decoder) throws {
@@ -268,6 +278,11 @@ extension VoiceSettings: Codable {
             microphoneName = read(String.self, .microphoneName)
         }
         model = read(String.self, .model) ?? defaults.model
+        if container.contains(.transcriptionModel), (try? container.decodeNil(forKey: .transcriptionModel)) == true {
+            transcriptionModel = nil
+        } else {
+            transcriptionModel = read(String.self, .transcriptionModel)
+        }
         switchesLayout = read(Bool.self, .switchesLayout) ?? defaults.switchesLayout
         playsSounds = read(Bool.self, .playsSounds) ?? defaults.playsSounds
         autoStop = read(VoiceAutoStop.self, .autoStop) ?? defaults.autoStop
@@ -298,6 +313,10 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.model.stringValue) {
             try container.encode(model, forKey: .model)
+        }
+        // An explicit null, as for the microphone: «as dictation» must replace a model on disk.
+        if !unreadableKeys.contains(CodingKeys.transcriptionModel.stringValue) {
+            try container.encode(transcriptionModel, forKey: .transcriptionModel)
         }
         if !unreadableKeys.contains(CodingKeys.switchesLayout.stringValue) {
             try container.encode(switchesLayout, forKey: .switchesLayout)

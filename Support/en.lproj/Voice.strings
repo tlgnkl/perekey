@@ -293,3 +293,8 @@
 "Transcribe File…" = "Transcribe File…";
 "Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Choose audio or video to transcribe. Perekey reads the file and does not copy it.";
 "Transcribe" = "Transcribe";
+"Model for transcriptions" = "Model for transcriptions";
+"Files and calls. A cloud model gets recordings with other people’s voices." = "Files and calls. A cloud model gets recordings with other people’s voices.";
+"As dictation" = "As dictation";
+"The recording of a conversation will go to %@. It holds the voices of other people. Until you allow it, recordings are transcribed on this Mac." = "The recording of a conversation will go to %@. It holds the voices of other people. Until you allow it, recordings are transcribed on this Mac.";
+"the recording of a conversation, with other people’s voices" = "the recording of a conversation, with other people’s voices";

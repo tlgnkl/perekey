@@ -327,3 +327,19 @@ struct EndpointAddressTests {
         #expect(EndpointAddress("https://api.groq.com:8443/openai/v1")?.displayHost == "api.groq.com:8443")
     }
 }
+
+struct ConversationConsentTests {
+    /// A recording of a conversation needs its own consent: a dictation's audio is not it.
+    @Test func conversationNeedsItsOwnConsent() {
+        var set = VoiceModeSet.defaults()
+        let groq = VoiceEndpoint.Preset.groq.rawValue
+        #expect(!set.mayUploadConversation(to: groq, cloudDisabled: false))
+        set.consent(.audio, endpoint: groq)
+        #expect(!set.mayUploadConversation(to: groq, cloudDisabled: false))
+        set.consent(.conversationAudio, endpoint: groq)
+        #expect(set.mayUploadConversation(to: groq, cloudDisabled: false))
+        #expect(!set.mayUploadConversation(to: groq, cloudDisabled: true))
+        #expect(!set.mayUploadConversation(to: "nowhere", cloudDisabled: false))
+        #expect(ModeData.all.last == .conversationAudio)
+    }
+}

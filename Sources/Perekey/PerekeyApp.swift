@@ -142,9 +142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if PEREKEY_VOICE
         shell.dictation.menu = voiceText.menu(pasteAgain: { [voice] in voice.pasteAgain($0) })
         shell.drop = { [voice] in voice.files.transcribe($0) }
-        shell.acceptsDrop = FileTranscription.accepts
+        shell.acceptsDrop = { [voice] in voice.files.acceptsDrop($0) }
         // An update waits until the files in the queue are done.
-        updates.postponesRelaunch.append { [voice] in voice.files.isBusy }
+        updates.busy.add("transcription") { [voice] in voice.files.isBusy }
         #endif
         ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
     }

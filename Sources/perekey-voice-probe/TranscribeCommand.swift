@@ -58,7 +58,7 @@ enum TranscribeCommand {
         let queue = FileTranscriber(environment: .init(
             folder: folder, opener: opener, detector: SileroVAD(store: store),
             makeEngine: { VoiceEngines.make(model: $0, store: store) },
-            makeDiarizer: { VBxDiarizer(store: store, opener: opener) }, dictation: activity))
+            makeDiarizer: { VBxDiarizer(store: store) }, dictation: activity))
 
         // Dictation's own engine, as in the app, warmed up first.
         var phrase: AudioBuffer16k?
@@ -81,9 +81,10 @@ enum TranscribeCommand {
         }
         let marks = OSAllocatedUnfairLock(initialState: [(String, Double)]())
         let pauses = OSAllocatedUnfairLock(initialState: [Double]())
+        let stream = await queue.phases()
         let watcher = Task {
             var last = ""
-            for await phases in queue.phases() {
+            for await phases in stream {
                 guard let phase = phases[id] else { continue }
                 let name = switch phase {
                 case .queued: "queued"

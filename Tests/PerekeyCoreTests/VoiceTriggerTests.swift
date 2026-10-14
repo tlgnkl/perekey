@@ -513,3 +513,19 @@ private extension Output {
         #expect(keyboard.key(.down, KeyCode.space).voice.isEmpty)
     }
 }
+
+struct TranscriptionModelSettingTests {
+    /// «Модель для расшифровок»: kept, and an explicit null for «as dictation»
+    /// so that the save over the file drops a model on disk.
+    @Test func roundTrip() throws {
+        var settings = VoiceSettings()
+        #expect(settings.transcriptionModel == nil)
+        settings.transcriptionModel = "cloud:groq:whisper-large-v3-turbo"
+        let read = try JSONDecoder().decode(VoiceSettings.self, from: JSONEncoder().encode(settings))
+        #expect(read.transcriptionModel == "cloud:groq:whisper-large-v3-turbo")
+        let none = String(decoding: try JSONEncoder().encode(VoiceSettings()), as: UTF8.self)
+        #expect(none.contains(#""transcriptionModel":null"#))
+        let broken = try JSONDecoder().decode(VoiceSettings.self, from: Data(#"{"transcriptionModel":7}"#.utf8))
+        #expect(broken.transcriptionModel == nil && broken.unreadableKeys == ["transcriptionModel"])
+    }
+}

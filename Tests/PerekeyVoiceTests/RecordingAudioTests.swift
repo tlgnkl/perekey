@@ -134,6 +134,22 @@ struct RecordingAudioTests {
         }
     }
 
+    /// What a crashed or stopped queue decoded goes; what is decoded since stays.
+    @Test func scratchIsClearedOfOldFiles() throws {
+        let fixture = try Fixture()
+        let scratch = fixture.directory.appending(path: "scratch", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let old = scratch.appending(path: "old.f32")
+        let new = scratch.appending(path: "new.f32")
+        try Data([1]).write(to: old)
+        try Data([1]).write(to: new)
+        let start = Date()
+        try FileManager.default.setAttributes([.modificationDate: start.addingTimeInterval(-60)], ofItemAtPath: old.path)
+        VoiceAudioOpener(scratch: scratch).clearScratch(before: start.addingTimeInterval(-1))
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+        #expect(FileManager.default.fileExists(atPath: new.path))
+    }
+
     @Test func vbxPsi() throws {
         let floats: [Float] = [1.5, -2]
         let base64 = floats.withUnsafeBytes { Data($0) }.base64EncodedString()

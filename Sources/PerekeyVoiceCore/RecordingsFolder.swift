@@ -161,17 +161,20 @@ public struct RecordingsFolder: Sendable {
     /// The Time Machine choice: «Включать в Time Machine» clears the mark.
     public func setExcludedFromBackup(_ excluded: Bool) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        var url = root
+        var url = fresh(root)
         var values = URLResourceValues()
         values.isExcludedFromBackup = excluded
         try url.setResourceValues(values)
     }
 
     public var isExcludedFromBackup: Bool {
-        // A URL caches what it read; ask the disk.
-        var url = root
-        url.removeAllCachedResourceValues()
-        return (try? url.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) ?? false
+        (try? fresh(root).resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) ?? false
+    }
+
+    /// A URL caches the resource values it read or set, and a copy shares
+    /// the cache: a new one asks the disk.
+    private func fresh(_ url: URL) -> URL {
+        URL(filePath: url.path(percentEncoded: false), directoryHint: .isDirectory)
     }
 
     static func encoder() -> JSONEncoder {

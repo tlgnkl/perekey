@@ -15,10 +15,12 @@ final class FileTranscription {
     /// Dictation reports here; the queue waits for it between windows.
     let dictation = DictationActivity()
     let folder = RecordingsFolder()
-    private(set) var queue: FileTranscriber?
+    private let opener = VoiceAudioOpener()
     private let models: VoiceModelsController
     private let modes: VoiceModesStore
     private let text: VoiceTextController
+    private lazy var lifecycle = FileQueueLifecycle(make: { [unowned self] in makeQueue() },
+                                                    clean: { [opener] in opener.clearScratch(before: $0) })
 
     init(models: VoiceModelsController, modes: VoiceModesStore, text: VoiceTextController) {
         self.models = models
@@ -26,36 +28,46 @@ final class FileTranscription {
         self.text = text
     }
 
+    /// The queue while voice is on.
+    var queue: FileTranscriber? { lifecycle.queue }
+
     /// Something is queued or running: Sparkle waits with the relaunch.
     var isBusy: Bool { queue?.isBusy ?? false }
 
-    /// Voice came on: the queue starts and goes on with what a quit cut off.
+    /// Voice came on: the queue starts and, once an old one has let go,
+    /// goes on with what a quit cut off.
     func start() {
-        guard queue == nil else { return }
+        lifecycle.start()
+    }
+
+    /// Voice went off: the work stops; what is done stays for next time.
+    func stop() {
+        lifecycle.stop()
+    }
+
+    private func makeQueue() -> FileTranscriber {
         let store = models.store
         let modes = self.modes
         let text = self.text
-        let opener = VoiceAudioOpener()
-        let queue = FileTranscriber(environment: FileTranscriber.Environment(
+        return FileTranscriber(environment: FileTranscriber.Environment(
             folder: folder, opener: opener, detector: SileroVAD(store: store),
             makeEngine: { id in VoiceSetup.cloudEngine(id, modes: modes) ?? VoiceEngines.make(model: id, store: store) },
-            makeDiarizer: { VBxDiarizer(store: store, opener: opener) },
+            makeDiarizer: { VBxDiarizer(store: store) },
             dictation: dictation,
             prompt: {
                 await MainActor.run {
                     let prompt = TextRules.whisperPrompt(dictionary: text.text.settings.dictionary)
                     return prompt.isEmpty ? nil : prompt
                 }
-            }))
-        self.queue = queue
-        Task { await queue.resumePending() }
+            },
+            mayUpload: { id in await MainActor.run { modes.mayUploadConversation(model: id) } }))
     }
 
-    /// Voice went off: the work stops; what is done stays for next time.
-    func stop() {
-        guard let queue else { return }
-        self.queue = nil
-        Task { await queue.shutdown() }
+    /// The model for files and calls: the user's choice for transcriptions,
+    /// or the dictation model on this Mac.
+    var model: String {
+        let settings = models.settings.settings
+        return TranscriptionModel.resolve(chosen: settings.transcriptionModel, dictation: settings.model)
     }
 
     /// «Расшифровать файл…»: the open panel, then the queue.
@@ -74,22 +86,31 @@ final class FileTranscription {
     }
 
     /// Files dropped on the menu bar item: those that are audio or video.
-    /// False if none is, so the drop is refused.
+    /// False if none is, or voice is off, so the drop is refused.
     @discardableResult
     func transcribe(_ urls: [URL]) -> Bool {
         let files = urls.filter(Self.accepts)
         guard let queue, !files.isEmpty else { return false }
-        let settings = models.settings.settings
-        let model = DictationPreferences(settings).modelID
+        let model = self.model
         // Voices split when the diarizer is downloaded; the recordings window
         // gets its own switch.
         let diarize = models.statuses.contains { $0.id == VBxDiarizer.modelID && $0.state == .ready }
+        var jobs: [TranscriptionJob] = []
         for url in files {
             let meta = RecordingMeta.file(VoiceAudioOpener.reference(to: url))
             guard let id = try? folder.create(meta, excludedFromBackup: true) else { continue }
-            Task { await queue.enqueue(TranscriptionJob(recording: id, model: model, diarize: diarize)) }
+            jobs.append(TranscriptionJob(recording: id, model: model, diarize: diarize))
+        }
+        // One task, so the files go in the order they came.
+        Task {
+            for job in jobs { await queue.enqueue(job) }
         }
         return true
+    }
+
+    /// Whether a dragged file would be taken now.
+    func acceptsDrop(_ url: URL) -> Bool {
+        queue != nil && Self.accepts(url)
     }
 
     /// Audio or video by its type: what AVFoundation reads.

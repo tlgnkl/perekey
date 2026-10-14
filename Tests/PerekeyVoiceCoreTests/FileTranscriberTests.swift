@@ -49,9 +49,13 @@ actor ScriptEngine: SpeechEngine {
     private var gate: CheckedContinuation<Void, Never>?
     private var arrived: [CheckedContinuation<Void, Never>] = []
 
-    init(id: String = "parakeet-tdt-v3", script: [RecordingTrack: [TimedWord]]) {
+    /// Phrases without word timings, one per word of the script: the cloud.
+    let wordless: Bool
+
+    init(id: String = "parakeet-tdt-v3", script: [RecordingTrack: [TimedWord]], wordless: Bool = false) {
         self.id = id
         self.script = script
+        self.wordless = wordless
     }
 
     func prepare() async throws {}
@@ -88,6 +92,11 @@ actor ScriptEngine: SpeechEngine {
             }
         }
         let words = (script[track] ?? []).filter { $0.start >= start && $0.start < end }.map { $0.shifted(by: -start) }
+        if wordless {
+            return TimedTranscript(segments: words.map {
+                TimedSegment(start: $0.start, end: $0.end, text: $0.text.trimmingCharacters(in: .whitespaces))
+            }, language: "en")
+        }
         guard let first = words.first, let last = words.last else { return TimedTranscript(segments: [], language: "en") }
         let text = words.map(\.text).joined().trimmingCharacters(in: .whitespaces)
         return TimedTranscript(segments: [TimedSegment(start: first.start, end: last.end, text: text, words: words)],
@@ -114,16 +123,22 @@ struct SilenceDetector: SpeechDetector {
 actor FakeDiarizer: DiarizerEngine {
     nonisolated let id = "diarizer-offline-vbx"
     let turns: [SpeakerTurn]
-    private(set) var sources: [AudioSource] = []
+    /// The `base` of each audio it got: `sysBase` for the others' track.
+    private(set) var bases: [Int] = []
 
     init(turns: [SpeakerTurn]) { self.turns = turns }
 
     func prepare() async throws {}
     func unload() async {}
 
-    func diarize(_ source: AudioSource, progress: @escaping @Sendable (Double) -> Void) async throws -> [SpeakerTurn] {
-        sources.append(source)
-        progress(1)
+    func diarize(_ audio: any LongAudio, progress: @escaping @Sendable (Double) -> Void) async throws -> [SpeakerTurn] {
+        bases.append((audio as? NumberedAudio)?.base ?? -1)
+        progress(0.5)
+        // A report that comes after the end, as FluidAudio's may.
+        Task {
+            try? await Task.sleep(for: .milliseconds(20))
+            progress(0.9)
+        }
         return turns
     }
 }
@@ -140,6 +155,8 @@ struct FileTranscriberTests {
         var folder: RecordingsFolder { RecordingsFolder(root: root) }
         let dictation = DictationActivity()
         let work = OSAllocatedUnfairLock(initialState: (begun: 0, ended: 0))
+        /// Engines made, by model.
+        let made = OSAllocatedUnfairLock(initialState: [String]())
 
         deinit { try? FileManager.default.removeItem(at: root) }
 
@@ -160,13 +177,19 @@ struct FileTranscriberTests {
         }
 
         func queue(engine: ScriptEngine?, opener: NumberedOpener, detector: SilenceDetector? = SilenceDetector(),
-                   diarizer: FakeDiarizer? = nil, windows: WindowSettings = .standard) -> FileTranscriber
+                   diarizer: FakeDiarizer? = nil, windows: WindowSettings = .standard,
+                   mayUpload: @escaping @Sendable (String) async -> Bool = { !TranscriptionModel.isCloud($0) })
+            -> FileTranscriber
         {
             let work = self.work
+            let made = self.made
             return FileTranscriber(environment: .init(
                 folder: folder, opener: opener, detector: detector,
-                makeEngine: { id in engine.flatMap { $0.id == id ? $0 : nil } },
-                makeDiarizer: { diarizer }, dictation: dictation, prompt: { "Perekey" },
+                makeEngine: { id in
+                    made.withLock { $0.append(id) }
+                    return engine.flatMap { $0.id == id ? $0 : nil }
+                },
+                makeDiarizer: { diarizer }, dictation: dictation, prompt: { "Perekey" }, mayUpload: mayUpload,
                 beginWork: {
                     work.withLock { $0.begun += 1 }
                     return { work.withLock { $0.ended += 1 } }
@@ -191,7 +214,7 @@ struct FileTranscriberTests {
         -> [TranscriptionPhase]
     {
         var seen: [TranscriptionPhase] = []
-        for await phases in queue.phases() {
+        for await phases in await queue.phases() {
             guard let phase = phases[id] else { continue }
             if seen.last != phase { seen.append(phase) }
             if until(phase) { break }
@@ -395,11 +418,11 @@ struct FileTranscriberTests {
         #expect(document.segments.map(\.text) == ["Привет, как дела?", "Отлично, спасибо.", "Да."])
         #expect(document.segments.map(\.speaker) == ["me", "speaker-1", "speaker-2"])
         #expect(document.speakers.map(\.id) == ["me", "speaker-1", "speaker-2"])
-        let sources = await diarizer.sources
-        guard case .track(.sys, _) = sources.first else {
-            Issue.record("diarized \(sources)")
-            return
-        }
+        // The others' track, the one already open.
+        #expect(await diarizer.bases == [sysBase])
+        // A late progress report does not take the phase back.
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(await wait(queue, id, until: { _ in true }).last == .done)
     }
 
     /// «Расшифровать заново» with another model: the names of the tracks stay.
@@ -455,6 +478,118 @@ struct FileTranscriberTests {
         let noDiarizer = fixture.queue(engine: ScriptEngine(script: [:]), opener: NumberedOpener(fileSeconds: 10))
         await noDiarizer.enqueue(TranscriptionJob(recording: id, model: "parakeet-tdt-v3", diarize: true))
         #expect(await wait(noDiarizer, id, until: finished).last == .failed(.modelUnavailable))
+    }
+
+    /// Phrases without word timings (the cloud): windows meet at the cut,
+    /// and the phrase after a cut is kept.
+    @Test func wordlessPhrasesMeetAtTheCut() async throws {
+        let fixture = Fixture()
+        let id = try fixture.call(seconds: 200)
+        let script = words(280)
+        let engine = ScriptEngine(id: "cloud:groq:whisper-large-v3-turbo", script: [.mic: script], wordless: true)
+        let queue = fixture.queue(engine: engine, opener: NumberedOpener(seconds: [.mic: 200]),
+                                  detector: SilenceDetector(silences: [50...51, 100...101, 150...151]),
+                                  mayUpload: { _ in true })
+        await queue.enqueue(TranscriptionJob(recording: id, model: "cloud:groq:whisper-large-v3-turbo", diarize: false))
+        #expect(await wait(queue, id, until: finished).last == .done)
+        let windows = await engine.windows
+        #expect(windows.count == 4)
+        for (a, b) in zip(windows, windows.dropFirst()) {
+            #expect(abs(a.end - b.start) < 1e-9)
+        }
+        let document = try #require(fixture.transcript(id))
+        #expect(document.segments.map(\.text) == script.map { $0.text.trimmingCharacters(in: .whitespaces) })
+        #expect(document.engine == "cloud")
+    }
+
+    /// A cloud model chosen for files without the consent for
+    /// conversations: no engine is made, nothing is sent.
+    @Test func cloudWithoutConsentNeedsIt() async throws {
+        let fixture = Fixture()
+        let id = try fixture.file()
+        let engine = ScriptEngine(id: "cloud:openai:gpt-4o-transcribe", script: [:])
+        let queue = fixture.queue(engine: engine, opener: NumberedOpener(fileSeconds: 10))
+        await queue.enqueue(TranscriptionJob(recording: id, model: "cloud:openai:gpt-4o-transcribe", diarize: false))
+        #expect(await wait(queue, id, until: finished).last == .failed(.needsConsent))
+        #expect(fixture.made.withLock { $0 }.isEmpty)
+        #expect(await engine.windows.isEmpty)
+        #expect(fixture.meta(id)?.state == .stopped)
+    }
+
+    @Test func modelForTranscriptions() {
+        // As dictation, on this Mac.
+        #expect(TranscriptionModel.resolve(chosen: nil, dictation: "whisper-large-v3-turbo-632mb")
+            == "whisper-large-v3-turbo-632mb")
+        // A cloud model for dictation is no consent for recordings: the default local one.
+        #expect(TranscriptionModel.resolve(chosen: nil, dictation: "cloud:groq:whisper-large-v3-turbo")
+            == DictationPreferences.defaultModel)
+        // The cloud by the user's own choice.
+        #expect(TranscriptionModel.resolve(chosen: "cloud:groq:whisper-large-v3-turbo", dictation: "parakeet-tdt-v3")
+            == "cloud:groq:whisper-large-v3-turbo")
+        #expect(TranscriptionModel.resolve(chosen: "", dictation: "parakeet-tdt-v3") == "parakeet-tdt-v3")
+    }
+
+    /// Queued again with another job while it runs: it starts over, without
+    /// the windows of the old job. The same job again changes nothing.
+    @Test func requeueWithAnotherJobStartsOver() async throws {
+        let fixture = Fixture()
+        let id = try fixture.call(seconds: 200)
+        let script = words(280)
+        let engine = ScriptEngine(script: [.mic: script])
+        await engine.hold()
+        let queue = fixture.queue(engine: engine, opener: NumberedOpener(seconds: [.mic: 200]))
+        let job = TranscriptionJob(recording: id, model: "parakeet-tdt-v3", diarize: false)
+        await queue.enqueue(job)
+        await letThrough(engine, windows: 1)
+        await queue.enqueue(job)
+        #expect(await queue.runsDone == 0)
+        await queue.enqueue(TranscriptionJob(recording: id, model: "parakeet-tdt-v3", diarize: false, language: "en"))
+        await engine.release()
+        #expect(await wait(queue, id, until: finished).last == .done)
+        let starts = await engine.windows.map(\.start)
+        // The first job's two windows, then the new job from the start.
+        #expect(starts.filter { $0 == 0 }.count == 2)
+        let found = try #require(fixture.transcript(id)).segments.flatMap { $0.words ?? [] }
+        #expect(found.map(\.text) == script.map(\.text))
+        #expect(fixture.transcript(id)?.language == "en")
+    }
+
+    /// Voice off and on at once: the new queue waits for the old one to let
+    /// go, then goes on from its last window; one queue writes the progress.
+    @MainActor
+    @Test func stopThenStartWaitsForTheOldQueue() async throws {
+        let fixture = Fixture()
+        let id = try fixture.call(seconds: 200)
+        let script = words(280)
+        let first = ScriptEngine(script: [.mic: script])
+        await first.hold()
+        let second = ScriptEngine(script: [.mic: script])
+        var engines = [first, second]
+        let cleaned = OSAllocatedUnfairLock(initialState: [Date]())
+        let lifecycle = FileQueueLifecycle(
+            make: { fixture.queue(engine: engines.removeFirst(), opener: NumberedOpener(seconds: [.mic: 200])) },
+            clean: { date in cleaned.withLock { $0.append(date) } })
+        lifecycle.start()
+        await lifecycle.resuming?.value
+        #expect(cleaned.withLock { $0 }.count == 1)
+        let queue = try #require(lifecycle.queue)
+        await queue.enqueue(TranscriptionJob(recording: id, model: "parakeet-tdt-v3", diarize: false))
+        await letThrough(first, windows: 1)
+        lifecycle.stop()
+        lifecycle.start()
+        let next = try #require(lifecycle.queue)
+        try await Task.sleep(for: .milliseconds(50))
+        // The old queue still holds its window: the new one has not begun.
+        #expect(await second.windows.isEmpty)
+        #expect(cleaned.withLock { $0 }.count == 1)
+        await first.release()
+        await lifecycle.resuming?.value
+        #expect(cleaned.withLock { $0 }.count == 2)
+        #expect(await wait(next, id, until: finished).last == .done)
+        let resumedAt = try #require(await second.windows.first?.start)
+        #expect(resumedAt > 0)
+        let found = try #require(fixture.transcript(id)).segments.flatMap { $0.words ?? [] }
+        #expect(found.map(\.text) == script.map(\.text))
     }
 
     @Test func stitcherKeepsWordsByTheMiddleOfTheOverlap() {

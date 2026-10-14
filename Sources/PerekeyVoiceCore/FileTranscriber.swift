@@ -27,6 +27,10 @@ public actor FileTranscriber: FileTranscribing {
         public var dictation: DictationActivity
         /// The user's dictionary for Whisper and the cloud, read per job.
         public var prompt: @Sendable () async -> String?
+        /// Whether a model may get the recording: true for this Mac's, and
+        /// for a cloud one only with the user's consent to send it the
+        /// recording of a conversation. Asked before the model is made.
+        public var mayUpload: @Sendable (String) async -> Bool
         /// Keeps App Nap away while the queue works; returns what ends it.
         public var beginWork: @Sendable () -> @Sendable () -> Void
         public var windows: WindowSettings
@@ -36,6 +40,7 @@ public actor FileTranscriber: FileTranscribing {
                     makeEngine: @escaping @Sendable (String) -> (any SpeechEngine)?,
                     makeDiarizer: @escaping @Sendable () -> (any DiarizerEngine)?,
                     dictation: DictationActivity, prompt: @escaping @Sendable () async -> String? = { nil },
+                    mayUpload: @escaping @Sendable (String) async -> Bool = { !TranscriptionModel.isCloud($0) },
                     beginWork: @escaping @Sendable () -> @Sendable () -> Void = FileTranscriber.appNapOff,
                     windows: WindowSettings = .standard, now: @escaping @Sendable () -> Date = Date.init)
         {
@@ -46,6 +51,7 @@ public actor FileTranscriber: FileTranscribing {
             self.makeDiarizer = makeDiarizer
             self.dictation = dictation
             self.prompt = prompt
+            self.mayUpload = mayUpload
             self.beginWork = beginWork
             self.windows = windows
             self.now = now
@@ -93,7 +99,14 @@ public actor FileTranscriber: FileTranscribing {
     public nonisolated var isBusy: Bool { busy.withLock { $0 } }
 
     public func enqueue(_ job: TranscriptionJob) {
-        try? environment.folder.updateMeta(job.recording) { $0.pendingJob = job }
+        // The same job already at work goes on as it is.
+        if let running, running.job == job, !running.dropsProgress { return }
+        let folder = environment.folder
+        // Progress of another job (a quit cut it off) is not this one's.
+        if case let .loaded(meta) = folder.meta(job.recording), let pending = meta.pendingJob, pending != job {
+            folder.removePartial(job.recording)
+        }
+        try? folder.updateMeta(job.recording) { $0.pendingJob = job }
         if let index = queue.firstIndex(where: { $0.recording == job.recording }) {
             queue[index] = job
         } else {
@@ -143,20 +156,16 @@ public actor FileTranscriber: FileTranscribing {
         updateBusy()
     }
 
-    public nonisolated func phases() -> AsyncStream<[UUID: TranscriptionPhase]> {
+    public func phases() -> AsyncStream<[UUID: TranscriptionPhase]> {
         let id = UUID()
-        return AsyncStream { continuation in
-            continuation.onTermination = { _ in Task { await self.removeObserver(id) } }
-            Task { await self.addObserver(id, continuation) }
-        }
+        let (stream, continuation) = AsyncStream.makeStream(of: [UUID: TranscriptionPhase].self)
+        continuation.onTermination = { _ in Task { await self.removeObserver(id) } }
+        observers[id] = continuation
+        continuation.yield(states)
+        return stream
     }
 
     // MARK: - Queue
-
-    private func addObserver(_ id: UUID, _ continuation: AsyncStream<[UUID: TranscriptionPhase]>.Continuation) {
-        observers[id] = continuation
-        continuation.yield(states)
-    }
 
     private func removeObserver(_ id: UUID) {
         observers[id] = nil
@@ -191,6 +200,10 @@ public actor FileTranscriber: FileTranscribing {
         let phase = await transcribe(job)
         let dropsProgress = running?.dropsProgress ?? false
         let queuedAgain = queue.contains { $0.recording == job.recording }
+        if dropsProgress {
+            // Cancelled, or queued again with another job: what was done is not its.
+            environment.folder.removePartial(job.recording)
+        }
         if phase == .cancelled, !dropsProgress {
             // Quit: the progress and the pending job stay for the next launch.
         } else if !queuedAgain {
@@ -263,6 +276,8 @@ public actor FileTranscriber: FileTranscribing {
         }
         guard !sources.isEmpty else { throw Stop.failed(meta.kind == .file ? .sourceMissing : .unreadable) }
 
+        // Nothing leaves this Mac without the consent for a conversation.
+        guard await environment.mayUpload(job.model) else { throw Stop.failed(.needsConsent) }
         set(id, .preparingModel)
         let engine = try await prepareEngine(job.model)
         if !detectorReady, let detector = environment.detector {
@@ -304,13 +319,14 @@ public actor FileTranscriber: FileTranscribing {
             done += audio.sampleCount
         }
         let duration = Double(audios.map(\.audio.sampleCount).max() ?? 0) / VoiceCore.sampleRate
+
+        // The audio stays open for the diarizer: a file is not decoded twice.
+        var turns: [SpeakerTurn]?
+        if job.diarize, let target = audios.first(where: { $0.key == "file" || $0.key == RecordingTrack.sys.rawValue }) {
+            turns = try await diarize(target.audio, id: id)
+        }
         audios.forEach { $0.audio.close() }
         audios = []
-
-        var turns: [SpeakerTurn]?
-        if job.diarize, let target = sources.first(where: { $0.key == "file" || $0.key == RecordingTrack.sys.rawValue }) {
-            turns = try await diarize(target.source, id: id)
-        }
 
         let empty = TimedTranscript(segments: [])
         var result: TimedTranscript
@@ -370,7 +386,7 @@ public actor FileTranscriber: FileTranscribing {
                 // The last chunk may be short: its middle can lie past the window.
                 cut = min(cut, end)
                 // The next window must start later than this one.
-                if cut - overlap <= position { cut = end }
+                if cut - (partial.wordless ? 0 : overlap) <= position { cut = end }
             }
             let length = cut - position
             let speech = probabilities.map { VoiceActivity.hasSpeech(Array($0.prefix((length + chunk - 1) / chunk))) }
@@ -388,9 +404,13 @@ public actor FileTranscriber: FileTranscribing {
                 if partial.language == nil, !found.segments.isEmpty { partial.language = found.language }
             }
             let last = end >= count
+            // Phrases without words cannot be split in an overlap: from here
+            // on windows meet at the cut, which lies in a pause.
+            if found.segments.contains(where: { ($0.words ?? []).isEmpty }) { partial.wordless = true }
+            let shared = partial.wordless ? 0 : overlap
             partial.stitcher.add(found, offset: Double(position) / rate,
-                                 keepUntil: last ? nil : Double(cut) / rate - settings.overlap / 2)
-            partial.position = last ? count : cut - overlap
+                                 keepUntil: last ? nil : Double(cut - shared / 2) / rate)
+            partial.position = last ? count : cut - shared
             try? environment.folder.savePartial(partial, id: id)
             set(id, .transcribing(Double(done + partial.position) / Double(total)))
         }
@@ -407,7 +427,7 @@ public actor FileTranscriber: FileTranscribing {
         try Task.checkCancellation()
     }
 
-    private func diarize(_ source: AudioSource, id: UUID) async throws -> [SpeakerTurn] {
+    private func diarize(_ audio: any LongAudio, id: UUID) async throws -> [SpeakerTurn] {
         set(id, .diarizing(0))
         guard let diarizer = environment.makeDiarizer() else { throw Stop.failed(.modelUnavailable) }
         do {
@@ -417,8 +437,8 @@ public actor FileTranscriber: FileTranscribing {
         }
         defer { Task { await diarizer.unload() } }
         do {
-            let turns = try await diarizer.diarize(source) { [weak self] fraction in
-                Task { await self?.set(id, .diarizing(min(1, max(0, fraction)))) }
+            let turns = try await diarizer.diarize(audio) { [weak self] fraction in
+                Task { await self?.diarizationProgress(id, fraction) }
             }
             try Task.checkCancellation()
             return turns
@@ -427,6 +447,12 @@ public actor FileTranscriber: FileTranscribing {
         } catch {
             throw Stop.failed(.engineFailed)
         }
+    }
+
+    /// A late report of the diarizer does not take the phase back.
+    private func diarizationProgress(_ id: UUID, _ fraction: Double) {
+        guard case .diarizing = states[id] else { return }
+        set(id, .diarizing(min(1, max(0, fraction))))
     }
 
     private func prepareEngine(_ model: String) async throws -> any SpeechEngine {
@@ -466,4 +492,56 @@ public enum LongAudioError: Error, Equatable, Sendable {
     case missing
     /// It is not audio AVFoundation reads, or holds no audio.
     case unreadable
+}
+
+/// The file queue while voice is on: `start` makes one, `stop` shuts it
+/// down. A start right after a stop waits for the old queue to let go
+/// before it goes on with the pending recordings: two queues never write
+/// the same `transcript.partial.json`.
+@MainActor
+public final class FileQueueLifecycle {
+    public private(set) var queue: FileTranscriber?
+    private let make: () -> FileTranscriber
+    /// Before the pending recordings: clears what a crash or an old queue
+    /// left behind, older than the start it gets (a file queued since stays).
+    private let clean: @Sendable (Date) -> Void
+    private var stopping: Task<Void, Never>?
+    /// The new queue's resume, after the old one's shutdown.
+    public private(set) var resuming: Task<Void, Never>?
+
+    public init(make: @escaping () -> FileTranscriber, clean: @escaping @Sendable (Date) -> Void = { _ in }) {
+        self.make = make
+        self.clean = clean
+    }
+
+    public func start() {
+        guard queue == nil else { return }
+        let queue = make()
+        self.queue = queue
+        let stopping = self.stopping
+        let clean = self.clean
+        let started = Date()
+        resuming = Task {
+            await stopping?.value
+            clean(started)
+            await queue.resumePending()
+        }
+    }
+
+    public func stop() {
+        guard let queue else { return }
+        self.queue = nil
+        let previous = stopping
+        let resuming = self.resuming
+        stopping = Task {
+            await previous?.value
+            await resuming?.value
+            await queue.shutdown()
+        }
+    }
+
+    /// Done once every queue stopped so far has let go.
+    public func stopped() async {
+        await stopping?.value
+    }
 }

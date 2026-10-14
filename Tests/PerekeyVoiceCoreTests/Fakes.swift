@@ -130,3 +130,46 @@ func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
     }
     return await condition()
 }
+
+/// A file queue that only records what it is told, and says the phases it is given.
+final class FakeFileQueue: FileTranscribing {
+    private struct State {
+        var jobs: [TranscriptionJob] = []
+        var cancelled: [UUID] = []
+        var phases: [UUID: TranscriptionPhase] = [:]
+        var continuations: [AsyncStream<[UUID: TranscriptionPhase]>.Continuation] = []
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    var jobs: [TranscriptionJob] { state.withLock(\.jobs) }
+    var cancelled: [UUID] { state.withLock(\.cancelled) }
+    var isBusy: Bool { state.withLock { $0.phases.values.contains(where: \.isPending) } }
+
+    func enqueue(_ job: TranscriptionJob) async {
+        state.withLock { $0.jobs.append(job) }
+        publish(job.recording, .queued)
+    }
+
+    func cancel(_ recording: UUID) async {
+        state.withLock { $0.cancelled.append(recording) }
+        publish(recording, .cancelled)
+    }
+
+    func phases() -> AsyncStream<[UUID: TranscriptionPhase]> {
+        AsyncStream { continuation in
+            state.withLock { state in
+                state.continuations.append(continuation)
+                continuation.yield(state.phases)
+            }
+        }
+    }
+
+    /// Sets a recording's phase and tells everyone who listens.
+    func publish(_ recording: UUID, _ phase: TranscriptionPhase) {
+        state.withLock { state in
+            state.phases[recording] = phase
+            for continuation in state.continuations { continuation.yield(state.phases) }
+        }
+    }
+}

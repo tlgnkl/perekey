@@ -25,6 +25,11 @@ func usage() -> Never {
           store <command> [id...]     the app's model store in $PEREKEY_VOICE_MODELS
           dictate <id> <audio>... [--realtime] [--runs n]  the app's dictation path, from files
           speech                      Apple Speech locales
+          compute-plan <mlmodelc>...  share of each model's work on ANE, GPU, CPU
+          energy [s]                  average SoC power over s seconds (IOReport)
+          track <dir> <hours> <name> <audio[:rttm]>...  a call track from open audio, ADTS segments
+          longform <id> <recording> [...]               a recording's tracks in windows, with dictation
+          diarize <method> <audio|recording> [...]      one diarizer: time, memory, DER
         """)
     exit(2)
 }
@@ -75,6 +80,19 @@ do {
         try await DictateCommand.run(rest)
     case "speech":
         await Commands.appleSpeech()
+    case "energy":
+        guard let sampler = EnergySampler() else { print("IOReport: no sampler"); exit(1) }
+        try await Task.sleep(for: .seconds(Double(rest.first ?? "") ?? 1))
+        for (kind, value) in sampler.watts().sorted(by: { $0.key < $1.key }) { print("\(kind)\t\(value)") }
+    case "compute-plan":
+        guard #available(macOS 14.4, *) else { throw ProbeError.message("MLComputePlan needs macOS 14.4") }
+        try await ComputePlanCommand.run(rest)
+    case "track":
+        try TrackCommand.run(rest)
+    case "longform":
+        try await LongformCommand.run(rest)
+    case "diarize":
+        try await DiarizeCommand.run(rest)
     default:
         usage()
     }

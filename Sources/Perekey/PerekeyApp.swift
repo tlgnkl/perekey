@@ -67,6 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let voice: VoiceSetup
     /// "What's new: voice input", once, for someone who already uses Perekey.
     private let voiceIntro: VoiceIntroController
+    /// «Записать созвон»: the microphone and the system audio to disk.
+    private let callRecording: CallRecordingController
     #endif
 
     override init() {
@@ -111,6 +113,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transcriptsController.queue = voice.files.queue
         let transcriptsWindow = TranscriptsWindow(controller: transcriptsController)
         transcripts = transcriptsWindow
+        let callRecording = CallRecordingController(capture: voice.capture, settings: voiceModels.settings,
+                                                    isSupported: { voiceModels.isSupported })
+        self.callRecording = callRecording
+        // The queue is made anew each time voice turns on: read at each «Стоп».
+        callRecording.fileQueue = { [voice] in voice.files.queue }
+        callRecording.transcriptionModel = { [voice] in voice.files.model }
+        voice.files.observeQueue { [callRecording] _ in callRecording.queueChanged() }
+        // «Удалить» and resume leave the recording being written alone.
+        transcriptsController.live = { [callRecording] in callRecording.liveRecording.map { [$0] } ?? [] }
+        callRecording.recordingsChanged = { [transcriptsController] in transcriptsController.reload() }
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
@@ -153,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
             actions.transcribeFile = { voice.files.chooseFiles() }
             actions.canTranscribeFiles = { voice.files.queue != nil }
+            actions.callRecording = callRecording
         }
         #else
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
@@ -164,8 +177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shell.dictation.menu = voiceText.menu(pasteAgain: { [voice] in voice.pasteAgain($0) })
         shell.drop = { [voice] in voice.files.transcribe($0) }
         shell.acceptsDrop = { [voice] in voice.files.acceptsDrop($0) }
-        // An update waits until the files in the queue are done.
+        callRecording.indicator = shell.call
+        // An update waits until the files in the queue are done, and for a call being recorded.
         updates.busy.add("transcription") { [voice] in voice.files.isBusy }
+        updates.busy.add("recording") { [callRecording] in callRecording.isRecording }
         #endif
         ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
     }
@@ -184,6 +199,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         // After launch, so the status bar exists.
         shell.start()
+        #if PEREKEY_VOICE
+        // A call a crash cut off is offered for transcription; old audio goes.
+        callRecording.launched()
+        #endif
+    }
+
+    /// ⌘Q, logout and an update's relaunch wait while a call is recorded,
+    /// until its open segments are closed.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if PEREKEY_VOICE
+        return callRecording.shouldTerminate()
+        #else
+        return .terminateNow
+        #endif
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -256,6 +285,8 @@ final class MenuBarShell {
     private var statusItem: StatusItemController?
     /// What the menu shows of the dictation history; filled once voice is set up.
     let dictation = DictationMenuSource()
+    /// The capsule's ● and time while a call is recorded.
+    let call = CallIndicatorModel()
     /// Files dropped on the menu bar item; set before `start` to take them.
     var drop: (([URL]) -> Bool)?
     var acceptsDrop: (URL) -> Bool = { _ in false }
@@ -300,7 +331,7 @@ final class MenuBarShell {
     func start() {
         guard statusItem == nil else { return }
         statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu,
-                                          drop: drop, accepts: acceptsDrop)
+                                          call: call, drop: drop, accepts: acceptsDrop)
     }
 }
 

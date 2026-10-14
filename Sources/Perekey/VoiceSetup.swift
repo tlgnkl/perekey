@@ -20,7 +20,8 @@ final class VoiceSetup {
     private let text: VoiceTextController
     private let usage: UsageRecorder
     private(set) var controller: VoiceController?
-    private var capture: AudioCapture?
+    /// The one microphone: dictation and a call recording subscribe to it.
+    let capture = AudioCapture()
     private var hud: VoiceHUDController?
     /// Settings → Voice, for the HUD's "Open Settings" after a model error.
     var openVoiceSettings: () -> Void = {}
@@ -90,8 +91,7 @@ final class VoiceSetup {
             controller.apply(preferences)
             return
         }
-        let capture = capture ?? AudioCapture()
-        self.capture = capture
+        let capture = self.capture
         let input = self.input
         let trigger = { [weak self] in self?.settings.trigger }
         let text = self.text

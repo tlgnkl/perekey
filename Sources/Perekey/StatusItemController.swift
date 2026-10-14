@@ -4,6 +4,7 @@ import AppKit
 import Observation
 import PerekeyCore
 import PerekeyInput
+import PerekeyVoiceCore
 import SwiftUI
 
 /// What the capsule shows for the current layout, settings and pause state.
@@ -15,6 +16,17 @@ func capsuleModel(sources: InputSources, store: SettingsStore, pause: PauseState
         reason: pause.current,
         now: pause.now
     )
+}
+
+/// What the capsule shows of a call being recorded: ● and the time. Empty
+/// without voice.
+@MainActor
+@Observable
+final class CallIndicatorModel {
+    var timeline: CallTimeline?
+    var paused = false
+
+    var elapsed: Double { timeline?.offset(of: mach_absolute_time()) ?? 0 }
 }
 
 /// The press state of the status item, read by the capsule.
@@ -33,17 +45,47 @@ private struct StatusCapsuleView: View {
     let recents: RecentCorrections
     let state: StatusItemModel
     let menu: MenuPanelController
+    let call: CallIndicatorModel
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        CapsuleView(
-            model: capsuleModel(sources: sources, store: store, pause: pause),
-            dark: scheme == .dark, animated: true,
-            pressed: state.pressed, open: menu.isOpen, flash: recents.flashes
-        )
+        HStack(spacing: 4) {
+            if call.timeline != nil {
+                CallBadge(call: call)
+            }
+            CapsuleView(
+                model: capsuleModel(sources: sources, store: store, pause: pause),
+                dark: scheme == .dark, animated: true,
+                pressed: state.pressed, open: menu.isOpen, flash: recents.flashes
+            )
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .accessibilityHidden(true)
     }
+}
+
+/// ● and the time of a call being recorded, left of the capsule.
+private struct CallBadge: View {
+    let call: CallIndicatorModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            HStack(spacing: 3) {
+                Circle()
+                    .fill(call.paused ? Color.secondary : Color.red)
+                    .frame(width: 7, height: 7)
+                Text(verbatim: callClock(call.elapsed))
+                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+            }
+        }
+    }
+}
+
+/// «1:02:05» or «12:34».
+func callClock(_ seconds: Double) -> String {
+    let total = max(0, Int(seconds))
+    let (h, m, s) = (total / 3600, total / 60 % 60, total % 60)
+    return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
 }
 
 /// Reports its content size, so the item can follow it.
@@ -108,15 +150,18 @@ final class StatusItemController {
     private let sources: InputSources
     private let store: SettingsStore
     private let pause: PauseState
+    private let call: CallIndicatorModel
     private var shrink: DispatchWorkItem?
 
     /// - Parameters:
     ///   - drop: files dropped on the item (voice: to transcribe); false refuses them.
     ///   - accepts: whether a dragged file would be taken.
     init(sources: InputSources, store: SettingsStore, pause: PauseState, recents: RecentCorrections,
-         menu: MenuPanelController, drop: (([URL]) -> Bool)? = nil, accepts: @escaping (URL) -> Bool = { _ in false })
+         menu: MenuPanelController, call: CallIndicatorModel, drop: (([URL]) -> Bool)? = nil,
+         accepts: @escaping (URL) -> Bool = { _ in false })
     {
         self.sources = sources
+        self.call = call
         self.store = store
         self.pause = pause
         self.menu = menu
@@ -131,7 +176,7 @@ final class StatusItemController {
         button.setAccessibilityHelp(String(localized: "Opens the Perekey menu"))
 
         let host = CapsuleHost(rootView: StatusCapsuleView(
-            sources: sources, store: store, pause: pause, recents: recents, state: state, menu: menu))
+            sources: sources, store: store, pause: pause, recents: recents, state: state, menu: menu, call: call))
         host.sizingOptions = [.intrinsicContentSize]
         host.translatesAutoresizingMaskIntoConstraints = false
         host.onSize = { [weak self] width in self?.fit(width: width) }
@@ -200,6 +245,10 @@ final class StatusItemController {
     private func observeVoiceOverState() {
         let value = withObservationTracking {
             var parts = [sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout")]
+            if call.timeline != nil {
+                parts.append(call.paused ? String(localized: "Call recording paused", table: "Voice")
+                                         : String(localized: "Recording a call", table: "Voice"))
+            }
             if let reason = pause.current {
                 parts.append(reason.title(now: pause.now))
             } else {

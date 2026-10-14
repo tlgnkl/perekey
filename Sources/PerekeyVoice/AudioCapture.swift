@@ -151,10 +151,30 @@ public actor AudioCapture {
 
     public var subscriberCount: Int { sinks.count }
 
+    /// While a call is recorded, the microphone of the settings does not
+    /// switch: a choice made meanwhile applies once the last hold ends.
+    private var holds = 0
+    private var heldChoice: String??
+
+    public func holdMicrophone() {
+        holds += 1
+    }
+
+    public func releaseMicrophone() {
+        holds = max(0, holds - 1)
+        guard holds == 0, let choice = heldChoice else { return }
+        heldChoice = nil
+        selectMicrophone(uid: choice)
+    }
+
     /// Chooses the microphone by UID, nil for the system one. While capture
     /// runs, it switches at once and subscribers see `.deviceChanged`; callers
     /// that apply settings only after "Stop" call this then.
     public func selectMicrophone(uid: String?) {
+        if holds > 0 {
+            heldChoice = .some(uid)
+            return
+        }
         guard uid != preferredUID else { return }
         preferredUID = uid
         if isRunning {

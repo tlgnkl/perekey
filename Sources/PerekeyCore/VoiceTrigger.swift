@@ -231,6 +231,17 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.introAnswered.stringValue) }
     }
 
+    /// Split «Собеседники» of a call by voice when it is transcribed.
+    public var callDiarize: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.callDiarize.stringValue) }
+    }
+
+    /// The note on the other side's consent was shown before the first call
+    /// recording: it does not come back.
+    public var callConsentShown: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.callConsentShown.stringValue) }
+    }
+
     /// Keys the file has that this version could not read and the user has
     /// not set since. Encoding leaves them out, so the file keeps its values.
     public private(set) var unreadableKeys: Set<String> = []
@@ -245,7 +256,7 @@ public struct VoiceSettings: Hashable, Sendable {
                 switchesLayout: Bool = true, playsSounds: Bool = true,
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
                 introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .always,
-                includesRecordingsInBackup: Bool = false)
+                includesRecordingsInBackup: Bool = false, callDiarize: Bool = true, callConsentShown: Bool = false)
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
@@ -259,6 +270,8 @@ public struct VoiceSettings: Hashable, Sendable {
         self.unload = unload
         self.introAnswered = introAnswered
         self.callAudioRetention = callAudioRetention
+        self.callDiarize = callDiarize
+        self.callConsentShown = callConsentShown
         self.includesRecordingsInBackup = includesRecordingsInBackup
     }
 
@@ -276,7 +289,8 @@ public struct VoiceSettings: Hashable, Sendable {
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, transcriptionModel, switchesLayout,
-             playsSounds, autoStop, unload, introAnswered, callAudioRetention, includesRecordingsInBackup
+             playsSounds, autoStop, unload, introAnswered, callAudioRetention, includesRecordingsInBackup,
+             callDiarize, callConsentShown
     }
 
     public init(from decoder: any Decoder) throws {
@@ -314,6 +328,8 @@ extension VoiceSettings: Codable {
         unload = read(VoiceUnload.self, .unload) ?? defaults.unload
         introAnswered = read(Bool.self, .introAnswered) ?? defaults.introAnswered
         callAudioRetention = read(CallAudioRetention.self, .callAudioRetention) ?? defaults.callAudioRetention
+        callDiarize = read(Bool.self, .callDiarize) ?? defaults.callDiarize
+        callConsentShown = read(Bool.self, .callConsentShown) ?? defaults.callConsentShown
         includesRecordingsInBackup = read(Bool.self, .includesRecordingsInBackup) ?? defaults.includesRecordingsInBackup
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
@@ -362,6 +378,12 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.callAudioRetention.stringValue) {
             try container.encode(callAudioRetention, forKey: .callAudioRetention)
+        }
+        if !unreadableKeys.contains(CodingKeys.callDiarize.stringValue) {
+            try container.encode(callDiarize, forKey: .callDiarize)
+        }
+        if !unreadableKeys.contains(CodingKeys.callConsentShown.stringValue) {
+            try container.encode(callConsentShown, forKey: .callConsentShown)
         }
         if !unreadableKeys.contains(CodingKeys.includesRecordingsInBackup.stringValue) {
             try container.encode(includesRecordingsInBackup, forKey: .includesRecordingsInBackup)

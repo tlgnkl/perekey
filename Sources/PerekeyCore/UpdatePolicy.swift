@@ -22,6 +22,8 @@ public struct ManagedSettings: Hashable, Sendable {
         public static let voiceCloudDisabled = "VoiceCloudDisabled"
         /// Integer. The most days the dictation history is kept; 0 keeps nothing.
         public static let voiceHistoryMaxDays = "VoiceHistoryMaxDays"
+        /// Bool. `true`: no call recording; its menu item and panel are hidden.
+        public static let callRecordingDisabled = "CallRecordingDisabled"
         /// Bool. `true`: the audio of a call is always removed once its transcript is written.
         public static let callAudioKeepDisabled = "CallAudioKeepDisabled"
         /// Bool. `true`: recordings and transcripts stay out of Time Machine, and the user cannot include them.
@@ -34,18 +36,21 @@ public struct ManagedSettings: Hashable, Sendable {
     public var voiceCloudDisabled: Bool
     /// The profile's limit on the history, in days; nil when it sets none.
     public var voiceHistoryMaxDays: Int?
+    public var callRecordingDisabled: Bool
     public var callAudioKeepDisabled: Bool
     public var transcriptsBackupDisabled: Bool
 
     public init(updatesDisabled: Bool = false, voiceDisabled: Bool = false, voiceModelDownloadsDisabled: Bool = false,
                 voiceCloudDisabled: Bool = false, voiceHistoryMaxDays: Int? = nil,
-                callAudioKeepDisabled: Bool = false, transcriptsBackupDisabled: Bool = false)
+                callRecordingDisabled: Bool = false, callAudioKeepDisabled: Bool = false,
+                transcriptsBackupDisabled: Bool = false)
     {
         self.updatesDisabled = updatesDisabled
         self.voiceDisabled = voiceDisabled
         self.voiceModelDownloadsDisabled = voiceModelDownloadsDisabled
         self.voiceCloudDisabled = voiceCloudDisabled
         self.voiceHistoryMaxDays = voiceHistoryMaxDays.map { max(0, $0) }
+        self.callRecordingDisabled = callRecordingDisabled
         self.callAudioKeepDisabled = callAudioKeepDisabled
         self.transcriptsBackupDisabled = transcriptsBackupDisabled
     }
@@ -57,6 +62,7 @@ public struct ManagedSettings: Hashable, Sendable {
         voiceModelDownloadsDisabled = (forced(Key.voiceModelDownloadsDisabled) as? Bool) ?? false
         voiceCloudDisabled = (forced(Key.voiceCloudDisabled) as? Bool) ?? false
         voiceHistoryMaxDays = (forced(Key.voiceHistoryMaxDays) as? Int).map { max(0, $0) }
+        callRecordingDisabled = (forced(Key.callRecordingDisabled) as? Bool) ?? false
         callAudioKeepDisabled = (forced(Key.callAudioKeepDisabled) as? Bool) ?? false
         transcriptsBackupDisabled = (forced(Key.transcriptsBackupDisabled) as? Bool) ?? false
     }
@@ -65,7 +71,7 @@ public struct ManagedSettings: Hashable, Sendable {
     /// "Managed by your organization" note asks about its own key instead.
     public var forcesAnyKey: Bool {
         updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled || voiceCloudDisabled || voiceHistoryMaxDays != nil
-            || callAudioKeepDisabled || transcriptsBackupDisabled
+            || callRecordingDisabled || callAudioKeepDisabled || transcriptsBackupDisabled
     }
 }
 

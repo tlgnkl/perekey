@@ -22,6 +22,8 @@ struct MenuActions {
     var voiceModes: VoiceModeMenu?
     /// The recent dictations; nil hides the section.
     var dictation: DictationMenu?
+    /// «Записать созвон»; nil hides it.
+    var callRecording: CallRecordingController?
     /// The «Расшифровки» window; nil hides the row.
     var transcripts: TranscriptsMenu?
     /// «Расшифровать файл…»; nil, or false from it, hides the row.
@@ -196,6 +198,7 @@ struct MenuContent: View {
             #if PEREKEY_VOICE
             // Expired dictations go when the menu opens, at most once a day.
             actions.dictation?.history.purgeIfDue()
+            actions.callRecording?.purgeIfDue()
             #endif
         }
         .onChange(of: pause.current) { _, new in
@@ -377,6 +380,19 @@ struct MenuContent: View {
                 MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {
                     actions.close()
                     transcribeFile()
+                }
+            }
+            if let call = actions.callRecording, call.isAvailable {
+                if call.isRecording {
+                    MenuCommandRow(id: "call", title: "Stop Recording", table: "Voice", nav: nav) {
+                        actions.close()
+                        call.menuAction()
+                    }
+                } else {
+                    MenuCommandRow(id: "call", title: "Record a Call…", table: "Voice", nav: nav) {
+                        actions.close()
+                        call.menuAction()
+                    }
                 }
             }
             #endif

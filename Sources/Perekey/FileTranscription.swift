@@ -30,6 +30,19 @@ final class FileTranscription {
 
     /// The recordings window follows the queue, which is made anew each time voice turns on.
     var queueChanged: ((FileTranscriber?) -> Void)?
+    /// Others that follow it too: the call recorder.
+    private var queueObservers: [(FileTranscriber?) -> Void] = []
+
+    func observeQueue(_ observer: @escaping (FileTranscriber?) -> Void) {
+        queueObservers.append(observer)
+    }
+
+    private func announceQueue() {
+        queueChanged?(queue)
+        for observer in queueObservers {
+            observer(queue)
+        }
+    }
 
     /// The queue while voice is on.
     var queue: FileTranscriber? { lifecycle.queue }
@@ -41,13 +54,13 @@ final class FileTranscription {
     /// goes on with what a quit cut off.
     func start() {
         lifecycle.start()
-        queueChanged?(queue)
+        announceQueue()
     }
 
     /// Voice went off: the work stops; what is done stays for next time.
     func stop() {
         lifecycle.stop()
-        queueChanged?(queue)
+        announceQueue()
     }
 
     private func environment() -> FileTranscriber.Environment {

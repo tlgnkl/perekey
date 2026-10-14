@@ -14,6 +14,8 @@ import SwiftUI
 final class CallPanelController {
     private let model: CallRecordingController
     private var panel: CallPanelWindow?
+    /// Placed once: then the panel stays where the user dragged it.
+    private var placed = false
 
     init(model: CallRecordingController) {
         self.model = model
@@ -22,11 +24,13 @@ final class CallPanelController {
     func show() {
         let panel = panel ?? makePanel()
         self.panel = panel
-        // Picking the source takes the keyboard; recording does not, and
-        // gives it back to the call at once.
-        panel.takesKeys = !model.isRecording
+        // Picking the source takes the keyboard; recording and a notice do
+        // not, and give it back to the call at once.
+        panel.takesKeys = !model.isRecording && model.notice == nil
         if !panel.takesKeys, panel.isKeyWindow {
+            let frame = panel.frame
             panel.orderOut(nil)
+            panel.setFrame(frame, display: false)
         }
         fit(panel)
         if panel.takesKeys {
@@ -52,7 +56,8 @@ final class CallPanelController {
     /// wherever the user drags it, its top edge kept as the content changes.
     private func fit(_ panel: CallPanelWindow) {
         let size = panel.contentView?.fittingSize ?? CGSize(width: 300, height: 140)
-        if panel.isVisible {
+        let onScreen = NSScreen.screens.contains { $0.visibleFrame.intersects(panel.frame) }
+        if placed, onScreen {
             let top = panel.frame.maxY
             let frame = panel.frameRect(forContentRect: CGRect(origin: .zero, size: size))
             panel.setFrame(CGRect(x: panel.frame.minX, y: top - frame.height, width: frame.width,
@@ -60,6 +65,7 @@ final class CallPanelController {
             return
         }
         guard let screen = NSScreen.main else { return }
+        placed = true
         let visible = screen.visibleFrame
         let frame = panel.frameRect(forContentRect: CGRect(origin: .zero, size: size))
         panel.setFrame(CGRect(x: visible.maxX - frame.width - 16, y: visible.maxY - frame.height - 12,
@@ -100,6 +106,14 @@ struct CallPanelView: View {
         VStack(alignment: .leading, spacing: 10) {
             if model.isRecording {
                 CallRecordingView(model: model)
+            } else if let notice = model.notice {
+                Text(verbatim: notice)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button(voiceString("Close")) { model.closePicker() }
+                }
             } else {
                 CallPickerView(model: model)
             }

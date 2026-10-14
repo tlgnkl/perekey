@@ -298,7 +298,6 @@
 "Record" = "Записать";
 "The recording stopped at 4 hours" = "Запись остановилась на 4 часах";
 "It is saved and goes to transcription. Start a new one to go on." = "Она сохранена и ушла на расшифровку. Чтобы продолжить, начните новую.";
-"OK" = "OK";
 "A call is being recorded already." = "Созвон уже записывается.";
 "Not enough space: %@ free, the recording needs 2 GB." = "Мало места: свободно %@, а записи нужно 2 ГБ.";
 "The microphone did not start. Check it in System Settings → Privacy & Security → Microphone." = "Микрофон не включился. Проверьте Настройки → Конфиденциальность и безопасность → Микрофон.";
@@ -332,3 +331,4 @@
 "The system audio is not recorded: the device did not start. The microphone goes on." = "Системный звук не пишется: устройство не запустилось. Микрофон пишется дальше.";
 "The device changed. The recording goes on." = "Устройство сменилось. Запись идёт дальше.";
 "Put on headphones: from the speakers the others also reach your microphone." = "Наденьте наушники: из динамиков собеседники попадают и в ваш микрофон.";
+"Close" = "Закрыть";

@@ -135,15 +135,27 @@ public final class TrackMeter: Sendable {
     }
 }
 
+extension RecordingMeta.Gap.Reason {
+    /// A block came more than 50 ms off where the segment's samples put it:
+    /// audio was lost, or the device's clock ran off the host's. The next
+    /// segment starts at the block's own host time.
+    public static let discontinuity: Self = "discontinuity"
+}
+
 /// One track to disk in segments of `segmentSeconds`: `mic-0001.aac`, …
 /// Encodes on the thread that delivers the audio; 16 kHz mono AAC is cheap.
 /// Each segment enters `meta.json` when it opens and again, with its frame
 /// count, when it closes: a crash leaves the open one marked, and its file
-/// reads up to the last whole packet.
+/// reads up to the last whole packet. `meta.json` is written on a serial
+/// queue of the writer's own, in order, never on the audio thread.
 ///
-/// A gap (a device change, a failed write, a pause) closes the segment; the
-/// next block opens a new one at its own place on the scale.
+/// A gap (a device change, a failed write, a pause, a jump in the host
+/// time) closes the segment; the next block opens a new one at its own
+/// place on the scale.
 public final class SegmentWriter: AudioSink, @unchecked Sendable {
+    /// How far a block may land from the end of the segment's samples.
+    static let maxDrift = 0.05
+
     public let track: RecordingTrack
     public let meter = TrackMeter()
     private let log: any RecordingLog
@@ -153,11 +165,16 @@ public final class SegmentWriter: AudioSink, @unchecked Sendable {
     private let retryTicks: UInt64
     private let onInterrupted: @Sendable (AudioCaptureInterruption) -> Void
     private let lock = OSAllocatedUnfairLock(initialState: ())
+    private let metaQueue: DispatchQueue
+    private let maxDriftTicks = HostTime.ticks(SegmentWriter.maxDrift)
+    private static let logger = Logger(subsystem: "app.perekey", category: "call-recorder")
     // Under `lock`.
     private var file: AVAudioFile?
     private var buffer: AVAudioPCMBuffer
     private var index = 0
     private var frames: Int64 = 0
+    /// `mHostTime` of the open segment's first sample.
+    private var segmentStart: UInt64 = 0
     private var failure: String?
     /// Blocks before this host time are dropped: a pause, a failed write.
     private var acceptsFrom: UInt64 = 0
@@ -175,6 +192,7 @@ public final class SegmentWriter: AudioSink, @unchecked Sendable {
         self.onInterrupted = onInterrupted
         segmentFrames = Int64(segmentSeconds * VoiceCore.sampleRate)
         retryTicks = HostTime.ticks(retrySeconds)
+        metaQueue = DispatchQueue(label: "app.perekey.call-meta.\(track.rawValue)", qos: .utility)
         pcmFormat = AVAudioFormat(standardFormatWithSampleRate: VoiceCore.sampleRate, channels: 1)!
         buffer = AVAudioPCMBuffer(pcmFormat: pcmFormat, frameCapacity: 4096)!
     }
@@ -187,6 +205,14 @@ public final class SegmentWriter: AudioSink, @unchecked Sendable {
         lock.withLockUnchecked {
             guard !finished, !paused, hostTime >= acceptsFrom, samples.count > 0 else { return }
             meter.record(samples, hostTime: hostTime)
+            if file != nil {
+                let expected = segmentStart &+ HostTime.ticks(Double(frames) / VoiceCore.sampleRate)
+                let off = hostTime > expected ? hostTime - expected : expected - hostTime
+                if off > maxDriftTicks {
+                    close()
+                    gap(.discontinuity, at: min(expected, hostTime))
+                }
+            }
             if file == nil {
                 open(hostTime: hostTime)
             }
@@ -254,12 +280,31 @@ public final class SegmentWriter: AudioSink, @unchecked Sendable {
         }
     }
 
-    /// Closes the open segment; nothing more is written.
+    /// Closes the open segment; nothing more is written. Returns once
+    /// `meta.json` has every change.
     public func finish() {
         lock.withLockUnchecked {
             close()
             finished = true
             meter.reset()
+        }
+        flush()
+    }
+
+    /// Waits until the changes to `meta.json` sent so far are written.
+    public func flush() {
+        metaQueue.sync {}
+    }
+
+    /// Sends a change of `meta.json` to the writer's queue.
+    private func record(_ change: @escaping @Sendable (inout RecordingMeta) -> Void) {
+        let log = log
+        metaQueue.async {
+            do {
+                try log.update { change(&$0) }
+            } catch {
+                Self.logger.error("meta.json: \(CallRecorder.describe(error), privacy: .public)")
+            }
         }
     }
 
@@ -277,17 +322,10 @@ public final class SegmentWriter: AudioSink, @unchecked Sendable {
             failed("\(name): \(error)", at: hostTime)
             return
         }
+        segmentStart = hostTime
         let segment = RecordingMeta.Segment(track: track, file: name, startHostTime: hostTime,
                                             startOffset: log.offset(of: hostTime))
-        do {
-            try log.update { $0.segments.append(segment) }
-        } catch {
-            // A segment missing from meta.json would never be read: drop it.
-            if #available(macOS 15.0, *) { file?.close() }
-            file = nil
-            try? FileManager.default.removeItem(at: url)
-            failed("meta.json: \(error)", at: hostTime)
-        }
+        record { $0.segments.append(segment) }
     }
 
     private func close() {
@@ -298,7 +336,7 @@ public final class SegmentWriter: AudioSink, @unchecked Sendable {
         self.file = nil
         let name = file.url.lastPathComponent
         let frames = frames
-        try? log.update { meta in
+        record { meta in
             guard let i = meta.segments.lastIndex(where: { $0.file == name }) else { return }
             meta.segments[i].frames = frames
             meta.segments[i].closed = true
@@ -316,6 +354,6 @@ public final class SegmentWriter: AudioSink, @unchecked Sendable {
 
     private func gap(_ reason: RecordingMeta.Gap.Reason, at hostTime: UInt64) {
         let gap = RecordingMeta.Gap(track: track, startOffset: log.offset(of: hostTime), reason: reason)
-        try? log.update { $0.gaps.append(gap) }
+        record { $0.gaps.append(gap) }
     }
 }

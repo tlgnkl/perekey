@@ -54,8 +54,10 @@ import Testing
         let profile = CallAudioPolicy(retention: .always, keepDisabled: true)
 
         #expect(!always.removesAudio(of: call(.done, daysAgo: 400), now: now))
-        #expect(month.removesAudio(of: call(.stopped, daysAgo: 30), now: now))
+        #expect(month.removesAudio(of: call(.done, daysAgo: 30), now: now))
         #expect(!month.removesAudio(of: call(.done, daysAgo: 29), now: now))
+        // Not transcribed, the audio is all there is: it stays past any term.
+        #expect(!month.removesAudio(of: call(.stopped, daysAgo: 90), now: now))
         #expect(untilDone.removesAudio(of: call(.done, daysAgo: 0), now: now))
         #expect(!untilDone.removesAudio(of: call(.stopped, daysAgo: 0), now: now))
         #expect(profile.effective == .untilTranscribed)

@@ -77,7 +77,9 @@ import Testing
         let recorder = recorder(mic: mic)
         let id = try await recorder.start(Self.options)
         mic.feed(seconds: 1.2, clock: clock)
-        // The first segment closed at 1 s: meta.json on disk already says so.
+        // The first segment closed at 1 s: meta.json on disk soon says so,
+        // written off the audio thread.
+        try await waitUntil { (try? self.load(id).segments.count) == 2 }
         var meta = try load(id)
         #expect(meta.state == .recording)
         #expect(meta.segments.map(\.file) == ["mic-0001.aac", "mic-0002.aac"])
@@ -270,6 +272,41 @@ import Testing
         #expect(folder.meta(id).isMissing)
     }
 
+    @Test func aJumpInHostTimeStartsANewSegment() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mic = FakeMic()
+        let recorder = recorder(mic: mic) { $0.segmentSeconds = 60 }
+        let id = try await recorder.start(Self.options)
+        mic.feed(seconds: 0.5, clock: clock)
+        clock.advance(0.03) // within 50 ms: the same segment
+        mic.feed(seconds: 0.3, clock: clock)
+        clock.advance(0.2) // blocks lost
+        mic.feed(seconds: 0.3, clock: clock)
+        await recorder.stop()
+        let meta = try load(id)
+        #expect(meta.segments.map(\.frames) == [12_800, 4_800])
+        #expect(abs(meta.segments[1].startOffset - 1.03) < 0.005)
+        let gap = try #require(meta.gaps.first)
+        #expect(gap.reason == .discontinuity)
+        // Where the segment's samples ran out: 0.8 s of them, the 30 ms inside the leeway.
+        #expect(abs(gap.startOffset - 0.8) < 0.005)
+    }
+
+    @Test func stopDuringTheStartCancelsIt() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mic = FakeMic(hangsSubscribe: true)
+        let recorder = recorder(mic: mic)
+        let start = Task { try await recorder.start(Self.options) }
+        try await waitUntil { mic.waiting }
+        #expect(await recorder.stop() == nil)
+        mic.releaseSubscribe()
+        await #expect(throws: CallRecorder.StartError.cancelled) { try await start.value }
+        #expect(await !recorder.isRecording)
+        #expect(folder.recordings().isEmpty)
+        #expect(mic.sink == nil)
+        #expect(mic.holds == 0)
+    }
+
     @Test func aSecondStartIsRefused() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let recorder = recorder()
@@ -340,7 +377,8 @@ import Testing
                                                   now: now).isEmpty)
         let month = CallRecordings.removeExpiredAudio(in: folder, policy: .init(retention: .month, keepDisabled: false),
                                                       now: now)
-        #expect(Set(month) == [old, oldUntranscribed])
+        #expect(month == [old]) // not the one never transcribed
+        #expect(try load(oldUntranscribed).audioRemovedAt == nil)
         #expect(!FileManager.default.fileExists(atPath: folder.directory(for: old).appending(path: "mic-0001.aac").path))
         // meta.json keeps whole seconds.
         #expect(abs(try load(old).audioRemovedAt?.timeIntervalSince(now) ?? 99) < 1)
@@ -383,13 +421,32 @@ final class FakeMic: MicSource, @unchecked Sendable {
     private var current: (any AudioSink)?
     private var count = 0
     private var held = 0
+    private let hangsSubscribe: Bool
+    private var gate: CheckedContinuation<Void, Never>?
+
+    init(hangsSubscribe: Bool = false) {
+        self.hangsSubscribe = hangsSubscribe
+    }
+
+    /// A subscribe waits for `releaseSubscribe`.
+    var waiting: Bool { lock.withLock { gate != nil } }
+
+    func releaseSubscribe() {
+        lock.withLock {
+            defer { gate = nil }
+            return gate
+        }?.resume()
+    }
 
     var sink: (any AudioSink)? { lock.withLock { current } }
     var subscriptions: Int { lock.withLock { count } }
     var holds: Int { lock.withLock { held } }
 
     func subscribe(_ sink: any AudioSink) async throws -> AudioSubscription {
-        lock.withLock {
+        if hangsSubscribe, subscriptions == 0 {
+            await withCheckedContinuation { continuation in lock.withLock { gate = continuation } }
+        }
+        return lock.withLock {
             current = sink
             count += 1
             return AudioSubscription(id: UInt64(count))

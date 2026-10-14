@@ -99,6 +99,8 @@ public actor CallRecorder {
 
     public enum StartError: Error, Equatable {
         case alreadyRecording
+        /// «Стоп» came while the recording started.
+        case cancelled
         /// Bytes free where the recordings go, under `minFreeBytes`.
         case lowDiskSpace(Int64)
         case microphone(String)
@@ -208,6 +210,8 @@ public actor CallRecorder {
     /// The stop under way: a second stop (⌘Q during «Стоп») waits for it.
     private var stopping: Task<UUID?, Never>?
     private var starting = false
+    /// «Стоп» during `start`: it ends there, with nothing kept.
+    private var startCancelled = false
     private var generation = 0
     public private(set) var status = Status()
 
@@ -265,6 +269,7 @@ public actor CallRecorder {
     public func start(_ options: Options) async throws -> UUID {
         guard session == nil, stopping == nil, !starting else { throw StartError.alreadyRecording }
         starting = true
+        startCancelled = false
         defer { starting = false }
         if let free = freeSpace(folder.root), free < configuration.minFreeBytes {
             throw StartError.lowDiskSpace(free)
@@ -300,6 +305,12 @@ public actor CallRecorder {
             await mic.release()
             try? folder.remove(id)
             throw StartError.microphone(Self.describe(error))
+        }
+        guard !startCancelled else {
+            await mic.unsubscribe(token)
+            await mic.release()
+            try? folder.remove(id)
+            throw StartError.cancelled
         }
         let session = Session(generation: generation, id: id, options: options, log: log, mic: micWriter,
                               sys: sysWriter)
@@ -478,7 +489,10 @@ public actor CallRecorder {
     @discardableResult
     public func stop(_ reason: StopReason = .user) async -> UUID? {
         if let stopping { return await stopping.value }
-        guard let session else { return nil }
+        guard let session else {
+            if starting { startCancelled = true }
+            return nil
+        }
         let task = Task { await finish(session, reason) }
         stopping = task
         let id = await task.value

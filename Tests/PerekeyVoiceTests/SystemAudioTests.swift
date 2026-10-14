@@ -43,6 +43,15 @@ import Testing
         #expect(AppHelpers.responsiblePID(getpid()) > 0)
     }
 
+    @Test func noPrivateCallFromMacOS26() {
+        // The parent of the runner answers for it before 26; from 26 the
+        // private function is never called, and a process stands for itself.
+        if #available(macOS 26.0, *) {
+            #expect(AppHelpers.responsiblePID(getppid()) == getppid())
+            #expect(AppHelpers.responsiblePID(getpid()) == getpid())
+        }
+    }
+
     @available(macOS 14.2, *)
     @Test func automaticMatchingFollowsTheSystem() {
         if #available(macOS 26.0, *) {

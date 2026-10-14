@@ -134,8 +134,14 @@ enum AppHelpers {
     static var knowsResponsibility: Bool { responsible != nil }
 
     /// The responsible process, or the process itself when unknown.
+    ///
+    /// Never called on macOS 26+: there the tap names the app by bundle ID
+    /// and Core Audio finds its helpers, so a private function is not worth
+    /// its risk. Every caller (the tap's list, «Вся система», the source
+    /// picker) goes through here, and the process stands for itself.
     static func responsiblePID(_ pid: pid_t) -> pid_t {
-        responsible?(pid) ?? pid
+        if #available(macOS 26.0, *) { return pid }
+        return responsible?(pid) ?? pid
     }
 }
 
@@ -490,6 +496,9 @@ public actor SystemAudioTap {
             try build()
         } catch {
             isRunning = false
+            // No tap to watch: the zero detector would only keep the actor busy.
+            watchdog?.cancel()
+            watchdog = nil
             sink?.captureInterrupted(.failed(String(describing: error)))
             onEvent(.failed(String(describing: error)))
             return

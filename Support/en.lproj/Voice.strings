@@ -298,7 +298,6 @@
 "Record" = "Record";
 "The recording stopped at 4 hours" = "The recording stopped at 4 hours";
 "It is saved and goes to transcription. Start a new one to go on." = "It is saved and goes to transcription. Start a new one to go on.";
-"OK" = "OK";
 "A call is being recorded already." = "A call is being recorded already.";
 "Not enough space: %@ free, the recording needs 2 GB." = "Not enough space: %@ free, the recording needs 2 GB.";
 "The microphone did not start. Check it in System Settings → Privacy & Security → Microphone." = "The microphone did not start. Check it in System Settings → Privacy & Security → Microphone.";
@@ -332,3 +331,4 @@
 "The system audio is not recorded: the device did not start. The microphone goes on." = "The system audio is not recorded: the device did not start. The microphone goes on.";
 "The device changed. The recording goes on." = "The device changed. The recording goes on.";
 "Put on headphones: from the speakers the others also reach your microphone." = "Put on headphones: from the speakers the others also reach your microphone.";
+"Close" = "Close";

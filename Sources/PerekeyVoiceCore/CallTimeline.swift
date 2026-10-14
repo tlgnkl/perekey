@@ -84,18 +84,21 @@ public struct CallAudioPolicy: Sendable, Equatable {
     /// The term in force: the profile's when it forbids keeping the audio.
     public var effective: RecordingMeta.AudioRetention { keepDisabled ? .untilTranscribed : retention }
 
-    /// Whether a recording's audio is to be removed now. Never while it is
-    /// recorded or waits for the queue, and never a file the user chose.
+    /// Whether a recording's audio is to be removed now. Only once it is
+    /// transcribed (`done`), by either term: a call stopped and never
+    /// transcribed, or one the queue failed, keeps its audio, or nothing of
+    /// it would be left. Never a file the user chose.
     public func removesAudio(of meta: RecordingMeta, now: Date) -> Bool {
-        guard meta.kind == .call, meta.audioRemovedAt == nil, !meta.segments.isEmpty else { return false }
-        guard meta.state != .recording, meta.state != .transcribing, meta.pendingJob == nil else { return false }
+        guard meta.kind == .call, meta.state == .done, meta.pendingJob == nil, meta.audioRemovedAt == nil,
+              !meta.segments.isEmpty
+        else { return false }
         switch effective {
         case .always:
             return false
         case .month:
             return now.timeIntervalSince(meta.createdAt) >= 30 * 24 * 3600
         case .untilTranscribed:
-            return meta.state == .done
+            return true
         }
     }
 }

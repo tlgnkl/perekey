@@ -24,15 +24,21 @@ public enum CallRecordings {
                 continue
             }
             let directory = folder.directory(for: id)
+            // The files are read and removed outside the lock.
+            var readable: [String: Int64] = [:]
+            for segment in meta.segments where !segment.closed {
+                readable[segment.file] = readableFrames(directory.appending(path: segment.file,
+                                                                            directoryHint: .notDirectory)) ?? 0
+            }
             do {
+                var empty: [String] = []
                 try folder.updateMeta(id) { meta in
                     var end = 0.0
                     meta.segments.removeAll { segment in
                         guard !segment.closed else { return false }
                         // A segment opened right before the crash may have no packet.
-                        let url = directory.appending(path: segment.file, directoryHint: .notDirectory)
-                        guard let frames = readableFrames(url), frames > 0 else {
-                            try? FileManager.default.removeItem(at: url)
+                        guard let frames = readable[segment.file], frames > 0 else {
+                            empty.append(segment.file)
                             return true
                         }
                         end = max(end, segment.startOffset + Double(frames) / meta.sampleRate)
@@ -43,6 +49,9 @@ public enum CallRecordings {
                     }
                     meta.state = .stopped
                     meta.duration = end
+                }
+                for file in empty {
+                    try? FileManager.default.removeItem(at: directory.appending(path: file, directoryHint: .notDirectory))
                 }
                 // Cut off before its first block: nothing to offer.
                 if case let .loaded(meta) = folder.meta(id), meta.segments.isEmpty {
@@ -75,17 +84,19 @@ public enum CallRecordings {
         for id in folder.recordings() where id != active {
             guard case let .loaded(meta) = folder.meta(id), policy.removesAudio(of: meta, now: now) else { continue }
             do {
+                // Under the lock only the mark: the files go after it.
+                var files: [String] = []
                 try folder.updateMeta(id) { meta in
                     // Read again under the lock: the queue may have taken it meanwhile.
                     guard policy.removesAudio(of: meta, now: now) else { return }
-                    let directory = folder.directory(for: id)
-                    for segment in meta.segments {
-                        try? FileManager.default.removeItem(at: directory.appending(path: segment.file,
-                                                                                    directoryHint: .notDirectory))
-                    }
+                    files = meta.segments.map(\.file)
                     meta.audioRemovedAt = now
                 }
-                cleaned.append(id)
+                let directory = folder.directory(for: id)
+                for file in files {
+                    try? FileManager.default.removeItem(at: directory.appending(path: file, directoryHint: .notDirectory))
+                }
+                if !files.isEmpty { cleaned.append(id) }
             } catch {
                 log.error("removing a call's audio failed: \(CallRecorder.describe(error), privacy: .public)")
             }

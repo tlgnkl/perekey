@@ -6,6 +6,7 @@ import Observation
 import PerekeyCore
 import PerekeyVoice
 import PerekeyVoiceCore
+import UserNotifications
 
 /// A call recording in the app: the menu item, the panel, the capsule's
 /// time, and what the Mac does around it. Sleep, a closed lid and another
@@ -35,6 +36,9 @@ final class CallRecordingController {
     @ObservationIgnored private var lastPurge: Date?
     @ObservationIgnored private var phasesTask: Task<Void, Never>?
     @ObservationIgnored private var outputTimer: Timer?
+    @ObservationIgnored private var statusTask: Task<Void, Never>?
+    /// Shown in the panel after a recording stopped by itself.
+    private(set) var notice: String?
     /// The capsule's ● and time; the menu bar sets it.
     @ObservationIgnored var indicator: CallIndicatorModel?
 
@@ -55,11 +59,14 @@ final class CallRecordingController {
         self.settings = settings
         self.isSupported = isSupported
         self.folder = folder
-        let relay = StatusRelay()
+        // One stream: the snapshots arrive in the order the recorder sent them.
+        let (statuses, sink) = AsyncStream.makeStream(of: CallRecorder.Status.self)
         recorder = CallRecorder(folder: folder, mic: capture, makeTap: CallRecorder.systemTap,
-                                onStatus: { relay.send($0) })
-        relay.target = { [weak self] status in
-            Task { @MainActor in self?.received(status) }
+                                onStatus: { sink.yield($0) })
+        statusTask = Task { [weak self] in
+            for await status in statuses {
+                self?.received(status)
+            }
         }
         observe()
     }
@@ -92,6 +99,7 @@ final class CallRecordingController {
     func showPicker() {
         guard isAvailable, !isRecording else { return }
         problem = nil
+        notice = nil
         refreshApps()
         if case let .app(id) = choice, !apps.contains(where: { $0.bundleID == id }) {
             choice = apps.first(where: \.isPlaying).map { .app($0.bundleID) } ?? .system
@@ -101,6 +109,7 @@ final class CallRecordingController {
 
     func closePicker() {
         guard !isRecording else { return }
+        notice = nil
         panel?.hide()
     }
 
@@ -131,6 +140,8 @@ final class CallRecordingController {
                 await capture.requestAccess()
                 try await recorder.start(options)
                 CallAnnouncement.post(voiceString("Call recording started"))
+            } catch CallRecorder.StartError.cancelled {
+                // «Стоп» came first: nothing to say.
             } catch let error as CallRecorder.StartError {
                 problem = Self.message(error)
                 panelController().show()
@@ -198,9 +209,10 @@ final class CallRecordingController {
         } else if !isRecording, wasRecording {
             outputTimer?.invalidate()
             outputTimer = nil
-            panel?.hide()
             if status.lastStop == .limit {
                 showLimitReached()
+            } else {
+                panel?.hide()
             }
         }
     }
@@ -222,18 +234,26 @@ final class CallRecordingController {
         return true
     }
 
+    /// The call may still go on: a line in the panel and a notification,
+    /// and the focus stays where it is.
     private func showLimitReached() {
-        let alert = NSAlert()
-        alert.messageText = voiceString("The recording stopped at 4 hours")
-        alert.informativeText = voiceString("It is saved and goes to transcription. Start a new one to go on.")
-        alert.addButton(withTitle: voiceString("OK"))
-        NSApp.activate()
-        alert.runModal()
+        let title = voiceString("The recording stopped at 4 hours")
+        let body = voiceString("It is saved and goes to transcription. Start a new one to go on.")
+        notice = title + ". " + body
+        panelController().show()
+        let center = UNUserNotificationCenter.current()
+        Task {
+            guard (try? await center.requestAuthorization(options: [.alert])) == true else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            try? await center.add(UNNotificationRequest(identifier: "call-limit", content: content, trigger: nil))
+        }
     }
 
     static func message(_ error: CallRecorder.StartError) -> String {
         switch error {
-        case .alreadyRecording:
+        case .alreadyRecording, .cancelled:
             voiceString("A call is being recorded already.")
         case let .lowDiskSpace(free):
             voiceString("Not enough space: \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free, the recording needs 2 GB.")
@@ -345,21 +365,6 @@ final class CallRecordingController {
 enum CallSourceChoice: Hashable {
     case app(String)
     case system
-}
-
-/// Hands the recorder's status to the controller made after it.
-private final class StatusRelay: @unchecked Sendable {
-    private let lock = NSLock()
-    private var handler: (@Sendable (CallRecorder.Status) -> Void)?
-
-    var target: (@Sendable (CallRecorder.Status) -> Void)? {
-        get { lock.withLock { handler } }
-        set { lock.withLock { handler = newValue } }
-    }
-
-    func send(_ status: CallRecorder.Status) {
-        target?(status)
-    }
 }
 
 /// Spoken by VoiceOver without moving its focus.

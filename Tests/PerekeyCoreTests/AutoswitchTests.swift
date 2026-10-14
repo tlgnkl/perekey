@@ -55,6 +55,37 @@ private let ru = Fixture.russian.id
         #expect(desk.undone == [correction.seq])
     }
 
+    /// Several Cyrillic layouts: the classifier walks its candidates.
+    @Test(arguments: [("yt, ", "не, "), ("ytn, ", "нет, ")])
+    func punctuationStaysWithSeveralCyrillicLayouts(typed: String, expected: String) {
+        var desk = Desk(layouts: [Fixture.abc, Fixture.russian, Fixture.ukrainianPC])
+        desk.type(typed)
+        #expect(desk.text == expected)
+        #expect(desk.appLayout == ru)
+    }
+
+    @Test func returnAfterASwitchInsideTheWordKeepsTheMark() throws {
+        var desk = Desk()
+        desk.type("ytn,")
+        desk.press(KeyCode.return)
+        #expect(desk.text == "нет,\n")
+        #expect(try #require(desk.corrections.first).undoable == false)
+    }
+
+    @Test func cancelledMarkRetypeLeavesTheWordAsTyped() {
+        var desk = Desk()
+        desk.type("ytn")
+        #expect(desk.text == "нет")
+        // The caret check fails for the retype at the word's end.
+        desk.cancelRetypes = true
+        desk.type(", ")
+        #expect(desk.text == "нетб ")
+        #expect(desk.appLayout == ru)
+        desk.cancelRetypes = false
+        desk.type("vbh ")
+        #expect(desk.text == "нетб мир ")
+    }
+
     @Test func russianWordEndingInALetterOnAMarkKeyStaysAfterASwitchInsideIt() {
         // "ckjdj" switches inside; "слово" is a word, so "ю" after "слов" stays.
         var desk = Desk()

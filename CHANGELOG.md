@@ -22,6 +22,13 @@ differently, what was fixed.
 
 ### Changed
 
+- **Words joined by a slash are fixed one by one.** In “доходы/расходы”,
+  “менеджер/CEO” or “приход/расход” automatic switching judges each word on its
+  own: “ghbdtn/vbh” becomes “привет/мир”, and “привет/цщкдв” becomes
+  “привет/world”. Addresses and code such as “github.com/user” or
+  “~/docs” stay as typed. Short parts (“B/C”) and parts with capitals inside
+  (“UX/UI”) stay as they are too. On Russian – PC, where “/” is Shift+\,
+  the token is judged whole, as before.
 - **Option retypes the part after a slash.** In “менеджер/сущ” the first
   press gives “менеджер/ceo” and leaves the word before the slash alone.
   Press again to put it back, and a third time to retype the whole word.

@@ -213,7 +213,7 @@ struct CorrectionUndo: Sendable {
                   let source = layouts[last.correction.source], let target = layouts[last.correction.target]
             else { return }
             last.strokes.append(stroke)
-            if !entry.isSpace, !WordJudge.endsWord(stroke, typed: target, other: source) {
+            if !entry.isGap, !WordJudge.endsWord(stroke, typed: target, other: source) {
                 last.wordLength += 1
                 last.extended = true
                 Self.describe(&last, layouts: layouts)

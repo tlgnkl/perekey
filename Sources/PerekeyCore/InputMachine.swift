@@ -246,6 +246,10 @@ public struct InputMachine: Sendable {
         let boundary = fence.takeBoundary(key)
         let isHeldBoundary = boundary?.isHeldKey == true
         var extendsCorrection = false
+        // The key ended a word the judge decided: a "/" there ends a part of
+        // the token (`WordJudge.endsPart`). A held one was decided before it
+        // was held.
+        var judgedHere = isHeldBoundary && boundary?.endsWord == true
         if !isHeldBoundary {
             switch undo.keyDown(key.keyCode, held: held) {
             case .undoes:
@@ -273,9 +277,10 @@ public struct InputMachine: Sendable {
                     return .hold
                 }
                 tallyIfFull(effects: &effects)
+                judgedHere = judge.gate.judged
             }
         }
-        updateBuffer(with: key, held: held)
+        updateBuffer(with: key, held: held, afterJudgedWord: judgedHere)
         if extendsCorrection {
             undo.extend(with: key, buffer: buffer, layouts: layouts, alwaysFix: settings.alwaysFix, effects: &effects)
         }
@@ -300,7 +305,8 @@ public struct InputMachine: Sendable {
         manual.endPhrase()
     }
 
-    private mutating func updateBuffer(with key: KeyEvent, held: UInt8) {
+    /// `afterJudgedWord`: the key ended a word the judge decided.
+    private mutating func updateBuffer(with key: KeyEvent, held: UInt8, afterJudgedWord: Bool = false) {
         if held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit) != 0
             || KeyCode.navigation.contains(key.keyCode)
             || focus?.isSecureField == true
@@ -326,9 +332,13 @@ public struct InputMachine: Sendable {
             buffer.abandonWord()
         } else if map.text(for: stroke) != nil {
             if stroke.keyCode != KeyCode.space {
-                judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isSpace == true)
+                judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isGap == true)
             }
-            buffer.type(stroke, in: current)
+            // The part stays whole when it is no word where it ended up:
+            // "github.com/" kept in ABC is code, and so is the rest of it.
+            let endsPart = afterJudgedWord && WordJudge.typesSlash(stroke, in: map)
+                && WordJudge.isWord(buffer.entries) { layouts[$0.layout] }
+            buffer.type(stroke, in: current, endsPart: endsPart)
         } else {
             buffer.clear()
         }

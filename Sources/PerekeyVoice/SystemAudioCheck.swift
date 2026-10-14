@@ -229,6 +229,8 @@ func eventLogger(_ report: VoiceCheckReport, store: RecordingStore?) -> @Sendabl
         case .silent(let seconds):
             report.line(String(format: "tap: %@WARNING only zeros for %.0f s while the source plays: "
                 + "System Audio Recording is likely off for Perekey", at, seconds))
+        case .sound:
+            report.line("tap: \(at)sound again")
         case .failed(let message):
             report.line("tap: \(at)FAILED \(message)")
         }
@@ -269,7 +271,7 @@ private struct TapCheck {
             report.line("FAIL: \(out.path): \(error)")
             return 1
         }
-        let writer = SegmentWriter(track: "sys", store: store, format: format,
+        let writer = SegmentWriter(track: .sys, log: store, format: format,
                                    segmentSeconds: options.double("segment", default: 60))
         let meter = LevelMeter()
         let matching: SystemAudioTap.Matching = switch options.string("matching") {
@@ -366,8 +368,8 @@ private struct SyncCheck {
         defer { ProcessInfo.processInfo.endActivity(activity) }
         let micClicks = ClickDetector(), sysClicks = ClickDetector()
         let micMeter = LevelMeter(), sysMeter = LevelMeter()
-        let micWriter = SegmentWriter(track: "mic", store: store, format: format, segmentSeconds: segment)
-        let sysWriter = SegmentWriter(track: "sys", store: store, format: format, segmentSeconds: segment)
+        let micWriter = SegmentWriter(track: .mic, log: store, format: format, segmentSeconds: segment)
+        let sysWriter = SegmentWriter(track: .sys, log: store, format: format, segmentSeconds: segment)
         let capture = AudioCapture()
         let token: AudioSubscription
         do {
@@ -629,7 +631,7 @@ private struct RouteCheck {
             report.line("FAIL: \(out.path)")
             return 1
         }
-        let writer = SegmentWriter(track: "sys", store: store, format: format,
+        let writer = SegmentWriter(track: .sys, log: store, format: format,
                                    segmentSeconds: options.double("segment", default: 60))
         let meter = LevelMeter()
         let player = Player(file: file)
@@ -674,7 +676,7 @@ private struct RouteCheck {
         let meta = store.snapshot
         report.line("segments: " + meta.segments.map { "\($0.file) at \(String(format: "%.2f", $0.startOffset)) s, \($0.frames) frames" }
             .joined(separator: "; "))
-        report.line("gaps: " + meta.gaps.map { "\($0.track) at \(String(format: "%.2f", $0.startOffset)) s (\($0.reason))" }
+        report.line("gaps: " + meta.gaps.map { "\($0.track.rawValue) at \(String(format: "%.2f", $0.startOffset)) s (\($0.reason.rawValue))" }
             .joined(separator: "; "))
         report.line("rebuilds \(rebuilds), still running at the end: \(running)")
         return running && (!simulate || rebuilds >= 2) ? 0 : 1
@@ -750,7 +752,7 @@ private struct SegmentsCheck {
             report.line("FAIL: \(out.path)")
             return 1
         }
-        let writer = SegmentWriter(track: "mic", store: store, format: format,
+        let writer = SegmentWriter(track: .mic, log: store, format: format,
                                    segmentSeconds: options.double("segment", default: 60))
         report.line("segments: \(format.rawValue) into \(out.path), pid \(getpid())")
         let block = Int(VoiceCore.sampleRate / 10)
@@ -803,8 +805,7 @@ private struct SegmentsCheck {
                 report.line("\(name): \(size) bytes, UNREADABLE: \((error as NSError).domain) \((error as NSError).code)")
             }
         }
-        if let data = try? Data(contentsOf: dir.appending(path: "meta.json")),
-           let meta = try? JSONDecoder().decode(RecordingMeta.self, from: data) {
+        if let meta = try? RecordingStore.read(dir) {
             report.line("meta.json: state \(meta.state.rawValue), "
                 + meta.segments.map { "\($0.file) \($0.closed ? "closed, \($0.frames) frames" : "open")" }.joined(separator: "; "))
         } else {

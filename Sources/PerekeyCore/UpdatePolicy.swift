@@ -22,6 +22,11 @@ public struct ManagedSettings: Hashable, Sendable {
         public static let voiceCloudDisabled = "VoiceCloudDisabled"
         /// Integer. The most days the dictation history is kept; 0 keeps nothing.
         public static let voiceHistoryMaxDays = "VoiceHistoryMaxDays"
+        /// Bool. `true`: no call recording; its menu item and panel are hidden.
+        public static let callRecordingDisabled = "CallRecordingDisabled"
+        /// Bool. `true`: a call's audio is removed once its transcript is written,
+        /// whatever the user chose.
+        public static let callAudioKeepDisabled = "CallAudioKeepDisabled"
     }
 
     public var updatesDisabled: Bool
@@ -30,15 +35,20 @@ public struct ManagedSettings: Hashable, Sendable {
     public var voiceCloudDisabled: Bool
     /// The profile's limit on the history, in days; nil when it sets none.
     public var voiceHistoryMaxDays: Int?
+    public var callRecordingDisabled: Bool
+    public var callAudioKeepDisabled: Bool
 
     public init(updatesDisabled: Bool = false, voiceDisabled: Bool = false, voiceModelDownloadsDisabled: Bool = false,
-                voiceCloudDisabled: Bool = false, voiceHistoryMaxDays: Int? = nil)
+                voiceCloudDisabled: Bool = false, voiceHistoryMaxDays: Int? = nil, callRecordingDisabled: Bool = false,
+                callAudioKeepDisabled: Bool = false)
     {
         self.updatesDisabled = updatesDisabled
         self.voiceDisabled = voiceDisabled
         self.voiceModelDownloadsDisabled = voiceModelDownloadsDisabled
         self.voiceCloudDisabled = voiceCloudDisabled
         self.voiceHistoryMaxDays = voiceHistoryMaxDays.map { max(0, $0) }
+        self.callRecordingDisabled = callRecordingDisabled
+        self.callAudioKeepDisabled = callAudioKeepDisabled
     }
 
     /// Reads the keys through `forced`, which returns a value only when a profile forces the key.
@@ -48,12 +58,15 @@ public struct ManagedSettings: Hashable, Sendable {
         voiceModelDownloadsDisabled = (forced(Key.voiceModelDownloadsDisabled) as? Bool) ?? false
         voiceCloudDisabled = (forced(Key.voiceCloudDisabled) as? Bool) ?? false
         voiceHistoryMaxDays = (forced(Key.voiceHistoryMaxDays) as? Int).map { max(0, $0) }
+        callRecordingDisabled = (forced(Key.callRecordingDisabled) as? Bool) ?? false
+        callAudioKeepDisabled = (forced(Key.callAudioKeepDisabled) as? Bool) ?? false
     }
 
     /// True when a profile forces any key, updates or voice. A pane with a
     /// "Managed by your organization" note asks about its own key instead.
     public var forcesAnyKey: Bool {
         updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled || voiceCloudDisabled || voiceHistoryMaxDays != nil
+            || callRecordingDisabled || callAudioKeepDisabled
     }
 }
 

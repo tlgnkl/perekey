@@ -32,7 +32,8 @@ enum TrackCommand {
         let joins = FileManager.default.fileExists(atPath: directory.appending(path: "meta.json").path)
         let target = joins ? directory.appending(path: ".\(name)-new", directoryHint: .isDirectory) : directory
         let store = try RecordingStore(directory: target, startHostTime: base, format: .adts)
-        let writer = SegmentWriter(track: name, store: store, format: .adts, segmentSeconds: 300)
+        guard let track = RecordingTrack(rawValue: name) else { throw ProbeError.message("the track is mic or sys") }
+        let writer = SegmentWriter(track: track, log: store, format: .adts, segmentSeconds: 300)
         var written = 0
         var rttm: [String] = []
         var used: [String] = []
@@ -85,6 +86,7 @@ enum TrackCommand {
             meta.segments.append(segment)
         }
         let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(meta).write(to: directory.appending(path: "meta.json"), options: .atomic)
         try manager.removeItem(at: folder)
@@ -101,7 +103,7 @@ enum TrackCommand {
     /// match of the decoded start against the source.
     static func measureLead(directory: URL, track: String, source: String, at seconds: Int) throws -> Int {
         let meta = try RecordingReader.meta(directory)
-        guard let first = meta.segments.first(where: { $0.track == track }) else { return 0 }
+        guard let first = meta.segments.first(where: { $0.track.rawValue == track }) else { return 0 }
         let from = seconds * 16_000
         let decoded = try RecordingReader.decode(directory.appending(path: first.file), from: from, count: 16_000 * 6)
         let original = Array(try Engines.samples(source).dropFirst(from).prefix(16_000 * 5))
@@ -137,7 +139,7 @@ final class RecordingReader: AudioSampleSource, @unchecked Sendable {
     init(directory: URL, track: String, lead: Int) throws {
         let meta = try Self.meta(directory)
         let rate = meta.sampleRate
-        pieces = meta.segments.filter { $0.track == track }.map {
+        pieces = meta.segments.filter { $0.track.rawValue == track }.map {
             Piece(url: directory.appending(path: $0.file), start: Int(($0.startOffset * rate).rounded()),
                   frames: Int($0.frames))
         }
@@ -147,7 +149,7 @@ final class RecordingReader: AudioSampleSource, @unchecked Sendable {
     }
 
     static func meta(_ directory: URL) throws -> RecordingMeta {
-        try JSONDecoder().decode(RecordingMeta.self, from: Data(contentsOf: directory.appending(path: "meta.json")))
+        try RecordingStore.read(directory)
     }
 
     func read(_ range: Range<Int>) throws -> [Float] {

@@ -168,6 +168,8 @@ public enum SystemAudioEvent: Sendable {
     case rebuilt(reason: String, format: String, gap: Double)
     /// Only zeros for `seconds` while a tapped process plays: likely no permission.
     case silent(seconds: Double)
+    /// Sound came again after `.silent`.
+    case sound
     /// The tap did not come back after a change; capture is off.
     case failed(String)
 }
@@ -516,7 +518,10 @@ public actor SystemAudioTap {
         guard isRunning, let reader else { return }
         let silent = reader.silentSeconds
         guard silent > 10 else {
-            silentReported = false
+            if silentReported {
+                silentReported = false
+                onEvent(.sound)
+            }
             return
         }
         guard !silentReported, sourcePlays() else { return }

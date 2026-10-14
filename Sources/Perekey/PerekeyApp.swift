@@ -63,6 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let voice: VoiceSetup
     /// "What's new: voice input", once, for someone who already uses Perekey.
     private let voiceIntro: VoiceIntroController
+    /// «Записать созвон»: the microphone and the system audio to disk.
+    private let callRecording: CallRecordingController
     #endif
 
     override init() {
@@ -92,6 +94,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let voiceText = VoiceTextController()
         self.voiceText = voiceText
         voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes, text: voiceText, usage: usage)
+        let callRecording = CallRecordingController(capture: voice.capture, settings: voiceModels.settings,
+                                                    isSupported: { voiceModels.isSupported })
+        self.callRecording = callRecording
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
@@ -130,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
                              settings: settings) { actions in
             actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
+            actions.callRecording = callRecording
         }
         #else
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
@@ -139,6 +145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
         #if PEREKEY_VOICE
         shell.dictation.menu = voiceText.menu(pasteAgain: { [voice] in voice.pasteAgain($0) })
+        callRecording.indicator = shell.call
+        // An update's relaunch waits for a recording and for the file queue.
+        updates.isBusy = { callRecording.isBusy }
         #endif
         ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
     }
@@ -157,6 +166,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         // After launch, so the status bar exists.
         shell.start()
+        #if PEREKEY_VOICE
+        // A call a crash cut off is offered for transcription; old audio goes.
+        callRecording.launched()
+        #endif
+    }
+
+    /// ⌘Q, logout and an update's relaunch wait while a call is recorded,
+    /// until its open segments are closed.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if PEREKEY_VOICE
+        return callRecording.shouldTerminate()
+        #else
+        return .terminateNow
+        #endif
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -229,6 +252,8 @@ final class MenuBarShell {
     private var statusItem: StatusItemController?
     /// What the menu shows of the dictation history; filled once voice is set up.
     let dictation = DictationMenuSource()
+    /// The capsule's ● and time while a call is recorded.
+    let call = CallIndicatorModel()
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
          recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates,
@@ -269,7 +294,8 @@ final class MenuBarShell {
 
     func start() {
         guard statusItem == nil else { return }
-        statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu)
+        statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu,
+                                          call: call)
     }
 }
 

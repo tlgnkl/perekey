@@ -132,6 +132,16 @@ public struct PointerLocation: Hashable, Sendable {
     }
 }
 
+/// How long a call's audio stays on disk. The same values as
+/// `RecordingMeta.AudioRetention` in `meta.json`.
+public enum CallAudioRetention: String, Codable, Hashable, Sendable, CaseIterable {
+    case always
+    /// 30 days from the recording.
+    case month
+    /// Removed once the transcript is written.
+    case untilTranscribed
+}
+
 /// The user's dictation settings as stored on disk, in a file of their own
 /// beside the settings file (`VoiceSettingsFile`). Off by default: without
 /// the file Perekey behaves as it did before dictation.
@@ -202,6 +212,23 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.introAnswered.stringValue) }
     }
 
+    /// «Хранить звук созвонов». A profile may force the shortest
+    /// (`CallAudioKeepDisabled`).
+    public var callAudioRetention: CallAudioRetention {
+        didSet { unreadableKeys.remove(CodingKeys.callAudioRetention.stringValue) }
+    }
+
+    /// Split «Собеседники» of a call by voice when it is transcribed.
+    public var callDiarize: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.callDiarize.stringValue) }
+    }
+
+    /// The note on the other side's consent was shown before the first call
+    /// recording: it does not come back.
+    public var callConsentShown: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.callConsentShown.stringValue) }
+    }
+
     /// Keys the file has that this version could not read and the user has
     /// not set since. Encoding leaves them out, so the file keeps its values.
     public private(set) var unreadableKeys: Set<String> = []
@@ -214,7 +241,8 @@ public struct VoiceSettings: Hashable, Sendable {
                 microphoneName: String? = nil,
                 model: String = VoiceSettings.defaultModel, switchesLayout: Bool = true, playsSounds: Bool = true,
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
-                introAnswered: Bool = false)
+                introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .always,
+                callDiarize: Bool = true, callConsentShown: Bool = false)
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
@@ -226,6 +254,9 @@ public struct VoiceSettings: Hashable, Sendable {
         self.autoStop = autoStop
         self.unload = unload
         self.introAnswered = introAnswered
+        self.callAudioRetention = callAudioRetention
+        self.callDiarize = callDiarize
+        self.callConsentShown = callConsentShown
     }
 
     /// The trigger the event tap reacts to: none while dictation is off, and
@@ -241,7 +272,8 @@ public struct VoiceSettings: Hashable, Sendable {
 
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, switchesLayout, playsSounds, autoStop, unload, introAnswered
+        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, switchesLayout, playsSounds, autoStop, unload, introAnswered,
+             callAudioRetention, callDiarize, callConsentShown
     }
 
     public init(from decoder: any Decoder) throws {
@@ -273,6 +305,9 @@ extension VoiceSettings: Codable {
         autoStop = read(VoiceAutoStop.self, .autoStop) ?? defaults.autoStop
         unload = read(VoiceUnload.self, .unload) ?? defaults.unload
         introAnswered = read(Bool.self, .introAnswered) ?? defaults.introAnswered
+        callAudioRetention = read(CallAudioRetention.self, .callAudioRetention) ?? defaults.callAudioRetention
+        callDiarize = read(Bool.self, .callDiarize) ?? defaults.callDiarize
+        callConsentShown = read(Bool.self, .callConsentShown) ?? defaults.callConsentShown
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -313,6 +348,15 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.introAnswered.stringValue) {
             try container.encode(introAnswered, forKey: .introAnswered)
+        }
+        if !unreadableKeys.contains(CodingKeys.callAudioRetention.stringValue) {
+            try container.encode(callAudioRetention, forKey: .callAudioRetention)
+        }
+        if !unreadableKeys.contains(CodingKeys.callDiarize.stringValue) {
+            try container.encode(callDiarize, forKey: .callDiarize)
+        }
+        if !unreadableKeys.contains(CodingKeys.callConsentShown.stringValue) {
+            try container.encode(callConsentShown, forKey: .callConsentShown)
         }
     }
 }

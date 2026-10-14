@@ -4,6 +4,7 @@ import AVFoundation
 import CoreAudio
 import Foundation
 @testable import PerekeyVoice
+import PerekeyVoiceCore
 import Testing
 
 @Suite struct AudioProcessMatchingTests {
@@ -189,7 +190,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let start = HostTime.ticks(500)
         let store = try RecordingStore(directory: dir, startHostTime: start, format: format)
-        let writer = SegmentWriter(track: "mic", store: store, format: format, segmentSeconds: 1)
+        let writer = SegmentWriter(track: .mic, log: store, format: format, segmentSeconds: 1)
         let block = sine(1600)
         for n in 0..<25 { // 2.5 s
             block.withUnsafeBufferPointer { writer.receive($0, hostTime: start + HostTime.ticks(Double(n) / 10)) }
@@ -198,8 +199,7 @@ import Testing
         store.setState(.stopped)
         #expect(writer.error == nil)
 
-        let data = try Data(contentsOf: dir.appending(path: "meta.json"))
-        let meta = try JSONDecoder().decode(RecordingMeta.self, from: data)
+        let meta = try RecordingStore.read(dir)
         #expect(meta.state == .stopped)
         #expect(meta.segments.map(\.file) == ["mic-0001", "mic-0002", "mic-0003"].map { "\($0).\(format.fileExtension)" })
         #expect(meta.segments.map(\.frames) == [16_000, 16_000, 8_000])
@@ -220,7 +220,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let start = mach_absolute_time()
         let store = try RecordingStore(directory: dir, startHostTime: start, format: .pcm)
-        let writer = SegmentWriter(track: "sys", store: store, format: .pcm, segmentSeconds: 60)
+        let writer = SegmentWriter(track: .sys, log: store, format: .pcm, segmentSeconds: 60)
         let block = sine(1600)
         block.withUnsafeBufferPointer { writer.receive($0, hostTime: start) }
         writer.captureInterrupted(.deviceChanged)
@@ -231,13 +231,13 @@ import Testing
         #expect(meta.segments.map(\.frames) == [1600, 1600])
         #expect(abs(meta.segments[1].startOffset - 2) < 0.001)
         #expect(meta.gaps.count == 1)
-        #expect(meta.gaps[0].track == "sys")
-        #expect(meta.gaps[0].reason == "deviceChanged")
+        #expect(meta.gaps[0].track == .sys)
+        #expect(meta.gaps[0].reason == .deviceChanged)
     }
 
     @Test func metaKeepsThePlanKeys() throws {
-        var meta = RecordingMeta(startHostTime: 7, format: "m4a")
-        meta.segments = [.init(track: "mic", file: "mic-0001.m4a", startHostTime: 9, startOffset: 0.5, frames: 3,
+        var meta = RecordingMeta.call(source: .system, startHostTime: 7, audioRetention: .always)
+        meta.segments = [.init(track: .mic, file: "mic-0001.aac", startHostTime: 9, startOffset: 0.5, frames: 3,
                                closed: true)]
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(meta)) as? [String: Any]
         let segment = try #require((json?["segments"] as? [[String: Any]])?.first)

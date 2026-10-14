@@ -22,6 +22,8 @@ struct MenuActions {
     var voiceModes: VoiceModeMenu?
     /// The recent dictations; nil hides the section.
     var dictation: DictationMenu?
+    /// «Записать созвон»; nil hides it.
+    var callRecording: CallRecordingController?
     #endif
 }
 
@@ -171,6 +173,16 @@ struct MenuContent: View {
                     VoiceModeMenuRow(menu: voiceModes, appModes: appModes, lit: nav.highlighted == "voice-mode")
                         .menuItem("voice-mode", nav: nav, step: { voiceModes.step($0) }, run: { voiceModes.step(1) })
                 }
+                if let call = actions.callRecording, call.isAvailable {
+                    let close = actions.close
+                    if call.isRecording {
+                        MenuCommandRow(id: "call", title: "Stop Recording", table: "Voice", nav: nav,
+                                       run: { close(); call.menuAction() })
+                    } else {
+                        MenuCommandRow(id: "call", title: "Record a Call…", table: "Voice", nav: nav,
+                                       run: { close(); call.menuAction() })
+                    }
+                }
                 #endif
             }
             .padding(.vertical, 6)
@@ -191,6 +203,7 @@ struct MenuContent: View {
             #if PEREKEY_VOICE
             // Expired dictations go when the menu opens, at most once a day.
             actions.dictation?.history.purgeIfDue()
+            actions.callRecording?.purgeIfDue()
             #endif
         }
         .onChange(of: pause.current) { _, new in
@@ -515,6 +528,8 @@ struct LaunchAtLoginRow: View {
 struct MenuCommandRow: View {
     let id: String
     let title: LocalizedStringKey
+    /// The strings table of `title`; nil is Localizable.
+    var table: String?
     var shortcut: String?
     var checked = false
     var badge = false
@@ -526,7 +541,7 @@ struct MenuCommandRow: View {
         let hot = enabled && nav.highlighted == id
         Button(action: run) {
             HStack {
-                Text(title).font(PK.Font.body)
+                Text(title, tableName: table).font(PK.Font.body)
                 Spacer()
                 if checked { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 if badge {

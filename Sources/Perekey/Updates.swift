@@ -38,6 +38,10 @@ final class Updates: NSObject {
     @ObservationIgnored private let store: SettingsStore
     @ObservationIgnored private var controller: SPUStandardUpdaterController?
     @ObservationIgnored private var started = false
+    /// Perekey is busy with work a relaunch would cut off: a call is
+    /// recorded, the file queue transcribes. The install waits for it.
+    @ObservationIgnored var isBusy: @MainActor () -> Bool = { false }
+    @ObservationIgnored private var postponed: Task<Void, Never>?
 
     init(store: SettingsStore, bundle: Bundle = .main, managed: ManagedSettings = ManagedPreferences.read()) {
         self.store = store
@@ -120,6 +124,24 @@ extension Updates: SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
         lastCheck = updater.lastUpdateCheckDate
+    }
+
+    /// The relaunch waits while Perekey is busy, and goes once it is not.
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool
+    {
+        guard isBusy() else { return false }
+        // Sparkle calls the handler back on the main thread, as it calls this.
+        nonisolated(unsafe) let install = installHandler
+        postponed?.cancel()
+        postponed = Task { @MainActor [weak self] in
+            while let self, self.isBusy() {
+                try? await Task.sleep(for: .seconds(15))
+            }
+            guard !Task.isCancelled else { return }
+            install()
+        }
+        return true
     }
 }
 

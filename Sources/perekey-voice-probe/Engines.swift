@@ -82,6 +82,17 @@ final class WhisperEngine: ProbeEngine {
         return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespaces)
     }
 
+    /// Segments with their times from the start of `samples`; the language is detected.
+    func timedSegments(_ samples: [Float]) async throws -> [(start: Double, end: Double, text: String)] {
+        guard let kit else { throw ProbeError.message("not loaded") }
+        let options = DecodingOptions(task: .transcribe, language: nil, detectLanguage: true, skipSpecialTokens: true,
+                                      withoutTimestamps: false)
+        let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
+        return results.flatMap(\.segments).map {
+            (Double($0.start), Double($0.end), $0.text.trimmingCharacters(in: .whitespaces))
+        }.filter { !$0.2.isEmpty }
+    }
+
     func unload() async {
         await kit?.unloadModels()
         kit = nil

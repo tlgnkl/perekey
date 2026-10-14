@@ -130,6 +130,28 @@ public struct RecordingsFolder: Sendable {
         }
     }
 
+    /// `transcript.partial.json`: the windows the queue has done. Only the
+    /// queue reads and writes it; it goes once `transcript.json` is written.
+    public func partialURL(for id: UUID) -> URL {
+        directory(for: id).appending(path: "transcript.partial.json", directoryHint: .notDirectory)
+    }
+
+    /// The saved progress; nil if there is none, or none this version reads.
+    public func partial(_ id: UUID) -> TranscriptionCheckpoint? {
+        guard case let .loaded(partial) = load(partialURL(for: id), current: TranscriptionCheckpoint.schemaVersion)
+            as Loaded<TranscriptionCheckpoint>
+        else { return nil }
+        return partial
+    }
+
+    public func savePartial(_ partial: TranscriptionCheckpoint, id: UUID) throws {
+        try Self.encoder().encode(partial).write(to: partialURL(for: id), options: .atomic)
+    }
+
+    public func removePartial(_ id: UUID) {
+        try? FileManager.default.removeItem(at: partialURL(for: id))
+    }
+
     /// Removes a recording: its folder with the audio and the transcript.
     /// A file the user chose is outside it and stays.
     public func remove(_ id: UUID) throws {

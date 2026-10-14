@@ -74,6 +74,10 @@ struct ManualActions: Sendable {
     /// last two words, the fourth puts them back, and so on, up to
     /// `WordBuffer.historyWords` words before the last one. Two layouts
     /// have one reading to walk, so nothing changes for them.
+    ///
+    /// A word with a part after "/" (`lastPart`) starts with that part: the
+    /// first press retypes "сущ" in "менеджер/сущ", the third the whole word,
+    /// the fifth the word before it too.
     private struct PhraseRetype: Sendable {
         /// How many words the last press took.
         var words: Int
@@ -92,6 +96,9 @@ struct ManualActions: Sendable {
         var original: [WordBuffer.Entry]?
         /// The layout the last word was typed in.
         var source: LayoutID
+        /// The presses take only the last keys of the word, this many, spaces
+        /// included (`lastPart`); nil when they take whole words.
+        var part: Int?
     }
 
     /// The retype shortcut was the last thing done: its next press goes on
@@ -116,21 +123,65 @@ struct ManualActions: Sendable {
         if let previous, let plan = continuePhrase(previous, buffer: buffer, layouts: layouts, phrases: phrases) {
             return plan
         }
-        guard let source = buffer.wordLayout else { return .readSelection(.convertLayout) }
+        // A press on the same word keeps what the last one took: the part
+        // before the "/" may read right now only because that press retyped it.
+        let part: Int? = if let previous { previous.part } else {
+            Self.lastPart(of: buffer.entries, layouts: layouts, classifier: classifier, context: context)
+        }
+        let entries = part.map { Array(buffer.entries.suffix($0)) } ?? buffer.entries
+        guard let source = entries.first(where: { !$0.isSpace })?.layout else {
+            return .readSelection(.convertLayout)
+        }
         guard let current = layouts.current, layouts[current] != nil,
-              let walk = Self.walk(of: buffer, from: source, layouts: layouts, classifier: classifier, context: context),
+              let walk = Self.walk(of: entries, from: source, layouts: layouts, classifier: classifier,
+                                   context: context),
               let target = walk.first, let targetMap = layouts[target]
         else { return .refuse(.unsupportedLayout) }
-        switch layouts.retypeKeys(for: buffer.entries, into: targetMap) {
+        switch layouts.retypeKeys(for: entries, into: targetMap) {
         case let .refused(refusal):
             return .refuse(refusal)
         case let .keys(word):
-            let original = buffer.entries.allSatisfy { $0.layout == source } ? nil : buffer.entries
+            let original = entries.allSatisfy { $0.layout == source } ? nil : entries
             phrase = PhraseRetype(words: 1, retyped: true, target: target, walk: walk, original: original,
-                                  source: source)
-            return .retype(ManualRetype(word: word, target: target, edit: .relabel(target), changesLayout: true,
-                                        explainable: true))
+                                  source: source, part: part)
+            let edit: BufferEdit = part == nil
+                ? .relabel(target) : .relabelPhrase(entries.map { WordBuffer.Entry($0.stroke, in: target) })
+            // The automatic decision was about the whole word, not the part.
+            return .retype(ManualRetype(word: word, target: target, edit: edit, changesLayout: true,
+                                        explainable: part == nil))
         }
+    }
+
+    /// How many keys at the end of the word come after its last "/", spaces
+    /// included, when only they are to be retyped: "менеджер/сущ" becomes
+    /// "менеджер/ceo". Nil when there are no letters after the "/" in either
+    /// layout ("менеджер/2") or nothing before it ("/usr"), when there is no
+    /// model to judge by, and when the part before the "/" is in the wrong
+    /// layout too ("vtytl;th/ceo"): then the whole word is retyped.
+    private static func lastPart(of entries: [WordBuffer.Entry], layouts: LayoutState, classifier: Classifier?,
+                                 context: Classifier.Context) -> Int?
+    {
+        guard let classifier,
+              let slash = entries.lastIndex(where: { entry in
+                  !entry.stroke.modifiers.contains(.option) && layouts[entry.layout]?.text(for: entry.stroke) == "/"
+              }),
+              slash > entries.startIndex,
+              let typed = layouts[entries[entries.startIndex].layout]
+        else { return nil }
+        let other = layouts.counterpart(of: typed.id).flatMap { layouts[$0] }
+        guard entries[(slash + 1)...].contains(where: { entry in
+            [layouts[entry.layout], other].contains { map in
+                map?.text(for: entry.stroke)?.unicodeScalars.contains { $0.properties.isAlphabetic } == true
+            }
+        }) else { return nil }
+        let candidates = layouts.candidates(of: typed.id).compactMap { layouts[$0] }
+        guard !candidates.isEmpty else { return nil }
+        // The part before as automatic switching would judge it at a space.
+        let automatic = Classifier.Context(recent: context.recent, prior: context.prior)
+        let decision = classifier.classify(entries[..<slash].lazy.map(\.stroke), typed: typed,
+                                           candidates: candidates, context: automatic)
+        if case .switch = decision.verdict { return nil }
+        return entries.endIndex - slash - 1
     }
 
     /// The layouts the word typed in `source` goes through on repeated
@@ -140,7 +191,7 @@ struct ManualActions: Sendable {
     /// layouts of the source's language: the one `counterpart` names. A
     /// reading that types the same text as the word or as one before it, or
     /// that a layout cannot type, is left out: no press looks like nothing.
-    private static func walk(of buffer: WordBuffer, from source: LayoutID, layouts: LayoutState,
+    private static func walk(of entries: [WordBuffer.Entry], from source: LayoutID, layouts: LayoutState,
                              classifier: Classifier?, context: Classifier.Context) -> [LayoutID]?
     {
         // Two layouts: one reading, the other layout, without building lists.
@@ -157,14 +208,14 @@ struct ManualActions: Sendable {
         }
         var ordered = fixed + rest
         if rest.count > 1, let classifier, let typed = layouts[source] {
-            let ranked = classifier.ranked(buffer.entries.lazy.map(\.stroke), typed: typed,
+            let ranked = classifier.ranked(entries.lazy.map(\.stroke), typed: typed,
                                            candidates: rest.compactMap { layouts[$0] }, context: context)
             ordered = fixed + ranked.map(\.id)
         }
-        var texts = [text(of: buffer.entries, in: source, layouts: layouts)]
+        var texts = [text(of: entries, in: source, layouts: layouts)]
         var walk: [LayoutID] = []
         for id in ordered {
-            guard let reading = text(of: buffer.entries, in: id, layouts: layouts), !texts.contains(reading) else {
+            guard let reading = text(of: entries, in: id, layouts: layouts), !texts.contains(reading) else {
                 continue
             }
             texts.append(reading)
@@ -193,7 +244,8 @@ struct ManualActions: Sendable {
         // Without phrases and with one reading, a press is a first one: it
         // retypes the word from where it is now, back to the source.
         guard phrases || state.walk.count > 1 else { return nil }
-        guard let shown = buffer.phrase(words: state.words) else { return nil }
+        guard let span = buffer.phrase(words: state.words), span.count >= state.part ?? 0 else { return nil }
+        let shown = state.part.map { Array(span.suffix($0)) } ?? span
         let original = state.original ?? shown.map { WordBuffer.Entry($0.stroke, in: state.source) }
         guard shown.count == original.count else { return nil }
         if state.retyped, state.words == 1 {
@@ -216,23 +268,25 @@ struct ManualActions: Sendable {
                   let layout = original.last(where: { !$0.isSpace })?.layout
             else { return nil }
             phrase = PhraseRetype(words: state.words, retyped: false, target: state.target, walk: state.walk,
-                                  original: original, source: state.source)
+                                  original: original, source: state.source, part: state.part)
             return .retype(ManualRetype(word: keys, target: layout, edit: .relabelPhrase(original),
                                         changesLayout: true))
         }
         guard phrases else { return nil }
-        // Odd press: one word more, all in the target layout. With no word
-        // before, the same words again.
-        let words = state.words < WordBuffer.historyWords + 1 && buffer.phrase(words: state.words + 1) != nil
-            ? state.words + 1 : state.words
-        guard let span = buffer.phrase(words: words) else { return nil }
-        let retyped = span.map { WordBuffer.Entry($0.stroke, in: state.target) }
-        guard let keys = Self.phraseKeys(span, becoming: retyped, layouts: layouts) else {
+        // Odd press: one word more, all in the target layout; after the part
+        // of a word, the whole word. With no word before, the same words again.
+        let words = state.part == nil && state.words < WordBuffer.historyWords + 1
+            && buffer.phrase(words: state.words + 1) != nil ? state.words + 1 : state.words
+        guard let wider = buffer.phrase(words: words) else { return nil }
+        let retyped = wider.map { WordBuffer.Entry($0.stroke, in: state.target) }
+        guard let keys = Self.phraseKeys(wider, becoming: retyped, layouts: layouts) else {
             return .refuse(.unconvertibleWord)
         }
-        // Still one word (none before it): the walk goes round again.
-        phrase = PhraseRetype(words: words, retyped: true, target: state.target,
-                              walk: words == 1 ? state.walk : [state.target], original: span, source: state.source)
+        // Still the same word (none before it): the walk goes round again.
+        // The walk of a part is not one of the whole word.
+        let walk = words == 1 && state.part == nil ? state.walk : [state.target]
+        phrase = PhraseRetype(words: words, retyped: true, target: state.target, walk: walk, original: wider,
+                              source: state.source)
         return .retype(ManualRetype(word: keys, target: state.target, edit: .relabelPhrase(retyped),
                                     changesLayout: true))
     }

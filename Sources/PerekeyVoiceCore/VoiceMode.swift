@@ -201,9 +201,14 @@ public struct ModeData: OptionSet, Codable, Hashable, Sendable {
     /// a dictation's own audio. An older Perekey keeps the bit and never
     /// sends such a recording, so the file's version stays.
     public static let conversationAudio = ModeData(rawValue: 1 << 5)
+    /// The transcript of a conversation, other people's words in it: sent to
+    /// a language model for a summary or the minutes. Agreed apart from the
+    /// text of a dictation and from the recording; an older Perekey keeps
+    /// the bit and never sends a transcript.
+    public static let conversationText = ModeData(rawValue: 1 << 6)
 
     /// In the order the consent window names them.
-    public static let all: [ModeData] = [.audio, .text, .selection, .app, .site, .conversationAudio]
+    public static let all: [ModeData] = [.audio, .text, .selection, .app, .site, .conversationAudio, .conversationText]
 }
 
 extension VoiceMode: Codable {

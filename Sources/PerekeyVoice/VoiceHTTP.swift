@@ -26,6 +26,9 @@ public final class VoiceHTTP: Sendable {
         case modelDownload
         case cloudSpeech
         case cloudLanguageModel
+        /// A language model reading the transcript of a conversation: a
+        /// summary or the minutes. Its own origins, those agreed for it.
+        case conversationLanguageModel
     }
 
     public struct Request: Sendable, Equatable {
@@ -135,7 +138,7 @@ public final class VoiceHTTP: Sendable {
     }
 
     /// Purposes that may reach only `allowedOrigins`.
-    static let originBound: Set<Purpose> = [.cloudSpeech, .cloudLanguageModel]
+    static let originBound: Set<Purpose> = [.cloudSpeech, .cloudLanguageModel, .conversationLanguageModel]
 
     /// Whether `purpose` may send `request` now.
     func permits(_ request: URLRequest, _ purpose: Purpose) -> Bool {

@@ -340,6 +340,6 @@ struct ConversationConsentTests {
         #expect(set.mayUploadConversation(to: groq, cloudDisabled: false))
         #expect(!set.mayUploadConversation(to: groq, cloudDisabled: true))
         #expect(!set.mayUploadConversation(to: "nowhere", cloudDisabled: false))
-        #expect(ModeData.all.last == .conversationAudio)
+        #expect(ModeData.all.suffix(2) == [.conversationAudio, .conversationText])
     }
 }

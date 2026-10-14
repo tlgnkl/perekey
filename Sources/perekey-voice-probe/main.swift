@@ -32,6 +32,8 @@ func usage() -> Never {
           diarize <method> <audio|recording> [...]      one diarizer: time, memory, DER
           transcribe <recording> <id> [--diarize] [--dictation-every s --phrase audio] [--cancel-after s]
                                       the app's file queue on a recording folder (JSON)
+          summarize <transcript.json | --fake minutes> <address | fake> <model> [--minutes] [--out file]
+                                      a summary or the minutes through a server of the modes (JSON)
         """)
     exit(2)
 }
@@ -97,6 +99,8 @@ do {
         try await DiarizeCommand.run(rest)
     case "transcribe":
         try await TranscribeCommand.run(rest)
+    case "summarize":
+        try await SummarizeCommand.run(rest)
     default:
         usage()
     }

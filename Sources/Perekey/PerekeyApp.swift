@@ -109,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         transcriptsController.transcriptionModel = { [voice] in voice.files.model }
         transcriptsController.consent = { [voiceModes] in voiceModes.askConversationConsent(model: $0) }
+        transcriptsController.summaries = TranscriptSummaries(modes: voiceModes, folder: transcriptsController.folder)
         voice.files.queueChanged = { [transcriptsController] in transcriptsController.queue = $0 }
         transcriptsController.queue = voice.files.queue
         let transcriptsWindow = TranscriptsWindow(controller: transcriptsController)
@@ -163,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              settings: settings) { [voice] actions in
             actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
             actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
+            actions.summaries = transcriptsController.summaries
             actions.transcribeFile = { voice.files.chooseFiles() }
             actions.canTranscribeFiles = { voice.files.queue != nil }
             actions.callRecording = callRecording

@@ -43,9 +43,24 @@ public struct OpenAICompatibleClient: Sendable {
 
     // MARK: Chat
 
-    /// The text of the first choice of a chat completion.
+    /// The text of the first choice of a chat completion. `purpose` is what
+    /// the gate lets out by: a dictation's text, or a conversation's transcript.
     public func complete(_ messages: [ChatMessage], model: String, address: EndpointAddress, key: String?,
-                         temperature: Double = 0.2) async throws -> String
+                         temperature: Double = 0.2, purpose: VoiceHTTP.Purpose) async throws -> String
+    {
+        try await chat(messages, model: model, address: address, key: key, temperature: temperature,
+                       purpose: purpose).text
+    }
+
+    /// A chat completion's answer.
+    public struct ChatAnswer: Hashable, Sendable {
+        public var text: String
+        /// `usage.prompt_tokens`: how much of the prompt the server read, if it says.
+        public var promptTokens: Int?
+    }
+
+    public func chat(_ messages: [ChatMessage], model: String, address: EndpointAddress, key: String?,
+                     temperature: Double = 0.2, purpose: VoiceHTTP.Purpose) async throws -> ChatAnswer
     {
         struct Body: Encodable {
             let model: String
@@ -62,17 +77,22 @@ public struct OpenAICompatibleClient: Sendable {
                 let message: Message
             }
 
+            struct Usage: Decodable {
+                let prompt_tokens: Int?
+            }
+
             let choices: [Choice]
+            let usage: Usage?
         }
         var request = try request(address, "/chat/completions", key: key)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(Body(model: model, messages: messages, temperature: temperature))
         request.timeoutInterval = Self.seconds(timeout)
-        let data = try await send(request, purpose: .cloudLanguageModel)
+        let data = try await send(request, purpose: purpose)
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
               let content = answer.choices.first?.message.content
         else { throw Failure.badResponse }
-        return content
+        return ChatAnswer(text: content, promptTokens: answer.usage?.prompt_tokens)
     }
 
     // MARK: Transcription

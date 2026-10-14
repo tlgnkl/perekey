@@ -920,6 +920,32 @@ extension DebugSnapshot {
         let controller = TranscriptsController(folder: folder, queue: queue, voice: voice, models: {
             ModelCatalog.recognizers.prefix(2).map { (id: $0.id, title: ModelNames.display($0)) }
         })
+        // «Конспект» and «Протокол встречи» on a local model of the modes; the call has its minutes.
+        var modes = VoiceModeSet.defaults(VoiceModesStore.localized)
+        if let clean = modes.modes.firstIndex(where: { $0.id == BuiltInMode.clean.rawValue }) {
+            modes.modes[clean].refine = RefineConfig(endpoint: VoiceEndpoint.Preset.ollama.rawValue, model: "qwen2.5:7b",
+                                                     prompt: "")
+        }
+        controller.summaries = TranscriptSummaries(modes: VoiceModesStore(preview: modes, managed: managed), folder: folder)
+        if !empty {
+            try? folder.saveNote("""
+            # Планёрка: итоги недели
+
+            ## Участники
+            - Я
+            - Собеседники
+
+            ## Решения
+            - Релиз выкатываем в **четверг**, если юристы подпишут до среды.
+
+            ## Задачи
+            - Я — отчёт по тестам до пятницы.
+            - Собеседники — получить подпись юристов.
+
+            ## Открытые вопросы
+            - Кто дежурит в выходные после релиза?
+            """, .minutes, for: zoom, revision: folder.transcriptRevision(zoom))
+        }
         return TranscriptsFixture(controller: controller, interview: interview, zoom: zoom, running: running,
                                   failed: failed, interrupted: interrupted, expired: expired)
     }
@@ -927,12 +953,15 @@ extension DebugSnapshot {
     /// The «Расшифровки» window with a recording of each kind chosen, and the Recordings group of the Voice tab.
     static func renderTranscripts(in directory: URL) {
         let size = CGSize(width: 920, height: 620)
-        func shot(_ name: String, empty: Bool = false, query: String = "", pick: (TranscriptsFixture) -> UUID?) {
+        func shot(_ name: String, empty: Bool = false, query: String = "",
+                  pane: TranscriptsController.Pane = .transcript, pick: (TranscriptsFixture) -> UUID?)
+        {
             for dark in [false, true] {
                 let fixture = transcriptsPreview(in: directory, name: "t-\(name)", empty: empty)
                 fixture.controller.reload()
                 fixture.controller.selection = pick(fixture)
                 fixture.controller.query = query
+                fixture.controller.pane = pane
                 let view = TranscriptsView(controller: fixture.controller)
                     .background(Color(nsColor: .windowBackgroundColor))
                 render(view, dark: dark, size: size, to: directory.appending(path: "transcripts-\(name)-\(dark ? "dark" : "light").png"))
@@ -944,6 +973,8 @@ extension DebugSnapshot {
         shot("interrupted") { $0.interrupted }
         shot("failed") { $0.failed }
         shot("audio-removed") { $0.expired }
+        shot("minutes", pane: .note(.minutes)) { $0.zoom }
+        shot("summary-offer", pane: .note(.summary)) { $0.interview }
         shot("empty", empty: true) { _ in nil }
         let cases: [(name: String, managed: ManagedSettings)] = [
             ("records", ManagedSettings()),
@@ -955,9 +986,9 @@ extension DebugSnapshot {
                 fixture.controller.reload()
                 let view = VStack(alignment: .leading, spacing: 16) { RecordingsGroup(controller: fixture.controller) }
                     .padding(24)
-                    .frame(width: 620, height: 340, alignment: .top)
+                    .frame(width: 620, height: 420, alignment: .top)
                     .background(Color(nsColor: .windowBackgroundColor))
-                render(view, dark: dark, size: CGSize(width: 620, height: 340),
+                render(view, dark: dark, size: CGSize(width: 620, height: 420),
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
         }

@@ -335,7 +335,7 @@
 "Undone share" = "Доля отмен";
 "Today: no corrections" = "Сегодня правок нет";
 "Privacy" = "Приватность";
-"Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. The only network request is the update check." = "Набранный текст не сохраняется и не покидает этот Mac. Файлы на этом Mac: settings.json (настройки и ваши списки слов с датами и числом отмен), statistics.json (только при включённом «Считать правки»: числа, без слов), languages.json (сколько слов какого языка в каждой программе: ID программ и числа). Счётчики сайтов лежат в памяти. Сетевой запрос один: проверка обновлений.";
+"Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. " = "Набранный текст не сохраняется и не покидает этот Mac. Файлы на этом Mac: settings.json (настройки и ваши списки слов с датами и числом отмен), statistics.json (только при включённом «Считать правки»: числа, без слов), languages.json (сколько слов какого языка в каждой программе: ID программ и числа). Счётчики сайтов лежат в памяти. ";
 "Languages of apps" = "Языки программ";
 "Forget the languages of apps" = "Забыть языки программ";
 "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "Чтобы угадать язык следующего слова, Perekey считает, сколько слов на каком языке вы набираете в программе. Без слов, только числа. Сайты считаются только до выхода из Perekey.";
@@ -357,3 +357,4 @@
 "%@ by macOS, ⌥ retypes" = "%@ — macOS, ⌥ перенабирает";
 "macOS switches with %@." = "macOS переключает по %@.";
 "Click and press another shortcut, such as ⌥Space" = "Щёлкните и нажмите другое сочетание, например ⌥Пробел";
+"The only network request is the update check." = "Сетевой запрос один: проверка обновлений.";

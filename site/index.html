@@ -131,8 +131,8 @@ footer { padding: 28px 0 48px; color: var(--ink-2); font-size: 14px; text-align:
         <span class="en">Typed it in the wrong layout? Perekey fixes it.</span>
       </h1>
       <p class="lead">
-        <span class="ru">Бесплатный переключатель раскладки для macOS с открытым кодом. Живёт в строке меню и исправляет слово на лету или по сочетанию клавиш.</span>
-        <span class="en">A free, open-source keyboard layout switcher for macOS. It lives in the menu bar and fixes the word as you type or on a shortcut.</span>
+        <span class="ru">Бесплатный переключатель раскладки для macOS с открытым кодом. Живёт в строке меню и исправляет слово на лету или по сочетанию клавиш. А ещё печатает голосом: скажите фразу, и текст встанет у курсора.</span>
+        <span class="en">A free, open-source keyboard layout switcher for macOS. It lives in the menu bar and fixes the word as you type or on a shortcut. It also types by voice: say a phrase, and the text lands at the cursor.</span>
       </p>
 
       <div class="window demo" role="img" aria-label="ghbdtn → привет">
@@ -156,8 +156,8 @@ footer { padding: 28px 0 48px; color: var(--ink-2); font-size: 14px; text-align:
         <a class="btn" href="https://github.com/tlgnkl/perekey">GitHub</a>
       </div>
       <p class="note">
-        <span class="ru">macOS 14 и новее, Apple Silicon и Intel. Проект на ранней стадии: сборка пока без подписи Apple, при первом запуске macOS спросит подтверждение.</span>
-        <span class="en">macOS 14 or later, Apple Silicon and Intel. The project is early: builds are not yet signed by Apple, so macOS asks you to confirm the first launch.</span>
+        <span class="ru">macOS 14 и новее, Apple Silicon и Intel. Голос, расшифровки и запись созвонов — только на Apple Silicon с macOS 15 и новее. Проект на ранней стадии: сборка пока без подписи Apple, при первом запуске macOS спросит подтверждение.</span>
+        <span class="en">macOS 14 or later, Apple Silicon and Intel. Voice, transcripts and call recording need Apple Silicon and macOS 15 or later. The project is early: builds are not yet signed by Apple, so macOS asks you to confirm the first launch.</span>
       </p>
     </div>
 
@@ -189,6 +189,21 @@ footer { padding: 28px 0 48px; color: var(--ink-2); font-size: 14px; text-align:
           <h3><span class="ru">Любое сочетание</span><span class="en">Any shortcut</span></h3>
           <p><span class="ru">Shift, Option, ⌥⇧, ⌃⇧, ⌘⇧, правый ⌘ или правый ⌥: на любое действие. Есть пресеты для привычек из Windows.</span><span class="en">Shift, Option, ⌥⇧, ⌃⇧, ⌘⇧, right ⌘ or right ⌥ on any action. Presets cover Windows habits.</span></p>
         </div>
+        <div class="window card">
+          <span class="tag"><span class="ru">Голос</span><span class="en">Voice</span></span>
+          <h3><span class="ru">Диктовка в любое поле</span><span class="en">Dictate into any field</span></h3>
+          <p><span class="ru">Тап правого Option, фраза, ещё тап — текст у курсора. Русский, английский и украинский в одной фразе. Модели работают на вашем Mac и скачиваются по кнопке.</span><span class="en">Tap the right Option key, speak, tap again, and the text lands at the cursor. Russian, English and Ukrainian in one phrase. The models run on your Mac and download on a button.</span></p>
+        </div>
+        <div class="window card">
+          <span class="tag"><span class="ru">Режимы</span><span class="en">Modes</span></span>
+          <h3><span class="ru">Что сделать с текстом</span><span class="en">What happens to the text</span></h3>
+          <p><span class="ru">Как сказано, чистовик, сообщение, письмо или перевод. Режим выбирается по сайту и программе. Облако и LLM — только по вашему ключу.</span><span class="en">As said, a clean draft, a message, an email or a translation. The mode follows the site and the app. Cloud and LLMs only with your own key.</span></p>
+        </div>
+        <div class="window card">
+          <span class="tag"><span class="ru">Расшифровки</span><span class="en">Transcripts</span></span>
+          <h3><span class="ru">Файлы и созвоны в текст</span><span class="en">Files and calls to text</span></h3>
+          <p><span class="ru">Звуковой или видеофайл превращается в текст с таймкодами и спикерами; экспорт в TXT, Markdown, SRT, VTT и JSON. Созвон пишется двумя дорожками: вы и собеседники.</span><span class="en">An audio or video file becomes text with timestamps and speakers, with export to TXT, Markdown, SRT, VTT and JSON. A call is recorded on two tracks: you and the others.</span></p>
+        </div>
       </div>
     </section>
 
@@ -198,14 +213,18 @@ footer { padding: 28px 0 48px; color: var(--ink-2); font-size: 14px; text-align:
         <ul class="ru">
           <li>Набранный текст не сохраняется: слово живёт в памяти, пока вы его набираете.</li>
           <li>На этом Mac лежат настройки и ваши списки слов («Мои», «Запомненные», «Всегда исправлять») с датами и числом отмен, счётчики правок, если вы их включили, и число слов каждого языка по программам. В счётчиках слов нет.</li>
-          <li>Единственный сетевой запрос: проверка обновлений. Её можно выключить, тогда сети нет совсем.</li>
+          <li>Голос работает на этом Mac: модели речи запускаются локально. Звук и текст уходят на сервер, только если вы сами настроили режим с облаком, и только на ваш адрес.</li>
+          <li>Сеть нужна для проверки обновлений, для кнопки «Скачать» у модели речи и для вашего сервера. Без них сети нет совсем.</li>
+          <li>Записи созвонов и расшифровки лежат на этом Mac, пока вы их не удалите, и не попадают в Time Machine, пока вы это не включите.</li>
           <li>Нет телеметрии, отправки слов и идентификаторов устройства или установки.</li>
           <li>Эта страница не использует трекеры, cookies и сторонние шрифты.</li>
         </ul>
         <ul class="en">
           <li>Typed text is never saved: the word lives in memory while you type it.</li>
           <li>On this Mac Perekey keeps your settings and word lists (“Mine”, “Learned”, “Always fix”) with dates and undo counts, correction counts if you turn them on, and how many words of each language you type in each app. The counts hold no words.</li>
-          <li>The only network request is the update check. You can turn it off, and then there is no network use at all.</li>
+          <li>Voice runs on this Mac: the speech models run locally. Sound and text go to a server only if you set up a cloud mode yourself, and only to your address.</li>
+          <li>The network is used for the update check, for the Download button of a speech model and for your own server. Without those there is no network use at all.</li>
+          <li>Call recordings and transcripts stay on this Mac until you delete them, and stay out of Time Machine unless you turn that on.</li>
           <li>No telemetry, no sending of words, no device or install identifiers.</li>
           <li>This page uses no trackers, no cookies and no third-party fonts.</li>
         </ul>
@@ -240,7 +259,9 @@ footer { padding: 28px 0 48px; color: var(--ink-2); font-size: 14px; text-align:
       <span class="ru">Свободное ПО под лицензией</span><span class="en">Free software under the</span>
       <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0-or-later</a> ·
       <a href="https://github.com/tlgnkl/perekey">
-        <span class="ru">исходный код</span><span class="en">source code</span></a>
+        <span class="ru">исходный код</span><span class="en">source code</span></a> ·
+      <a href="https://github.com/tlgnkl/perekey#acknowledgements">
+        <span class="ru">благодарности</span><span class="en">acknowledgements</span></a>
     </p>
   </footer>
 </div>

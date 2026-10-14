@@ -60,7 +60,7 @@ asks for access, reads the microphone, switches devices and starts and stops it
 
 - Never log typed text. Never write it to disk.
 - Log with `privacy: .private`.
-- No network except the update check. No telemetry, no identifiers.
+- No network except the update check and what the user starts (a speech model download, a server they set up). No telemetry, no identifiers.
 
 ## Code style
 

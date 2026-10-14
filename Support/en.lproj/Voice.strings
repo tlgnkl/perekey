@@ -419,3 +419,6 @@
 "The device changed. The recording goes on." = "The device changed. The recording goes on.";
 "Put on headphones: from the speakers the others also reach your microphone." = "Put on headphones: from the speakers the others also reach your microphone.";
 "Close" = "Close";
+
+/* Privacy: what the network is used for */
+"Speech models run on this Mac. The network is used for the update check and for what you start yourself: downloading a speech model, and a server you set up for a voice mode." = "Speech models run on this Mac. The network is used for the update check and for what you start yourself: downloading a speech model, and a server you set up for a voice mode.";

@@ -31,7 +31,7 @@ struct PrivacyPane: View {
 
     var body: some View {
         PKPane(title: Text("Privacy")) {
-            Text("Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. The only network request is the update check.")
+            (Text("Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. ") + networkNote)
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -105,6 +105,16 @@ struct PrivacyPane: View {
     }
 
     /// What Perekey never changes. Statements, not settings: no controls.
+    /// The last sentence of the intro. A build with voice input has more reasons for the network
+    /// than the update check.
+    private var networkNote: Text {
+        #if PEREKEY_VOICE
+        voiceText("Speech models run on this Mac. The network is used for the update check and for what you start yourself: downloading a speech model, and a server you set up for a voice mode.")
+        #else
+        Text("The only network request is the update check.")
+        #endif
+    }
+
     private var guaranteesSection: some View {
         PKGroup(header: Text("Perekey does not touch")) {
             PKGuaranteeRow(symbol: "lock.fill", Text("Password fields"),

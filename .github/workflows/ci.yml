@@ -48,7 +48,7 @@ jobs:
         run: find /Library/Developer/CommandLineTools -maxdepth 7 -name 'Testing*' | head -20
       - run: scripts/test.sh
 
-  # Voice input, built only with PEREKEY_VOICE=1 until it ships (Package.swift).
+  # Voice input, built only with PEREKEY_VOICE=1 (Package.swift); releases set it too.
   # Its own scratch path, as locally; its pins in Support/voice/Package.resolved.
   voice:
     runs-on: macos-latest
@@ -65,3 +65,29 @@ jobs:
         run: scripts/voice-pins.sh check
       - run: swift build --scratch-path .build/voice
       - run: scripts/test.sh
+
+  # The release configuration, as release.yml builds it: universal, with voice
+  # input, packed into a DMG. Ad hoc signed, since the signing secrets live in
+  # the release environment. Fails here, not on the tag, when a slice stops
+  # compiling or the app loses what voice needs (scripts/check-release-app.sh).
+  release-build:
+    runs-on: macos-26 # as in release.yml
+    env:
+      PEREKEY_VOICE: 1
+      SIGN_IDENTITY: "-"
+      VERSION: 0.0.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Command Line Tools
+        run: sudo xcode-select -s /Library/Developer/CommandLineTools
+      - name: Cache the model data
+        uses: actions/cache@v4
+        with:
+          path: .build/data-cache
+          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
+      - run: scripts/fetch-data.sh lexicon wikifreq
+      - run: scripts/build-model.sh --out .build/universal/model
+      - run: scripts/voice-pins.sh use
+      - run: scripts/build-universal.sh
+      - run: scripts/check-release-app.sh
+      - run: scripts/dmg.sh .build/voice-universal/app/Perekey.app

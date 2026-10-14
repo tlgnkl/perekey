@@ -3,8 +3,8 @@
 
 import PackageDescription
 
-// Voice input is built only with PEREKEY_VOICE=1 until it ships. Without the
-// flag the package has no voice system layer and no dependencies, and the app
+// Voice input is built only with PEREKEY_VOICE=1; releases set it (release.yml).
+// Without the flag the package has no voice system layer and no dependencies, and the app
 // builds as before. Build with the flag in its own scratch path
 // (`PEREKEY_VOICE=1 swift build --scratch-path .build/voice`): both graphs
 // then keep their own build state.

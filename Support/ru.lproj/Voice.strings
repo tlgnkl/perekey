@@ -425,8 +425,6 @@
 "Meeting minutes" = "Протокол встречи";
 "Transcript" = "Расшифровка";
 "Show" = "Показать";
-"Writing the summary %@" = "Пишу конспект %@";
-"Writing the minutes %@" = "Пишу протокол %@";
 "Make a summary" = "Сделать конспект";
 "Make the minutes" = "Сделать протокол";
 "Make again" = "Сделать заново";
@@ -454,3 +452,18 @@
 "The transcript of a conversation will go to %@, other people’s voices included. Until you allow it, summaries are made on this Mac only." = "На %@ уйдёт расшифровка разговора, в том числе чужие голоса. Пока вы не разрешите, конспекты делаются только на этом Mac.";
 "the transcript of a conversation, with other people’s words" = "расшифровка разговора с чужими словами";
 "Voice input is off. Turn it on in Settings → Voice." = "Голосовой ввод выключен. Включите его в настройках, раздел «Голос».";
+"A summary needs at least %lld words." = "Для конспекта нужно хотя бы %lld слов.";
+"Consent taken back" = "Согласие отозвано";
+"Made of the earlier transcript. Make it again to take the changes in." = "Сделано по прежней расшифровке. Сделайте заново, чтобы учесть изменения.";
+"Minutes: %lld of %lld" = "Протокол: %lld из %lld";
+"Summary: %lld of %lld" = "Конспект: %lld из %lld";
+"Perekey did not let the request out. Check that voice is on and the server is allowed." = "Perekey не выпустил запрос. Проверьте, что голос включён и сервер разрешён.";
+"Stops it" = "Останавливает";
+"The model’s window is smaller than needed" = "Окно модели меньше нужного";
+"The server cut the start of the request. Give the model a larger context (num_ctx in Ollama), or pick another model." = "Сервер обрезал начало запроса. Дайте модели окно побольше (num_ctx в Ollama) или выберите другую модель.";
+"The server says the request is too long for this model. Pick a model with a larger context." = "Сервер говорит, что запрос слишком длинный для этой модели. Выберите модель с окном побольше.";
+"The transcript does not fit the model’s window" = "Расшифровка не помещается в окно модели";
+"The work stopped. Part of the transcript has already gone to %@." = "Работа остановлена. Часть расшифровки уже ушла на %@.";
+"Too short a recording for a summary" = "Слишком короткая запись для конспекта";
+"Writing the minutes: %lld of %lld" = "Пишу протокол: %lld из %lld";
+"Writing the summary: %lld of %lld" = "Пишу конспект: %lld из %lld";

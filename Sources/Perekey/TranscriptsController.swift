@@ -53,6 +53,8 @@ final class TranscriptsController {
     private(set) var diskUsage: Int64 = 0
     /// The chosen recording's summary and minutes, as saved.
     private(set) var notes: [TranscriptAction: String] = [:]
+    /// Those of `notes` made of an older transcript.
+    private(set) var staleNotes: Set<TranscriptAction> = []
     var pane: Pane = .transcript
     var isDropTargeted = false
     let player = TranscriptPlayer()
@@ -104,6 +106,8 @@ final class TranscriptsController {
                 loadTranscript()
                 pane = .note(action)
             }
+            // The queue lives while voice is on, and so does the network.
+            summaries?.voiceOn = { [weak self] in self?.canQueue ?? false }
         }
     }
 
@@ -172,14 +176,18 @@ final class TranscriptsController {
         guard let id = selection else {
             transcript = .none
             notes = [:]
+            staleNotes = []
             refreshSearch()
             return
         }
         let folder = folder
         loading = Task {
-            let (loaded, notes) = await Task.detached { (folder.transcript(id), folder.notes(of: id)) }.value
+            let (loaded, notes, stale) = await Task.detached {
+                (folder.transcript(id), folder.notes(of: id), folder.staleNotes(of: id))
+            }.value
             guard !Task.isCancelled, selection == id else { return }
             self.notes = notes
+            staleNotes = stale
             switch loaded {
             case .missing: transcript = .none
             case let .loaded(document): transcript = .loaded(document)
@@ -425,9 +433,13 @@ final class TranscriptsController {
     func summarize(_ action: TranscriptAction) {
         guard let id = selection, let document, let summaries else { return }
         pane = .note(action)
-        // The queue lives while voice is on, and so does the network.
-        guard canQueue else { return summaries.fail(id, .voiceOff) }
         summaries.start(action, recording: id, document: document, labels: labels)
+    }
+
+    /// Too few words for a summary: the offer says so instead of the button.
+    var isTooShortToSummarize: Bool {
+        guard let document else { return false }
+        return TranscriptLines.words(in: document) < TranscriptSummarizer.minimumWords
     }
 
     func copy(_ action: TranscriptAction) {

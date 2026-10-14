@@ -164,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              settings: settings) { [voice] actions in
             actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
             actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
+            actions.summaries = transcriptsController.summaries
             actions.transcribeFile = { voice.files.chooseFiles() }
             actions.canTranscribeFiles = { voice.files.queue != nil }
             actions.callRecording = callRecording

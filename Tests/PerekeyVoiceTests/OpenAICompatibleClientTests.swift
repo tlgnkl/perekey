@@ -50,7 +50,7 @@ struct OpenAICompatibleClientTests {
 
     @Test func chatCompletion() async throws {
         let fake = try await FakeOpenAI()
-        let text = try await fake.client().complete(messages, model: "qwen2.5:7b", address: fake.address, key: "sk-test")
+        let text = try await fake.client().complete(messages, model: "qwen2.5:7b", address: fake.address, key: "sk-test", purpose: .cloudLanguageModel)
         #expect(text == "Привет, мир.")
         let request = try #require(fake.server.requests.first)
         #expect(request.method == "POST")
@@ -67,7 +67,7 @@ struct OpenAICompatibleClientTests {
 
     @Test func noKeyNoHeader() async throws {
         let fake = try await FakeOpenAI()
-        _ = try await fake.client().complete(messages, model: "m", address: fake.address, key: nil)
+        _ = try await fake.client().complete(messages, model: "m", address: fake.address, key: nil, purpose: .cloudLanguageModel)
         #expect(fake.server.requests.first?.headers["authorization"] == nil)
     }
 
@@ -85,7 +85,7 @@ struct OpenAICompatibleClientTests {
         for (response, failure) in cases {
             let fake = try await FakeOpenAI { _, _ in response }
             await #expect(throws: failure) {
-                try await fake.client().complete(messages, model: "m", address: fake.address, key: "k")
+                try await fake.client().complete(messages, model: "m", address: fake.address, key: "k", purpose: .cloudLanguageModel)
             }
         }
     }
@@ -94,7 +94,7 @@ struct OpenAICompatibleClientTests {
         let fake = try await FakeOpenAI { _, _ in TestServer.Response(status: 200, body: Data(count: 100), cutAfter: 1, stall: true) }
         let start = ContinuousClock.now
         await #expect(throws: OpenAICompatibleClient.Failure.timedOut) {
-            try await fake.client(timeout: .milliseconds(300)).complete(messages, model: "m", address: fake.address, key: nil)
+            try await fake.client(timeout: .milliseconds(300)).complete(messages, model: "m", address: fake.address, key: nil, purpose: .cloudLanguageModel)
         }
         #expect(ContinuousClock.now - start < .seconds(5))
     }
@@ -103,18 +103,18 @@ struct OpenAICompatibleClientTests {
         let fake = try await FakeOpenAI()
         fake.http.allowedOrigins = [.cloudLanguageModel: ["https://api.openai.com:443"]]
         await #expect(throws: OpenAICompatibleClient.Failure.blocked) {
-            try await fake.client().complete(messages, model: "m", address: fake.address, key: "k")
+            try await fake.client().complete(messages, model: "m", address: fake.address, key: "k", purpose: .cloudLanguageModel)
         }
         // Consent to the audio is not consent to the text.
         fake.http.allowedOrigins = [.cloudSpeech: [fake.address.origin]]
         await #expect(throws: OpenAICompatibleClient.Failure.blocked) {
-            try await fake.client().complete(messages, model: "m", address: fake.address, key: "k")
+            try await fake.client().complete(messages, model: "m", address: fake.address, key: "k", purpose: .cloudLanguageModel)
         }
         // The purpose closed: blocked as well.
         fake.http.allowedOrigins = [.cloudLanguageModel: [fake.address.origin]]
         fake.http.allowed = [.modelDownload]
         await #expect(throws: OpenAICompatibleClient.Failure.blocked) {
-            try await fake.client().complete(messages, model: "m", address: fake.address, key: "k")
+            try await fake.client().complete(messages, model: "m", address: fake.address, key: "k", purpose: .cloudLanguageModel)
         }
         #expect(fake.server.requests.isEmpty)
         #expect(fake.http.requests.isEmpty)
@@ -128,7 +128,7 @@ struct OpenAICompatibleClientTests {
         // Even an origin the gate would let out is not followed to.
         fake.http.allowedOrigins[.cloudLanguageModel]?.insert(EndpointAddress("\(other.base)/v1")!.origin)
         await #expect(throws: OpenAICompatibleClient.Failure.badResponse) {
-            try await fake.client().complete(messages, model: "m", address: fake.address, key: "sk-secret")
+            try await fake.client().complete(messages, model: "m", address: fake.address, key: "sk-secret", purpose: .cloudLanguageModel)
         }
         #expect(fake.server.requests.count == 1)
         #expect(other.requests.isEmpty, "the second server got neither a request nor the key")
@@ -137,7 +137,7 @@ struct OpenAICompatibleClientTests {
     @Test func anOversizedAnswerIsCut() async throws {
         let fake = try await FakeOpenAI { _, _ in TestServer.Response(status: 200, body: Data(count: VoiceHTTP.dataLimit + 1)) }
         await #expect(throws: OpenAICompatibleClient.Failure.badResponse) {
-            try await fake.client().complete(messages, model: "m", address: fake.address, key: nil)
+            try await fake.client().complete(messages, model: "m", address: fake.address, key: nil, purpose: .cloudLanguageModel)
         }
         await #expect(throws: VoiceHTTP.Failure.tooLarge) {
             _ = try await fake.http.data(for: URLRequest(url: URL(string: fake.address.url("/x"))!),
@@ -150,7 +150,7 @@ struct OpenAICompatibleClientTests {
         let client = fake.client(timeout: .seconds(30))
         let address = fake.address
         let messages = self.messages
-        let request = Task { try await client.complete(messages, model: "m", address: address, key: nil) }
+        let request = Task { try await client.complete(messages, model: "m", address: address, key: nil, purpose: .cloudLanguageModel) }
         for _ in 0..<200 where fake.server.requests.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         let start = ContinuousClock.now
         // Consent revoked while the model thinks.

@@ -38,7 +38,7 @@ enum SummarizeCommand {
             budget = summary.budget
         }
         let lines = TranscriptLines.of(document, labels: .english)
-        let chunks = TranscriptChunker.chunks(lines, limit: budget.characters)
+        let chunks = TranscriptChunker.chunks(lines, limit: (await engine.contextWindow().map(budget.fitted) ?? budget).characters)
         let meter = RunMeter()
         let answer = try await TranscriptSummarizer(model: engine, budget: budget)
             .run(action, lines: lines, language: document.language)
@@ -48,7 +48,9 @@ enum SummarizeCommand {
         json["action"] = action.rawValue
         json["phrases"] = lines.count
         json["characters"] = lines.reduce(0) { $0 + $1.count }
-        json["budget_characters"] = budget.characters
+        let window = await engine.contextWindow()
+        json["window_tokens"] = window ?? budget.contextTokens
+        json["budget_characters"] = (window.map(budget.fitted) ?? budget).characters
         json["pieces"] = chunks.count
         json["requests"] = counter.value
         json["request_s"] = counter.seconds
@@ -113,22 +115,24 @@ enum SummarizeCommand {
     /// Short notes at once: the cost of the cutting and the bookkeeping alone.
     struct InstantModel: SummaryLanguageModel {
         let counter: Counter
-        func complete(_ messages: [ChatMessage]) async throws -> String {
+        func reply(to messages: [ChatMessage]) async throws -> SummaryReply {
             counter.add(0)
-            return "- Релиз переносится на четверг.\n- Аня смотрит очередь до среды.\n- Тексты до пятницы."
+            return SummaryReply(text: "- Релиз переносится на четверг.\n- Аня смотрит очередь до среды.\n- Тексты до пятницы.")
         }
     }
 
     struct CountingModel: SummaryLanguageModel {
         let inner: any SummaryLanguageModel
         let counter: Counter
-        func complete(_ messages: [ChatMessage]) async throws -> String {
+        func contextWindow() async -> Int? { await inner.contextWindow() }
+
+        func reply(to messages: [ChatMessage]) async throws -> SummaryReply {
             let start = ContinuousClock.now
             defer {
                 let elapsed = start.duration(to: .now).components
                 counter.add(Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
             }
-            return try await inner.complete(messages)
+            return try await inner.reply(to: messages)
         }
     }
 }

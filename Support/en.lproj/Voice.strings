@@ -425,8 +425,6 @@
 "Meeting minutes" = "Meeting minutes";
 "Transcript" = "Transcript";
 "Show" = "Show";
-"Writing the summary %@" = "Writing the summary %@";
-"Writing the minutes %@" = "Writing the minutes %@";
 "Make a summary" = "Make a summary";
 "Make the minutes" = "Make the minutes";
 "Make again" = "Make again";
@@ -454,3 +452,18 @@
 "The transcript of a conversation will go to %@, other people’s voices included. Until you allow it, summaries are made on this Mac only." = "The transcript of a conversation will go to %@, other people’s voices included. Until you allow it, summaries are made on this Mac only.";
 "the transcript of a conversation, with other people’s words" = "the transcript of a conversation, with other people’s words";
 "Voice input is off. Turn it on in Settings → Voice." = "Voice input is off. Turn it on in Settings → Voice.";
+"A summary needs at least %lld words." = "A summary needs at least %lld words.";
+"Consent taken back" = "Consent taken back";
+"Made of the earlier transcript. Make it again to take the changes in." = "Made of the earlier transcript. Make it again to take the changes in.";
+"Minutes: %lld of %lld" = "Minutes: %lld of %lld";
+"Summary: %lld of %lld" = "Summary: %lld of %lld";
+"Perekey did not let the request out. Check that voice is on and the server is allowed." = "Perekey did not let the request out. Check that voice is on and the server is allowed.";
+"Stops it" = "Stops it";
+"The model’s window is smaller than needed" = "The model’s window is smaller than needed";
+"The server cut the start of the request. Give the model a larger context (num_ctx in Ollama), or pick another model." = "The server cut the start of the request. Give the model a larger context (num_ctx in Ollama), or pick another model.";
+"The server says the request is too long for this model. Pick a model with a larger context." = "The server says the request is too long for this model. Pick a model with a larger context.";
+"The transcript does not fit the model’s window" = "The transcript does not fit the model’s window";
+"The work stopped. Part of the transcript has already gone to %@." = "The work stopped. Part of the transcript has already gone to %@.";
+"Too short a recording for a summary" = "Too short a recording for a summary";
+"Writing the minutes: %lld of %lld" = "Writing the minutes: %lld of %lld";
+"Writing the summary: %lld of %lld" = "Writing the summary: %lld of %lld";

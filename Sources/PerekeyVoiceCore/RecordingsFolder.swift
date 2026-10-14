@@ -169,16 +169,58 @@ public struct RecordingsFolder: Sendable {
         }
     }
 
-    /// Writes an answer atomically over the one before. Throws
-    /// `FileError.missing` when the recording is gone: one deleted while
-    /// its summary ran is not brought back.
-    public func saveNote(_ text: String, _ action: TranscriptAction, for id: UUID) throws {
+    /// When `transcript.json` was last written: the revision an answer is made of.
+    public func transcriptRevision(_ id: UUID) -> Date? {
+        Self.lock.withLockUnchecked {
+            // A new URL: one keeps the values it read once.
+            try? URL(filePath: transcriptURL(for: id).path(percentEncoded: false))
+                .resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        }
+    }
+
+    /// Writes an answer atomically over the one before, marked with the
+    /// transcript's `revision` it was made of. Throws `FileError.missing`
+    /// when the recording is gone: one deleted while its summary ran is not
+    /// brought back.
+    public func saveNote(_ text: String, _ action: TranscriptAction, for id: UUID, revision: Date?) throws {
         try Self.lock.withLockUnchecked {
             guard FileManager.default.fileExists(atPath: metaURL(for: id).path(percentEncoded: false)) else {
                 throw FileError.missing
             }
-            try Data(text.utf8).write(to: noteURL(action, for: id), options: .atomic)
+            let url = noteURL(action, for: id)
+            try Data(text.utf8).write(to: url, options: .atomic)
+            if let revision { Self.setRevision(revision, of: url) }
         }
+    }
+
+    /// The answers made of an older transcript: it was transcribed again,
+    /// or a speaker renamed, after them. An answer without a mark is not
+    /// taken for stale.
+    public func staleNotes(of id: UUID) -> Set<TranscriptAction> {
+        guard let current = transcriptRevision(id) else { return [] }
+        return Self.lock.withLockUnchecked {
+            Set(TranscriptAction.allCases.filter { action in
+                Self.revision(of: noteURL(action, for: id)).map { $0 != current } ?? false
+            })
+        }
+    }
+
+    /// The extended attribute that keeps an answer's transcript revision.
+    static let revisionAttribute = "app.perekey.transcript-revision"
+
+    private static func setRevision(_ revision: Date, of url: URL) {
+        let value = Data(String(revision.timeIntervalSinceReferenceDate).utf8)
+        _ = value.withUnsafeBytes { bytes in
+            setxattr(url.path(percentEncoded: false), revisionAttribute, bytes.baseAddress, bytes.count, 0, 0)
+        }
+    }
+
+    private static func revision(of url: URL) -> Date? {
+        let path = url.path(percentEncoded: false)
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let count = getxattr(path, revisionAttribute, &buffer, buffer.count, 0, 0)
+        guard count > 0, let seconds = Double(String(decoding: buffer[..<count], as: UTF8.self)) else { return nil }
+        return Date(timeIntervalSinceReferenceDate: seconds)
     }
 
     /// Removes a recording: its folder with the audio, the transcript and

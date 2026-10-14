@@ -26,6 +26,8 @@ struct MenuActions {
     var callRecording: CallRecordingController?
     /// The «Расшифровки» window; nil hides the row.
     var transcripts: TranscriptsMenu?
+    /// «Конспект» and «Протокол встречи» that go on, each a row with «Остановить».
+    var summaries: TranscriptSummaries?
     /// «Расшифровать файл…»; nil, or false from it, hides the row.
     var transcribeFile: (() -> Void)?
     var canTranscribeFiles: () -> Bool = { false }
@@ -375,6 +377,15 @@ struct MenuContent: View {
             if let transcripts = actions.transcripts, transcripts.isOn() {
                 MenuCommandRow(id: "transcripts", title: "", label: voiceText("Transcripts…"), shortcut: nil, nav: nav,
                                run: { actions.close(); transcripts.open() })
+            }
+            if let summaries = actions.summaries {
+                // A run goes on with the window closed, and never unseen: one line each, a click stops it.
+                ForEach(summaries.running.sorted { $0.key.uuidString < $1.key.uuidString }, id: \.key) { id, running in
+                    MenuCommandRow(id: "summary-\(id.uuidString)", title: "",
+                                   label: Text(verbatim: "\(running.action.menuText(running.progress)) · \(voiceString("Stop"))"),
+                                   shortcut: nil, nav: nav) { summaries.cancel(id) }
+                        .accessibilityHint(voiceText("Stops it"))
+                }
             }
             if let transcribeFile = actions.transcribeFile, actions.canTranscribeFiles() {
                 MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {

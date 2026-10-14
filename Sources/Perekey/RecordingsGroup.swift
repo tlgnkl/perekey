@@ -83,13 +83,18 @@ struct RecordingsGroup: View {
 /// one only by this choice, and with the consent to send it transcripts.
 private struct SummaryModelPicker: View {
     let modes: VoiceModesStore
+    /// Bumped when a choice is refused, so the menu shows the kept one again.
+    private let refusals = State(initialValue: 0)
 
     var body: some View {
         let set = modes.modes
         let options = set.summaryModelOptions
         let local = set.localLanguageModel
         PKRow(voiceText("Model for summaries"), detail: detail(local: local)) {
-            Picker(selection: Binding(get: { set.summaryModel }, set: { modes.setSummaryModel($0) })) {
+            Picker(selection: Binding(get: { set.summaryModel }, set: { choice in
+                modes.setSummaryModel(choice)
+                if modes.modes.summaryModel != choice { refusals.wrappedValue += 1 }
+            })) {
                 Text(verbatim: local.map { voiceString("As the modes: \(modes.title(of: $0))") }
                     ?? voiceString("As the modes: none on this Mac"))
                     .tag(SummaryModelChoice?.none)
@@ -100,6 +105,7 @@ private struct SummaryModelPicker: View {
                 voiceText("Model for summaries")
             }
             .labelsHidden()
+            .id(refusals.wrappedValue)
             .frame(width: 280)
             .disabled(modes.isLocked)
         }

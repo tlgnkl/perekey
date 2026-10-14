@@ -18,8 +18,7 @@ import PerekeyVoiceCore
 final class TranscriptSummaries {
     struct Running: Equatable {
         var action: TranscriptAction
-        /// 0…1.
-        var progress: Double
+        var progress: SummaryProgress
     }
 
     private(set) var running: [UUID: Running] = [:]
@@ -28,6 +27,8 @@ final class TranscriptSummaries {
 
     /// A run saved its answer.
     @ObservationIgnored var finished: @MainActor (UUID, TranscriptAction) -> Void = { _, _ in }
+    /// Whether voice is on: the gate lets nothing out while it is off.
+    @ObservationIgnored var voiceOn: @MainActor () -> Bool = { true }
     /// The model of a choice; a server of the modes in the app.
     @ObservationIgnored var makeModel: @MainActor (SummaryModelChoice, EndpointAddress, String?)
         -> (model: any SummaryLanguageModel, budget: SummaryBudget)
@@ -55,6 +56,16 @@ final class TranscriptSummaries {
     func start(_ action: TranscriptAction, recording id: UUID, document: TranscriptDocument, labels: SpeakerLabels) {
         guard tasks[id] == nil else { return }
         failures[id] = nil
+        do {
+            try TranscriptSummarizer.check(document)
+        } catch {
+            failures[id] = error as? SummaryFailure ?? .empty
+            return
+        }
+        guard voiceOn() else {
+            failures[id] = .voiceOff
+            return
+        }
         var readiness = modes.summaryReadiness()
         if case let .needsConsent(choice, _, _) = readiness {
             guard modes.askConversationTextConsent(endpoint: choice.endpoint) else {
@@ -69,14 +80,17 @@ final class TranscriptSummaries {
         }
         let (model, budget) = makeModel(choice, address, modes.key(choice.endpoint))
         let endpoint = choice.endpoint
+        let host = address.displayHost
         let summarizer = TranscriptSummarizer(model: model, budget: budget, mayContinue: { [modes] in
             await MainActor.run { modes.maySendConversationText(endpoint: endpoint) }
-        })
+        }, host: host)
+        // What the answer is made of: a later rename or a new transcript makes it stale.
+        let revision = folder.transcriptRevision(id)
         let lines = TranscriptLines.of(document, labels: labels)
         let language = document.language
         let folder = folder
         let log = log
-        running[id] = Running(action: action, progress: 0)
+        running[id] = Running(action: action, progress: SummaryProgress(done: 0, total: 1))
         runs += 1
         let run = runs
         let task = Task { [weak self] in
@@ -84,16 +98,22 @@ final class TranscriptSummaries {
             let failure: SummaryFailure?
             do {
                 let text = try await summarizer.run(action, lines: lines, language: language) { progress in
-                    Task { @MainActor in self?.advance(id, to: progress.fraction) }
+                    Task { @MainActor in self?.advance(id, run: run, to: progress) }
                 }
                 try Task.checkCancellation()
-                try await Task.detached { try folder.saveNote(text, action, for: id) }.value
+                // «Остановить» pressed while the answer came: it is not saved.
+                guard self?.tasks[id]?.run == run else { throw CancellationError() }
+                try await Task.detached { try folder.saveNote(text, action, for: id, revision: revision) }.value
                 failure = nil
                 log.info("\(action.rawValue, privacy: .public) saved: \(lines.count) lines, \(started.duration(to: .now), privacy: .public)")
             } catch is CancellationError {
                 failure = nil
             } catch let error as SummaryFailure {
-                failure = error
+                failure = await MainActor.run { [weak self] in
+                    guard let self else { return error }
+                    return error.resolvingBlock(voiceOn: voiceOn(), cloudDisabled: modes.cloudDisabled,
+                                                maySend: modes.maySendConversationText(endpoint: endpoint), host: host)
+                }
                 log.error("\(action.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             } catch RecordingsFolder.FileError.missing {
                 // Deleted while it ran: nothing to save it to.
@@ -113,9 +133,9 @@ final class TranscriptSummaries {
         tasks[id] = (run, task)
     }
 
-    private func advance(_ id: UUID, to fraction: Double) {
-        guard let current = running[id], fraction > current.progress else { return }
-        running[id]?.progress = fraction
+    private func advance(_ id: UUID, run: Int, to progress: SummaryProgress) {
+        guard tasks[id]?.run == run, let current = running[id], progress.done >= current.progress.done else { return }
+        running[id]?.progress = progress
     }
 
     /// Stops the run of `id`; what it had is dropped.
@@ -127,7 +147,5 @@ final class TranscriptSummaries {
 
     func dismissFailure(_ id: UUID) { failures[id] = nil }
 
-    /// A run that could not start for a reason the window knows.
-    func fail(_ id: UUID, _ failure: SummaryFailure) { failures[id] = failure }
 }
 #endif

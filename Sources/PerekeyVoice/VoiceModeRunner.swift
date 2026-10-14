@@ -157,7 +157,7 @@ public final class VoiceModeRunner: DictationModeSource {
                                   app: mode.context.app ? plan.appName : nil,
                                   site: mode.context.site ? plan.host : nil)
         return try await client.complete(prompt.messages, model: config.model, address: address,
-                                         key: environment.key(config.endpoint))
+                                         key: environment.key(config.endpoint), purpose: .cloudLanguageModel)
     }
 
     public func sessionEnded(_ plan: DictationPlan) {

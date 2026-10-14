@@ -62,7 +62,7 @@ struct VoiceNetworkPolicyTests {
         fake.http.allowedOrigins = [.cloudLanguageModel: [address.origin]]
         let server = SummaryServer(model: "m", address: address, key: nil, http: fake.http)
         let summarizer = TranscriptSummarizer(model: server, budget: server.budget)
-        await #expect(throws: SummaryFailure.needsConsent) {
+        await #expect(throws: SummaryFailure.blocked) {
             try await summarizer.run(.summary, lines: ["[0:01] Аня: Привет"], language: "ru")
         }
         #expect(fake.http.requests.isEmpty)
@@ -71,7 +71,8 @@ struct VoiceNetworkPolicyTests {
         fake.http.allowedOrigins[.conversationLanguageModel] = [address.origin]
         let text = try await summarizer.run(.summary, lines: ["[0:01] Аня: Привет"], language: "ru")
         #expect(text == "Привет, мир.")
-        #expect(fake.http.requests.map(\.purpose) == [.conversationLanguageModel])
+        #expect(Set(fake.http.requests.map(\.purpose)) == [.conversationLanguageModel])
+        #expect(fake.server.requests.contains { $0.path == "/v1/chat/completions" })
     }
 
     @Test func aNewerFileAndAnUnsupportedMacKeepTheNetworkClosed() async throws {

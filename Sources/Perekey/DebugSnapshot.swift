@@ -944,7 +944,7 @@ extension DebugSnapshot {
 
             ## Открытые вопросы
             - Кто дежурит в выходные после релиза?
-            """, .minutes, for: zoom)
+            """, .minutes, for: zoom, revision: folder.transcriptRevision(zoom))
         }
         return TranscriptsFixture(controller: controller, interview: interview, zoom: zoom, running: running,
                                   failed: failed, interrupted: interrupted, expired: expired)

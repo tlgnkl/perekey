@@ -181,9 +181,18 @@ struct FileTranscriberTests {
                    mayUpload: @escaping @Sendable (String) async -> Bool = { !TranscriptionModel.isCloud($0) })
             -> FileTranscriber
         {
+            FileTranscriber(environment: environment(engine: engine, opener: opener, detector: detector,
+                                                     diarizer: diarizer, windows: windows, mayUpload: mayUpload))
+        }
+
+        func environment(engine: ScriptEngine?, opener: NumberedOpener, detector: SilenceDetector? = SilenceDetector(),
+                         diarizer: FakeDiarizer? = nil, windows: WindowSettings = .standard,
+                         mayUpload: @escaping @Sendable (String) async -> Bool = { !TranscriptionModel.isCloud($0) })
+            -> FileTranscriber.Environment
+        {
             let work = self.work
             let made = self.made
-            return FileTranscriber(environment: .init(
+            return .init(
                 folder: folder, opener: opener, detector: detector,
                 makeEngine: { id in
                     made.withLock { $0.append(id) }
@@ -194,7 +203,7 @@ struct FileTranscriberTests {
                     work.withLock { $0.begun += 1 }
                     return { work.withLock { $0.ended += 1 } }
                 },
-                windows: windows, now: { Date(timeIntervalSince1970: 1_800_000_000) }))
+                windows: windows, now: { Date(timeIntervalSince1970: 1_800_000_000) })
         }
 
         func transcript(_ id: UUID) -> TranscriptDocument? {
@@ -298,6 +307,24 @@ struct FileTranscriberTests {
         #expect(await engine.windows.first?.end == 60)
         let found = try #require(fixture.transcript(id)).segments.flatMap { $0.words ?? [] }
         #expect(found.map(\.text) == script.map(\.text))
+    }
+
+    /// The consent taken back after a window: the next one never leaves.
+    @Test func consentTakenBackStopsTheNextWindow() async throws {
+        let fixture = Fixture()
+        let id = try fixture.call(seconds: 200)
+        let model = "cloud:groq:whisper-large-v3-turbo"
+        let engine = ScriptEngine(id: model, script: [.mic: words(280)], wordless: true)
+        await engine.hold()
+        let allowed = OSAllocatedUnfairLock(initialState: true)
+        let queue = fixture.queue(engine: engine, opener: NumberedOpener(seconds: [.mic: 200]),
+                                  mayUpload: { _ in allowed.withLock { $0 } })
+        await queue.enqueue(TranscriptionJob(recording: id, model: model, diarize: false))
+        await engine.waitForHeldWindow()
+        allowed.withLock { $0 = false }
+        await engine.release()
+        #expect(await wait(queue, id, until: finished).last == .failed(.needsConsent))
+        #expect(await engine.windows.count == 1)
     }
 
     /// Dictation goes first: the queue stops at the edge of the window in
@@ -567,7 +594,7 @@ struct FileTranscriberTests {
         var engines = [first, second]
         let cleaned = OSAllocatedUnfairLock(initialState: [Date]())
         let lifecycle = FileQueueLifecycle(
-            make: { fixture.queue(engine: engines.removeFirst(), opener: NumberedOpener(seconds: [.mic: 200])) },
+            environment: { fixture.environment(engine: engines.removeFirst(), opener: NumberedOpener(seconds: [.mic: 200])) },
             clean: { date in cleaned.withLock { $0.append(date) } })
         lifecycle.start()
         await lifecycle.resuming?.value
@@ -578,6 +605,9 @@ struct FileTranscriberTests {
         lifecycle.stop()
         lifecycle.start()
         let next = try #require(lifecycle.queue)
+        // A recording queued in the new queue waits too.
+        let other = try fixture.call(seconds: 20)
+        await next.enqueue(TranscriptionJob(recording: other, model: "parakeet-tdt-v3", diarize: false))
         try await Task.sleep(for: .milliseconds(50))
         // The old queue still holds its window: the new one has not begun.
         #expect(await second.windows.isEmpty)
@@ -586,8 +616,9 @@ struct FileTranscriberTests {
         await lifecycle.resuming?.value
         #expect(cleaned.withLock { $0 }.count == 2)
         #expect(await wait(next, id, until: finished).last == .done)
-        let resumedAt = try #require(await second.windows.first?.start)
-        #expect(resumedAt > 0)
+        #expect(await wait(next, other, until: finished).last == .done)
+        // From 0: only the new 20 s recording; the old one goes on from its last window.
+        #expect(await second.windows.filter { $0.start == 0 }.count == 1)
         let found = try #require(fixture.transcript(id)).segments.flatMap { $0.words ?? [] }
         #expect(found.map(\.text) == script.map(\.text))
     }
@@ -607,6 +638,23 @@ struct FileTranscriberTests {
         phrases.add(TimedTranscript(segments: [TimedSegment(start: 59.5, end: 61, text: "x")]), offset: 0, keepUntil: 59)
         phrases.add(TimedTranscript(segments: [TimedSegment(start: 1.5, end: 3, text: "x")]), offset: 58, keepUntil: nil)
         #expect(phrases.transcript(language: nil).segments.map(\.start) == [59.5])
+    }
+
+    /// Windows with words, then one without (Whisper's empty words): its
+    /// first phrase starts at the window's 0, before `keepFrom`. It is kept,
+    /// and the words of the window before that it covers go.
+    @Test func wordlessPhraseAfterWordsIsKeptWhole() {
+        var stitcher = WindowStitcher()
+        let early = TimedWord(start: 55, end: 55.4, text: " early")
+        let edge = TimedWord(start: 58.4, end: 58.8, text: " edge")
+        stitcher.add(TimedTranscript(segments: [TimedSegment(start: 55, end: 58.8, text: "early edge",
+                                                             words: [early, edge])]),
+                     offset: 0, keepUntil: 59)
+        // The next window from 58 s: one phrase from its 0, words unknown.
+        stitcher.add(TimedTranscript(segments: [TimedSegment(start: 0, end: 4, text: "edge and more")]),
+                     offset: 58, keepUntil: nil)
+        let text = stitcher.transcript(language: nil).segments.map(\.text)
+        #expect(text == ["early", "edge and more"])
     }
 
     @Test func phrasesEndAtSentencesAndPauses() {

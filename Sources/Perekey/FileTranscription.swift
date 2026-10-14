@@ -19,7 +19,7 @@ final class FileTranscription {
     private let models: VoiceModelsController
     private let modes: VoiceModesStore
     private let text: VoiceTextController
-    private lazy var lifecycle = FileQueueLifecycle(make: { [unowned self] in makeQueue() },
+    private lazy var lifecycle = FileQueueLifecycle(environment: { [unowned self] in environment() },
                                                     clean: { [opener] in opener.clearScratch(before: $0) })
 
     init(models: VoiceModelsController, modes: VoiceModesStore, text: VoiceTextController) {
@@ -45,11 +45,11 @@ final class FileTranscription {
         lifecycle.stop()
     }
 
-    private func makeQueue() -> FileTranscriber {
+    private func environment() -> FileTranscriber.Environment {
         let store = models.store
         let modes = self.modes
         let text = self.text
-        return FileTranscriber(environment: FileTranscriber.Environment(
+        return FileTranscriber.Environment(
             folder: folder, opener: opener, detector: SileroVAD(store: store),
             makeEngine: { id in VoiceSetup.cloudEngine(id, modes: modes) ?? VoiceEngines.make(model: id, store: store) },
             makeDiarizer: { VBxDiarizer(store: store) },
@@ -60,7 +60,7 @@ final class FileTranscription {
                     return prompt.isEmpty ? nil : prompt
                 }
             },
-            mayUpload: { id in await MainActor.run { modes.mayUploadConversation(model: id) } }))
+            mayUpload: { id in await MainActor.run { modes.mayUploadConversation(model: id) } })
     }
 
     /// The model for files and calls: the user's choice for transcriptions,

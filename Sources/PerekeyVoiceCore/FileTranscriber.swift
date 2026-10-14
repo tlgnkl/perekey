@@ -92,8 +92,13 @@ public actor FileTranscriber: FileTranscribing {
     /// Runs over, whatever came of them: tests wait for it.
     public private(set) var runsDone = 0
 
-    public init(environment: Environment) {
+    /// Whether queued work waits for `resumePending`: a queue that starts
+    /// while an old one still lets go (`FileQueueLifecycle`).
+    private var held: Bool
+
+    public init(environment: Environment, startsHeld: Bool = false) {
         self.environment = environment
+        held = startsHeld
     }
 
     public nonisolated var isBusy: Bool { busy.withLock { $0 } }
@@ -136,6 +141,7 @@ public actor FileTranscriber: FileTranscribing {
     /// Queues the recordings a quit or a crash cut off: those with a
     /// `pendingJob`. They go on from their last window.
     public func resumePending() {
+        held = false
         for id in environment.folder.recordings() {
             guard case let .loaded(meta) = environment.folder.meta(id), let job = meta.pendingJob,
                   job.recording == id, running?.job.recording != id, !queue.contains(where: { $0.recording == id })
@@ -190,7 +196,7 @@ public actor FileTranscriber: FileTranscribing {
 
     private func pump() {
         defer { updateBusy() }
-        guard running == nil, !queue.isEmpty else { return }
+        guard !held, running == nil, !queue.isEmpty else { return }
         let job = queue.removeFirst()
         running = Running(job: job, task: Task { await self.run(job) })
     }
@@ -310,8 +316,10 @@ public actor FileTranscriber: FileTranscribing {
                 partial.position = 0
                 partial.stitcher = WindowStitcher()
                 partial.language = job.language
+                partial.wordless = false
             }
-            let transcript = try await transcribeTrack(audio, id: id, engine: engine, prompt: prompt, partial: &partial,
+            let transcript = try await transcribeTrack(audio, id: id, model: job.model, engine: engine, prompt: prompt,
+                                                       partial: &partial,
                                                   done: done, total: total)
             partial.finished[key] = transcript
             partial.track = nil
@@ -355,7 +363,8 @@ public actor FileTranscriber: FileTranscribing {
     }
 
     /// One track, window after window, from where `partial` stopped.
-    private func transcribeTrack(_ audio: any LongAudio, id: UUID, engine: any SpeechEngine, prompt: String?,
+    private func transcribeTrack(_ audio: any LongAudio, id: UUID, model: String, engine: any SpeechEngine,
+                                 prompt: String?,
                             partial: inout TranscriptionCheckpoint, done: Int, total: Int) async throws
         -> TimedTranscript
     {
@@ -369,6 +378,10 @@ public actor FileTranscriber: FileTranscribing {
         while partial.position < count {
             let progress = Double(done + partial.position) / Double(total)
             try await yieldToDictation(id, progress: progress)
+            // A consent taken back mid-way stops the next window from leaving.
+            if TranscriptionModel.isCloud(model), !(await environment.mayUpload(model)) {
+                throw Stop.failed(.needsConsent)
+            }
             let position = partial.position
             let end = min(position + window, count)
             let samples = try audio.read(position..<end)
@@ -387,6 +400,11 @@ public actor FileTranscriber: FileTranscribing {
                 cut = min(cut, end)
                 // The next window must start later than this one.
                 if cut - (partial.wordless ? 0 : overlap) <= position { cut = end }
+            }
+            if end < count {
+                let index = (cut - position) / chunk
+                let quiet = probabilities.map { index < $0.count && $0[index] < VoiceActivity.threshold } ?? false
+                if !quiet { log.warning("window cut outside a pause") }
             }
             let length = cut - position
             let speech = probabilities.map { VoiceActivity.hasSpeech(Array($0.prefix((length + chunk - 1) / chunk))) }
@@ -495,13 +513,14 @@ public enum LongAudioError: Error, Equatable, Sendable {
 }
 
 /// The file queue while voice is on: `start` makes one, `stop` shuts it
-/// down. A start right after a stop waits for the old queue to let go
-/// before it goes on with the pending recordings: two queues never write
-/// the same `transcript.partial.json`.
+/// down. A new queue starts held: what is queued in it waits until the old
+/// queue has let go, the scratch is cleared and the pending recordings are
+/// back in; only then does it run. Two queues never write the same
+/// `transcript.partial.json`.
 @MainActor
 public final class FileQueueLifecycle {
     public private(set) var queue: FileTranscriber?
-    private let make: () -> FileTranscriber
+    private let environment: () -> FileTranscriber.Environment
     /// Before the pending recordings: clears what a crash or an old queue
     /// left behind, older than the start it gets (a file queued since stays).
     private let clean: @Sendable (Date) -> Void
@@ -509,14 +528,16 @@ public final class FileQueueLifecycle {
     /// The new queue's resume, after the old one's shutdown.
     public private(set) var resuming: Task<Void, Never>?
 
-    public init(make: @escaping () -> FileTranscriber, clean: @escaping @Sendable (Date) -> Void = { _ in }) {
-        self.make = make
+    public init(environment: @escaping () -> FileTranscriber.Environment,
+                clean: @escaping @Sendable (Date) -> Void = { _ in })
+    {
+        self.environment = environment
         self.clean = clean
     }
 
     public func start() {
         guard queue == nil else { return }
-        let queue = make()
+        let queue = FileTranscriber(environment: environment(), startsHeld: true)
         self.queue = queue
         let stopping = self.stopping
         let clean = self.clean

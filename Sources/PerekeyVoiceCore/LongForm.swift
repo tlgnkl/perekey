@@ -92,7 +92,14 @@ public struct WindowStitcher: Codable, Sendable, Equatable {
             let segment = segment.shifted(by: offset)
             if let words = segment.words, !words.isEmpty {
                 self.words += words.filter { kept($0.start) }
-            } else if kept(segment.start) {
+            } else if segment.end > keepFrom, segment.start < until {
+                // A phrase without words reaching past `keepFrom` is kept
+                // whole (Whisper starts a window's first phrase at 0): what it
+                // covers of the window before goes, so nothing is said twice.
+                if segment.start < keepFrom {
+                    self.words.removeAll { $0.start >= segment.start }
+                    phrases.removeAll { $0.start >= segment.start }
+                }
                 phrases.append(segment)
             }
         }

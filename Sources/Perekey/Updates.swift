@@ -3,6 +3,7 @@
 import CoreFoundation
 import Foundation
 import Observation
+import os
 import PerekeyCore
 import Sparkle
 
@@ -37,6 +38,7 @@ final class Updates: NSObject {
 
     /// Work a relaunch for an update would cut off: Sparkle waits while it goes on.
     @ObservationIgnored let busy = RelaunchBlockers()
+    private static let log = Logger(subsystem: "app.perekey", category: "updates")
     /// The wait for `busy` before an update's relaunch.
     @ObservationIgnored private var postponed: Task<Void, Never>?
     @ObservationIgnored private let store: SettingsStore
@@ -126,9 +128,12 @@ extension Updates: SPUUpdaterDelegate {
         lastCheck = updater.lastUpdateCheckDate
     }
 
-    /// The update installs once `busy` is over. A new call replaces the
-    /// wait of the one before: its handler is the one Sparkle now expects,
-    /// and it is called once.
+    /// A source that never lets go does not hold an update for good.
+    static let longestPostponement: Duration = .seconds(24 * 3600)
+
+    /// The update installs once `busy` is over, or after a day at most. A
+    /// new call replaces the wait of the one before: its handler is the one
+    /// Sparkle now expects, and it is called once.
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
                  untilInvokingBlock installHandler: @escaping () -> Void) -> Bool
     {
@@ -137,7 +142,12 @@ extension Updates: SPUUpdaterDelegate {
         guard busy.isBusy else { return false }
         let busy = self.busy
         postponed = Task { @MainActor in
+            let deadline = ContinuousClock.now + Self.longestPostponement
             while busy.isBusy {
+                if ContinuousClock.now >= deadline {
+                    Self.log.warning("Update relaunch postponed for a day; installing while busy")
+                    break
+                }
                 try? await Task.sleep(for: .seconds(15))
                 if Task.isCancelled { return }
             }

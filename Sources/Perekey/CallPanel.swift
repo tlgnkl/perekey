@@ -22,8 +22,12 @@ final class CallPanelController {
     func show() {
         let panel = panel ?? makePanel()
         self.panel = panel
-        // Picking the source takes the keyboard; recording does not.
+        // Picking the source takes the keyboard; recording does not, and
+        // gives it back to the call at once.
         panel.takesKeys = !model.isRecording
+        if !panel.takesKeys, panel.isKeyWindow {
+            panel.orderOut(nil)
+        }
         fit(panel)
         if panel.takesKeys {
             panel.makeKeyAndOrderFront(nil)

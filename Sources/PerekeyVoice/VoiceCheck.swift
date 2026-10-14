@@ -34,7 +34,7 @@ public struct VoiceCheck: Sendable {
     }
 
     /// The checks. A new one adds itself here.
-    public static let commands: [Command] = [.devices, .mic] + Command.systemAudio
+    public static let commands: [Command] = [.devices, .mic] + Command.systemAudio + Command.call
 
     public let command: Command?
     public let options: VoiceCheckOptions

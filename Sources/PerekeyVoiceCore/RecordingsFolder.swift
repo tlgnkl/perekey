@@ -159,23 +159,37 @@ public struct RecordingsFolder: Sendable {
     }
 
     /// The Time Machine choice: «Включать в Time Machine» clears the mark.
+    ///
+    /// The mark is the extended attribute Time Machine reads, written here
+    /// directly. `URLResourceValues.isExcludedFromBackup` writes it through a
+    /// system service, so a clear that follows a set can land first and the
+    /// old mark come back a moment later.
     public func setExcludedFromBackup(_ excluded: Bool) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        var url = fresh(root)
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = excluded
-        try url.setResourceValues(values)
+        let path = root.path(percentEncoded: false)
+        let result = excluded
+            ? Self.excludeValue.withUnsafeBytes { setxattr(path, Self.excludeAttribute, $0.baseAddress, $0.count, 0, 0) }
+            : removexattr(path, Self.excludeAttribute, 0)
+        if result != 0, excluded || errno != ENOATTR {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
     }
 
+    /// Reads the mark Time Machine itself reads. The URL resource value is
+    /// cached by the system and can answer with the previous value.
     public var isExcludedFromBackup: Bool {
-        (try? fresh(root).resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) ?? false
+        getxattr(root.path(percentEncoded: false), Self.excludeAttribute, nil, 0, 0, 0) >= 0
     }
 
-    /// A URL caches the resource values it read or set, and a copy shares
-    /// the cache: a new one asks the disk.
-    private func fresh(_ url: URL) -> URL {
-        URL(filePath: url.path(percentEncoded: false), directoryHint: .isDirectory)
-    }
+    private static let excludeAttribute = "com.apple.metadata:com_apple_backup_excludeItem"
+
+    /// The binary property list `"com.apple.backupd"`, what the system writes itself.
+    private static let excludeValue = Data([
+        0x62, 0x70, 0x6C, 0x69, 0x73, 0x74, 0x30, 0x30, 0x5F, 0x10, 0x11, 0x63, 0x6F, 0x6D, 0x2E, 0x61,
+        0x70, 0x70, 0x6C, 0x65, 0x2E, 0x62, 0x61, 0x63, 0x6B, 0x75, 0x70, 0x64, 0x08, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1C,
+    ])
 
     static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()

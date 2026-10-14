@@ -36,6 +36,12 @@ public enum DictationPrivacy: Equatable, Sendable {
     case secureField
     /// Secure Input is on in some process.
     case secureInput
+    /// The target has no accessibility element (no Accessibility, or the program did not answer):
+    /// nothing is known about the field. Not stored; the text stays on the HUD for the user.
+    case unknown
+
+    /// A password field or Secure Input: the text is hidden from the HUD and the menu.
+    public var isPrivate: Bool { self == .secureField || self == .secureInput }
 }
 
 /// One dictation in the history.

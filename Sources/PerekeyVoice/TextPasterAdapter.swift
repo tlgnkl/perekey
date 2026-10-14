@@ -32,7 +32,9 @@ public final class TextPasterAdapter: DictationPaster {
 
     public func privacy(of target: (any Sendable)?) -> DictationPrivacy {
         if (target as? PasteTarget)?.isSecureField == true { return .secureField }
-        return SecureInput.isEnabled ? .secureInput : .normal
+        if SecureInput.isEnabled { return .secureInput }
+        // No element: the field cannot be told, so nothing of it is kept.
+        return (target as? PasteTarget)?.element == nil ? .unknown : .normal
     }
 
     public func paste(_ text: String, into target: (any Sendable)?) async -> DictationPasteResult {

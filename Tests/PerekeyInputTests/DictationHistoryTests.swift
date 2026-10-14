@@ -352,6 +352,31 @@ struct DictationHistoryTests {
         #expect(history.entries.count == 1 && history.entries[0].hasAudio == false)
     }
 
+    @Test func entryWithoutItsFileStopsClaimingAudio() {
+        let fixture = Fixture()
+        fixture.settings.keepsAudio = true
+        let history = fixture.history()
+        history.record(record(audio: [Float](repeating: 0.1, count: 16_000)))
+        history.flush()
+        let id = history.entries[0].id
+        try? FileManager.default.removeItem(at: fixture.file.audioURL(for: id))
+        history.purge()
+        #expect(history.entries[0].hasAudio == false)
+    }
+
+    @Test func failedAudioWriteLeavesTextOnly() async throws {
+        let fixture = Fixture()
+        fixture.settings.keepsAudio = true
+        let history = fixture.history()
+        // A plain file where the Audio folder should be: the write cannot succeed.
+        try FileManager.default.createDirectory(at: fixture.file.directory, withIntermediateDirectories: true)
+        try Data([0]).write(to: fixture.file.audioDirectory)
+        history.record(record(audio: [Float](repeating: 0.1, count: 16_000)))
+        history.flush()
+        for _ in 0..<100 where history.entries[0].hasAudio { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(history.entries.count == 1 && history.entries[0].hasAudio == false)
+    }
+
     @Test func orphanAudioIsRemoved() throws {
         let fixture = Fixture()
         fixture.settings.keepsAudio = true

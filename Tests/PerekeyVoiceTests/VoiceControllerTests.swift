@@ -395,6 +395,39 @@ struct VoiceControllerTests {
         #expect(!rig.records[0].pasted)
     }
 
+    @Test func keptTextOfATargetWithoutElementIsNotRecordedNorPrivate() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .unknown
+        await rig.startRecording()
+        rig.controller.accessibilityLost()
+        #expect(await rig.until { rig.hud == .notPasted(.noAccessibility) })
+        #expect(rig.controller.last?.isPrivate == false)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func targetWithoutElementIsNotStoredButStaysOnTheHUD() async {
+        for result in [DictationPasteResult.targetChanged, .timedOut, .pasted] {
+            let rig = Rig()
+            rig.paster.targetPrivacy = .unknown
+            rig.paster.result = result
+            await rig.startRecording()
+            rig.controller.voice(.toggle)
+            #expect(await rig.until { rig.controller.last != nil })
+            #expect(rig.controller.last?.isPrivate == false)
+            #expect(rig.records.isEmpty)
+        }
+    }
+
+    @Test func fieldWithElementIsStored() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .normal
+        rig.paster.result = .timedOut
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.records.count == 1 })
+    }
+
     @Test func pasteFromTheHUDAddsNoSecondEntry() async {
         let rig = Rig()
         rig.paster.result = .targetChanged

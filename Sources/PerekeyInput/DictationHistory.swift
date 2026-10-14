@@ -276,10 +276,15 @@ public final class DictationHistory {
             text: text, bundleID: item.bundleID, appName: item.appName, date: now(), duration: item.duration,
             model: item.model, pasted: item.pasted)
         if keepsAudio, let samples = item.audio, !samples.isEmpty {
-            // The file follows on the disk queue; `audioURL(of:)` checks it is there.
+            // The file follows on the disk queue; the flag is set once it is written.
             entry.hasAudio = true
             let file = self.file, sampleRate = self.sampleRate, id = entry.id
-            disk.async { try? file.writeAudio(samples, sampleRate: sampleRate, id: id) }
+            disk.async { [weak self] in
+                guard (try? file.writeAudio(samples, sampleRate: sampleRate, id: id)) != nil else {
+                    Task { @MainActor in self?.audioFailed(id) }
+                    return
+                }
+            }
         }
         entries.insert(entry, at: 0)
         if entries.count > Self.capacity {
@@ -290,6 +295,13 @@ public final class DictationHistory {
         }
         persist()
         return .recorded
+    }
+
+    /// The audio file did not get written: the entry keeps its text only.
+    private func audioFailed(_ id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].hasAudio else { return }
+        entries[index].hasAudio = false
+        persist()
     }
 
     // MARK: Cleaning
@@ -331,6 +343,13 @@ public final class DictationHistory {
                 entries[index].hasAudio = false
                 changed = true
             }
+        }
+        // An entry whose file is not there (a failed write, a file removed by hand) stops claiming one.
+        flush()
+        let present = file.audioIDs()
+        for index in entries.indices where entries[index].hasAudio && !present.contains(entries[index].id) {
+            entries[index].hasAudio = false
+            changed = true
         }
         let known = Set(entries.filter(\.hasAudio).map(\.id))
         disk.async {

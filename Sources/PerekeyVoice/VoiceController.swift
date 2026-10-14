@@ -415,10 +415,12 @@ public final class VoiceController {
             paste(session, text)
         case let .keep(session, text):
             let text = hooks.edit(text, nil)
-            // Without Accessibility there is no paste to ask: the target from the start decides. Unknown is private.
+            // Without Accessibility there is no paste to ask: the target from the start decides.
+            // A target not found is unknown: the text stays on the HUD, nothing is stored.
             let found = resolvedTarget?.session == session ? resolvedTarget : nil
-            let privacy: DictationPrivacy = found.map { paster.privacy(of: $0.value) } ?? .secureField
-            last = DictatedText(text: text, pasted: false, isPrivate: privacy != .normal)
+            let privacy: DictationPrivacy = found.map { paster.privacy(of: $0.value) } ?? .unknown
+            resolvedTarget = nil
+            last = DictatedText(text: text, pasted: false, isPrivate: privacy.isPrivate)
             hud = .notPasted(.noAccessibility)
             finish(session, text: text, target: found?.value, pasted: false, privacy: privacy)
         case let .takesEscape(on):
@@ -625,9 +627,10 @@ public final class VoiceController {
             case .secureInput: .secureInput
             default: paster.privacy(of: target)
             }
-            finishPaste(text, result, wasPrivate: privacy != .normal)
+            finishPaste(text, result, wasPrivate: privacy.isPrivate)
             // One entry per dictation: "Paste" in the HUD or the menu adds none.
             finish(session, text: text, target: target, pasted: result == .pasted, privacy: privacy)
+            resolvedTarget = nil
             handle(.pasted(session))
         }
     }
@@ -675,7 +678,7 @@ public final class VoiceController {
     private func finish(_ session: DictationMachine.Session, text: String, target: (any Sendable)?, pasted: Bool,
                         privacy: DictationPrivacy)
     {
-        // Nothing private reaches the history or the statistics.
+        // Nothing private or unknown reaches the history or the statistics.
         guard privacy == .normal else { return }
         let work = current?.session == session ? current : nil
         let samples = work?.audio.samples ?? []

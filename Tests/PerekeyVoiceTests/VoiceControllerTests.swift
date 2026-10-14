@@ -218,8 +218,12 @@ private final class FakePaster: DictationPaster {
     private(set) var contextAsked = 0
     var application: DictationApplication?
 
+    /// Awaited before the caret context answers.
+    var contextWaits: (() async -> Void)?
+
     func caretContext(into _: (any Sendable)?) async -> String? {
         contextAsked += 1
+        await contextWaits?()
         return context
     }
 
@@ -280,6 +284,7 @@ private final class Rig {
     /// The mode's filler words rule of each edit.
     var fillerRules: [Bool?] = []
     var prompt: String?
+    var dictionary: (String) -> String = { $0 }
     var records: [DictationRecord] = []
 
     init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil),
@@ -303,6 +308,7 @@ private final class Rig {
                     self?.fillerRules.append(removesFillers)
                     return self?.editor(text, before) ?? text
                 },
+                dictionary: { [weak self] in self?.dictionary($0) ?? $0 },
                 prompt: { [weak self] in self?.prompt },
                 record: { [weak self] in self?.records.append($0) }),
             limitSeconds: limitSeconds,
@@ -1104,6 +1110,19 @@ struct VoiceControllerModeTests {
         #expect(modes.ended == ["clean"])
     }
 
+    @Test func theLanguageModelReadsTheDictionarysWords() async {
+        let rig = Rig()
+        await rig.engine.set(text: "Скажи перекей\u{07}")
+        rig.dictionary = { TextRules.replace($0, with: [DictionaryEntry(from: "перекей", to: "Perekey")]) }
+        let modes = FakeModes(.refining())
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(modes.asked == ["Скажи Perekey"], "the dictionary's spelling, no control characters")
+        #expect(rig.edits.map(\.text) == ["Привет, мир!"], "the rest of the rules edit the answer")
+    }
+
     @Test func refiningShowsAndATapIsIgnored() async {
         let rig = Rig()
         let modes = FakeModes(.refining())
@@ -1485,6 +1504,37 @@ struct VoiceControllerCloudSpeechTests {
         #expect(rig.paster.pasted == ["Привет, мир."])
     }
 
+    @Test func aRetryANewDictationCancelledPastesAndRecordsNothing() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        await rig.cloud.set(.answer("Старый текст."))
+        // The retry has its text and reads the caret: a new dictation starts then.
+        let gate = Gate()
+        rig.paster.contextWaits = { await gate.wait() }
+        rig.controller.retryLast()
+        #expect(await rig.until { gate.isWaiting })
+        rig.paster.contextWaits = nil
+        rig.controller.apply(DictationPreferences(modelID: "fake", silenceStop: nil))
+        rig.controller.modes = nil
+        await rig.startRecording()
+        gate.open()
+        try? await Task.sleep(for: .milliseconds(30))
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.records.isEmpty)
+        guard case .recording = rig.hud else {
+            Issue.record("the new session's HUD: \(rig.hud)")
+            return
+        }
+        // The new dictation goes in as usual: one paste, one entry.
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.until { rig.records.count == 1 })
+    }
+
     @Test func turningVoiceOffDropsTheKeptAudio() async {
         let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
         rig.controller.modes = FakeModes(cloudPlan)
@@ -1579,5 +1629,21 @@ struct VoiceControllerCloudSpeechTests {
         #expect(rig.fillerRules == [false], "the mode's filler words rule")
         #expect(await rig.until { rig.records.count == 1 })
         #expect(rig.records[0].text == " ls[201~ -la", "the history keeps what went in")
+    }
+}
+
+/// Holds an await until the test opens it.
+@MainActor
+private final class Gate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    var isWaiting: Bool { continuation != nil }
+
+    func wait() async {
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        continuation?.resume()
+        continuation = nil
     }
 }

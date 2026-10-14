@@ -105,6 +105,7 @@ final class VoiceSetup {
                     return TextRules.apply(dictated, before: before, dictionary: settings.dictionary,
                                            removesFillers: modeRemovesFillers ?? settings.removesFillers)
                 },
+                dictionary: { TextRules.replace($0, with: text.text.settings.dictionary) },
                 prompt: {
                     let prompt = TextRules.whisperPrompt(dictionary: text.text.settings.dictionary)
                     return prompt.isEmpty ? nil : prompt

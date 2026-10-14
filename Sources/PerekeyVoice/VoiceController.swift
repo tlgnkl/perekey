@@ -174,6 +174,8 @@ public final class VoiceController {
         /// characters before the caret (nil when unknown) and the mode's
         /// filler words rule (nil follows the settings). Empty drops the dictation.
         public var edit: @MainActor (_ text: String, _ before: String?, _ removesFillers: Bool?) -> String
+        /// The dictionary's replacements alone: the text a language model reads.
+        public var dictionary: @MainActor (String) -> String
         /// The words Whisper should spell, from the dictionary; nil for none.
         public var prompt: @MainActor () -> String?
         /// A finished dictation, for the history and the statistics. Never logged.
@@ -185,6 +187,7 @@ public final class VoiceController {
                     pasted: @escaping @MainActor (String) -> Void = { _ in },
                     play: @escaping @MainActor (DictationMachine.Sound) -> Void = DictationSounds.play,
                     edit: @escaping @MainActor (String, String?, Bool?) -> String = { text, _, _ in text },
+                    dictionary: @escaping @MainActor (String) -> String = { $0 },
                     prompt: @escaping @MainActor () -> String? = { nil },
                     record: @escaping @MainActor (DictationRecord) -> Void = { _ in })
         {
@@ -194,6 +197,7 @@ public final class VoiceController {
             self.pasted = pasted
             self.play = play
             self.edit = edit
+            self.dictionary = dictionary
             self.prompt = prompt
             self.record = record
         }
@@ -849,6 +853,9 @@ public final class VoiceController {
             handle(.refineFailed(session))
             return
         }
+        // The model reads the words as the dictionary spells them, and no
+        // control characters; fillers, case and space wait for its answer.
+        let text = DictatedTextFilter.clean(hooks.dictionary(text))
         work.refining = Task { [weak self] in
             // A password field or Secure Input: the text goes nowhere, and the paste refuses it.
             if await self?.keepsAudioHere(work) ?? true {
@@ -937,7 +944,8 @@ public final class VoiceController {
         // Case and space fit what is before the caret; read right before the
         // paste. A copied text has no caret to fit.
         let before = plan?.output == .copy ? nil : await paster.caretContext(into: target)
-        guard !isShutDown else { return nil }
+        // A retry a new dictation cancelled meanwhile: that session owns the HUD now.
+        guard !isShutDown, !Task.isCancelled else { return nil }
         let text = prepared(text, before: before, plan: plan)
         guard !text.isEmpty else {
             hud = .nothingHeard
@@ -961,7 +969,7 @@ public final class VoiceController {
         if pasted == .pasted, plan?.output == .pasteAndEnter, plan?.singleLine == false, plan?.refine == nil {
             result = await paster.pressReturn(in: target)
         }
-        guard !isShutDown else { return nil }
+        guard !isShutDown, !Task.isCancelled else { return nil }
         // Private by what the paste found, or by the field it started in: a
         // refusal before the password check (modifiers, a moved target, a
         // timeout) says nothing about the field.

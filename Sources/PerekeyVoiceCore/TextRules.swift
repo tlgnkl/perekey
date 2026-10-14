@@ -71,8 +71,9 @@ public enum TextRules {
     // MARK: Dictionary
 
     /// Replaces whole words, whatever their case, in one pass: a replacement
-    /// is never matched again by another entry.
-    static func replace(_ text: String, with dictionary: [DictionaryEntry]) -> String {
+    /// is never matched again by another entry. Also the text a language
+    /// model reads, so it sees the words as the dictionary spells them.
+    public static func replace(_ text: String, with dictionary: [DictionaryEntry]) -> String {
         var targets: [String: String] = [:]
         for entry in dictionary {
             let key = normalized(entry.from)

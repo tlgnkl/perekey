@@ -239,12 +239,13 @@ final class VoiceHUDController {
 
     private func perform(_ button: DictationHUDPresentation.Button) {
         switch button {
-        case .cancel: voice.voice(.cancel)
+        case .cancel, .pasteAsSaid: voice.voice(.cancel)
         case .paste: voice.pasteLast()
         case .copy: copyLast()
         case .openMicrophoneSettings: actions.openMicrophoneSettings()
         case .openAccessibilitySettings: actions.openAccessibilitySettings()
         case .openVoiceSettings: actions.openVoiceSettings()
+        case .retry: voice.retryLast()
         }
     }
 

@@ -110,6 +110,8 @@ struct PKSegmented<Value: Hashable>: View {
     let items: [Item]
     @Binding var selection: Value
     var mini = false
+    /// Segments that cannot be chosen now.
+    var disabled: Set<Value> = []
 
     @Namespace private var thumbSpace
 
@@ -135,6 +137,8 @@ struct PKSegmented<Value: Hashable>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(disabled.contains(item.value))
+                .opacity(disabled.contains(item.value) ? 0.4 : 1)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }

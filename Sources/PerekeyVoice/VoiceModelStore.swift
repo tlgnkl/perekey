@@ -80,6 +80,7 @@ public enum VoiceModelFailure: Error, Equatable, Sendable {
         case .blocked: self = .networkBlocked
         case .redirectRefused(let host): self = .untrustedRedirect(host: host)
         case .offline: self = .offline
+        case .tooLarge: self = .network("The answer is too large")
         }
     }
 }

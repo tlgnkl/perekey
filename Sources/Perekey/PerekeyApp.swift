@@ -88,15 +88,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if PEREKEY_VOICE
         let voiceModels = VoiceModelsController(settings: VoiceSettingsStore())
         self.voiceModels = voiceModels
+        let voiceModes = VoiceModesStore()
         let voiceText = VoiceTextController()
         self.voiceText = voiceText
-        voice = VoiceSetup(input: input, models: voiceModels, text: voiceText, usage: usage)
+        voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes, text: voiceText, usage: usage)
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                     languages: input.languages, initial: section, scrollTarget: scrollTarget)
             view.voiceController = voiceModels
+            view.voiceModes = voiceModes
             view.voiceTextController = voiceText
             return view
             #else
@@ -122,9 +124,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboarding.makeVoiceIntro = { VoiceIntro.offer(situation()) == .none ? nil : makeIntro() }
         voice.openVoiceSettings = { settings.show(section: .voice, scrollTarget: "models") }
         #endif
+        #if PEREKEY_VOICE
+        let voiceIsOn: @MainActor () -> Bool = { voiceModels.settings.isOn && voiceModels.isSupported }
+        shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
+                             input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
+                             settings: settings) { actions in
+            actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
+        }
+        #else
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
                              settings: settings)
+        #endif
         super.init()
         #if PEREKEY_VOICE
         shell.dictation.menu = voiceText.menu(pasteAgain: { [voice] in voice.pasteAgain($0) })
@@ -221,7 +232,7 @@ final class MenuBarShell {
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
          recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates,
-         settings: SettingsWindow)
+         settings: SettingsWindow, extend: @escaping @MainActor (inout MenuActions) -> Void = { _ in })
     {
         self.sources = sources
         self.store = store
@@ -248,6 +259,7 @@ final class MenuBarShell {
                     reportWindow.show(word: word, reason: reason, layouts: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
                 }
             )
+            extend(&actions)
             #if PEREKEY_VOICE
             actions.dictation = dictation.menu
             #endif

@@ -194,4 +194,28 @@ import Testing
         #expect(!DictationHUDPresentation.announces(nil, after: present(.pasted)))
         #expect(!DictationHUDPresentation.announces(nil, after: nil))
     }
+
+    @Test func modesShowTheirNameAndTheCloud() throws {
+        let recording = try #require(present(.recording(.init(seconds: 2, level: 0.3, preparingModel: false,
+                                                              mode: "Письмо", cloudHost: "api.openai.com"))))
+        #expect(recording.modeName == "Письмо")
+        #expect(recording.cloud)
+        let refining = try #require(present(.refining(.init(mode: "Сообщение", endpoint: "Ollama", isCloud: false))))
+        #expect(refining.message == .refining)
+        #expect(refining.buttons == [.pasteAsSaid])
+        #expect(refining.modeName == "Сообщение")
+        #expect(refining.endpointName == "Ollama")
+        #expect(!refining.cloud)
+        #expect(refining.hidesAfter == nil)
+        #expect(present(.refining(.init(mode: "Письмо", endpoint: "OpenAI", isCloud: true)))?.cloud == true)
+    }
+
+    @Test func theRawTextSaysWhy() {
+        #expect(present(.pastedFallback(.escape))?.message == .pastedAsSaid(.escape))
+        #expect(present(.pastedFallback(.escape))?.hidesAfter == DictationHUDPresentation.Lifetime.confirmation)
+        #expect(present(.pastedFallback(.answered))?.hidesAfter == DictationHUDPresentation.Lifetime.notice)
+        #expect(present(.pastedFallback(.needsConsent(host: "api.openai.com")))?.message
+            == .pastedAsSaid(.needsConsent(host: "api.openai.com")))
+        #expect(present(.copied)?.message == .copied)
+    }
 }

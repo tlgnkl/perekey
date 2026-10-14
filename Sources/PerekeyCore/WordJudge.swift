@@ -27,6 +27,9 @@ struct WordJudge: Sendable {
         /// Suppressed, and a switch inside this word was undone: learn the
         /// whole word at its end.
         case learnAtEnd
+        /// Suppressed: a switch inside the word decided it (`insideWord`).
+        /// Its end may still give marks back (`marksAfterSwitch`).
+        case switchedInside
     }
 
     /// What to do at the key that ends the word.
@@ -208,6 +211,9 @@ struct WordJudge: Sendable {
         get { gate.switching }
         set { gate.switching = newValue }
     }
+    /// The layout the word was typed in before a switch inside it
+    /// (`.switchedInside`).
+    private var switchedFrom: LayoutID?
 
     init(classifier: Classifier?) {
         setClassifier(classifier)
@@ -366,6 +372,17 @@ struct WordJudge: Sendable {
             if startsSentence { recent.keepLatest() }
         }
 
+        if switching == .switchedInside {
+            switching = .suppressed
+            if let auto, let source = switchedFrom.flatMap({ layouts[$0] }),
+               let retype = marksAfterSwitch(buffer, auto: auto, source: source, held: endsLine ? nil : stroke,
+                                             heldKeyCode: key.keyCode, undoable: !endsLine, layouts: layouts,
+                                             settings: settings)
+            {
+                record(auto.typed.language)
+                return .retype(retype)
+            }
+        }
         if switching != .allowed {
             var ruling = Ruling.keep
             if switching == .learnAtEnd {
@@ -524,7 +541,33 @@ struct WordJudge: Sendable {
         else { return nil }
         retype.dropsLastKey = true
         // Decided for the whole word: the end of it must not switch it back.
-        switching = .suppressed
+        switching = .switchedInside
+        switchedFrom = context.typed.id
+        return retype
+    }
+
+    /// The end of a word switched inside it: "ytn" went to Russian as
+    /// "нет", and the comma typed next on the ABC comma key is "б" there.
+    /// When the word ends in letters that `source` types as marks, is no word
+    /// with them and a known one without, the marks come back. The whole word
+    /// is retyped as one correction from `source`: the hint shows "ytn," →
+    /// "нет,", and its undo gives "ytn,". The open switch inside the word
+    /// goes unreported; this correction stands for it.
+    private func marksAfterSwitch(_ buffer: WordBuffer, auto: AutoContext, source: LayoutMap, held: KeyStroke?,
+                                  heldKeyCode: UInt16, undoable: Bool, layouts: LayoutState,
+                                  settings: Settings) -> WordRetype?
+    {
+        guard wordIsPlain(buffer, layouts: layouts) else { return nil }
+        let strokes = buffer.entries.lazy.map(\.stroke)
+        let marks = auto.classifier.marksAfterSwitch(strokes, in: auto.typed, from: source)
+        guard marks > 0, let spelling = Self.keepingMarks(marks, buffer.entries, from: source, in: auto.typed)
+        else { return nil }
+        let back = AutoContext(classifier: auto.classifier, typed: source, other: auto.typed, candidates: [auto.typed])
+        guard var retype = autoRetype(back, buffer.entries[...], held: held, heldKeyCode: heldKeyCode, midWord: false,
+                                      undoable: undoable, spelling: spelling, layouts: layouts, settings: settings)
+        else { return nil }
+        retype.decision = auto.classifier.classify(strokes, typed: source, other: auto.typed,
+                                                   context: contextAtJudge, explaining: true)
         return retype
     }
 

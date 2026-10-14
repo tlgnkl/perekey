@@ -35,8 +35,9 @@ differently, what was fixed.
 
 - **A comma after a word in the wrong layout stays a comma.** If you type
   “нет,” with English on and the comma on the English comma key, Perekey now
-  gives “нет,” instead of leaving “ytn,” or typing “нетб”. The same goes for
-  a period, a semicolon and a colon.
+  gives “нет,” instead of leaving “ytn,” or typing “нетб”, also when it has
+  switched the layout before you reached the comma. The same goes for a
+  period, a semicolon and a colon. Backspace right after gives “ytn,” back.
 - **The hint stays by the cursor in terminals.** In terminals built on
   xterm.js (Orca, the VS Code terminal) the correction hint appeared in the
   top right corner of the screen. It now shows next to the line you type in.

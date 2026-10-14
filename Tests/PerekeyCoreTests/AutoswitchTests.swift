@@ -27,16 +27,42 @@ private let ru = Fixture.russian.id
         #expect(desk.text == "будет ")
     }
 
-    /// Two letters: a longer word switches inside, before its comma
-    /// (`impossiblePrefixSwitchesInsideTheWord`), and the comma key is "б"
-    /// in Russian then. `ClassifierTests` has the longer words.
-    @Test(arguments: [("yt, ", "не, "), ("yf. ", "на. "), ("yt, vbh ", "не, мир "),
+    /// "yt," switches at its end; "ytn" switches inside, before the comma,
+    /// and the comma key is "б" in Russian then: the end gives it back.
+    @Test(arguments: [("yt, ", "не, "), ("yf. ", "на. "), ("yt, vbh ", "не, мир "), ("ytn, ", "нет, "),
+                      ("ytn. ", "нет. "), ("ghbdtn, vbh ", "привет, мир "), ("ytn... ", "нет... "),
                       ("[kt, ", "хлеб "), ("yj; ", "нож "), ("b[ ", "их ")])
     func punctuationOnARussianLetterKeyStaysPunctuation(typed: String, expected: String) {
+        for russian in [Fixture.russian, Fixture.russianPC] {
+            var desk = Desk(layouts: [Fixture.abc, russian])
+            desk.type(typed)
+            #expect(desk.text == expected, "\(russian.id)")
+            #expect(desk.appLayout == russian.id)
+        }
+    }
+
+    @Test func markAfterASwitchInsideTheWordIsOneCorrection() throws {
         var desk = Desk()
-        desk.type(typed)
-        #expect(desk.text == expected)
-        #expect(desk.appLayout == ru)
+        desk.type("ytn, ")
+        #expect(desk.corrections.count == 1)
+        let correction = try #require(desk.corrections.first)
+        #expect(correction.original == "ytn,")
+        #expect(correction.replacement == "нет,")
+        #expect(correction.source == en)
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "ytn, ")
+        #expect(desk.appLayout == en)
+        #expect(desk.undone == [correction.seq])
+    }
+
+    @Test func russianWordEndingInALetterOnAMarkKeyStaysAfterASwitchInsideIt() {
+        // "ckjdj" switches inside; "слово" is a word, so "ю" after "слов" stays.
+        var desk = Desk()
+        desk.type("ckjdj ")
+        #expect(desk.text == "слово ")
+        desk = Desk()
+        desk.type("ckjd. ")
+        #expect(desk.text == "словю ", "\"слов\" is no known form: nothing to give the mark back to")
     }
 
     @Test func markKeptBySwitchIsUndoneWithTheWord() throws {
@@ -102,6 +128,13 @@ private let ru = Fixture.russian.id
         desk.settle()
         let expected = Fixture.russian.type(Fixture.abc.strokes(typed))
         #expect(desk.text == expected)
+    }
+
+    @Test func fastTypingKeepsTheCommaAfterASwitchInsideTheWord() {
+        var desk = Desk()
+        desk.type("ghbdtn, vbh ", settling: false)
+        desk.settle()
+        #expect(desk.text == "привет, мир ")
     }
 
     @Test func fastTypingGivesPrivetMir() {

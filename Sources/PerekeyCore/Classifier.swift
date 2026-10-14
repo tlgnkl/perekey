@@ -320,8 +320,8 @@ public struct Classifier: Sendable {
     /// "ytn," is "нет," typed on ABC with the comma where ABC has it, and
     /// Russian reads that key as "б": "нетб" is no word, so the whole word
     /// stays, or goes to Russian as "нетб". When it ends in marks the other
-    /// layout reads as letters and no candidate knows the whole reading
-    /// ("[kt," is "хлеб"), `judge` weighs the word without them. A switch
+    /// layout reads as letters and no candidate has the whole reading in its
+    /// dictionary ("[kt," is "хлеб"), `judge` weighs the word without them. A switch
     /// to a known form wins over the decision on the whole word and keeps
     /// the marks (`Decision.punctuationKeys`). Automatic only: a manual
     /// retype converts every key it is given.
@@ -331,27 +331,12 @@ public struct Classifier: Sendable {
     ) -> Decision? {
         guard context.mode == .automatic else { return nil }
         let count = Self.wordLength(strokes)
-        // The run of marks at the end: one, or the same one again ("...").
-        // "Uj:;'" is no sentence end, but noise.
-        var marks = 0
-        var mark: KeyStroke?
-        var mixed = false
-        var index = 0
-        for stroke in strokes {
-            guard index < count else { break }
-            index += 1
-            if Self.isMarkOnLetter(stroke, typed: typed, candidates: candidates) {
-                if marks > 0, stroke != mark { mixed = true }
-                mark = stroke
-                marks += 1
-            } else {
-                marks = 0
-                mixed = false
-            }
-        }
-        guard marks > 0, !mixed, marks <= Self.maxPunctuationKeys, marks < count else { return nil }
+        let marks = Self.trailingMarks(strokes, typed: typed, candidates: candidates)
+        guard marks > 0 else { return nil }
+        // A form the dictionary has, however rare, keeps its last letter:
+        // "e;byf." is "ужинаю", not "ужина.".
         for other in candidates where other.language != typed.language {
-            if isKnownWord(strokes, count: count, in: other) { return nil }
+            if lookUp(strokes, count: count, in: other)?.rank != nil { return nil }
         }
         var decision = judge(strokes.prefix(count - marks))
         guard case let .switch(to: id) = decision.verdict, let target = candidates.first(where: { $0.id == id }),
@@ -361,8 +346,55 @@ public struct Classifier: Sendable {
         return decision
     }
 
+    /// The word in `layout`, switched there inside it from `source`
+    /// (`impossiblePrefix`): how many letters at its end `source` types as
+    /// marks and are marks. "ytn" went to Russian as "нет", and the comma
+    /// typed next on the ABC comma key is "б" there: "нетб" is no known form
+    /// and "нет" is, so 1. "хлеб" is a word: 0.
+    public func marksAfterSwitch(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap,
+                                 from source: LayoutMap) -> Int
+    {
+        let marks = Self.trailingMarks(strokes, typed: source, candidates: CollectionOfOne(layout))
+        let count = Self.wordLength(strokes)
+        // The letters were typed in `layout` and read there as typed, so
+        // they win unless the dictionary has never seen the word at all:
+        // "ужинаю" is rare, but there.
+        guard marks > 0, lookUp(strokes, count: count, in: layout)?.rank == nil,
+              isKnownWord(strokes, count: count - marks, in: layout)
+        else { return 0 }
+        return marks
+    }
+
     /// "..." and no more.
     static let maxPunctuationKeys = 3
+
+    /// How many keys at the end of the word type marks in `typed` and
+    /// letters in some candidate (`isMarkOnLetter`), with a letter before
+    /// them: one mark, or the same one again ("..."). "Uj:;'" is no sentence
+    /// end, but noise: 0.
+    private static func trailingMarks(_ strokes: some Collection<KeyStroke>, typed: LayoutMap,
+                              candidates: some Collection<LayoutMap>) -> Int
+    {
+        let count = wordLength(strokes)
+        var marks = 0
+        var mark: KeyStroke?
+        var mixed = false
+        var index = 0
+        for stroke in strokes {
+            guard index < count else { break }
+            index += 1
+            if isMarkOnLetter(stroke, typed: typed, candidates: candidates) {
+                if marks > 0, stroke != mark { mixed = true }
+                mark = stroke
+                marks += 1
+            } else {
+                marks = 0
+                mixed = false
+            }
+        }
+        guard !mixed, marks <= maxPunctuationKeys, marks < count else { return 0 }
+        return marks
+    }
 
     /// The key types a mark that ends a word in a sentence in `typed`
     /// (`, . ; :`) and a letter in some candidate ("б" "ю" "ж" "Ж"). Not a
@@ -386,13 +418,23 @@ public struct Classifier: Sendable {
 
     /// The first `count` strokes read in `layout` as a known form of its language.
     private func isKnownWord(_ strokes: some Collection<KeyStroke>, count: Int, in layout: LayoutMap) -> Bool {
-        guard let code = layout.language, let language = model.language(code) else { return false }
+        guard let form = lookUp(strokes, count: count, in: layout), form.isWord else { return false }
+        return form.rank.map { $0 == 0 || $0 >= options.knownRank } ?? false
+    }
+
+    /// The first `count` strokes read in `layout`: a word or not, and its
+    /// rank in the dictionary, nil when it is not there. Nil when the
+    /// language has no model.
+    private func lookUp(_ strokes: some Collection<KeyStroke>, count: Int,
+                        in layout: LayoutMap) -> (isWord: Bool, rank: UInt8?)?
+    {
+        guard let code = layout.language, let language = model.language(code) else { return nil }
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) { scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
                 guard let reading = Reading(strokes, count: count, in: layout, language: language,
                                             scalars: scalars[...], symbols: symbols[...])
-                else { return false }
-                return reading.isWord && isKnown(reading)
+                else { return nil }
+                return (reading.isWord, reading.rank)
             }
         }
     }

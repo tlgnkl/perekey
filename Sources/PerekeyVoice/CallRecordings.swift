@@ -44,6 +44,11 @@ public enum CallRecordings {
                     meta.state = .stopped
                     meta.duration = end
                 }
+                // Cut off before its first block: nothing to offer.
+                if case let .loaded(meta) = folder.meta(id), meta.segments.isEmpty {
+                    try? folder.remove(id)
+                    continue
+                }
                 found.append((id, meta.createdAt))
             } catch {
                 log.error("recovery of a recording failed: \(CallRecorder.describe(error), privacy: .public)")

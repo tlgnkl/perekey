@@ -135,7 +135,7 @@ extension Updates: SPUUpdaterDelegate {
         nonisolated(unsafe) let install = installHandler
         postponed?.cancel()
         postponed = Task { @MainActor [weak self] in
-            while let self, self.isBusy() {
+            while !Task.isCancelled, let self, self.isBusy() {
                 try? await Task.sleep(for: .seconds(15))
             }
             guard !Task.isCancelled else { return }

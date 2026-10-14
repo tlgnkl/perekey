@@ -243,6 +243,33 @@ import Testing
         #expect(try load(id).state == .stopped)
     }
 
+    @Test func aSecondStopWaitsForTheFirst() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mic = FakeMic()
+        let tap = FakeTap(stop: .hang)
+        let status = StatusLog()
+        let recorder = recorder(tap: tap, mic: mic, status: status) { $0.tapStopPatience = .milliseconds(200) }
+        let id = try await recorder.start(Self.options)
+        try await waitUntil { status.last?.systemAudio == .running }
+        mic.feed(seconds: 0.2, clock: clock)
+        // «Стоп», then ⌘Q while the first stop waits for the tap.
+        async let first = recorder.stop(.user)
+        try await Task.sleep(for: .milliseconds(20))
+        let second = await recorder.stop(.quit)
+        #expect(second == id)
+        #expect(try load(id).state == .stopped) // written before the quit's answer
+        #expect(await first == id)
+        tap.release()
+    }
+
+    @Test func aRecordingCutOffBeforeItsFirstBlockIsDropped() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = try folder.create(.call(source: .system, startHostTime: 1, audioRetention: .always),
+                                   excludedFromBackup: true)
+        #expect(CallRecordings.recoverInterrupted(in: folder).isEmpty)
+        #expect(folder.meta(id).isMissing)
+    }
+
     @Test func aSecondStartIsRefused() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let recorder = recorder()

@@ -205,6 +205,8 @@ public actor CallRecorder {
     }
 
     private var session: Session?
+    /// The stop under way: a second stop (⌘Q during «Стоп») waits for it.
+    private var stopping: Task<UUID?, Never>?
     private var starting = false
     private var generation = 0
     public private(set) var status = Status()
@@ -261,7 +263,7 @@ public actor CallRecorder {
     /// the microphone, and sets the tap going without waiting for it.
     @discardableResult
     public func start(_ options: Options) async throws -> UUID {
-        guard session == nil, !starting else { throw StartError.alreadyRecording }
+        guard session == nil, stopping == nil, !starting else { throw StartError.alreadyRecording }
         starting = true
         defer { starting = false }
         if let free = freeSpace(folder.root), free < configuration.minFreeBytes {
@@ -475,7 +477,16 @@ public actor CallRecorder {
     /// Returns its id, or nil if nothing was recorded.
     @discardableResult
     public func stop(_ reason: StopReason = .user) async -> UUID? {
-        guard let session, !session.stopping else { return nil }
+        if let stopping { return await stopping.value }
+        guard let session else { return nil }
+        let task = Task { await finish(session, reason) }
+        stopping = task
+        let id = await task.value
+        stopping = nil
+        return id
+    }
+
+    private func finish(_ session: Session, _ reason: StopReason) async -> UUID? {
         session.stopping = true
         session.ticker?.cancel()
         let end = hostTime()

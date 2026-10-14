@@ -170,7 +170,7 @@ final class CallRecordingController {
     }
 
     func openPrivacySettings() {
-        let address = "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture"
+        let address = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
         if let url = URL(string: address) { NSWorkspace.shared.open(url) }
     }
 

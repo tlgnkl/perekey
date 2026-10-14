@@ -200,6 +200,36 @@ struct OpenAICompatibleClientTests {
         await #expect(throws: CloudSTTEngine.Failure.unavailable) { try await gone.transcribe(AudioBuffer16k([0])) }
     }
 
+    /// Files: Whisper's phrases keep their timings; a gpt-4o answer without
+    /// them is one phrase from the start of the piece.
+    @Test func timedTranscription() async throws {
+        let fake = try await FakeOpenAI { request, _ in
+            let body = String(decoding: request.body, as: UTF8.self)
+            if body.contains("verbose_json") {
+                return FakeOpenAI.json(["text": "Раз. Два.", "language": "russian",
+                             "segments": [["start": 0.5, "end": 1.5, "text": " Раз."],
+                                          ["start": 2.0, "end": 3.0, "text": " Два."]]])
+            }
+            return FakeOpenAI.json(["text": "Всё сразу."])
+        }
+        let audio = AudioBuffer16k([Float](repeating: 0, count: 64_000))
+        let whisper = try await fake.client().transcribeTimed(audio, model: "whisper-1", address: fake.address,
+                                                              key: nil, language: "ru", prompt: "Perekey")
+        #expect(whisper.segments.map(\.text) == ["Раз.", "Два."])
+        #expect(whisper.segments.map(\.start) == [0.5, 2.0])
+        #expect(whisper.language == "ru")
+        let gpt = try await fake.client().transcribeTimed(audio, model: "gpt-4o-transcribe", address: fake.address,
+                                                          key: nil, language: nil, prompt: nil)
+        #expect(gpt.segments == [TimedSegment(start: 0, end: 4, text: "Всё сразу.")])
+        #expect(gpt.language == nil)
+        let bodies = fake.server.requests.map { String(decoding: $0.body, as: UTF8.self) }
+        #expect(bodies[0].contains("name=\"timestamp_granularities[]\"\r\n\r\nsegment\r\n"))
+        #expect(bodies[0].contains("name=\"language\"\r\n\r\nru\r\n"))
+        #expect(bodies[0].contains("name=\"prompt\"\r\n\r\nPerekey\r\n"))
+        #expect(bodies[1].contains("name=\"response_format\"\r\n\r\njson\r\n"))
+        #expect(!bodies[1].contains("timestamp_granularities"))
+    }
+
     @Test func wavHeader() {
         let wav = WAV.encode(AudioBuffer16k([0, 1, -1, 2]))
         #expect(wav.count == 44 + 8)

@@ -53,4 +53,14 @@ public actor CloudSTTEngine: SpeechEngine {
                                                prompt: prompt)
         return Transcript(text: text)
     }
+
+    /// A piece of a file. Phrases keep the server's timings where the model
+    /// gives them; otherwise the piece's text is one phrase from its start.
+    public func transcribeTimed(_ audio: AudioBuffer16k, language: String?, prompt: String?) async throws
+        -> TimedTranscript
+    {
+        guard let target = await target() else { throw Failure.unavailable }
+        return try await client.transcribeTimed(audio, model: model, address: target.address, key: target.key,
+                                                language: language, prompt: prompt)
+    }
 }

@@ -18,6 +18,8 @@ struct VoicePane: View {
     let controller: VoiceModelsController
     /// The text rules and the history; the Text and History groups are missing without it.
     var textController: VoiceTextController?
+    /// The recordings; the Recordings group is missing without it.
+    var transcripts: TranscriptsController?
     let store: SettingsStore
     let recording: ShortcutRecording
 
@@ -40,6 +42,9 @@ struct VoicePane: View {
                 if let textController {
                     VoiceTextGroup(controller: textController)
                     VoiceHistoryGroup(controller: textController)
+                }
+                if let transcripts {
+                    RecordingsGroup(controller: transcripts)
                 }
             }
         }

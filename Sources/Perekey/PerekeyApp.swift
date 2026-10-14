@@ -59,6 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let voiceModels: VoiceModelsController
     /// The text rules and the dictation history.
     private let voiceText: VoiceTextController
+    /// The «Расшифровки» window and what it holds. The file queue and the call
+    /// recorder plug into `transcripts.controller` (`queue`, `live`).
+    private let transcripts: TranscriptsWindow
     /// Dictation: the hotkey, the microphone, the engines, the paste.
     private let voice: VoiceSetup
     /// "What's new: voice input", once, for someone who already uses Perekey.
@@ -92,6 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let voiceText = VoiceTextController()
         self.voiceText = voiceText
         voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes, text: voiceText, usage: usage)
+        let transcriptsController = TranscriptsController(voice: voiceModels.settings, models: { [voiceModels] in
+            voiceModels.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
+                .map { (id: $0.id, title: ModelNames.display($0.entry)) }
+        })
+        let transcriptsWindow = TranscriptsWindow(controller: transcriptsController)
+        transcripts = transcriptsWindow
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
@@ -100,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             view.voiceController = voiceModels
             view.voiceModes = voiceModes
             view.voiceTextController = voiceText
+            view.voiceTranscripts = transcriptsController
             return view
             #else
             return SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
@@ -130,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
                              settings: settings) { actions in
             actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
+            actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
         }
         #else
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,

@@ -22,6 +22,8 @@ struct MenuActions {
     var voiceModes: VoiceModeMenu?
     /// The recent dictations; nil hides the section.
     var dictation: DictationMenu?
+    /// The «Расшифровки» window; nil hides the row.
+    var transcripts: TranscriptsMenu?
     #endif
 }
 
@@ -363,6 +365,13 @@ struct MenuContent: View {
 
     private var commands: some View {
         VStack(alignment: .leading, spacing: 0) {
+            #if PEREKEY_VOICE
+            if let transcripts = actions.transcripts, transcripts.isOn() {
+                // «Расшифровать файл…» and «Записать созвон» go here, in rows beside this one.
+                MenuCommandRow(id: "transcripts", title: "", label: voiceText("Transcripts…"), shortcut: nil, nav: nav,
+                               run: { actions.close(); transcripts.open() })
+            }
+            #endif
             MenuCommandRow(id: "settings", title: "Settings…", shortcut: "⌘,", nav: nav, run: actions.openSettings)
             if let updates {
                 UpdatesMenuRow(updates: updates, nav: nav, close: actions.close)
@@ -515,6 +524,8 @@ struct LaunchAtLoginRow: View {
 struct MenuCommandRow: View {
     let id: String
     let title: LocalizedStringKey
+    /// Text in place of `title`, for a string of another table.
+    var label: Text?
     var shortcut: String?
     var checked = false
     var badge = false
@@ -526,7 +537,7 @@ struct MenuCommandRow: View {
         let hot = enabled && nav.highlighted == id
         Button(action: run) {
             HStack {
-                Text(title).font(PK.Font.body)
+                (label ?? Text(title)).font(PK.Font.body)
                 Spacer()
                 if checked { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 if badge {

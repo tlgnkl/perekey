@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import os
 
 /// Where recordings live: `Perekey/Recordings/<id>/` in Application Support,
 /// beside `History`, with `meta.json`, `transcript.json` and a call's audio.
 ///
-/// The whole folder is kept out of Time Machine (`isExcludedFromBackup`):
-/// calls hold other people's voices, and the user chooses whether a backup
-/// keeps them. The mark is on the folder, so atomic writes inside, which
-/// replace the files, do not lose it.
+/// The whole folder is kept out of Time Machine (`isExcludedFromBackup`)
+/// unless the user includes it: calls hold other people's voices. The mark
+/// is on the folder, so atomic writes inside, which replace the files, do
+/// not lose it.
 ///
 /// Both files are versioned as `VoiceSettingsFile` is: one of a newer
-/// `schemaVersion` is read as such and never written over.
+/// `schemaVersion` is read as such and never written over. The recorder,
+/// the queue and the window all change them, so every change goes through
+/// `updateMeta` or `updateTranscript`: a read, the change and an atomic
+/// write under one lock, and no change undoes another.
 public struct RecordingsFolder: Sendable {
     public let root: URL
+
+    /// One for all folders: the files are small, and writes are rare.
+    private static let lock = OSAllocatedUnfairLock()
+    private static let log = Logger(subsystem: "app.perekey", category: "recordings")
 
     public static var defaultRoot: URL {
         URL.applicationSupportDirectory
@@ -46,23 +54,31 @@ public struct RecordingsFolder: Sendable {
         case unreadable
     }
 
-    /// The file on disk is of a newer version: it is left alone.
-    public struct NewerVersionError: Error, Equatable {
-        public let schemaVersion: Int
-
-        public init(schemaVersion: Int) {
-            self.schemaVersion = schemaVersion
-        }
+    /// Why a file could not be changed.
+    public enum FileError: Error, Equatable {
+        case missing
+        case unreadable
+        /// A newer Perekey wrote it: it is left alone.
+        case newerVersion(Int)
     }
 
-    /// A new recording's folder and its `meta.json`.
+    /// A new recording's folder and its `meta.json`. `excludedFromBackup` is
+    /// the user's Time Machine choice; it is set on the whole folder each
+    /// time, so a mark that failed once is set again with the next recording.
     @discardableResult
-    public func create(_ meta: RecordingMeta, id: UUID = UUID()) throws -> UUID {
-        let fresh = !FileManager.default.fileExists(atPath: root.path)
+    public func create(_ meta: RecordingMeta, id: UUID = UUID(), excludedFromBackup: Bool) throws -> UUID {
         try FileManager.default.createDirectory(at: directory(for: id), withIntermediateDirectories: true)
-        // The user's later choice is left alone: only a new folder is marked.
-        if fresh { try? setExcludedFromBackup(true) }
-        try save(meta, id: id)
+        do {
+            try setExcludedFromBackup(excludedFromBackup)
+        } catch {
+            // No paths: they hold the user's name.
+            let error = error as NSError
+            Self.log.error("Time Machine mark failed: \(error.domain, privacy: .public) \(error.code, privacy: .public)")
+        }
+        try Self.lock.withLockUnchecked {
+            try write(meta, to: metaURL(for: id), current: RecordingMeta.schemaVersion,
+                      ownKeys: RecordingMeta.CodingKeys.allCases.map(\.rawValue))
+        }
         return id
     }
 
@@ -73,33 +89,54 @@ public struct RecordingsFolder: Sendable {
     }
 
     public func meta(_ id: UUID) -> Loaded<RecordingMeta> {
-        load(metaURL(for: id), current: RecordingMeta.schemaVersion)
+        Self.lock.withLockUnchecked { load(metaURL(for: id), current: RecordingMeta.schemaVersion) }
     }
 
-    /// Rewrites `meta.json` atomically. Keys this version does not know stay:
-    /// a newer version may have added them to the same schema.
-    public func save(_ meta: RecordingMeta, id: UUID) throws {
-        try write(meta, to: metaURL(for: id), current: RecordingMeta.schemaVersion, keepingUnknownKeys: true)
+    /// Changes `meta.json`: the one way to write it after `create`. Keys a
+    /// newer version added at the top level stay; nested ones do not.
+    /// Throws `FileError` if there is no file this version may write.
+    @discardableResult
+    public func updateMeta(_ id: UUID, _ change: (inout RecordingMeta) throws -> Void) throws -> RecordingMeta {
+        try Self.lock.withLockUnchecked {
+            var meta: RecordingMeta = try value(of: load(metaURL(for: id), current: RecordingMeta.schemaVersion))
+            try change(&meta)
+            try write(meta, to: metaURL(for: id), current: RecordingMeta.schemaVersion,
+                      ownKeys: RecordingMeta.CodingKeys.allCases.map(\.rawValue))
+            return meta
+        }
     }
 
     public func transcript(_ id: UUID) -> Loaded<TranscriptDocument> {
-        load(transcriptURL(for: id), current: TranscriptDocument.schemaVersion)
+        Self.lock.withLockUnchecked { load(transcriptURL(for: id), current: TranscriptDocument.schemaVersion) }
     }
 
-    /// Writes `transcript.json` atomically, whole: a new transcript replaces
-    /// the old one with all it had.
-    public func save(_ transcript: TranscriptDocument, id: UUID) throws {
-        try write(transcript, to: transcriptURL(for: id), current: TranscriptDocument.schemaVersion,
-                  keepingUnknownKeys: false)
+    /// Changes `transcript.json`, or writes the first one: the change gets
+    /// nil when there is none, and nil left by it writes nothing. A new
+    /// transcript replaces the old one whole, with only what the change
+    /// keeps of it (`keepingNames`). Throws `FileError` for a file this
+    /// version may not write.
+    public func updateTranscript(_ id: UUID, _ change: (inout TranscriptDocument?) throws -> Void) throws {
+        try Self.lock.withLockUnchecked {
+            var document: TranscriptDocument?
+            switch load(transcriptURL(for: id), current: TranscriptDocument.schemaVersion) as Loaded<TranscriptDocument> {
+            case .missing: document = nil
+            case let .loaded(value): document = value
+            case let .newer(version): throw FileError.newerVersion(version)
+            case .unreadable: throw FileError.unreadable
+            }
+            try change(&document)
+            guard let document else { return }
+            try write(document, to: transcriptURL(for: id), current: TranscriptDocument.schemaVersion, ownKeys: nil)
+        }
     }
 
     /// Removes a recording: its folder with the audio and the transcript.
     /// A file the user chose is outside it and stays.
     public func remove(_ id: UUID) throws {
-        try FileManager.default.removeItem(at: directory(for: id))
+        try Self.lock.withLockUnchecked { try FileManager.default.removeItem(at: directory(for: id)) }
     }
 
-    /// The Time Machine choice; on by default, set at the first recording.
+    /// The Time Machine choice: «Включать в Time Machine» clears the mark.
     public func setExcludedFromBackup(_ excluded: Bool) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         var url = root
@@ -132,6 +169,15 @@ public struct RecordingsFolder: Sendable {
         var schemaVersion: Int
     }
 
+    private func value<Value>(of loaded: Loaded<Value>) throws -> Value {
+        switch loaded {
+        case let .loaded(value): value
+        case .missing: throw FileError.missing
+        case .unreadable: throw FileError.unreadable
+        case let .newer(version): throw FileError.newerVersion(version)
+        }
+    }
+
     private func load<Value: Decodable & Sendable>(_ url: URL, current: Int) -> Loaded<Value> {
         let data: Data
         do {
@@ -148,14 +194,20 @@ public struct RecordingsFolder: Sendable {
         return .loaded(value)
     }
 
-    private func write(_ value: some Encodable, to url: URL, current: Int, keepingUnknownKeys: Bool) throws {
+    /// Writes atomically. With `ownKeys`, the file's other top-level keys
+    /// stay: a newer version may have added them. Its own keys are dropped
+    /// first, so a field set back to nil does not come back from the disk.
+    private func write(_ value: some Encodable, to url: URL, current: Int, ownKeys: [String]?) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let theirs = (try? Data(contentsOf: url))
-            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-        if let version = theirs["schemaVersion"] as? Int, version > current {
-            throw NewerVersionError(schemaVersion: version)
+        var object: [String: Any] = [:]
+        if let theirs = (try? Data(contentsOf: url)).flatMap({ try? JSONSerialization.jsonObject(with: $0) })
+            as? [String: Any]
+        {
+            if let version = theirs["schemaVersion"] as? Int, version > current {
+                throw FileError.newerVersion(version)
+            }
+            if let ownKeys { object = theirs.filter { !ownKeys.contains($0.key) } }
         }
-        var object = keepingUnknownKeys ? theirs : [:]
         let ours = try JSONSerialization.jsonObject(with: Self.encoder().encode(value)) as? [String: Any] ?? [:]
         object.merge(ours) { _, new in new }
         let data = try JSONSerialization.data(

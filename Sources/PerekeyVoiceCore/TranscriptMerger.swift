@@ -12,6 +12,8 @@ import Foundation
 public enum TranscriptMerger {
     /// Seconds between the starts of a word and its echo.
     public static let echoWindow = 1.0
+    /// Letters from which one matched word alone is echo.
+    public static let echoLongWord = 4
 
     /// One transcript of a call: «Я» without the echo and «Собеседники», by
     /// start. Phrases without a speaker get their track's; phrases of the
@@ -30,7 +32,7 @@ public enum TranscriptMerger {
         return TimedTranscript(segments: sorted(mine + theirs), language: me.language ?? others.language)
     }
 
-    /// The phrases of `mine` without the words `heard` has within the window.
+    /// The phrases of `mine` without the echo of `heard` within the window.
     /// A phrase left without words goes; one without timings of words stays.
     public static func removingEcho(from mine: [TimedSegment], heard: [TimedSegment],
                                     window: Double = echoWindow) -> [TimedSegment]
@@ -50,9 +52,14 @@ public enum TranscriptMerger {
         }
         return mine.compactMap { segment in
             guard let words = segment.words else { return segment }
-            let kept = words.filter { !isEcho($0) }
-            if kept.count == words.count { return segment }
-            return rebuilt(segment, words: kept)
+            let matched = words.map(isEcho)
+            let echo = words.indices.map { i in
+                guard matched[i] else { return false }
+                let inRun = (i > 0 && matched[i - 1]) || (i + 1 < words.count && matched[i + 1])
+                return inRun || (normalized(words[i].text)?.count ?? 0) >= echoLongWord
+            }
+            guard echo.contains(true) else { return segment }
+            return rebuilt(segment, words: words.indices.filter { !echo[$0] }.map { words[$0] })
         }
     }
 

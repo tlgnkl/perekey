@@ -34,7 +34,7 @@ public struct SpeakerTurn: Sendable, Equatable {
 public final class DictationActivity: Sendable {
     private struct State {
         var active = false
-        var waiters: [CheckedContinuation<Void, Never>] = []
+        var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -46,27 +46,35 @@ public final class DictationActivity: Sendable {
         state.withLock { $0.active = true }
     }
 
-    /// The text is in, or the dictation ended without any.
+    /// The text is in, or the dictation ended without any. Call it on every
+    /// way out of a session (a `defer` in the controller): a missed call
+    /// leaves the file queue waiting for good.
     public func ended() {
         let waiters = state.withLock { state in
             state.active = false
-            defer { state.waiters = [] }
-            return state.waiters
+            defer { state.waiters = [:] }
+            return state.waiters.values
         }
         waiters.forEach { $0.resume() }
     }
 
     public var isActive: Bool { state.withLock(\.active) }
 
-    /// Returns once no dictation runs; at once if none does.
+    /// Returns once no dictation runs: at once if none does, or once the
+    /// waiting task is cancelled.
     public func idle() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let resumeNow = state.withLock { state in
-                guard state.active else { return true }
-                state.waiters.append(continuation)
-                return false
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let resumeNow = state.withLock { state in
+                    guard state.active, !Task.isCancelled else { return true }
+                    state.waiters[id] = continuation
+                    return false
+                }
+                if resumeNow { continuation.resume() }
             }
-            if resumeNow { continuation.resume() }
+        } onCancel: {
+            state.withLock { $0.waiters.removeValue(forKey: id) }?.resume()
         }
     }
 }
@@ -123,9 +131,10 @@ public enum TranscriptionFailure: Sendable, Equatable {
     case modelUnavailable
     /// The model failed on the audio.
     case engineFailed
-    /// `meta.json` or `transcript.json` could not be read or written, or a
-    /// newer Perekey wrote them.
+    /// `meta.json` or `transcript.json` could not be read or written.
     case storageFailed
+    /// A newer Perekey wrote `meta.json` or `transcript.json`: this one leaves them alone.
+    case newerVersion
 }
 
 /// The file queue: what the recordings window and the call recorder use.

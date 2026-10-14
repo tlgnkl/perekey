@@ -49,6 +49,16 @@ struct TranscriptMergerTests {
         #expect(TranscriptMerger.removingEcho(from: [phrase("word", at: 8.9)], heard: others).count == 1)
     }
 
+    /// A short word alone is the user's own, said over the others; two in
+    /// a row, or one long word, are the echo.
+    @Test func shortWordAloneStays() {
+        let others = [phrase("да ну конечно", at: 10)]
+        #expect(TranscriptMerger.removingEcho(from: [phrase("да", at: 10.2)], heard: others).map(\.text) == ["да"])
+        #expect(TranscriptMerger.removingEcho(from: [phrase("да ну", at: 10.2)], heard: others).isEmpty)
+        #expect(TranscriptMerger.removingEcho(from: [phrase("ага конечно", at: 10.5)], heard: others).map(\.text)
+            == ["ага"])
+    }
+
     @Test func phraseWithoutWordTimingsStays() {
         let mine = [TimedSegment(start: 10, end: 11, text: "word")]
         #expect(TranscriptMerger.removingEcho(from: mine, heard: [phrase("word", at: 10)]) == mine)

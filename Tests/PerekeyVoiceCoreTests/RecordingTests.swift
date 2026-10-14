@@ -24,7 +24,7 @@ struct RecordingTests {
                   closed: true),
             .init(track: .mic, file: "mic-0001.aac", startHostTime: 7, startOffset: 0, frames: 4_800_000, closed: true),
         ]
-        meta.gaps = [.init(track: .sys, startOffset: 9.01, reason: "deviceChanged")]
+        meta.gaps = [.init(track: .sys, startOffset: 9.01, reason: .deviceChanged)]
         return meta
     }
 
@@ -51,7 +51,7 @@ struct RecordingTests {
 
     @Test func metaRoundTrip() throws {
         let fixture = Fixture()
-        let id = try fixture.folder.create(Self.call())
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
         guard case let .loaded(meta) = fixture.folder.meta(id) else {
             Issue.record("not loaded")
             return
@@ -84,15 +84,15 @@ struct RecordingTests {
 
     @Test func newerMetaIsNeverWritten() throws {
         let fixture = Fixture()
-        let id = try fixture.folder.create(Self.call())
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
         let newer = Data(#"{ "schemaVersion": 2, "kind": "call", "wholeNewThing": true }"#.utf8)
         try newer.write(to: fixture.folder.metaURL(for: id))
         guard case .newer(schemaVersion: 2) = fixture.folder.meta(id) else {
             Issue.record("not seen as newer")
             return
         }
-        #expect(throws: RecordingsFolder.NewerVersionError(schemaVersion: 2)) {
-            try fixture.folder.save(Self.call(), id: id)
+        #expect(throws: RecordingsFolder.FileError.newerVersion(2)) {
+            try fixture.folder.updateMeta(id) { $0.state = .done }
         }
         #expect(try Data(contentsOf: fixture.folder.metaURL(for: id)) == newer)
     }
@@ -100,14 +100,12 @@ struct RecordingTests {
     /// A newer Perekey's key in the same schema stays in `meta.json`.
     @Test func unknownMetaKeysStay() throws {
         let fixture = Fixture()
-        let id = try fixture.folder.create(Self.call())
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
         var object = try #require(JSONSerialization.jsonObject(
             with: Data(contentsOf: fixture.folder.metaURL(for: id))) as? [String: Any])
         object["level"] = 3
         try JSONSerialization.data(withJSONObject: object).write(to: fixture.folder.metaURL(for: id))
-        var meta = Self.call()
-        meta.state = .stopped
-        try fixture.folder.save(meta, id: id)
+        try fixture.folder.updateMeta(id) { $0.state = .stopped }
         let saved = try #require(JSONSerialization.jsonObject(
             with: Data(contentsOf: fixture.folder.metaURL(for: id))) as? [String: Any])
         #expect(saved["level"] as? Int == 3)
@@ -116,7 +114,7 @@ struct RecordingTests {
 
     @Test func unreadableAndMissing() throws {
         let fixture = Fixture()
-        let id = try fixture.folder.create(Self.call())
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
         guard case .missing = fixture.folder.transcript(id) else {
             Issue.record("transcript should be missing")
             return
@@ -129,13 +127,70 @@ struct RecordingTests {
         #expect(fixture.folder.recordings() == [id])
     }
 
-    @Test func newFolderIsKeptOutOfTimeMachine() throws {
+    /// The choice is set on the whole folder with each recording.
+    @Test func timeMachineChoiceFollowsEachRecording() throws {
         let fixture = Fixture()
-        try fixture.folder.create(Self.call())
+        try fixture.folder.create(Self.call(), excludedFromBackup: true)
         #expect(fixture.folder.isExcludedFromBackup)
-        try fixture.folder.setExcludedFromBackup(false)
-        try fixture.folder.create(Self.call())
+        try fixture.folder.create(Self.call(), excludedFromBackup: false)
         #expect(!fixture.folder.isExcludedFromBackup)
+        try fixture.folder.create(Self.call(), excludedFromBackup: true)
+        #expect(fixture.folder.isExcludedFromBackup)
+    }
+
+    /// A field set back to nil stays nil: the file's own keys never come back from the disk.
+    @Test func clearedFieldStaysCleared() throws {
+        let fixture = Fixture()
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
+        try fixture.folder.updateMeta(id) {
+            $0.duration = 3600
+            $0.pendingJob = TranscriptionJob(recording: id, model: "parakeet-tdt-v3", diarize: true)
+        }
+        try fixture.folder.updateMeta(id) {
+            $0.duration = nil
+            $0.pendingJob = nil
+        }
+        guard case let .loaded(meta) = fixture.folder.meta(id) else {
+            Issue.record("not loaded")
+            return
+        }
+        #expect(meta.duration == nil && meta.pendingJob == nil)
+    }
+
+    @Test func pendingJobAndRemovedAudio() throws {
+        let fixture = Fixture()
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
+        let job = TranscriptionJob(recording: id, model: "whisper-large-v3-turbo-632mb", diarize: true, language: "ru")
+        try fixture.folder.updateMeta(id) {
+            $0.pendingJob = job
+            $0.audioRemovedAt = Self.date
+        }
+        guard case let .loaded(meta) = fixture.folder.meta(id) else {
+            Issue.record("not loaded")
+            return
+        }
+        #expect(meta.pendingJob == job)
+        #expect(meta.audioRemovedAt == Self.date)
+    }
+
+    @Test func updateOfMissingMetaThrows() {
+        let fixture = Fixture()
+        #expect(throws: RecordingsFolder.FileError.missing) {
+            try fixture.folder.updateMeta(UUID()) { $0.state = .done }
+        }
+    }
+
+    /// Gap reasons are strings: one this version does not know reads as it is.
+    @Test func gapReasons() throws {
+        let json = #"[{ "track": "mic", "startOffset": 1, "reason": "paused" },"#
+            + #"{ "track": "sys", "startOffset": 2, "reason": "cosmicRay" }]"#
+        let gaps = try JSONDecoder().decode([RecordingMeta.Gap].self, from: Data(json.utf8))
+        #expect(gaps[0].reason == .paused)
+        #expect(gaps[1].reason.rawValue == "cosmicRay")
+        let encoded = try String(decoding: JSONEncoder().encode(gaps[1]), as: UTF8.self)
+        #expect(encoded.contains(#""reason":"cosmicRay""#))
+        #expect([RecordingMeta.Gap.Reason.deviceChanged, .writeFailed, .permissionDenied].map(\.rawValue)
+            == ["deviceChanged", "writeFailed", "permissionDenied"])
     }
 
     static func transcript(model: String = "parakeet-tdt-0.6b-v3") -> TranscriptDocument {
@@ -157,10 +212,10 @@ struct RecordingTests {
 
     @Test func transcriptRoundTrip() throws {
         let fixture = Fixture()
-        let id = try fixture.folder.create(Self.call())
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
         var document = Self.transcript()
         document.rename(speaker: "speaker-2", to: "  Аня ")
-        try fixture.folder.save(document, id: id)
+        try fixture.folder.updateTranscript(id) { $0 = document }
         guard case let .loaded(loaded) = fixture.folder.transcript(id) else {
             Issue.record("not loaded")
             return
@@ -200,18 +255,69 @@ struct RecordingTests {
 
     @Test func newerTranscriptIsNeverWritten() throws {
         let fixture = Fixture()
-        let id = try fixture.folder.create(Self.call())
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
         try Data(#"{ "schemaVersion": 7 }"#.utf8).write(to: fixture.folder.transcriptURL(for: id))
-        #expect(throws: RecordingsFolder.NewerVersionError(schemaVersion: 7)) {
-            try fixture.folder.save(Self.transcript(), id: id)
+        #expect(throws: RecordingsFolder.FileError.newerVersion(7)) {
+            try fixture.folder.updateTranscript(id) { $0 = Self.transcript() }
         }
     }
 
     @Test func removeTakesTheFolder() throws {
         let fixture = Fixture()
-        let id = try fixture.folder.create(Self.call())
+        let id = try fixture.folder.create(Self.call(), excludedFromBackup: true)
         try fixture.folder.remove(id)
         #expect(!FileManager.default.fileExists(atPath: fixture.folder.directory(for: id).path))
+    }
+
+    /// A rename and a new transcript at the same time: whichever goes
+    /// first, the name of «Я» is in the file at the end.
+    @Test func renameDuringRetranscriptionIsKept() async throws {
+        for _ in 0..<20 {
+            let fixture = Fixture()
+            let folder = fixture.folder
+            let id = try folder.create(Self.call(), excludedFromBackup: true)
+            try folder.updateTranscript(id) { $0 = Self.transcript() }
+            async let renamed: Void = Task.detached {
+                try folder.updateTranscript(id) { $0?.rename(speaker: "me", to: "Олег") }
+            }.value
+            async let replaced: Void = Task.detached {
+                try folder.updateTranscript(id) { old in
+                    let new = Self.transcript(model: "whisper-large-v3-turbo-632mb")
+                    old = old.map(new.keepingNames(from:)) ?? new
+                }
+            }.value
+            _ = try await (renamed, replaced)
+            guard case let .loaded(document) = folder.transcript(id) else {
+                Issue.record("not loaded")
+                return
+            }
+            #expect(document.model == "whisper-large-v3-turbo-632mb")
+            #expect(document.speakers.first { $0.id == "me" }?.name == "Олег")
+        }
+    }
+
+    static let track = [
+        TrackSegment(path: "a", startOffset: 0.19, frames: 4_800_000),
+        // A gap: the device changed at 300.19, the next segment opened at 301.
+        TrackSegment(path: "b", startOffset: 301, frames: 16_000),
+        // Open after a crash: runs until the next one.
+        TrackSegment(path: "c", startOffset: 400, frames: nil),
+        TrackSegment(path: "d", startOffset: 500, frames: nil),
+    ]
+
+    @Test func locateSkipsPrimingAndStaysInFrames() {
+        #expect(Self.track.locate(0.1) == nil)
+        #expect(Self.track.locate(0.19) == TrackPosition(segment: 0, frame: 2112))
+        #expect(Self.track.locate(1.19) == TrackPosition(segment: 0, frame: 2112 + 16_000))
+        // The last frame written, and the first past it: the gap.
+        #expect(Self.track.locate(0.19 + 299.99995) == TrackPosition(segment: 0, frame: 2112 + 4_799_999))
+        #expect(Self.track.locate(300.2) == nil)
+        #expect(Self.track.locate(300.9) == nil)
+        #expect(Self.track.locate(301) == TrackPosition(segment: 1, frame: 2112))
+        #expect(Self.track.locate(302) == nil)
+        #expect(Self.track.locate(450) == TrackPosition(segment: 2, frame: 2112 + 800_000))
+        #expect(Self.track.locate(10_000) == TrackPosition(segment: 3, frame: 2112 + 152_000_000))
+        #expect([TrackSegment]().locate(1) == nil)
     }
 
     @Test func shiftMovesWordsToo() {
@@ -240,10 +346,22 @@ struct DictationActivityTests {
         #expect(await waiter.value)
     }
 
+    @Test func cancelEndsTheWait() async {
+        let activity = DictationActivity()
+        activity.began()
+        let waiter = Task {
+            await activity.idle()
+            return activity.isActive
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+        waiter.cancel()
+        #expect(await waiter.value)
+    }
+
     @Test func phases() {
         #expect(TranscriptionPhase.waitingForDictation(0.4).isPending)
         #expect(TranscriptionPhase.preparingModel.isPending)
-        #expect(!TranscriptionPhase.failed(.sourceMissing).isPending)
+        #expect(!TranscriptionPhase.failed(.newerVersion).isPending)
         #expect(!TranscriptionPhase.cancelled.isPending)
     }
 }

@@ -103,16 +103,45 @@ public struct RecordingMeta: Codable, Sendable, Equatable {
     }
 
     /// Audio missing from a track from `startOffset` until its next segment.
+    /// After any gap the track goes on in a new segment. A pause is a gap of
+    /// no length on both tracks: the scale stops while it lasts.
     public struct Gap: Codable, Sendable, Equatable {
         public var track: RecordingTrack
         public var startOffset: Double
-        /// `deviceChanged`, `writeFailed`, …: for the log and the panel, not parsed.
-        public var reason: String
+        public var reason: Reason
 
-        public init(track: RecordingTrack, startOffset: Double, reason: String) {
+        public init(track: RecordingTrack, startOffset: Double, reason: Reason) {
             self.track = track
             self.startOffset = startOffset
             self.reason = reason
+        }
+
+        /// Why a track broke off. A string in JSON: a reason a newer
+        /// Perekey wrote reads as it is.
+        public struct Reason: RawRepresentable, Codable, Hashable, Sendable, ExpressibleByStringLiteral {
+            public static let paused: Reason = "paused"
+            public static let deviceChanged: Reason = "deviceChanged"
+            public static let writeFailed: Reason = "writeFailed"
+            public static let permissionDenied: Reason = "permissionDenied"
+
+            public var rawValue: String
+
+            public init(rawValue: String) {
+                self.rawValue = rawValue
+            }
+
+            public init(stringLiteral value: String) {
+                rawValue = value
+            }
+
+            public init(from decoder: any Decoder) throws {
+                rawValue = try decoder.singleValueContainer().decode(String.self)
+            }
+
+            public func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+                try container.encode(rawValue)
+            }
         }
     }
 
@@ -140,6 +169,17 @@ public struct RecordingMeta: Codable, Sendable, Equatable {
     public var gaps: [Gap]
     /// For a call; a file's audio is the user's and never removed.
     public var audioRetention: AudioRetention?
+    /// When the call's audio was removed by its term; the transcript stays.
+    public var audioRemovedAt: Date?
+    /// What to transcribe it with: set when it is queued, cleared when its
+    /// transcript is written or the user cancels. Found set at launch, the
+    /// queue was cut off and starts again from its last window.
+    public var pendingJob: TranscriptionJob?
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case schemaVersion, kind, source, createdAt, state, duration, format, sampleRate, startHostTime, segments,
+             gaps, audioRetention, audioRemovedAt, pendingJob
+    }
 
     public init(kind: Kind, source: Source, createdAt: Date, state: State, duration: Double? = nil,
                 format: String? = nil, sampleRate: Double = VoiceCore.sampleRate, startHostTime: UInt64? = nil,
@@ -185,6 +225,8 @@ public struct RecordingMeta: Codable, Sendable, Equatable {
         segments = try c.decodeIfPresent([Segment].self, forKey: .segments) ?? []
         gaps = try c.decodeIfPresent([Gap].self, forKey: .gaps) ?? []
         audioRetention = try c.decodeIfPresent(AudioRetention.self, forKey: .audioRetention)
+        audioRemovedAt = try c.decodeIfPresent(Date.self, forKey: .audioRemovedAt)
+        pendingJob = try c.decodeIfPresent(TranscriptionJob.self, forKey: .pendingJob)
     }
 
     /// The tracks that have audio, in order.

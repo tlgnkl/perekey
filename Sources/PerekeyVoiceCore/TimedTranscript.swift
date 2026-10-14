@@ -118,3 +118,35 @@ public enum RecordingTrack: String, Codable, Sendable, CaseIterable {
         }
     }
 }
+
+/// A place in a track's audio: the segment and the frame in its file.
+public struct TrackPosition: Sendable, Equatable {
+    /// Index in the track's segments.
+    public var segment: Int
+    /// Frame in the segment's file, as `AVAudioFile.framePosition` takes it:
+    /// the encoder's priming included.
+    public var frame: Int64
+
+    public init(segment: Int, frame: Int64) {
+        self.segment = segment
+        self.frame = frame
+    }
+}
+
+extension [TrackSegment] {
+    /// Where a second of the recording's scale lies in the files: the queue
+    /// reads windows by it, the window plays a phrase from it. Skips the
+    /// 2112 frames of priming at a segment's start and stays within the
+    /// frames written. Nil before the first segment, in a gap and past the
+    /// end. The segments go by their start, as `RecordingMeta.audio` gives them.
+    public func locate(_ seconds: Double, sampleRate: Double = VoiceCore.sampleRate) -> TrackPosition? {
+        guard let index = lastIndex(where: { $0.startOffset <= seconds }) else { return nil }
+        let segment = self[index]
+        let frame = Int64(((seconds - segment.startOffset) * sampleRate).rounded(.down))
+        // An open segment, cut off by a crash, runs until the next one starts.
+        let next = index + 1 < count ? self[index + 1].startOffset - segment.startOffset : nil
+        let limit = segment.frames ?? next.map { Int64(($0 * sampleRate).rounded(.down)) } ?? .max
+        guard frame < limit else { return nil }
+        return TrackPosition(segment: index, frame: RecordingMeta.adtsPrimingFrames + frame)
+    }
+}

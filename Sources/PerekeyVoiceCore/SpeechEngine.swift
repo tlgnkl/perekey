@@ -26,8 +26,9 @@ public protocol SpeechEngine: VoiceModel {
     /// One window of long audio (`FileTranscriber` cuts it), with timings
     /// from the window's start. `language` is the one found in the track's
     /// first window: Whisper otherwise detects it again in every window and
-    /// may switch. The result carries the language the model heard.
-    func transcribeTimed(_ audio: AudioBuffer16k, language: String?) async throws -> TimedTranscript
+    /// may switch. `prompt`: the user's dictionary, as for dictation. The
+    /// result carries the language the model heard.
+    func transcribeTimed(_ audio: AudioBuffer16k, language: String?, prompt: String?) async throws -> TimedTranscript
 }
 
 extension SpeechEngine {
@@ -38,7 +39,9 @@ extension SpeechEngine {
     }
 
     /// An engine without timings cannot transcribe files.
-    public func transcribeTimed(_: AudioBuffer16k, language _: String?) async throws -> TimedTranscript {
+    public func transcribeTimed(_: AudioBuffer16k, language _: String?, prompt _: String?) async throws
+        -> TimedTranscript
+    {
         throw SpeechEngineError.unsupported
     }
 }

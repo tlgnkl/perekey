@@ -13,7 +13,9 @@ import PerekeyVoiceCore
 /// Model downloads need no profile against them. Cloud speech may reach only
 /// servers on this Mac and those the user agreed to send the audio to; a
 /// language model, those the user agreed to send the text to
-/// (`VoiceModeSet.reachableOrigins`). With `VoiceCloudDisabled`, only this Mac's.
+/// (`VoiceModeSet.reachableOrigins`); a summary of a conversation, those
+/// agreed for transcripts of conversations, whatever else was agreed. With
+/// `VoiceCloudDisabled`, only this Mac's.
 public enum VoiceNetworkPolicy {
     /// - Parameter newerSchemaVersion: the version of a voice file newer than
     ///   this Perekey, if it is: its switch cannot be trusted, so voice stays off.
@@ -47,6 +49,7 @@ public enum VoiceNetworkPolicy {
             .cloudSpeech: modes.reachableOrigins(sending: .audio, cloudDisabled: cloudDisabled)
                 .union(modes.reachableOrigins(sending: .conversationAudio, cloudDisabled: cloudDisabled)),
             .cloudLanguageModel: modes.reachableOrigins(sending: .text, cloudDisabled: cloudDisabled),
+            .conversationLanguageModel: modes.reachableOrigins(sending: .conversationText, cloudDisabled: cloudDisabled),
         ]
     }
 

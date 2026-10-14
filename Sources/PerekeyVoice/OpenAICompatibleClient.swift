@@ -43,9 +43,11 @@ public struct OpenAICompatibleClient: Sendable {
 
     // MARK: Chat
 
-    /// The text of the first choice of a chat completion.
+    /// The text of the first choice of a chat completion. `purpose` is what
+    /// the gate lets out by: a dictation's text, or a conversation's transcript.
     public func complete(_ messages: [ChatMessage], model: String, address: EndpointAddress, key: String?,
-                         temperature: Double = 0.2) async throws -> String
+                         temperature: Double = 0.2,
+                         purpose: VoiceHTTP.Purpose = .cloudLanguageModel) async throws -> String
     {
         struct Body: Encodable {
             let model: String
@@ -68,7 +70,7 @@ public struct OpenAICompatibleClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(Body(model: model, messages: messages, temperature: temperature))
         request.timeoutInterval = Self.seconds(timeout)
-        let data = try await send(request, purpose: .cloudLanguageModel)
+        let data = try await send(request, purpose: purpose)
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
               let content = answer.choices.first?.message.content
         else { throw Failure.badResponse }

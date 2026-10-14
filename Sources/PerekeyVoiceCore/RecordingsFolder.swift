@@ -152,7 +152,37 @@ public struct RecordingsFolder: Sendable {
         try? FileManager.default.removeItem(at: partialURL(for: id))
     }
 
-    /// Removes a recording: its folder with the audio and the transcript.
+    /// `summary.md` or `minutes.md`: what a language model made of the
+    /// transcript. Removed with the recording's folder.
+    public func noteURL(_ action: TranscriptAction, for id: UUID) -> URL {
+        directory(for: id).appending(path: action.fileName, directoryHint: .notDirectory)
+    }
+
+    /// The saved answers of a recording.
+    public func notes(of id: UUID) -> [TranscriptAction: String] {
+        Self.lock.withLockUnchecked {
+            var notes: [TranscriptAction: String] = [:]
+            for action in TranscriptAction.allCases {
+                if let text = try? String(contentsOf: noteURL(action, for: id), encoding: .utf8) { notes[action] = text }
+            }
+            return notes
+        }
+    }
+
+    /// Writes an answer atomically over the one before. Throws
+    /// `FileError.missing` when the recording is gone: one deleted while
+    /// its summary ran is not brought back.
+    public func saveNote(_ text: String, _ action: TranscriptAction, for id: UUID) throws {
+        try Self.lock.withLockUnchecked {
+            guard FileManager.default.fileExists(atPath: metaURL(for: id).path(percentEncoded: false)) else {
+                throw FileError.missing
+            }
+            try Data(text.utf8).write(to: noteURL(action, for: id), options: .atomic)
+        }
+    }
+
+    /// Removes a recording: its folder with the audio, the transcript and
+    /// the answers made of it.
     /// A file the user chose is outside it and stays.
     public func remove(_ id: UUID) throws {
         try Self.lock.withLockUnchecked { try FileManager.default.removeItem(at: directory(for: id)) }

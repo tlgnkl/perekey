@@ -291,20 +291,20 @@ struct VoiceHTTPOriginTests {
         var modes = VoiceModeSet.defaults()
         let managed = ManagedSettings()
         #expect(VoiceNetworkPolicy.allowed(isEnabled: true, managed: managed, modes: modes)
-            == [.modelDownload, .cloudSpeech, .cloudLanguageModel])
+            == [.modelDownload, .cloudSpeech, .cloudLanguageModel, .conversationLanguageModel])
         let local: Set = ["http://localhost:11434", "http://localhost:1234"]
         #expect(VoiceNetworkPolicy.origins(isEnabled: true, managed: managed, modes: modes)
-            == [.cloudSpeech: local, .cloudLanguageModel: local])
+            == [.cloudSpeech: local, .cloudLanguageModel: local, .conversationLanguageModel: local])
         modes.consent([.text], endpoint: "openai")
         let origins = VoiceNetworkPolicy.origins(isEnabled: true, managed: managed, modes: modes)
         #expect(origins[.cloudLanguageModel]?.contains("https://api.openai.com:443") == true)
         #expect(origins[.cloudSpeech]?.contains("https://api.openai.com:443") == false, "the text, not the audio")
         // The cloud off by the profile: this Mac only.
         #expect(VoiceNetworkPolicy.origins(isEnabled: true, managed: ManagedSettings(voiceCloudDisabled: true), modes: modes)
-            == [.cloudSpeech: local, .cloudLanguageModel: local])
+            == [.cloudSpeech: local, .cloudLanguageModel: local, .conversationLanguageModel: local])
         // Downloads off by the profile: language models still work.
         #expect(VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings(voiceModelDownloadsDisabled: true),
-                                           modes: modes) == [.cloudSpeech, .cloudLanguageModel])
+                                           modes: modes) == [.cloudSpeech, .cloudLanguageModel, .conversationLanguageModel])
         // Voice off, or off by the profile: nothing.
         #expect(VoiceNetworkPolicy.allowed(isEnabled: false, managed: managed, modes: modes).isEmpty)
         #expect(VoiceNetworkPolicy.origins(isEnabled: false, managed: managed, modes: modes).isEmpty)

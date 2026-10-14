@@ -140,7 +140,9 @@ brew install --cask tlgnkl/tap/perekey
   Markdown, SRT, VTT и JSON.
 - **Запись созвона.** Из меню. Ваш микрофон — «Я», звук одной программы или
   всего Mac — «Собеседники». Дорожки разные, поэтому в тексте видно, кто
-  говорил. Сбой или смена наушников запись не останавливают.
+  говорил. Сбой или смена наушников запись не останавливают. Во многих странах
+  на запись разговора нужно согласие собеседников: предупредите их, что
+  записываете.
 - **Разрешения.** Микрофон и «Запись системного звука» в «Системные настройки»
   → «Конфиденциальность и безопасность» — для второй стороны разговора.
   Perekey спросит при первом запуске записи.
@@ -184,7 +186,7 @@ Alfred и «Быстрых команд»:
 Голосовой ввод стоит на открытых моделях и библиотеках. Модели работают на
 вашем Mac. Тот же список — в Perekey → «О программе».
 
-- **Распознавание речи.** NVIDIA Parakeet TDT 0.6B v3 и Parakeet Ultra
+- **Распознавание речи.** NVIDIA Parakeet TDT 0.6B v3 (NVIDIA) и Parakeet Ultra
   (дообучение первой, автор — Moondream), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
   конвертированы в Core ML компанией Fluid Inference. Конвертированные файлы
   изменены.
@@ -201,8 +203,15 @@ Alfred и «Быстрых команд»:
   (WeSpeaker), кластеризация VBx и PLDA (BUT Speech@FIT); конвертированы в
   Core ML и изменены Fluid Inference.
 - **Библиотеки.** [FluidAudio](https://github.com/FluidInference/FluidAudio)
-  (Apache License 2.0) и [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift)
-  (лицензия MIT).
+  (Apache License 2.0), с fastcluster (BSD 2-Clause, Daniel Müllner и Google)
+  и японским текстовым фронтендом, портированным из Misaki (Apache License 2.0),
+  cutlet и Convert-Numbers-to-Japanese (MIT);
+  [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (лицензия MIT),
+  с частями, производными от swift-transformers компании Hugging Face
+  (Apache License 2.0).
+- **Обновления.** [Sparkle](https://sparkle-project.org) (лицензия MIT), с
+  bsdiff Колина Персиваля, sais-lite Юты Мори, Ed25519 Орсона Питерса и
+  SUSignatureVerifier Марка Хэмлина; условия — в файле LICENSE Sparkle.
 
 ## Участие
 

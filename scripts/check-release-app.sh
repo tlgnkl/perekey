@@ -43,7 +43,8 @@ for key in NSMicrophoneUsageDescription NSAudioCaptureUsageDescription; do
 done
 
 # The audio input entitlement: the hardened runtime gives no microphone without it.
-codesign -d --entitlements - --xml "$APP" 2>/dev/null | grep -q 'com.apple.security.device.audio-input' \
+ents="$(codesign -d --entitlements - --xml "$APP" 2>/dev/null || true)"
+grep -q 'com.apple.security.device.audio-input' <<< "$ents" \
     || fail "the signature has no com.apple.security.device.audio-input entitlement"
 
 # A resource bundle at the root of the app (FluidAudio's TTS data) breaks the signature.

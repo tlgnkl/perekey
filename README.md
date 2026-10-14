@@ -148,7 +148,8 @@ first launch after the update asks first.
 - **Record a call.** From the menu. Your microphone is “Me”; the sound of one
   app, or of the whole Mac, is “Others”. Each is a separate track, so the
   transcript says who spoke. A crash, or a switch to headphones, does not stop
-  the recording.
+  the recording. In many countries recording a conversation needs the consent
+  of the people in it: warn them that you are recording.
 - **Permissions.** Microphone, and “System Audio Recording” in System Settings →
   Privacy & Security for the other side of a call. Perekey asks the first time.
 - **What stays.** Recordings and transcripts stay on this Mac until you delete
@@ -238,7 +239,7 @@ these does nothing.
 
 Voice input stands on open models and libraries. The models run on your Mac.
 
-- **Speech recognition.** NVIDIA Parakeet TDT 0.6B v3 and Parakeet Ultra (a
+- **Speech recognition.** NVIDIA Parakeet TDT 0.6B v3 (NVIDIA) and Parakeet Ultra (a
   post-training of it by Moondream), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
   converted to Core ML by Fluid Inference. The converted files are modified.
 - **Whisper.** OpenAI Whisper large-v3 turbo, MIT License, as Core ML files from
@@ -255,8 +256,15 @@ Voice input stands on open models and libraries. The models run on your Mac.
   (WeSpeaker), VBx clustering and PLDA (BUT Speech@FIT), converted to Core ML
   and changed by Fluid Inference.
 - **Libraries.** [FluidAudio](https://github.com/FluidInference/FluidAudio)
-  (Apache License 2.0) and [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift)
-  (MIT License). The same list is in Perekey → About.
+  (Apache License 2.0), with fastcluster (BSD 2-Clause, Daniel Müllner and
+  Google) and a Japanese text frontend ported from Misaki (Apache License 2.0),
+  cutlet and Convert-Numbers-to-Japanese (MIT);
+  [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (MIT License),
+  with parts derived from swift-transformers by Hugging Face (Apache License 2.0).
+- **Updates.** [Sparkle](https://sparkle-project.org) (MIT License), with
+  bsdiff by Colin Percival, sais-lite by Yuta Mori, Ed25519 by Orson Peters and
+  SUSignatureVerifier by Mark Hamlin; their terms are in Sparkle's LICENSE file.
+  The same list is in Perekey → About.
 
 ## Build from source
 

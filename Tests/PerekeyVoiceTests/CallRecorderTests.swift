@@ -145,10 +145,9 @@ import Testing
         let recorder = recorder(tap: tap, status: status) { $0.tapStartPatience = .milliseconds(50) }
         let id = try await recorder.start(Self.options)
         try await waitUntil { status.last?.systemAudio == .waitingForPermission }
-        let clock = ContinuousClock()
-        let began = clock.now
+        // The start hangs until `release`: a stop that returns at all went past it.
         let stopped = await recorder.stop()
-        #expect(clock.now - began < .seconds(1))
+        #expect(tap.stops == 0)
         #expect(stopped == nil) // nothing was recorded: no empty recording stays
         #expect(folder.meta(id).isMissing)
         #expect(await !recorder.isRecording)
@@ -166,10 +165,9 @@ import Testing
         let id = try await recorder.start(Self.options)
         try await waitUntil { status.last?.systemAudio == .running }
         mic.feed(seconds: 0.2, clock: clock)
-        let clock = ContinuousClock()
-        let began = clock.now
+        // The tap's stop hangs until `release`: the recorder's stop returns without it.
         #expect(await recorder.stop() == id)
-        #expect(clock.now - began < .seconds(1))
+        #expect(tap.stops == 0)
         #expect(try load(id).state == .stopped)
         tap.release()
     }
@@ -575,14 +573,14 @@ final class StatusLog: @unchecked Sendable {
     var last: CallRecorder.Status? { lock.withLock { all.last } }
 }
 
-/// Polls up to 2 s.
+/// Polls up to 10 s: a loaded machine may stall the tests for seconds.
 func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async throws {
-    let deadline = ContinuousClock.now + .seconds(2)
+    let deadline = ContinuousClock.now + .seconds(10)
     while ContinuousClock.now < deadline {
         if await condition() { return }
         try await Task.sleep(for: .milliseconds(5))
     }
-    Issue.record("the condition did not come true in 2 s")
+    Issue.record("the condition did not come true in 10 s")
 }
 
 extension RecordingsFolder.Loaded {

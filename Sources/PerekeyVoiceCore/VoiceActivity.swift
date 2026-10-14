@@ -51,7 +51,7 @@ public enum DictationRecognition {
     /// list. A detector that fails lets the audio through: losing a phrase
     /// is worse than a made-up one the stop list may still catch.
     public static func recognize(_ audio: AudioBuffer16k, engine: any SpeechEngine,
-                                 detector: (any SpeechDetector)?) async throws -> RecognitionOutcome
+                                 detector: (any SpeechDetector)?, prompt: String? = nil) async throws -> RecognitionOutcome
     {
         guard !audio.samples.isEmpty else { return .noSpeech }
         if let detector, let probabilities = try? await detector.speechProbabilities(audio.samples),
@@ -59,7 +59,7 @@ public enum DictationRecognition {
         {
             return .noSpeech
         }
-        let transcript = try await engine.transcribe(audio)
+        let transcript = try await engine.transcribe(audio, prompt: prompt)
         let text = HallucinationFilter.clean(transcript.text, signOffTails: engine.addsSignOffs)
         return text.isEmpty ? .nothingLeft : .text(text)
     }

@@ -19,8 +19,31 @@ public struct UsageStats: Equatable, Sendable {
         public var undone = 0
         /// Retypes the user asked for with a shortcut.
         public var manual = 0
+        /// Words dictated that day. A number only: the words themselves are never kept here.
+        public var dictatedWords = 0
 
         public init() {}
+
+        private enum CodingKeys: String, CodingKey { case corrections, undone, manual, dictatedWords }
+
+        // The key is written only once something was dictated: a build without voice
+        // keeps writing the file as it did.
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(corrections, forKey: .corrections)
+            try container.encode(undone, forKey: .undone)
+            try container.encode(manual, forKey: .manual)
+            if dictatedWords > 0 { try container.encode(dictatedWords, forKey: .dictatedWords) }
+        }
+
+        // A file of an older version has no `dictatedWords`.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            corrections = try container.decodeIfPresent([String: Int].self, forKey: .corrections) ?? [:]
+            undone = try container.decodeIfPresent(Int.self, forKey: .undone) ?? 0
+            manual = try container.decodeIfPresent(Int.self, forKey: .manual) ?? 0
+            dictatedWords = try container.decodeIfPresent(Int.self, forKey: .dictatedWords) ?? 0
+        }
 
         public var correctionTotal: Int { corrections.values.reduce(0, +) }
     }
@@ -44,6 +67,11 @@ public struct UsageStats: Equatable, Sendable {
 
     public mutating func recordManualRetype(at date: Date, calendar: Calendar = .current) {
         edit(date, calendar) { $0.manual += 1 }
+    }
+
+    public mutating func recordDictation(words: Int, at date: Date, calendar: Calendar = .current) {
+        guard words > 0 else { return }
+        edit(date, calendar) { $0.dictatedWords += words }
     }
 
     private mutating func edit(_ date: Date, _ calendar: Calendar, _ change: (inout Day) -> Void) {
@@ -93,6 +121,11 @@ public struct UsageStats: Equatable, Sendable {
     /// Total corrections and undone ones over `days`.
     public static func totals(_ days: [Day]) -> (corrections: Int, undone: Int) {
         (days.reduce(0) { $0 + $1.correctionTotal }, days.reduce(0) { $0 + $1.undone })
+    }
+
+    /// Words dictated over `days`.
+    public static func dictatedWords(_ days: [Day]) -> Int {
+        days.reduce(0) { $0 + $1.dictatedWords }
     }
 
     /// `yyyy-MM-dd`, built by hand so no locale or calendar of the formatter matters.

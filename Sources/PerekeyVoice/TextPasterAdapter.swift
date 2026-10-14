@@ -2,6 +2,7 @@
 
 import AppKit
 import PerekeyInput
+import PerekeyVoiceCore
 
 /// `TextPaster` as dictation's paster: the one place that knows its API.
 @MainActor
@@ -16,6 +17,24 @@ public final class TextPasterAdapter: DictationPaster {
 
     public func captureTarget() async -> (any Sendable)? {
         await paster.captureTarget()
+    }
+
+    public func caretContext(into target: (any Sendable)?) async -> String? {
+        guard let target = target as? PasteTarget else { return nil }
+        return await paster.textBeforeCaret(in: target)
+    }
+
+    public func application(of target: (any Sendable)?) -> DictationApplication? {
+        guard let target = target as? PasteTarget,
+              let app = NSRunningApplication(processIdentifier: target.pid) else { return nil }
+        return DictationApplication(bundleID: app.bundleIdentifier, name: app.localizedName)
+    }
+
+    public func privacy(of target: (any Sendable)?) -> DictationPrivacy {
+        if (target as? PasteTarget)?.isSecureField == true { return .secureField }
+        if SecureInput.isEnabled { return .secureInput }
+        // No element: the field cannot be told, so nothing of it is kept.
+        return (target as? PasteTarget)?.element == nil ? .unknown : .normal
     }
 
     public func paste(_ text: String, into target: (any Sendable)?) async -> DictationPasteResult {

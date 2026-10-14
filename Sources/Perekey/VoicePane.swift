@@ -16,6 +16,8 @@ func voiceString(_ key: String.LocalizationValue) -> String { String(localized: 
 /// the list of models.
 struct VoicePane: View {
     let controller: VoiceModelsController
+    /// The text rules and the history; the Text and History groups are missing without it.
+    var textController: VoiceTextController?
     let store: SettingsStore
     let recording: ShortcutRecording
 
@@ -35,6 +37,10 @@ struct VoicePane: View {
             } else {
                 dictationGroup
                 ModelsList(controller: controller).id("models")
+                if let textController {
+                    VoiceTextGroup(controller: textController)
+                    VoiceHistoryGroup(controller: textController)
+                }
             }
         }
         .onAppear {

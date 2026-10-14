@@ -31,6 +31,11 @@ struct UsageWeekView: View {
                 figure(Text("Corrections"), "\(totals.corrections)")
                 figure(Text("Undone"), "\(totals.undone)")
                 figure(Text("Undone share"), "\(share) %")
+                #if PEREKEY_VOICE
+                if stats.recent(UsageStats.retentionDays, endingAt: now, calendar: calendar).contains(where: { $0.dictatedWords > 0 }) {
+                    figure(voiceText("Words dictated"), "\(UsageStats.dictatedWords(week))")
+                }
+                #endif
                 Spacer(minLength: 0)
             }
         }

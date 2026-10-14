@@ -33,6 +33,10 @@ public struct RecordingItem: Identifiable, Equatable, Sendable {
 public enum TranscriptsLibraryError: Error, Equatable {
     /// The file queue is not there (yet): nothing can be queued.
     case queueUnavailable
+    /// A recording a recorder is still writing: it is not closed from here.
+    case recordingInProgress
+    /// The queue did not stop the recording's job in time; its folder is left alone.
+    case cancelTimedOut
 }
 
 /// What the window does to recordings on disk and in the queue, without any
@@ -41,10 +45,14 @@ public enum TranscriptsLibraryError: Error, Equatable {
 public struct TranscriptsLibrary: Sendable {
     public let folder: RecordingsFolder
     public let queue: (any FileTranscribing)?
+    /// How long a delete waits for the queue to stop a job.
+    public let cancelTimeout: Duration
 
-    public init(folder: RecordingsFolder = RecordingsFolder(), queue: (any FileTranscribing)?) {
+    public init(folder: RecordingsFolder = RecordingsFolder(), queue: (any FileTranscribing)?,
+                cancelTimeout: Duration = .seconds(10)) {
         self.folder = folder
         self.queue = queue
+        self.cancelTimeout = cancelTimeout
     }
 
     /// The recordings on disk, the newest first. A folder whose `meta.json`
@@ -78,8 +86,21 @@ public struct TranscriptsLibrary: Sendable {
 
     /// «Запись прервалась · Расшифровать»: the crash left the recording
     /// `recording`; it is closed as it is, and its audio is queued.
-    public func resume(_ recording: UUID, model: String, diarize: Bool) async throws {
+    ///
+    /// The recorder rewrites `meta.json` while it records. When `live` is not
+    /// wired (the recorder reports its recordings there), a `recording` whose
+    /// `meta.json` changed less than `liveWithin` seconds ago is taken as
+    /// still going, and is left alone.
+    public func resume(_ recording: UUID, model: String, diarize: Bool, now: Date = Date(),
+                       liveWithin: TimeInterval = 60) async throws
+    {
         guard let queue else { throw TranscriptsLibraryError.queueUnavailable }
+        if case let .loaded(meta) = folder.meta(recording), meta.state == .recording,
+           let modified = try? FileManager.default.attributesOfItem(atPath: folder.metaURL(for: recording).path)[.modificationDate] as? Date,
+           now.timeIntervalSince(modified) < liveWithin
+        {
+            throw TranscriptsLibraryError.recordingInProgress
+        }
         try folder.updateMeta(recording) { meta in
             if meta.state == .recording { meta.state = .stopped }
         }
@@ -88,9 +109,33 @@ public struct TranscriptsLibrary: Sendable {
 
     /// Stops the recording's job if it runs, and removes its folder. A file
     /// the user chose is outside it and stays.
-    public func delete(_ recording: UUID, phase: TranscriptionPhase?) async throws {
-        if phase?.isPending == true { await queue?.cancel(recording) }
+    public func delete(_ recording: UUID, phase: TranscriptionPhase?, live: Set<UUID> = []) async throws {
+        guard !live.contains(recording) else { throw TranscriptsLibraryError.recordingInProgress }
+        if phase?.isPending == true, let queue {
+            await queue.cancel(recording)
+            // The queue writes into the folder until it has stopped: wait for it.
+            guard await Self.settled(recording, in: queue, timeout: cancelTimeout) else {
+                throw TranscriptsLibraryError.cancelTimedOut
+            }
+        }
         try folder.remove(recording)
+    }
+
+    /// True once the queue reports the recording as no longer pending.
+    private static func settled(_ recording: UUID, in queue: any FileTranscribing, timeout: Duration) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await snapshot in queue.phases() where snapshot[recording]?.isPending != true { return true }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 
     /// Removes every recording but those still being recorded; returns how
@@ -100,7 +145,7 @@ public struct TranscriptsLibrary: Sendable {
         var failed = 0
         for id in folder.recordings() where !live.contains(id) {
             do {
-                try await delete(id, phase: phases[id])
+                try await delete(id, phase: phases[id], live: live)
             } catch {
                 failed += 1
             }
@@ -113,6 +158,7 @@ public struct TranscriptsLibrary: Sendable {
     @discardableResult
     public func add(file url: URL, model: String, diarize: Bool, excludedFromBackup: Bool) async throws -> UUID {
         guard let queue else { throw TranscriptsLibraryError.queueUnavailable }
+        // A plain bookmark: Perekey is not sandboxed (no app-sandbox entitlement), so it needs no security scope.
         let reference = FileReference(path: url.path, bookmark: try? url.bookmarkData())
         let id = try folder.create(.file(reference), excludedFromBackup: excludedFromBackup)
         await queue.enqueue(TranscriptionJob(recording: id, model: model, diarize: diarize))

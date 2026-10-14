@@ -64,6 +64,7 @@ extension TranscriptsController.Notice {
         case .storageFailed: voiceString("Perekey could not change the files of this recording.")
         case .exportFailed: voiceString("Perekey could not save the file.")
         case let .deleteAllFailed(count): voiceString("Could not delete \(count) recordings.")
+        case .recordingInProgress: voiceString("The recording is going on.")
         }
     }
 }
@@ -71,14 +72,14 @@ extension TranscriptsController.Notice {
 enum TranscriptTime {
     /// `1:02:03` or `12:05`.
     static func duration(_ seconds: Double) -> String {
-        let total = Int(max(0, seconds).rounded())
+        let total = Int(min(max(0, seconds.isFinite ? seconds : 0), 1e9).rounded())
         let h = total / 3600, m = total / 60 % 60, s = total % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 
     /// `00:01:23`, the stamp before a phrase.
     static func stamp(_ seconds: Double) -> String {
-        let total = Int(max(0, seconds))
+        let total = Int(min(max(0, seconds.isFinite ? seconds : 0), 1e9))
         return String(format: "%02d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
     }
 }
@@ -153,7 +154,9 @@ private struct TranscriptsList: View {
                     ForEach(controller.items) { item in
                         TranscriptRow(controller: controller, item: item, selected: controller.selection == item.id)
                             .contextMenu {
-                                Button(role: .destructive) { deleting.wrappedValue = item.id } label: { voiceText("Delete…") }
+                                if item.status != .recording {
+                                    Button(role: .destructive) { deleting.wrappedValue = item.id } label: { voiceText("Delete…") }
+                                }
                             }
                     }
                 }
@@ -265,6 +268,7 @@ private struct TranscriptHeader: View {
                 }
                 Button { deleting.wrappedValue = item.id } label: { Image(systemName: "trash") }
                     .buttonStyle(.pkSmall)
+                    .disabled(item.status == .recording)
                     .help(voiceText("Delete…"))
                     .accessibilityLabel(voiceText("Delete…"))
             }

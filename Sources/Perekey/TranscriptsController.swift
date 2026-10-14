@@ -34,6 +34,7 @@ final class TranscriptsController {
         case storageFailed
         case exportFailed
         case deleteAllFailed(Int)
+        case recordingInProgress
     }
 
     private(set) var items: [RecordingItem] = []
@@ -69,11 +70,13 @@ final class TranscriptsController {
     let voice: VoiceSettingsStore
     /// The models «Расшифровать заново» can pick from; empty hides the menu.
     @ObservationIgnored var models: @MainActor () -> [(id: String, title: String)]
-    /// Recordings a recorder is writing now.
+    /// Recordings a recorder is writing now. The call recorder wires this when it exists;
+    /// until then `TranscriptsLibrary.resume` tells a recording that is going on by its `meta.json`.
     @ObservationIgnored var live: @MainActor () -> Set<UUID>
 
     @ObservationIgnored private var queueTask: Task<Void, Never>?
     @ObservationIgnored private var loading: Task<Void, Never>?
+    @ObservationIgnored private var reloads = 0
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "transcripts")
 
     init(folder: RecordingsFolder = RecordingsFolder(), queue: (any FileTranscribing)? = nil,
@@ -104,11 +107,21 @@ final class TranscriptsController {
     /// Reads the list again, and the chosen transcript. When the window opens
     /// and when a recording changes state.
     func reload() {
-        items = library.items(phases: phases, live: live())
-        if let selection, !items.contains(where: { $0.id == selection }) { self.selection = nil }
-        if selection == nil { selection = items.first?.id }
-        loadTranscript()
-        refreshUsage()
+        let library = library
+        let phases = phases
+        let live = live()
+        reloads += 1
+        let mine = reloads
+        // Reading every `meta.json` is disk work: not on the main thread.
+        Task {
+            let loaded = await Task.detached { library.items(phases: phases, live: live) }.value
+            guard mine == reloads else { return }
+            items = loaded
+            if let selection, !items.contains(where: { $0.id == selection }) { self.selection = nil }
+            if selection == nil { selection = items.first?.id }
+            loadTranscript()
+            refreshUsage()
+        }
     }
 
     func refreshUsage() {
@@ -226,6 +239,8 @@ final class TranscriptsController {
                 reload()
             } catch TranscriptsLibraryError.queueUnavailable {
                 notice = .queueUnavailable
+            } catch TranscriptsLibraryError.recordingInProgress {
+                notice = .recordingInProgress
             } catch {
                 fail(.storageFailed, error)
             }
@@ -238,11 +253,18 @@ final class TranscriptsController {
     }
 
     func delete(_ id: UUID) {
+        let live = live()
+        guard !live.contains(id) else {
+            notice = .recordingInProgress
+            return
+        }
         let library = library
         let phase = phases[id]
         Task {
             do {
-                try await library.delete(id, phase: phase)
+                try await library.delete(id, phase: phase, live: live)
+            } catch TranscriptsLibraryError.recordingInProgress {
+                notice = .recordingInProgress
             } catch {
                 fail(.storageFailed, error)
             }

@@ -275,4 +275,47 @@ struct SubtitleWriterTests {
         #expect(SubtitleWriter(document).render(.txt) == "[00:00:01] первое\n[00:00:05] второе\n")
         #expect(srtTimes(SubtitleWriter(document).render(.srt)).first == "00:00:01,000 --> 00:00:02,000")
     }
+
+    @Test("cues of the two tracks do not overlap on screen")
+    func overlappingTracks() {
+        let document = Self.document([
+            TimedSegment(start: 0, end: 6, text: "Длинная реплика собеседника, которая идёт долго", speaker: "others"),
+            TimedSegment(start: 2, end: 3, text: "угу", speaker: "me"),
+            TimedSegment(start: 2, end: 2.0004, text: "эм", speaker: "me"),
+        ])
+        let cues = SubtitleWriter(document, labels: Self.labels).cues()
+        #expect(cues.count == 3)
+        for (a, b) in zip(cues, cues.dropFirst()) {
+            #expect(a.end <= b.start + 1e-9 || a.end - a.start >= 0.001 - 1e-9)
+            #expect(a.end - a.start >= 0.001 - 1e-9)
+        }
+        #expect(cues[0].end == 2)
+        let srt = SubtitleWriter(document, labels: Self.labels).render(.srt)
+        #expect(srt.contains("00:00:00,000 --> 00:00:02,000"))
+    }
+
+    @Test("a long name and a long word still fit 42 characters")
+    func longNameLongWord() {
+        var document = Self.document([
+            TimedSegment(start: 0, end: 5, text: String(repeating: "я", count: 120), speaker: "speaker-1"),
+            TimedSegment(start: 5, end: 6, text: "ещё", speaker: "speaker-2"),
+        ])
+        document.rename(speaker: "speaker-1", to: String(repeating: "Ж", count: 60))
+        let writer = SubtitleWriter(document, labels: Self.labels)
+        for cue in writer.cues() {
+            for (index, line) in cue.lines.enumerated() {
+                let shown = index == 0 && cue.announcesSpeaker ? (cue.speaker.map { $0.count + 2 } ?? 0) + line.count : line.count
+                #expect(shown <= SubtitleWriter.maxLineLength)
+            }
+        }
+        for line in writer.render(.srt).split(separator: "\n") where !line.contains("-->") && Int(line) == nil {
+            #expect(line.count <= SubtitleWriter.maxLineLength)
+        }
+    }
+
+    @Test("huge times do not trap")
+    func hugeTimes() {
+        #expect(SubtitleWriter.timecode(1e300, separator: ",").hasPrefix("277777"))
+        #expect(SubtitleWriter.timecode(.infinity, separator: ",") == "00:00:00,000")
+    }
 }

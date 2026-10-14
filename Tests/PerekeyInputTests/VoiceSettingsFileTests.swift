@@ -98,6 +98,63 @@ struct VoiceSettingsFileTests {
         }
     }
 
+    @Test func recordingChoicesDefaultToAlwaysAndOutOfTimeMachine() throws {
+        try withFile { file in
+            try write(#"{"schemaVersion":1,"isEnabled":true}"#, to: file)
+            let settings = file.load()
+            #expect(settings.callAudioRetention == .always)
+            #expect(!settings.includesRecordingsInBackup)
+            #expect(VoiceSettings().callAudioRetention == .always)
+        }
+    }
+
+    @Test func recordingChoicesRoundTrip() throws {
+        try withFile { file in
+            try file.save(VoiceSettings(callAudioRetention: .untilTranscribed, includesRecordingsInBackup: true))
+            let saved = try object(file)
+            #expect(saved["callAudioRetention"] as? String == "untilTranscribed")
+            #expect(saved["includesRecordingsInBackup"] as? Bool == true)
+            #expect(file.load().callAudioRetention == .untilTranscribed)
+            #expect(file.load().includesRecordingsInBackup)
+        }
+    }
+
+    @Test func saveKeepsAnUnreadableRecordingChoiceUntilItIsSet() throws {
+        try withFile { file in
+            try write(#"{"schemaVersion":1,"isEnabled":true,"callAudioRetention":"forever","includesRecordingsInBackup":"yes"}"#, to: file)
+            var settings = file.load()
+            #expect(settings.callAudioRetention == .always, "an unreadable value falls back")
+            #expect(settings.isEnabled, "and does not switch dictation off")
+            settings.playsSounds = false
+            try file.save(settings)
+            var saved = try object(file)
+            #expect(saved["callAudioRetention"] as? String == "forever")
+            #expect(saved["includesRecordingsInBackup"] as? String == "yes")
+            #expect(saved["playsSounds"] as? Bool == false)
+
+            settings.callAudioRetention = .always
+            try file.save(settings)
+            saved = try object(file)
+            #expect(saved["callAudioRetention"] as? String == "always")
+            #expect(saved["includesRecordingsInBackup"] as? String == "yes")
+        }
+    }
+
+    @Test func newerFileKeepsItsRecordingChoices() throws {
+        try withFile { file in
+            let text = #"{"schemaVersion":2,"isEnabled":true,"callAudioRetention":"always","includesRecordingsInBackup":true}"#
+            try write(text, to: file)
+            let settings = file.load()
+            #expect(settings.callAudioRetention == .always)
+            #expect(settings.includesRecordingsInBackup)
+            #expect(settings.newerSchemaVersion == 2)
+            var changed = settings
+            changed.callAudioRetention = .month
+            #expect(throws: VoiceSettingsFile.NewerVersionError(schemaVersion: 2)) { try file.save(changed) }
+            #expect(try Data(contentsOf: file.url) == Data(text.utf8))
+        }
+    }
+
     @Test func corruptFileIsMovedAside() throws {
         try withFile { file in
             try write("{ not json", to: file)

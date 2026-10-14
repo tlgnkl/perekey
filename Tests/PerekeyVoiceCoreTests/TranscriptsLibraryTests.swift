@@ -91,7 +91,8 @@ struct TranscriptsLibraryTests {
     @Test func resumeClosesACutOffRecordingAndQueuesIt() async throws {
         let fixture = Fixture()
         let id = try fixture.add(TranscriptsModelTests.call(state: .recording))
-        try await fixture.library().resume(id, model: "parakeet-tdt-v3", diarize: false)
+        try await fixture.library().resume(id, model: "parakeet-tdt-v3", diarize: false,
+                                           now: Date().addingTimeInterval(120))
         guard case let .loaded(meta) = fixture.folder.meta(id) else { Issue.record("no meta"); return }
         #expect(meta.state == .stopped)
         #expect(fixture.queue.jobs.map(\.recording) == [id])
@@ -134,6 +135,48 @@ struct TranscriptsLibraryTests {
         #expect(inside == ["meta.json"])
         await #expect(throws: TranscriptsLibraryError.queueUnavailable) {
             try await fixture.library(queue: false).add(file: source, model: "x", diarize: false, excludedFromBackup: true)
+        }
+        #expect(fixture.folder.recordings() == [id])
+    }
+
+    @Test func resumeLeavesARecordingThatWroteItsMetaJustNow() async throws {
+        let fixture = Fixture()
+        let id = try fixture.add(TranscriptsModelTests.call(state: .recording))
+        await #expect(throws: TranscriptsLibraryError.recordingInProgress) {
+            try await fixture.library().resume(id, model: "x", diarize: false)
+        }
+        guard case let .loaded(meta) = fixture.folder.meta(id) else { Issue.record("no meta"); return }
+        #expect(meta.state == .recording)
+        #expect(fixture.queue.jobs.isEmpty)
+    }
+
+    @Test func deleteRefusesALiveRecording() async throws {
+        let fixture = Fixture()
+        let id = try fixture.add(TranscriptsModelTests.call(state: .recording))
+        await #expect(throws: TranscriptsLibraryError.recordingInProgress) {
+            try await fixture.library().delete(id, phase: nil, live: [id])
+        }
+        #expect(fixture.folder.recordings() == [id])
+    }
+
+    @Test func deleteKeepsTheFolderWhenTheQueueDoesNotStop() async throws {
+        let fixture = Fixture()
+        let id = try fixture.add(RecordingMeta.file(FileReference(path: "/a.mp3")))
+        /// A queue that never stops what it runs.
+        final class Running: FileTranscribing {
+            let id: UUID
+            init(_ id: UUID) { self.id = id }
+            func enqueue(_ job: TranscriptionJob) async {}
+            func cancel(_ recording: UUID) async {}
+            func phases() -> AsyncStream<[UUID: TranscriptionPhase]> {
+                let id = id
+                return AsyncStream { $0.yield([id: .transcribing(0.5)]) }
+            }
+            var isBusy: Bool { true }
+        }
+        let library = TranscriptsLibrary(folder: fixture.folder, queue: Running(id), cancelTimeout: .milliseconds(200))
+        await #expect(throws: TranscriptsLibraryError.cancelTimedOut) {
+            try await library.delete(id, phase: .transcribing(0.5))
         }
         #expect(fixture.folder.recordings() == [id])
     }

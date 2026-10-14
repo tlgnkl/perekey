@@ -218,3 +218,38 @@ public enum RecordingsDiskUsage {
         return total
     }
 }
+
+// MARK: - Playback
+
+/// Counts the end-of-buffer callbacks of one playback: a call plays up to two
+/// tracks, and the playback is over when the last of them reports. A callback
+/// of a playback that was stopped or replaced counts for nothing.
+/// (`AVAudioPlayerNode.isPlaying` stays true after its buffer ends, so it cannot say.)
+public struct PlaybackCompletion: Sendable, Equatable {
+    public private(set) var generation: Int
+    public private(set) var remaining: Int
+
+    public init(generation: Int = 0, parts: Int = 0) {
+        self.generation = generation
+        remaining = parts
+    }
+
+    /// A new playback of `parts` buffers; callbacks of earlier ones go stale.
+    public mutating func begin(parts: Int) {
+        generation += 1
+        remaining = parts
+    }
+
+    /// Nothing plays any more; callbacks still to come go stale.
+    public mutating func invalidate() {
+        generation += 1
+        remaining = 0
+    }
+
+    /// A buffer of playback `generation` ended. True when it was the last one.
+    public mutating func finish(generation: Int) -> Bool {
+        guard generation == self.generation, remaining > 0 else { return false }
+        remaining -= 1
+        return remaining == 0
+    }
+}

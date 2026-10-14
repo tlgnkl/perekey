@@ -108,7 +108,7 @@ public struct SubtitleWriter: Sendable {
     /// `HH:MM:SS` + `separator` + `mmm`. Milliseconds are rounded once and
     /// split as integers: 3599.9996 s is 01:00:00, not 00:59:60.
     static func timecode(_ seconds: Double, separator: String) -> String {
-        let total = Int((max(0, seconds.isFinite ? seconds : 0) * 1000).rounded())
+        let total = Int((min(max(0, seconds.isFinite ? seconds : 0), 1e9) * 1000).rounded())
         let ms = total % 1000
         let s = total / 1000 % 60
         let m = total / 60_000 % 60
@@ -170,8 +170,8 @@ public struct SubtitleWriter: Sendable {
         var spaceBefore: Bool
     }
 
-    private func pieces(of phrase: TimedSegment) -> [Piece] {
-        let limit = Self.maxLineLength - 1
+    /// `limit` is the longest piece: a line's room, less the speaker's name on the first one.
+    private func pieces(of phrase: TimedSegment, limit: Int) -> [Piece] {
         var result: [Piece] = []
         func add(_ start: Double, _ stop: Double, _ raw: String, spaced: Bool) {
             let stop = max(start, stop)
@@ -257,7 +257,7 @@ public struct SubtitleWriter: Sendable {
                 current = []
                 first = false
             }
-            for piece in pieces(of: phrase) {
+            for piece in pieces(of: phrase, limit: max(1, Self.maxLineLength - indent)) {
                 if let start = current.first?.start {
                     let candidate = current + [piece]
                     let fits = piece.end - start <= Self.maxCueDuration
@@ -267,6 +267,11 @@ public struct SubtitleWriter: Sendable {
                 current.append(piece)
             }
             flush()
+        }
+        // The tracks of a call overlap: a cue ends where the next one starts,
+        // or players stack the two on screen. At least a millisecond stays.
+        for i in cues.indices.dropLast() where cues[i + 1].start < cues[i].end {
+            cues[i].end = max(cues[i].start + 0.001, cues[i + 1].start)
         }
         return cues
     }

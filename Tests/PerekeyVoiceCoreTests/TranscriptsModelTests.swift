@@ -210,11 +210,11 @@ struct TranscriptsModelTests {
         #expect(back.callAudioRetention == .untilTranscribed)
         #expect(back.includesRecordingsInBackup)
         let defaults = try JSONDecoder().decode(VoiceSettings.self, from: Data("{}".utf8))
-        #expect(defaults.callAudioRetention == .month)
+        #expect(defaults.callAudioRetention == .always)
         #expect(!defaults.includesRecordingsInBackup)
         // A value this version cannot read falls back, and the file keeps it.
         let odd = try JSONDecoder().decode(VoiceSettings.self, from: Data(#"{"callAudioRetention":"forever"}"#.utf8))
-        #expect(odd.callAudioRetention == .month)
+        #expect(odd.callAudioRetention == .always)
         #expect(odd.unreadableKeys.contains("callAudioRetention"))
     }
 
@@ -228,5 +228,33 @@ struct TranscriptsModelTests {
         let id = try folder.create(Self.file, excludedFromBackup: true)
         try Data(count: 50_000).write(to: folder.directory(for: id).appending(path: "mic-0001.aac"))
         #expect(RecordingsDiskUsage.bytes(in: root) >= 50_000)
+    }
+}
+
+struct PlaybackCompletionTests {
+    @Test func theLastBufferEndsThePlayback() {
+        var completion = PlaybackCompletion()
+        completion.begin(parts: 2)
+        let mine = completion.generation
+        let first = completion.finish(generation: mine)
+        let second = completion.finish(generation: mine)
+        let third = completion.finish(generation: mine)
+        #expect(!first)
+        #expect(second)
+        #expect(!third)
+    }
+
+    @Test func aStoppedOrReplacedPlaybackCountsForNothing() {
+        var completion = PlaybackCompletion()
+        completion.begin(parts: 1)
+        let old = completion.generation
+        completion.begin(parts: 1)
+        let stale = completion.finish(generation: old)
+        let current = completion.generation
+        completion.invalidate()
+        let stopped = completion.finish(generation: current)
+        #expect(!stale)
+        #expect(!stopped)
+        #expect(completion.remaining == 0)
     }
 }

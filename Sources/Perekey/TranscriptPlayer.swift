@@ -30,7 +30,7 @@ final class TranscriptPlayer {
     @ObservationIgnored private var engine: AVAudioEngine?
     @ObservationIgnored private var nodes: [AVAudioPlayerNode] = []
     @ObservationIgnored private var scoped: URL?
-    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var completion = PlaybackCompletion()
     @ObservationIgnored private var ticker: Task<Void, Never>?
 
     /// Plays `seconds` of the recording on. `speaker` picks a call's track:
@@ -40,8 +40,8 @@ final class TranscriptPlayer {
         let plan = try Self.plan(item, in: folder, from: seconds, speaker: speaker)
         let engine = AVAudioEngine()
         var nodes: [AVAudioPlayerNode] = []
-        generation += 1
-        let mine = generation
+        completion.begin(parts: plan.parts.count)
+        let mine = completion.generation
         for part in plan.parts {
             let node = AVAudioPlayerNode()
             engine.attach(node)
@@ -68,14 +68,14 @@ final class TranscriptPlayer {
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(150))
-                guard let self, generation == mine, playingSecond != nil else { return }
+                guard let self, completion.generation == mine, playingSecond != nil else { return }
                 playingSecond = seconds + Date().timeIntervalSince(started)
             }
         }
     }
 
     func stop() {
-        generation += 1
+        completion.invalidate()
         ticker?.cancel()
         ticker = nil
         nodes.forEach { $0.stop() }
@@ -89,11 +89,8 @@ final class TranscriptPlayer {
     }
 
     private func finished(_ mine: Int) {
-        // A callback of a playback that was stopped or replaced is none of ours.
-        guard mine == generation else { return }
-        // The last node to finish ends it: both tracks of a call are one playback.
-        if nodes.contains(where: \.isPlaying) { return }
-        stop()
+        // The last buffer to end ends the playback: both tracks of a call are one.
+        if completion.finish(generation: mine) { stop() }
     }
 
     // MARK: The files to read

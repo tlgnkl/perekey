@@ -236,7 +236,7 @@ public struct VoiceSettings: Hashable, Sendable {
                 microphoneName: String? = nil,
                 model: String = VoiceSettings.defaultModel, switchesLayout: Bool = true, playsSounds: Bool = true,
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
-                introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .month,
+                introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .always,
                 includesRecordingsInBackup: Bool = false)
     {
         self.isEnabled = isEnabled

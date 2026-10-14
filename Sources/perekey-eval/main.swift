@@ -152,6 +152,7 @@ do {
             "falseRate": results.total.falseRate,
             "recall": results.total.recall,
             "textRecall": results.textRecall,
+            "punctuationRecall": results.total.punctuationRecall,
             "typoScore": results.typoOptions.minScore,
             "typoMargin": results.typoOptions.margin,
             "wrongCorrectionRate": results.total.wrongCorrectionRate,
@@ -322,7 +323,14 @@ do {
             let reading = strokes.map { typed.text(for: $0) ?? "?" }.joined()
             let decision = classifier.classify(strokes, typed: typed, other: alternative, context: context)
             print("typed in \(typed.id): \"\(reading)\" -> \(decision.verdict) \(decision.reason) "
-                + String(format: "score %.1f", decision.score) + " language \(decision.language ?? "-")")
+                + String(format: "score %.1f", decision.score) + " language \(decision.language ?? "-")"
+                + (decision.punctuationKeys > 0 ? ", last \(decision.punctuationKeys) key(s) kept as marks" : ""))
+            // A switch inside the word (`WordJudge.insideWord`) comes before the word's end.
+            if let early = [3, 4].first(where: {
+                strokes.count > $0 && classifier.impossiblePrefix(strokes.prefix($0), typed: typed, other: alternative)
+            }) {
+                print("  switches inside the word after \(early) keys")
+            }
             for (map, code) in [(typed, typed.language!), (alternative, alternative.language!)] {
                 let word = strokes.map { map.text(for: $0) ?? "?" }.joined()
                 guard let table = model.language(code) else { continue }

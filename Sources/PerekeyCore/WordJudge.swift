@@ -431,7 +431,18 @@ struct WordJudge: Sendable {
                 // The listed form is what the user wants, spelt as listed
                 // ("артем" typed gives "артём"); a forced one gets no word
                 // correction on top.
-                let spelling = listed.flatMap { Self.spell($0, buffer.entries, in: auto.other) }
+                var spelling = listed.flatMap { Self.spell($0, buffer.entries, in: auto.other) }
+                if spelling == nil, switches, found.punctuationKeys > 0 {
+                    // "ytn," is "нет,": the comma stays a comma. Without a
+                    // key for it in the new layout the word stays as typed.
+                    guard let marked = Self.keepingMarks(found.punctuationKeys, buffer.entries, from: auto.typed,
+                                                         in: auto.other)
+                    else {
+                        record(auto.typed.language)
+                        return .keep
+                    }
+                    spelling = marked
+                }
                 guard var retype = autoRetype(auto, buffer.entries[...], held: boundary, heldKeyCode: key.keyCode,
                                               midWord: false, undoable: !endsLine, corrects: !forced,
                                               spelling: spelling, layouts: layouts, settings: settings)
@@ -764,6 +775,24 @@ struct WordJudge: Sendable {
         return changed ? strokes : nil
     }
 
+    /// The word's keys with the last `count` typing in `map` the marks they
+    /// type in `typed`: "ytn," on ABC gives the keys of "нет," in Russian,
+    /// where the comma is Shift+6 or Shift+/. Nil when `map` has no key for
+    /// a mark without ⌥.
+    static func keepingMarks(_ count: Int, _ entries: [WordBuffer.Entry], from typed: LayoutMap,
+                             in map: LayoutMap) -> [KeyStroke]?
+    {
+        guard count <= entries.count, !entries.contains(where: \.isSpace) else { return nil }
+        var strokes = entries.map(\.stroke)
+        for index in strokes.count - count..<strokes.count {
+            guard let text = typed.text(for: strokes[index]), text.count == 1, let mark = text.first,
+                  let stroke = map.stroke(for: mark), !stroke.modifiers.contains(.option)
+            else { return nil }
+            strokes[index] = stroke
+        }
+        return strokes
+    }
+
     static func text(of entries: [WordBuffer.Entry], in map: LayoutMap) -> String? {
         var text = ""
         for entry in entries where !entry.isSpace {
@@ -824,7 +853,8 @@ struct WordJudge: Sendable {
     /// Whether a key ends the word typed before it: a space, or punctuation in
     /// the typed layout that is no letter or digit in the other one. "," on the
     /// ABC keys is "б" in Russian, so it stays in the word ("ghbdtn," may be
-    /// "приветб"); Shift+1 is "!" in both and ends it.
+    /// "приветб", and the classifier weighs "привет," too); Shift+1 is "!" in
+    /// both and ends it.
     static func endsWord(_ stroke: KeyStroke, typed: LayoutMap, other: LayoutMap) -> Bool {
         if stroke.keyCode == KeyCode.space { return true }
         guard isPunctuation(stroke, in: typed) else { return false }

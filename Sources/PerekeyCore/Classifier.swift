@@ -159,6 +159,10 @@ public struct Classifier: Sendable {
         /// The languages of the two layouts, e.g. "en" and "ru".
         public var typedLanguage: String?
         public var otherLanguage: String?
+        /// The last keys of the word are punctuation as typed, not letters
+        /// of the other layout: "ytn," goes to Russian as "нет,", not
+        /// "нетб". The switch retypes them as the same marks there.
+        public var punctuationKeys = 0
 
         public init(verdict: Verdict, score: Double, reason: Reason, language: String?, margin: Double = 0,
                     typedForm: Form = .notWord, otherForm: Form = .notWord, typedLanguage: String? = nil,
@@ -196,6 +200,15 @@ public struct Classifier: Sendable {
     ///   per-word path leaves it off and asks again when it needs the facts.
     public func classify(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap,
                          context: Context = Context(), explaining: Bool = false) -> Decision
+    {
+        let decision = judgeWord(strokes, typed: typed, other: other, context: context, explaining: explaining)
+        return punctuated(strokes, typed: typed, candidates: CollectionOfOne(other), context: context) { word in
+            judgeWord(word, typed: typed, other: other, context: context, explaining: explaining)
+        } ?? decision
+    }
+
+    private func judgeWord(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap,
+                           context: Context, explaining: Bool) -> Decision
     {
         let count = Self.wordLength(strokes)
         guard count > 0 else { return Decision(verdict: .keep, score: 0, reason: .empty, language: nil) }
@@ -246,6 +259,17 @@ public struct Classifier: Sendable {
             }
             return classify(strokes, typed: typed, other: other, context: context, explaining: explaining)
         }
+        let decision = judgeWord(strokes, typed: typed, candidates: candidates, context: context,
+                                 explaining: explaining)
+        return punctuated(strokes, typed: typed, candidates: candidates, context: context) { word in
+            judgeWord(word, typed: typed, candidates: candidates, context: context, explaining: explaining)
+        } ?? decision
+    }
+
+    private func judgeWord(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, candidates: [LayoutMap],
+                           context: Context, explaining: Bool) -> Decision
+    {
+        let automatic = context.mode == .automatic
         let count = Self.wordLength(strokes)
         guard count > 0 else { return Decision(verdict: .keep, score: 0, reason: .empty, language: nil) }
         guard let typedCode = typed.language, let typedLanguage = model.language(typedCode) else {
@@ -289,6 +313,86 @@ public struct Classifier: Sendable {
                     chosen = index
                 }
                 return readings[chosen].decision
+            }
+        }
+    }
+
+    /// "ytn," is "нет," typed on ABC with the comma where ABC has it, and
+    /// Russian reads that key as "б": "нетб" is no word, so the whole word
+    /// stays, or goes to Russian as "нетб". When it ends in marks the other
+    /// layout reads as letters and no candidate knows the whole reading
+    /// ("[kt," is "хлеб"), `judge` weighs the word without them. A switch
+    /// to a known form wins over the decision on the whole word and keeps
+    /// the marks (`Decision.punctuationKeys`). Automatic only: a manual
+    /// retype converts every key it is given.
+    private func punctuated<Strokes: Collection<KeyStroke>>(
+        _ strokes: Strokes, typed: LayoutMap, candidates: some Collection<LayoutMap>, context: Context,
+        judge: (Strokes.SubSequence) -> Decision
+    ) -> Decision? {
+        guard context.mode == .automatic else { return nil }
+        let count = Self.wordLength(strokes)
+        // The run of marks at the end: one, or the same one again ("...").
+        // "Uj:;'" is no sentence end, but noise.
+        var marks = 0
+        var mark: KeyStroke?
+        var mixed = false
+        var index = 0
+        for stroke in strokes {
+            guard index < count else { break }
+            index += 1
+            if Self.isMarkOnLetter(stroke, typed: typed, candidates: candidates) {
+                if marks > 0, stroke != mark { mixed = true }
+                mark = stroke
+                marks += 1
+            } else {
+                marks = 0
+                mixed = false
+            }
+        }
+        guard marks > 0, !mixed, marks <= Self.maxPunctuationKeys, marks < count else { return nil }
+        for other in candidates where other.language != typed.language {
+            if isKnownWord(strokes, count: count, in: other) { return nil }
+        }
+        var decision = judge(strokes.prefix(count - marks))
+        guard case let .switch(to: id) = decision.verdict, let target = candidates.first(where: { $0.id == id }),
+              isKnownWord(strokes, count: count - marks, in: target)
+        else { return nil }
+        decision.punctuationKeys = marks
+        return decision
+    }
+
+    /// "..." and no more.
+    static let maxPunctuationKeys = 3
+
+    /// The key types a mark that ends a word in a sentence in `typed`
+    /// (`, . ; :`) and a letter in some candidate ("б" "ю" "ж" "Ж"). Not a
+    /// quote or a bracket: "kjc\"" is no "лос", but noise.
+    private static func isMarkOnLetter(_ stroke: KeyStroke, typed: LayoutMap,
+                                       candidates: some Collection<LayoutMap>) -> Bool
+    {
+        guard !stroke.modifiers.contains(.option), let text = typed.text(for: stroke) else { return false }
+        var scalars = text.unicodeScalars.makeIterator()
+        guard let scalar = scalars.next(), scalars.next() == nil else { return false }
+        switch scalar.value {
+        case 0x2C, 0x2E, 0x3B, 0x3A: break
+        default: return false
+        }
+        for other in candidates where other.language != typed.language {
+            guard let otherText = other.text(for: stroke) else { continue }
+            if otherText.unicodeScalars.allSatisfy(\.properties.isAlphabetic) { return true }
+        }
+        return false
+    }
+
+    /// The first `count` strokes read in `layout` as a known form of its language.
+    private func isKnownWord(_ strokes: some Collection<KeyStroke>, count: Int, in layout: LayoutMap) -> Bool {
+        guard let code = layout.language, let language = model.language(code) else { return false }
+        return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) { scalars in
+            withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
+                guard let reading = Reading(strokes, count: count, in: layout, language: language,
+                                            scalars: scalars[...], symbols: symbols[...])
+                else { return false }
+                return reading.isWord && isKnown(reading)
             }
         }
     }

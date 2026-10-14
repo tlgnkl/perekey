@@ -27,6 +27,30 @@ private let ru = Fixture.russian.id
         #expect(desk.text == "будет ")
     }
 
+    /// Two letters: a longer word switches inside, before its comma
+    /// (`impossiblePrefixSwitchesInsideTheWord`), and the comma key is "б"
+    /// in Russian then. `ClassifierTests` has the longer words.
+    @Test(arguments: [("yt, ", "не, "), ("yf. ", "на. "), ("yt, vbh ", "не, мир "),
+                      ("[kt, ", "хлеб "), ("yj; ", "нож "), ("b[ ", "их ")])
+    func punctuationOnARussianLetterKeyStaysPunctuation(typed: String, expected: String) {
+        var desk = Desk()
+        desk.type(typed)
+        #expect(desk.text == expected)
+        #expect(desk.appLayout == ru)
+    }
+
+    @Test func markKeptBySwitchIsUndoneWithTheWord() throws {
+        var desk = Desk()
+        desk.type("yt, ")
+        let correction = try #require(desk.corrections.first)
+        #expect(correction.original == "yt,")
+        #expect(correction.replacement == "не,")
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "yt, ")
+        #expect(desk.appLayout == en)
+        #expect(desk.undone == [correction.seq])
+    }
+
     @Test func englishTypedInRussianSwitches() {
         var desk = Desk(current: ru)
         desk.type("руддщ ", on: Fixture.russian)

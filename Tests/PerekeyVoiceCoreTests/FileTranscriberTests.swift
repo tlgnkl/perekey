@@ -261,6 +261,22 @@ struct FileTranscriberTests {
         #expect(windows.allSatisfy { $0.start < 100 })
     }
 
+    /// 60 s is not a whole number of VAD chunks: a quiet last chunk, cut in
+    /// its middle, would end the window past its audio.
+    @Test func quietShortLastChunk() async throws {
+        let fixture = Fixture()
+        let id = try fixture.call(seconds: 130)
+        let script = words(180)
+        let engine = ScriptEngine(script: [.mic: script])
+        let detector = SilenceDetector(silences: [60.0...60.1])
+        let queue = fixture.queue(engine: engine, opener: NumberedOpener(seconds: [.mic: 130]), detector: detector)
+        await queue.enqueue(TranscriptionJob(recording: id, model: "parakeet-tdt-v3", diarize: false))
+        #expect(await wait(queue, id, until: finished).last == .done)
+        #expect(await engine.windows.first?.end == 60)
+        let found = try #require(fixture.transcript(id)).segments.flatMap { $0.words ?? [] }
+        #expect(found.map(\.text) == script.map(\.text))
+    }
+
     /// Dictation goes first: the queue stops at the edge of the window in
     /// work and goes on once the text is in.
     @Test func dictationPausesAtTheWindowEdge() async throws {

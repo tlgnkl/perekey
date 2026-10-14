@@ -288,3 +288,8 @@
 
 /* Review 2: plain http */
 "http is allowed only for this Mac and the local network. For a server over Tailscale use https (tailscale serve)." = "http is allowed only for this Mac and the local network. For a server over Tailscale use https (tailscale serve).";
+
+/* Transcription of files */
+"Transcribe File…" = "Transcribe File…";
+"Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Choose audio or video to transcribe. Perekey reads the file and does not copy it.";
+"Transcribe" = "Transcribe";

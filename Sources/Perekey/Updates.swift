@@ -35,6 +35,9 @@ final class Updates: NSObject {
     /// A scheduled check found this version, and the menu shows it instead of an alert.
     private(set) var pendingVersion: String?
 
+    /// Work that a relaunch for an update would cut off: a transcription,
+    /// a call being recorded. Sparkle waits while any of them says so.
+    @ObservationIgnored var postponesRelaunch: [@MainActor () -> Bool] = []
     @ObservationIgnored private let store: SettingsStore
     @ObservationIgnored private var controller: SPUStandardUpdaterController?
     @ObservationIgnored private var started = false
@@ -121,6 +124,22 @@ extension Updates: SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
         lastCheck = updater.lastUpdateCheckDate
     }
+
+    /// The update installs once the work in `postponesRelaunch` is over.
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool
+    {
+        guard isWorking else { return false }
+        Task { @MainActor [weak self] in
+            while self?.isWorking == true {
+                try? await Task.sleep(for: .seconds(15))
+            }
+            installHandler()
+        }
+        return true
+    }
+
+    private var isWorking: Bool { postponesRelaunch.contains { $0() } }
 }
 
 /// Gentle reminders (sparkle-project.org/documentation/gentle-reminders): a menu

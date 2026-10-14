@@ -367,6 +367,8 @@ public actor FileTranscriber: FileTranscribing {
                     cut = position + WindowCut.cut(probabilities: Array(probabilities[(tailStart / chunk)...]),
                                                    tailStart: tailStart)
                 }
+                // The last chunk may be short: its middle can lie past the window.
+                cut = min(cut, end)
                 // The next window must start later than this one.
                 if cut - overlap <= position { cut = end }
             }

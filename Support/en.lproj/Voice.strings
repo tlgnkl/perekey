@@ -213,11 +213,9 @@
 "In a terminal Perekey never presses Enter and takes out line breaks." = "In a terminal Perekey never presses Enter and takes out line breaks.";
 "Where it turns on by itself" = "Where it turns on by itself";
 "Nowhere: from the menu only" = "Nowhere: from the menu only";
-"Remove" = "Remove";
 "Add app" = "Add app";
 "Add site" = "Add site";
 "Site" = "Site";
-"Add" = "Add";
 "Where the LLM works" = "Where the LLM works";
 "Your administrator turned the cloud off: only servers on this Mac." = "Your administrator turned the cloud off: only servers on this Mac.";
 "Keys are kept in the Keychain. Before the first request to the cloud Perekey asks and names what will go there." = "Keys are kept in the Keychain. Before the first request to the cloud Perekey asks and names what will go there.";
@@ -371,3 +369,14 @@
 "Reset" = "Reset";
 "Plays the audio from here" = "Plays the audio from here";
 "The audio of this call was removed, so the text cannot be played or transcribed again." = "The audio of this call was removed, so the text cannot be played or transcribed again.";
+/* Transcription of files */
+"Transcribe File…" = "Transcribe File…";
+"Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Choose audio or video to transcribe. Perekey reads the file and does not copy it.";
+"Model for transcriptions" = "Model for transcriptions";
+"Files and calls. A cloud model gets recordings with other people’s voices." = "Files and calls. A cloud model gets recordings with other people’s voices.";
+"As dictation" = "As dictation";
+"The recording of a conversation will go to %@. It holds the voices of other people. Until you allow it, recordings are transcribed on this Mac." = "The recording of a conversation will go to %@. It holds the voices of other people. Until you allow it, recordings are transcribed on this Mac.";
+"the recording of a conversation, with other people’s voices" = "the recording of a conversation, with other people’s voices";
+"Needs consent to send the recording" = "Needs consent to send the recording";
+"A cloud model needs your consent to get the recording of a conversation. Transcribe again to be asked." = "A cloud model needs your consent to get the recording of a conversation. Transcribe again to be asked.";
+"Transcription did not stop, the recording is not deleted. Try again." = "Transcription did not stop, the recording is not deleted. Try again.";

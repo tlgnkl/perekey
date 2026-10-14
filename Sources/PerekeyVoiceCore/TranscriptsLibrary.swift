@@ -95,12 +95,7 @@ public struct TranscriptsLibrary: Sendable {
                        liveWithin: TimeInterval = 60) async throws
     {
         guard let queue else { throw TranscriptsLibraryError.queueUnavailable }
-        if case let .loaded(meta) = folder.meta(recording), meta.state == .recording,
-           let modified = try? FileManager.default.attributesOfItem(atPath: folder.metaURL(for: recording).path)[.modificationDate] as? Date,
-           now.timeIntervalSince(modified) < liveWithin
-        {
-            throw TranscriptsLibraryError.recordingInProgress
-        }
+        guard !isGoingOn(recording, now: now, liveWithin: liveWithin) else { throw TranscriptsLibraryError.recordingInProgress }
         try folder.updateMeta(recording) { meta in
             if meta.state == .recording { meta.state = .stopped }
         }
@@ -109,8 +104,12 @@ public struct TranscriptsLibrary: Sendable {
 
     /// Stops the recording's job if it runs, and removes its folder. A file
     /// the user chose is outside it and stays.
-    public func delete(_ recording: UUID, phase: TranscriptionPhase?, live: Set<UUID> = []) async throws {
-        guard !live.contains(recording) else { throw TranscriptsLibraryError.recordingInProgress }
+    public func delete(_ recording: UUID, phase: TranscriptionPhase?, live: Set<UUID> = [], now: Date = Date(),
+                       liveWithin: TimeInterval = 60) async throws
+    {
+        guard !live.contains(recording), !isGoingOn(recording, now: now, liveWithin: liveWithin) else {
+            throw TranscriptsLibraryError.recordingInProgress
+        }
         if phase?.isPending == true, let queue {
             await queue.cancel(recording)
             // The queue writes into the folder until it has stopped: wait for it.
@@ -125,7 +124,7 @@ public struct TranscriptsLibrary: Sendable {
     private static func settled(_ recording: UUID, in queue: any FileTranscribing, timeout: Duration) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
-                for await snapshot in queue.phases() where snapshot[recording]?.isPending != true { return true }
+                for await snapshot in await queue.phases() where snapshot[recording]?.isPending != true { return true }
                 return false
             }
             group.addTask {
@@ -140,6 +139,16 @@ public struct TranscriptsLibrary: Sendable {
 
     /// Removes every recording but those still being recorded; returns how
     /// many could not be removed.
+    /// Whether a recorder looks to be writing the recording: `recording` in its
+    /// `meta.json`, which changed less than `liveWithin` seconds ago. The check
+    /// of `resume` and `delete` while the recorder does not report its recordings.
+    private func isGoingOn(_ recording: UUID, now: Date, liveWithin: TimeInterval) -> Bool {
+        guard case let .loaded(meta) = folder.meta(recording), meta.state == .recording,
+              let modified = try? FileManager.default.attributesOfItem(atPath: folder.metaURL(for: recording).path)[.modificationDate] as? Date
+        else { return false }
+        return now.timeIntervalSince(modified) < liveWithin
+    }
+
     @discardableResult
     public func deleteAll(phases: [UUID: TranscriptionPhase] = [:], live: Set<UUID> = []) async -> Int {
         var failed = 0

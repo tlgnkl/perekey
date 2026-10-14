@@ -82,6 +82,8 @@ struct VoicePane: View {
                     PKDivider()
                     VoiceModelPicker(controller: controller)
                     PKDivider()
+                    TranscriptionModelPicker(controller: controller)
+                    PKDivider()
                     PKRow(voiceText("Switch the layout to the language of the phrase")) {
                         flag(\.switchesLayout, label: voiceText("Switch the layout to the language of the phrase"))
                     }
@@ -242,6 +244,44 @@ private struct VoiceModelPicker: View {
             .labelsHidden()
             .frame(width: 240)
         }
+    }
+}
+
+/// «Модель для расшифровок»: files and calls. As dictation by default, on
+/// this Mac; a cloud model only by this choice and with the consent to send
+/// it recordings of conversations.
+private struct TranscriptionModelPicker: View {
+    let controller: VoiceModelsController
+
+    var body: some View {
+        let settings = controller.settings.settings
+        let ready = controller.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
+        let modes = controller.modes
+        let cloud = CloudSpeechModel.known.filter { model in
+            modes.flatMap { store in store.modes.endpoint(model.endpoint).map(store.isUsable) } ?? false
+        }
+        let chosen = settings.transcriptionModel ?? ""
+        PKRow(voiceText("Model for transcriptions"),
+              detail: voiceText("Files and calls. A cloud model gets recordings with other people’s voices.")) {
+            Picker(selection: Binding(get: { chosen }, set: { id in choose(id) })) {
+                Text("As dictation", tableName: "Voice").tag("")
+                ForEach(ready) { Text(verbatim: ModelNames.display($0.entry)).tag($0.id) }
+                ForEach(cloud, id: \.id) { Text(verbatim: "\($0.displayName) ☁").tag($0.id) }
+                if !chosen.isEmpty, !ready.contains(where: { $0.id == chosen }), !cloud.contains(where: { $0.id == chosen }) {
+                    Text(verbatim: ModelCatalog.entry(id: chosen).map(ModelNames.display) ?? chosen).tag(chosen)
+                }
+            } label: {
+                voiceText("Model for transcriptions")
+            }
+            .labelsHidden()
+            .frame(width: 240)
+        }
+    }
+
+    /// A cloud model needs the consent for conversations first; refused, nothing changes.
+    private func choose(_ id: String) {
+        if TranscriptionModel.isCloud(id), controller.modes?.askConversationConsent(model: id) != true { return }
+        controller.settings.update { $0.transcriptionModel = id.isEmpty ? nil : id }
     }
 }
 

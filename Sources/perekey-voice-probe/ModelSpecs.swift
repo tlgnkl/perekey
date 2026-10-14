@@ -58,8 +58,6 @@ enum ProbeModels {
 
     static let diarizerRepo = "FluidInference/speaker-diarization-coreml"
     static let diarizerCommit = "df2625ac79a7ac6b65ad868fee6d80f320da4232"
-    static let sortformerRepo = "FluidInference/diar-streaming-sortformer-coreml"
-    static let sortformerCommit = "ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1"
     static let whisperFolder = "openai_whisper-large-v3-v20240930_turbo_632MB"
 
     static let all: [ProbeModel] = [
@@ -97,24 +95,6 @@ enum ProbeModels {
                     include: [
                         "Segmentation.mlmodelc", "FBank.mlmodelc", "Embedding.mlmodelc",
                         "PldaRho.mlmodelc", "plda-parameters.json",
-                    ])
-            ]),
-        ProbeModel(
-            id: "diarizer-pyannote", title: "Online diarizer (pyannote + WeSpeaker)",
-            engine: "fluidAudioDiarizer", languages: [], role: "diarizer",
-            sources: [
-                ProbeSource(
-                    repo: diarizerRepo, commit: diarizerCommit,
-                    include: ["pyannote_segmentation.mlmodelc", "wespeaker_v2.mlmodelc"])
-            ]),
-        ProbeModel(
-            id: "diarizer-sortformer", title: "Sortformer v2.1 (streaming and offline)",
-            engine: "fluidAudioDiarizer", languages: [], role: "diarizer",
-            sources: [
-                ProbeSource(
-                    repo: sortformerRepo, commit: sortformerCommit,
-                    include: [
-                        "v3/fp16/Sortformer_v2.1.mlmodelc", "v3/fp16/SortformerOffline_v2.1.mlmodelc",
                     ])
             ]),
         ProbeModel(

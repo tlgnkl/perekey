@@ -42,7 +42,10 @@ public enum VoiceNetworkPolicy {
         else { return [:] }
         let cloudDisabled = managed.voiceCloudDisabled
         return [
-            .cloudSpeech: modes.reachableOrigins(sending: .audio, cloudDisabled: cloudDisabled),
+            // A dictation's audio, or a recording of a conversation for its
+            // transcript: each needs its own consent.
+            .cloudSpeech: modes.reachableOrigins(sending: .audio, cloudDisabled: cloudDisabled)
+                .union(modes.reachableOrigins(sending: .conversationAudio, cloudDisabled: cloudDisabled)),
             .cloudLanguageModel: modes.reachableOrigins(sending: .text, cloudDisabled: cloudDisabled),
         ]
     }

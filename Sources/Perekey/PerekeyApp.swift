@@ -5,6 +5,7 @@ import PerekeyCore
 import PerekeyInput
 #if PEREKEY_VOICE
 import PerekeyVoice
+import PerekeyVoiceCore
 #endif
 import SwiftUI
 
@@ -95,10 +96,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let voiceText = VoiceTextController()
         self.voiceText = voiceText
         voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes, text: voiceText, usage: usage)
-        let transcriptsController = TranscriptsController(voice: voiceModels.settings, models: { [voiceModels] in
-            voiceModels.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
+        let transcriptsController = TranscriptsController(voice: voiceModels.settings, models: { [voiceModels, voiceModes] in
+            let local = voiceModels.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
                 .map { (id: $0.id, title: ModelNames.display($0.entry)) }
+            // As in the Voice tab: a cloud model whose server the user set up.
+            let cloud = CloudSpeechModel.known.filter { model in
+                voiceModes.modes.endpoint(model.endpoint).map(voiceModes.isUsable) ?? false
+            }.map { (id: $0.id, title: $0.displayName + " ☁") }
+            return local + cloud
         })
+        transcriptsController.transcriptionModel = { [voice] in voice.files.model }
+        transcriptsController.consent = { [voiceModes] in voiceModes.askConversationConsent(model: $0) }
+        voice.files.queueChanged = { [transcriptsController] in transcriptsController.queue = $0 }
+        transcriptsController.queue = voice.files.queue
         let transcriptsWindow = TranscriptsWindow(controller: transcriptsController)
         transcripts = transcriptsWindow
         #endif
@@ -138,9 +148,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let voiceIsOn: @MainActor () -> Bool = { voiceModels.settings.isOn && voiceModels.isSupported }
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
-                             settings: settings) { actions in
+                             settings: settings) { [voice] actions in
             actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
             actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
+            actions.transcribeFile = { voice.files.chooseFiles() }
+            actions.canTranscribeFiles = { voice.files.queue != nil }
         }
         #else
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
@@ -150,6 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
         #if PEREKEY_VOICE
         shell.dictation.menu = voiceText.menu(pasteAgain: { [voice] in voice.pasteAgain($0) })
+        shell.drop = { [voice] in voice.files.transcribe($0) }
+        shell.acceptsDrop = { [voice] in voice.files.acceptsDrop($0) }
+        // An update waits until the files in the queue are done.
+        updates.busy.add("transcription") { [voice] in voice.files.isBusy }
         #endif
         ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
     }
@@ -240,6 +256,9 @@ final class MenuBarShell {
     private var statusItem: StatusItemController?
     /// What the menu shows of the dictation history; filled once voice is set up.
     let dictation = DictationMenuSource()
+    /// Files dropped on the menu bar item; set before `start` to take them.
+    var drop: (([URL]) -> Bool)?
+    var acceptsDrop: (URL) -> Bool = { _ in false }
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
          recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates,
@@ -280,7 +299,8 @@ final class MenuBarShell {
 
     func start() {
         guard statusItem == nil else { return }
-        statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu)
+        statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu,
+                                          drop: drop, accepts: acceptsDrop)
     }
 }
 

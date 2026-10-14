@@ -150,6 +150,18 @@ struct TranscriptsLibraryTests {
         #expect(fixture.queue.jobs.isEmpty)
     }
 
+    @Test func deleteLeavesARecordingThatWroteItsMetaJustNow() async throws {
+        let fixture = Fixture()
+        let id = try fixture.add(TranscriptsModelTests.call(state: .recording))
+        await #expect(throws: TranscriptsLibraryError.recordingInProgress) {
+            try await fixture.library().delete(id, phase: nil)
+        }
+        #expect(fixture.folder.recordings() == [id])
+        // A recording that has been silent for a while is a crashed one, and can go.
+        try await fixture.library().delete(id, phase: nil, now: Date().addingTimeInterval(120))
+        #expect(fixture.folder.recordings().isEmpty)
+    }
+
     @Test func deleteRefusesALiveRecording() async throws {
         let fixture = Fixture()
         let id = try fixture.add(TranscriptsModelTests.call(state: .recording))

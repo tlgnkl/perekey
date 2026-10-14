@@ -18,6 +18,7 @@ extension RecordingStatus {
         case .waitingForDictation: voiceString("Waiting for dictation")
         case let .diarizing(share): voiceString("Telling speakers apart \(Self.percent(share))")
         case .done: voiceString("Done")
+        case .failed(.needsConsent): voiceString("Needs consent to send the recording")
         case .failed: voiceString("Error")
         case .interrupted: voiceString("The recording was cut off")
         case .untranscribed: voiceString("Not transcribed")
@@ -31,6 +32,7 @@ extension RecordingStatus {
 
     var tint: Color {
         switch self {
+        case .failed(.needsConsent): .pkWarn
         case .failed: .pkRose
         case .interrupted: .pkWarn
         case .done: .pkOK
@@ -46,6 +48,7 @@ extension TranscriptionFailure {
         case .sourceMissing: voiceString("The file is gone, or Perekey cannot open it.")
         case .unreadable: voiceString("The file has no audio, or it cannot be read.")
         case .modelUnavailable: voiceString("The model is not downloaded, or the cloud is off. Pick another model.")
+        case .needsConsent: voiceString("A cloud model needs your consent to get the recording of a conversation. Transcribe again to be asked.")
         case .engineFailed: voiceString("The model failed on this audio.")
         case .storageFailed: voiceString("Perekey could not read or write the files of this recording.")
         case .newerVersion: voiceString("A newer version of Perekey made this recording. Update the app.")
@@ -65,6 +68,7 @@ extension TranscriptsController.Notice {
         case .exportFailed: voiceString("Perekey could not save the file.")
         case let .deleteAllFailed(count): voiceString("Could not delete \(count) recordings.")
         case .recordingInProgress: voiceString("The recording is going on.")
+        case .deleteNotStopped: voiceString("Transcription did not stop, the recording is not deleted. Try again.")
         }
     }
 }
@@ -419,7 +423,8 @@ private struct TranscriptBody: View {
                   detail: item.capabilities.canResume ? voiceString("The sound written until then can still be turned into text.")
                       : voiceString("No sound was saved."))
         case let .failed(failure):
-            Offer(controller: controller, item: item, symbol: "xmark.octagon", title: voiceString("Error"), detail: failure.text)
+            Offer(controller: controller, item: item, symbol: failure == .needsConsent ? "hand.raised" : "xmark.octagon",
+                  title: item.status.text, detail: failure.text)
         case .recording:
             Message(symbol: "record.circle", text: voiceString("The recording is going on."))
         case .done, .untranscribed:

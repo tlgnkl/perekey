@@ -35,6 +35,7 @@ final class TranscriptsController {
         case exportFailed
         case deleteAllFailed(Int)
         case recordingInProgress
+        case deleteNotStopped
     }
 
     private(set) var items: [RecordingItem] = []
@@ -60,16 +61,27 @@ final class TranscriptsController {
         didSet { refreshSearch() }
     }
 
-    /// The file queue. Set by whoever owns it; without it nothing is queued
-    /// and a dropped file is refused.
+    /// The file queue. Set by whoever owns it, again each time voice turns on or off;
+    /// without it nothing is queued and a dropped file is refused.
     var queue: (any FileTranscribing)? {
-        didSet { observeQueue() }
+        didSet {
+            observeQueue()
+            if queue == nil, !phases.isEmpty {
+                phases = [:]
+                reload()
+            }
+        }
     }
 
     let folder: RecordingsFolder
     let voice: VoiceSettingsStore
     /// The models «Расшифровать заново» can pick from; empty hides the menu.
     @ObservationIgnored var models: @MainActor () -> [(id: String, title: String)]
+    /// The model for files and calls: the choice for transcriptions, or the dictation model.
+    @ObservationIgnored var transcriptionModel: (@MainActor () -> String)?
+    /// Asks, if the model is a cloud one, for the consent to send it a recording of a conversation.
+    /// False: nothing is queued. A model of this Mac needs none.
+    @ObservationIgnored var consent: @MainActor (String) -> Bool = { _ in true }
     /// Recordings a recorder is writing now. The call recorder wires this when it exists;
     /// until then `TranscriptsLibrary.resume` tells a recording that is going on by its `meta.json`.
     @ObservationIgnored var live: @MainActor () -> Set<UUID>
@@ -98,6 +110,8 @@ final class TranscriptsController {
     var document: TranscriptDocument? {
         if case let .loaded(document) = transcript { document } else { nil }
     }
+
+    private var model: String { transcriptionModel?() ?? voice.settings.model }
 
     /// Dropped files and «Расшифровать заново» need the queue.
     var canQueue: Bool { queue != nil }
@@ -159,9 +173,8 @@ final class TranscriptsController {
         queueTask?.cancel()
         queueTask = nil
         guard let queue else { return }
-        let stream = queue.phases()
         queueTask = Task { [weak self] in
-            for await snapshot in stream {
+            for await snapshot in await queue.phases() {
                 guard let self else { return }
                 apply(snapshot)
             }
@@ -220,14 +233,16 @@ final class TranscriptsController {
 
     /// «Расшифровать заново» with `model`, keeping whether speakers were told apart.
     func retranscribe(model: String) {
-        guard let id = selection else { return }
+        guard let id = selection, consent(model) else { return }
         let diarize = document?.speakers.contains { $0.kind == .speaker } ?? false
         queueJob(id) { try await $0.retranscribe(id, model: model, diarize: diarize) }
     }
 
     /// «Расшифровать» on a recording the crash cut off, or one that failed.
     func resume(_ id: UUID) {
-        queueJob(id) { [model = voice.settings.model] in try await $0.resume(id, model: model, diarize: false) }
+        let model = self.model
+        guard consent(model) else { return }
+        queueJob(id) { try await $0.resume(id, model: model, diarize: false) }
     }
 
     private func queueJob(_ id: UUID, _ job: @escaping @MainActor (TranscriptsLibrary) async throws -> Void) {
@@ -265,6 +280,10 @@ final class TranscriptsController {
                 try await library.delete(id, phase: phase, live: live)
             } catch TranscriptsLibraryError.recordingInProgress {
                 notice = .recordingInProgress
+                return
+            } catch TranscriptsLibraryError.cancelTimedOut {
+                notice = .deleteNotStopped
+                return
             } catch {
                 fail(.storageFailed, error)
             }
@@ -293,7 +312,8 @@ final class TranscriptsController {
             return
         }
         let library = library
-        let model = voice.settings.model
+        let model = self.model
+        guard consent(model) else { return }
         let excluded = !voice.settings.includesRecordingsInBackup(managed: voice.managed)
         for url in urls {
             let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType

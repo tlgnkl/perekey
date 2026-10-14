@@ -90,6 +90,13 @@ import Testing
         buffer.relabelPhrase(russian)
         #expect(buffer.phrase(words: 2) == russian)
 
+        // The end of the word: the keys before it keep their layout.
+        buffer = typed("ab/cd ")
+        let end = buffer.entries.suffix(3).map { WordBuffer.Entry($0.stroke, in: Fixture.russian.id) }
+        buffer.relabelPhrase(end)
+        #expect(buffer.entries.map(\.layout)
+            == Array(repeating: en, count: 3) + Array(repeating: Fixture.russian.id, count: 3))
+
         buffer = typed("ab")
         buffer.replaceWord(Fixture.abc.strokes("xyz"), in: Fixture.russian.id)
         #expect(Fixture.abc.type(buffer.entries.map(\.stroke)) == "xyz")

@@ -22,6 +22,12 @@ differently, what was fixed.
 
 ### Changed
 
+- **Option retypes the part after a slash.** In “менеджер/сущ” the first
+  press gives “менеджер/ceo” and leaves the word before the slash alone.
+  Press again to put it back, and a third time to retype the whole word.
+  If the word before the slash is in the wrong layout too, the first press
+  retypes everything, as before. With phrase retype off, every press
+  toggles only the part after the slash.
 - **Conflict warnings read your Mac.** Perekey warns about Spotlight or the
   macOS input switch only when that shortcut really does it on this Mac.
 - **Paste without formatting leaves passwords to your password manager.**

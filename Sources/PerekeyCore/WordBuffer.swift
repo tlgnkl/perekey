@@ -128,15 +128,16 @@ public struct WordBuffer: Hashable, Sendable {
         return Array(history[start...]) + entries
     }
 
-    /// Puts other layouts on the last `entries.count` keys: the phrase as a
-    /// retype left it. The keys themselves must be the same.
+    /// Puts other layouts on the last `phrase.count` keys: the phrase, or the
+    /// end of the word, as a retype left it. The keys themselves must be the same.
     public mutating func relabelPhrase(_ phrase: [Entry]) {
-        let fromHistory = phrase.count - entries.count
-        guard fromHistory >= 0, fromHistory <= history.count else { return }
+        let fromHistory = max(0, phrase.count - entries.count)
+        guard fromHistory <= history.count else { return }
         for (offset, entry) in phrase.prefix(fromHistory).enumerated() {
             history[history.count - fromHistory + offset].layout = entry.layout
         }
-        for (index, entry) in zip(entries.indices, phrase.suffix(entries.count)) {
+        let inWord = phrase.count - fromHistory
+        for (index, entry) in zip(entries.indices.suffix(inWord), phrase.suffix(inWord)) {
             entries[index].layout = entry.layout
         }
     }

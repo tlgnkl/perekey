@@ -396,6 +396,21 @@ struct VoiceControllerTests {
         #expect(record.duration > 0 && record.audio?.isEmpty == false)
     }
 
+    /// The file queue learns when a session starts and once its text is in.
+    @Test func dictationActivityFollowsTheSession() async {
+        let rig = Rig()
+        let activity = DictationActivity()
+        rig.controller.dictation = activity
+        await rig.startRecording()
+        #expect(activity.isActive)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.until { !activity.isActive })
+        activity.began()
+        await rig.controller.shutdown()
+        #expect(!activity.isActive)
+    }
+
     @Test func passwordFieldAndSecureInputAreMarkedPrivateAndNotRecorded() async {
         for result in [DictationPasteResult.secureField, .secureInput(owner: "Terminal")] {
             let rig = Rig()

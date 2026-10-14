@@ -24,6 +24,9 @@ struct MenuActions {
     var dictation: DictationMenu?
     /// The «Расшифровки» window; nil hides the row.
     var transcripts: TranscriptsMenu?
+    /// «Расшифровать файл…»; nil, or false from it, hides the row.
+    var transcribeFile: (() -> Void)?
+    var canTranscribeFiles: () -> Bool = { false }
     #endif
 }
 
@@ -367,9 +370,14 @@ struct MenuContent: View {
         VStack(alignment: .leading, spacing: 0) {
             #if PEREKEY_VOICE
             if let transcripts = actions.transcripts, transcripts.isOn() {
-                // «Расшифровать файл…» and «Записать созвон» go here, in rows beside this one.
                 MenuCommandRow(id: "transcripts", title: "", label: voiceText("Transcripts…"), shortcut: nil, nav: nav,
                                run: { actions.close(); transcripts.open() })
+            }
+            if let transcribeFile = actions.transcribeFile, actions.canTranscribeFiles() {
+                MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {
+                    actions.close()
+                    transcribeFile()
+                }
             }
             #endif
             MenuCommandRow(id: "settings", title: "Settings…", shortcut: "⌘,", nav: nav, run: actions.openSettings)
@@ -526,6 +534,8 @@ struct MenuCommandRow: View {
     let title: LocalizedStringKey
     /// Text in place of `title`, for a string of another table.
     var label: Text?
+    /// The strings table of the title: `Voice` for voice rows.
+    var table: String?
     var shortcut: String?
     var checked = false
     var badge = false
@@ -537,7 +547,7 @@ struct MenuCommandRow: View {
         let hot = enabled && nav.highlighted == id
         Button(action: run) {
             HStack {
-                (label ?? Text(title)).font(PK.Font.body)
+                (label ?? Text(title, tableName: table)).font(PK.Font.body)
                 Spacer()
                 if checked { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 if badge {

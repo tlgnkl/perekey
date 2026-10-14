@@ -213,11 +213,9 @@
 "In a terminal Perekey never presses Enter and takes out line breaks." = "В терминале Perekey не нажимает Enter и убирает переводы строк.";
 "Where it turns on by itself" = "Где включается сам";
 "Nowhere: from the menu only" = "Нигде: только из меню";
-"Remove" = "Убрать";
 "Add app" = "Добавить программу";
 "Add site" = "Добавить сайт";
 "Site" = "Сайт";
-"Add" = "Добавить";
 "Where the LLM works" = "Где работает LLM";
 "Your administrator turned the cloud off: only servers on this Mac." = "Администратор отключил облако: только серверы на этом Mac.";
 "Keys are kept in the Keychain. Before the first request to the cloud Perekey asks and names what will go there." = "Ключи лежат в Связке ключей. Перед первым запросом в облако Perekey спросит и назовёт, что уйдёт.";
@@ -371,3 +369,14 @@
 "Reset" = "Сбросить";
 "Plays the audio from here" = "Проигрывает звук с этого места";
 "The audio of this call was removed, so the text cannot be played or transcribed again." = "Звук этого созвона удалён, поэтому текст нельзя проиграть или расшифровать заново.";
+/* Transcription of files */
+"Transcribe File…" = "Расшифровать файл…";
+"Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Выберите звук или видео для расшифровки. Perekey читает файл и не копирует его.";
+"Model for transcriptions" = "Модель для расшифровок";
+"Files and calls. A cloud model gets recordings with other people’s voices." = "Файлы и созвоны. Облачная модель получит записи с голосами других людей.";
+"As dictation" = "Как у диктовки";
+"The recording of a conversation will go to %@. It holds the voices of other people. Until you allow it, recordings are transcribed on this Mac." = "На %@ уйдёт запись разговора, в ней голоса других людей. Пока вы не разрешите, записи расшифровываются на этом Mac.";
+"the recording of a conversation, with other people’s voices" = "запись разговора с голосами других людей";
+"Needs consent to send the recording" = "Нужно согласие на отправку записи";
+"A cloud model needs your consent to get the recording of a conversation. Transcribe again to be asked." = "Облачной модели нужно ваше согласие на отправку записи разговора. Нажмите «Расшифровать» ещё раз — приложение спросит.";
+"Transcription did not stop, the recording is not deleted. Try again." = "Расшифровка не остановилась, запись не удалена — попробуйте ещё раз";

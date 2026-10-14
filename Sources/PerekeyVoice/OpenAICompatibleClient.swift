@@ -77,9 +77,10 @@ public struct OpenAICompatibleClient: Sendable {
 
     // MARK: Transcription
 
-    /// The text of `audio`, sent as a 16-bit WAV file.
+    /// The text of `audio`, sent as a 16-bit WAV file. `prompt` is text the
+    /// model reads as what came before: the words it should spell so.
     public func transcribe(_ audio: AudioBuffer16k, model: String, address: EndpointAddress, key: String?,
-                           language: String? = nil) async throws -> String
+                           language: String? = nil, prompt: String? = nil) async throws -> String
     {
         struct Answer: Decodable {
             let text: String
@@ -91,6 +92,7 @@ public struct OpenAICompatibleClient: Sendable {
         form.field("model", model)
         form.field("response_format", "json")
         if let language { form.field("language", language) }
+        if let prompt, !prompt.isEmpty { form.field("prompt", prompt) }
         form.file("file", name: "dictation.wav", type: "audio/wav", data: WAV.encode(audio))
         let body = form.finish()
         request.httpBody = body

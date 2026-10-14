@@ -38,6 +38,8 @@ public struct DictationPlan: Sendable {
     public var output: ModeOutput
     /// Line breaks become spaces: a single-line mode, or a terminal in front.
     public var singleLine: Bool
+    /// The mode's filler words rule; nil follows the voice settings.
+    public var removesFillers: Bool?
     /// A step of the mode this dictation skips.
     public var fallback: ModeFallback?
     /// What the source needs again for the language model: the app's name,
@@ -61,7 +63,7 @@ public struct DictationPlan: Sendable {
 
     public init(modeID: String, modeName: String, speechModel: String? = nil, speechHost: String? = nil,
                 refine: Refine? = nil, output: ModeOutput = .paste, singleLine: Bool = false,
-                fallback: ModeFallback? = nil, appName: String? = nil, host: String? = nil,
+                removesFillers: Bool? = nil, fallback: ModeFallback? = nil, appName: String? = nil, host: String? = nil,
                 selection: Task<String?, Never>? = nil)
     {
         self.modeID = modeID
@@ -71,6 +73,7 @@ public struct DictationPlan: Sendable {
         self.refine = refine
         self.output = output
         self.singleLine = singleLine
+        self.removesFillers = removesFillers
         self.fallback = fallback
         self.appName = appName
         self.host = host

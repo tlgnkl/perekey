@@ -69,6 +69,9 @@ public final class TextPaster {
 
     public var strategy: PasteStrategy = .commandV
 
+    /// Reads the text before the caret of a field; nothing without the AX reader.
+    private var readContext: @MainActor (AXElementRef) async -> String? = { _ in nil }
+
     private let plainPaste: PlainPaste
     private let readTarget: @MainActor (_ frontmostPID: pid_t?) async -> PasteTarget?
     private let frontmostPID: @MainActor () -> pid_t?
@@ -98,6 +101,7 @@ public final class TextPaster {
                   },
                   modifierFlags: { CGEventSource.flagsState(.combinedSessionState) },
                   afterPaste: afterPaste)
+        readContext = { await reader.textBeforeCaret(in: $0) }
     }
 
     /// The closures replace the system in tests.
@@ -129,6 +133,14 @@ public final class TextPaster {
     /// when there is no frontmost app, and then there is nothing to paste into.
     public func captureTarget() async -> PasteTarget? {
         await currentTarget()
+    }
+
+    /// The few characters before the caret in `target`'s field: "" in an empty
+    /// field or at its start, nil when the field does not tell. For the text
+    /// rules, read just before the paste.
+    public func textBeforeCaret(in target: PasteTarget) async -> String? {
+        guard let element = target.element?.ref, !target.isSecureField else { return nil }
+        return await readContext(element)
     }
 
     /// Pastes `text` into `target` if it is still focused.

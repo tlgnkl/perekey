@@ -84,16 +84,38 @@ import Testing
         }
         stats.recordUndo(at: date(8), calendar: calendar)
         stats.recordManualRetype(at: date(8), calendar: calendar)
+        stats.recordDictation(words: 12, at: date(8), calendar: calendar)
         let data = try JSONEncoder().encode(stats)
         let root = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(Set(root.keys) == ["version", "days"])
         let days = try #require(root["days"] as? [String: [String: Any]])
         for (key, day) in days {
             #expect(key.wholeMatch(of: /\d{4}-\d{2}-\d{2}/) != nil)
-            #expect(Set(day.keys) == ["corrections", "undone", "manual"])
+            #expect(Set(day.keys) == ["corrections", "undone", "manual", "dictatedWords"])
             let kinds = try #require(day["corrections"] as? [String: Int])
             #expect(Set(kinds.keys).isSubset(of: ["layout", "typo", "capsLock", "doubleCapitals", "abbreviation", "yo"]))
         }
+    }
+
+    @Test func dictatedWordsAreCountedAndOldFilesStillRead() throws {
+        var stats = UsageStats()
+        stats.recordDictation(words: 5, at: date(8), calendar: calendar)
+        stats.recordDictation(words: 0, at: date(8), calendar: calendar)
+        stats.recordDictation(words: 7, at: date(8), calendar: calendar)
+        let week = stats.recent(7, endingAt: date(8), calendar: calendar)
+        #expect(UsageStats.dictatedWords(week) == 12)
+        let old = Data(#"{"version":1,"days":{"2026-01-01":{"corrections":{"layout":2},"undone":1,"manual":0}}}"#.utf8)
+        let decoded = try JSONDecoder().decode(UsageStats.self, from: old)
+        #expect(decoded.days["2026-01-01"]?.dictatedWords == 0)
+        #expect(decoded.days["2026-01-01"]?.undone == 1)
+    }
+
+    @Test func theFileKeepsItsFormatUntilSomethingIsDictated() throws {
+        var stats = UsageStats()
+        stats.recordUndo(at: date(8), calendar: calendar)
+        let root = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(stats)) as? [String: Any])
+        let days = try #require(root["days"] as? [String: [String: Any]])
+        for day in days.values { #expect(Set(day.keys) == ["corrections", "undone", "manual"]) }
     }
 
     @Test func roundTrips() throws {

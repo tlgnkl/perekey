@@ -4,6 +4,7 @@ import AppKit
 import Observation
 import os
 import PerekeyCore
+import PerekeyInput
 import PerekeyVoiceCore
 
 /// What the dictation HUD shows. The HUD reads `VoiceController.hud`, or
@@ -169,18 +170,32 @@ public final class VoiceController {
         /// After a paste: select the layout of the phrase's language.
         public var pasted: @MainActor (String) -> Void
         public var play: @MainActor (DictationMachine.Sound) -> Void
+        /// The text as it goes into the field: the text rules, given the
+        /// characters before the caret (nil when unknown) and the mode's
+        /// filler words rule (nil follows the settings). Empty drops the dictation.
+        public var edit: @MainActor (_ text: String, _ before: String?, _ removesFillers: Bool?) -> String
+        /// The words Whisper should spell, from the dictionary; nil for none.
+        public var prompt: @MainActor () -> String?
+        /// A finished dictation, for the history and the statistics. Never logged.
+        public var record: @MainActor (DictationRecord) -> Void
 
         public init(sessionChanged: @escaping @MainActor (Bool) -> Void = { _ in },
                     holdIsDown: @escaping @MainActor () -> Bool = { true },
                     holdLost: @escaping @MainActor () -> Void = {},
                     pasted: @escaping @MainActor (String) -> Void = { _ in },
-                    play: @escaping @MainActor (DictationMachine.Sound) -> Void = DictationSounds.play)
+                    play: @escaping @MainActor (DictationMachine.Sound) -> Void = DictationSounds.play,
+                    edit: @escaping @MainActor (String, String?, Bool?) -> String = { text, _, _ in text },
+                    prompt: @escaping @MainActor () -> String? = { nil },
+                    record: @escaping @MainActor (DictationRecord) -> Void = { _ in })
         {
             self.sessionChanged = sessionChanged
             self.holdIsDown = holdIsDown
             self.holdLost = holdLost
             self.pasted = pasted
             self.play = play
+            self.edit = edit
+            self.prompt = prompt
+            self.record = record
         }
     }
 
@@ -215,6 +230,9 @@ public final class VoiceController {
     @ObservationIgnored private var holdWatch: Task<Void, Never>?
     @ObservationIgnored private var observers: [UUID: AsyncStream<DictationHUDState>.Continuation] = [:]
     @ObservationIgnored private var tokens: [(NotificationCenter, any NSObjectProtocol)] = []
+    /// The field a session started in, once found: for the privacy check without waiting,
+    /// and after the session's own state is gone.
+    @ObservationIgnored private var resolvedTarget: (session: DictationMachine.Session, value: (any Sendable)?)?
     @ObservationIgnored private var isShutDown = false
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "voice")
     /// Recognitions over, whatever came of them: tests wait for it.
@@ -245,6 +263,8 @@ public final class VoiceController {
         var recognition: Task<Void, Never>?
         /// A step of the mode the session skipped.
         var fallback: ModeFallback?
+        /// The model of this Mac that heard it in the cloud's place.
+        var heardHere: String?
 
         /// The speech model is in the cloud.
         var isCloud: Bool { model.map { CloudSpeechModel(id: $0.engine.id) != nil } ?? false }
@@ -459,9 +479,18 @@ public final class VoiceController {
             }
         case let .paste(session, text):
             paste(session, text)
-        case let .keep(_, text):
-            last = DictatedText(text: text, pasted: false, isPrivate: false)
+        case let .keep(session, text):
+            let work = current?.session == session ? current : nil
+            let text = prepared(text, before: nil, plan: work?.plan)
+            // Without Accessibility there is no paste to ask: the target from the start decides.
+            // A target not found is unknown: the text stays on the HUD, nothing is stored.
+            let found = resolvedTarget?.session == session ? resolvedTarget : nil
+            let privacy: DictationPrivacy = found.map { currentPrivacy(of: $0.value) } ?? .unknown
+            resolvedTarget = nil
+            last = DictatedText(text: text, pasted: false, isPrivate: privacy.isPrivate)
             hud = .notPasted(.noAccessibility)
+            record(Delivered(text: text, pasted: false, privacy: privacy), target: found?.value, plan: work?.plan,
+                   audio: work?.audio.samples ?? [], model: speechModel(of: work))
         case let .takesEscape(on):
             hooks.sessionChanged(on)
         case let .sessionActive(on):
@@ -547,7 +576,11 @@ public final class VoiceController {
         current = work
         handle(.refinesText(session, plan?.refine != nil))
         let paster = self.paster
-        work.target = Task { await paster.captureTarget() }
+        work.target = Task { [weak self] in
+            let target = await paster.captureTarget()
+            self?.resolvedTarget = (session, target)
+            return target
+        }
         if let residency = work.model?.residency {
             work.loading = Task { [weak self, weak work] in
                 try await residency.begin()
@@ -632,6 +665,7 @@ public final class VoiceController {
         work.isRecognizing = true
         retained = nil
         let detector = self.detector
+        let prompt = hooks.prompt()
         work.recognition = Task(priority: .userInitiated) {
             await work.stopping?.value
             let audio = AudioBuffer16k(work.audio.samples)
@@ -643,15 +677,18 @@ public final class VoiceController {
                 let outcome: RecognitionOutcome
                 if work.isCloud, await keepsAudioHere(work) {
                     // A password field or Secure Input: the audio stays on this Mac.
-                    outcome = try await recognizeHere(audio, detector: detecting)
+                    outcome = try await recognizeHere(audio, detector: detecting, prompt: prompt)
+                    work.heardHere = preferences.modelID
                 } else if work.isCloud {
                     do {
                         try await loading.value
-                        outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting)
+                        outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting,
+                                                                           prompt: prompt)
                     } catch where !Task.isCancelled && !(error is CancellationError) {
                         log.error("cloud speech: \(String(describing: error), privacy: .public)")
                         do {
-                            outcome = try await recognizeHere(audio, detector: detecting)
+                            outcome = try await recognizeHere(audio, detector: detecting, prompt: prompt)
+                            work.heardHere = preferences.modelID
                             work.fallback = .cloudSpeechFailed
                         } catch {
                             // Nothing on this Mac can hear it: the audio waits for "Повторить",
@@ -665,7 +702,8 @@ public final class VoiceController {
                     }
                 } else {
                     try await loading.value
-                    outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting)
+                    outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting,
+                                                                       prompt: prompt)
                 }
                 release(work)
                 handle(.recognized(session, outcome))
@@ -698,12 +736,20 @@ public final class VoiceController {
     /// caret is in a password field, or Secure Input is on.
     private func keepsAudioHere(_ work: Work) async -> Bool {
         if !(secureInput?.allowsStart ?? true) { return true }
-        let target = await work.target?.value
-        return paster.isSecureField(target)
+        return currentPrivacy(of: await work.target?.value).isPrivate
+    }
+
+    /// The target's privacy, with Secure Input as the session's rules see it.
+    /// A target with nothing known of it (`.unknown`) is not a password:
+    /// the cloud and the language model may have it, the history may not.
+    private func currentPrivacy(of target: (any Sendable)?) -> DictationPrivacy {
+        let privacy = paster.privacy(of: target)
+        if privacy == .secureField { return privacy }
+        return secureInput?.allowsStart == false ? .secureInput : privacy
     }
 
     /// The dictation by the model of the voice settings, on this Mac.
-    private func recognizeHere(_ audio: AudioBuffer16k, detector: (any SpeechDetector)?) async throws
+    private func recognizeHere(_ audio: AudioBuffer16k, detector: (any SpeechDetector)?, prompt: String?) async throws
         -> RecognitionOutcome
     {
         guard CloudSpeechModel(id: preferences.modelID) == nil, let local = model(for: preferences.modelID) else {
@@ -711,7 +757,8 @@ public final class VoiceController {
         }
         try await local.residency.begin()
         do {
-            let outcome = try await DictationRecognition.recognize(audio, engine: local.engine, detector: detector)
+            let outcome = try await DictationRecognition.recognize(audio, engine: local.engine, detector: detector,
+                                                                   prompt: prompt)
             await local.residency.end()
             return outcome
         } catch {
@@ -727,24 +774,26 @@ public final class VoiceController {
     public func retryLast() {
         guard !isShutDown, machine.state == .idle, let retained, hud == .failed(.cloudSpeech) else { return }
         hud = .recognizing(preparingModel: false)
+        let prompt = hooks.prompt()
         retrying = Task {
-            let secureInputOn = !(secureInput?.allowsStart ?? true)
-            let secureField = paster.isSecureField(retained.target)
+            let privacy = currentPrivacy(of: retained.target)
+            var model = retained.model.engine.id
             do {
                 let outcome: RecognitionOutcome
-                if secureInputOn || secureField {
+                if privacy.isPrivate {
                     do {
-                        outcome = try await recognizeHere(retained.audio, detector: nil)
+                        outcome = try await recognizeHere(retained.audio, detector: nil, prompt: prompt)
+                        model = preferences.modelID
                     } catch {
                         // No model here, and the cloud may not hear a password.
                         guard isCurrentRetry else { return }
                         self.retained = nil
                         last = nil
-                        hud = .notPasted(secureField ? .secureField : .secureInput(owner: nil))
+                        hud = .notPasted(privacy == .secureField ? .secureField : .secureInput(owner: nil))
                         return
                     }
                 } else {
-                    outcome = try await recognize(retained.audio, by: retained.model)
+                    outcome = try await recognize(retained.audio, by: retained.model, prompt: prompt)
                 }
                 guard isCurrentRetry else { return }
                 self.retained = nil
@@ -753,7 +802,11 @@ public final class VoiceController {
                     return
                 }
                 hud = .pasting
-                await deliver(text, into: retained.target, plan: retained.plan, fallback: nil)
+                // The dictation's one entry: its first try wrote none.
+                if let delivered = await deliver(text, into: retained.target, plan: retained.plan, fallback: nil) {
+                    record(delivered, target: retained.target, plan: retained.plan, audio: retained.audio.samples,
+                           model: model)
+                }
             } catch {
                 guard isCurrentRetry else { return }
                 log.error("cloud speech, again: \(String(describing: error), privacy: .public)")
@@ -769,10 +822,13 @@ public final class VoiceController {
     private var isCurrentRetry: Bool { !Task.isCancelled && !isShutDown && machine.state == .idle }
 
     /// `audio` by `model`, holding it in memory meanwhile.
-    private func recognize(_ audio: AudioBuffer16k, by model: Model) async throws -> RecognitionOutcome {
+    private func recognize(_ audio: AudioBuffer16k, by model: Model, prompt: String?) async throws
+        -> RecognitionOutcome
+    {
         try await model.residency.begin()
         do {
-            let outcome = try await DictationRecognition.recognize(audio, engine: model.engine, detector: nil)
+            let outcome = try await DictationRecognition.recognize(audio, engine: model.engine, detector: nil,
+                                                                   prompt: prompt)
             await model.residency.end()
             return outcome
         } catch {
@@ -850,43 +906,80 @@ public final class VoiceController {
         let work = current?.session == session ? current : nil
         let target = work?.target
         Task {
-            await deliver(text, into: await target?.value, plan: work?.plan, fallback: work?.fallback)
+            let target = await target?.value
+            let delivered = await deliver(text, into: target, plan: work?.plan, fallback: work?.fallback)
             // Dictation went off during the paste: no HUD, no layout switch.
             guard !isShutDown else { return }
+            // One entry per dictation: "Paste" in the HUD or the menu adds none.
+            if let delivered {
+                record(delivered, target: target, plan: work?.plan, audio: work?.audio.samples ?? [],
+                       model: speechModel(of: work))
+            }
+            resolvedTarget = nil
             handle(.pasted(session))
         }
     }
 
-    /// The text where the mode sends it, cleaned of control characters
-    /// whichever model wrote it: on the pasteboard, or in the field and then
-    /// Return. Sets `last` and the HUD. A dictation's paste and "Повторить"
-    /// both go through here.
+    /// What became of a dictation's text, for the history.
+    private struct Delivered {
+        let text: String
+        let pasted: Bool
+        let privacy: DictationPrivacy
+    }
+
+    /// The text where the mode sends it, edited as `prepared` says: on the
+    /// pasteboard, or in the field and then Return. Sets `last` and the HUD.
+    /// A dictation's paste and "Повторить" both go through here. Nil when
+    /// nothing is left of the text, or dictation went off meanwhile.
     private func deliver(_ text: String, into target: (any Sendable)?, plan: DictationPlan?,
-                         fallback: ModeFallback?) async
+                         fallback: ModeFallback?) async -> Delivered?
     {
-        let clean = DictatedTextFilter.clean(text)
-        let text = plan?.singleLine == true ? Terminals.singleLine(clean) : clean
+        // Case and space fit what is before the caret; read right before the
+        // paste. A copied text has no caret to fit.
+        let before = plan?.output == .copy ? nil : await paster.caretContext(into: target)
+        guard !isShutDown else { return nil }
+        let text = prepared(text, before: before, plan: plan)
+        guard !text.isEmpty else {
+            hud = .nothingHeard
+            return nil
+        }
         if plan?.output == .copy {
-            let secureInputOn = !(secureInput?.allowsStart ?? true)
-            let secureField = paster.isSecureField(target)
-            guard !isShutDown else { return }
-            if secureInputOn || secureField {
+            let privacy = currentPrivacy(of: target)
+            if privacy.isPrivate {
                 // Meant for a password: not on the pasteboard, not in the history.
                 last = DictatedText(text: text, pasted: false, isPrivate: true)
-                hud = .notPasted(secureField ? .secureField : .secureInput(owner: nil))
+                hud = .notPasted(privacy == .secureField ? .secureField : .secureInput(owner: nil))
             } else {
                 paster.copy(text)
                 last = DictatedText(text: text, pasted: false, isPrivate: false)
                 hud = .copied
             }
-            return
+            return Delivered(text: text, pasted: false, privacy: privacy)
         }
-        var result = await paster.paste(text, into: target)
-        if result == .pasted, plan?.output == .pasteAndEnter, plan?.singleLine == false, plan?.refine == nil {
+        let pasted = await paster.paste(text, into: target)
+        var result = pasted
+        if pasted == .pasted, plan?.output == .pasteAndEnter, plan?.singleLine == false, plan?.refine == nil {
             result = await paster.pressReturn(in: target)
         }
-        guard !isShutDown else { return }
-        finishPaste(text, result, fallback: fallback)
+        guard !isShutDown else { return nil }
+        // Private by what the paste found, or by the field it started in: a
+        // refusal before the password check (modifiers, a moved target, a
+        // timeout) says nothing about the field.
+        let privacy: DictationPrivacy = switch pasted {
+        case .secureField: .secureField
+        case .secureInput: .secureInput
+        default: currentPrivacy(of: target)
+        }
+        finishPaste(text, result, wasPrivate: privacy.isPrivate, fallback: fallback)
+        return Delivered(text: text, pasted: pasted == .pasted, privacy: privacy)
+    }
+
+    /// A dictated text as it goes in: the text rules, with the mode's filler
+    /// words rule, then no control characters whichever model wrote it, then
+    /// one line for a single-line mode.
+    private func prepared(_ text: String, before: String?, plan: DictationPlan?) -> String {
+        let text = DictatedTextFilter.clean(hooks.edit(text, before, plan?.removesFillers))
+        return plan?.singleLine == true ? Terminals.singleLine(text) : text
     }
 
     /// "Вставить" in the HUD: the last text into the field the caret is in
@@ -899,16 +992,20 @@ public final class VoiceController {
         else { return }
         hud = .pasting
         let paster = self.paster
+        // Private stays private: the text was meant for a password field once.
+        let wasPrivate = last?.isPrivate ?? false
         Task {
             let result = await paster.paste(text, into: await paster.captureTarget())
             // A new dictation began meanwhile: its HUD and its text are the current ones.
             guard !isShutDown, machine.state == .idle else { return }
-            finishPaste(text, result)
+            finishPaste(text, result, wasPrivate: wasPrivate)
         }
     }
 
     /// - Parameter fallback: a step of the mode the dictation skipped; the HUD names it.
-    private func finishPaste(_ text: String, _ result: DictationPasteResult, fallback: ModeFallback? = nil) {
+    private func finishPaste(_ text: String, _ result: DictationPasteResult, wasPrivate: Bool,
+                             fallback: ModeFallback? = nil)
+    {
         let reason: NotPastedReason? = switch result {
         case .pasted: nil
         case .targetChanged: .targetChanged
@@ -917,7 +1014,7 @@ public final class VoiceController {
         case .timedOut: .timedOut
         case let .failed(message): .failed(message)
         }
-        let isPrivate = reason == .secureField || { if case .secureInput = reason { true } else { false } }()
+        let isPrivate = wasPrivate || reason == .secureField || { if case .secureInput = reason { true } else { false } }()
         last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
         if let reason {
             hud = .notPasted(reason)
@@ -925,6 +1022,25 @@ public final class VoiceController {
             hud = fallback.map(DictationHUDState.pastedFallback) ?? .pasted
             if preferences.switchesLayout { hooks.pasted(text) }
         }
+    }
+
+    /// The model that heard a session: the mode's, or this Mac's in the cloud's place.
+    private func speechModel(of work: Work?) -> String {
+        work?.heardHere ?? work?.model?.engine.id ?? preferences.modelID
+    }
+
+    /// Hands the finished dictation to the history and the statistics, with
+    /// the site of the plan for the history's excluded sites.
+    private func record(_ delivered: Delivered, target: (any Sendable)?, plan: DictationPlan?, audio: [Float],
+                        model: String)
+    {
+        // Nothing private or unknown reaches the history or the statistics.
+        guard delivered.privacy == .normal else { return }
+        let app = paster.application(of: target)
+        hooks.record(DictationRecord(
+            text: delivered.text, bundleID: app?.bundleID, appName: app?.name, host: plan?.host,
+            duration: Double(audio.count) / VoiceCore.sampleRate, model: model, pasted: delivered.pasted,
+            privacy: delivered.privacy, audio: audio))
     }
 
     /// The level and the timer while recording, and the silence check.

@@ -173,6 +173,29 @@ public final class PasteTargetReader: Sendable {
         } ?? .unknown
     }
 
+    /// Up to `count` characters before the caret of `element`: "" at the start of
+    /// the text, nil when the field does not tell (no range, no text, no answer
+    /// in time). A selection counts from its start. Text rules read it to fit
+    /// case and space to what is already there.
+    public func textBeforeCaret(in element: AXElementRef, count: Int = 8) async -> String? {
+        await run { timedOut in
+            let element = element.element
+            AXUIElementSetMessagingTimeout(element, FocusObserver.messagingTimeout)
+            var rangeValue: CFTypeRef?
+            guard !timedOut(),
+                  AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+                  let rangeValue, CFGetTypeID(rangeValue) == AXValueGetTypeID()
+            else { return nil }
+            var selection = CFRange()
+            guard AXValueGetValue(unsafeDowncast(rangeValue, to: AXValue.self), .cfRange, &selection),
+                  selection.location != kCFNotFound, selection.location >= 0
+            else { return nil }
+            if selection.location == 0 { return "" }
+            let start = max(0, selection.location - count)
+            return TextProbe.string(of: element, in: CFRange(location: start, length: selection.location - start))
+        }
+    }
+
     /// Presses the menu item of app `pid` that has ⌘V as its shortcut (Edit ▸
     /// Paste in any language).
     public func pressPasteMenuItem(pid: pid_t) async -> AXActionOutcome {

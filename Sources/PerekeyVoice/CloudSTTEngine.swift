@@ -42,8 +42,15 @@ public actor CloudSTTEngine: SpeechEngine {
     public func unload() async {}
 
     public func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {
+        try await transcribe(audio, prompt: nil)
+    }
+
+    /// The prompt, the words of the user's dictionary, goes in the request's
+    /// `prompt` field: the server's Whisper spells them so.
+    public func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript {
         guard let target = await target() else { throw Failure.unavailable }
-        let text = try await client.transcribe(audio, model: model, address: target.address, key: target.key)
+        let text = try await client.transcribe(audio, model: model, address: target.address, key: target.key,
+                                               prompt: prompt)
         return Transcript(text: text)
     }
 }

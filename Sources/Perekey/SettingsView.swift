@@ -77,6 +77,7 @@ struct SettingsView: View {
     var voiceController: VoiceModelsController?
     /// The dictation modes; the Voice modes tab is empty without them.
     var voiceModes: VoiceModesStore?
+    var voiceTextController: VoiceTextController?
     #endif
     /// A view of the first pane to scroll to when it opens; gone once the person picks another pane.
     private let scrollTarget: State<String?>
@@ -151,7 +152,9 @@ struct SettingsView: View {
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         #if PEREKEY_VOICE
         case .voice:
-            if let voiceController { VoicePane(controller: voiceController, store: store, recording: recording) }
+            if let voiceController {
+                VoicePane(controller: voiceController, textController: voiceTextController, store: store, recording: recording)
+            }
         case .voiceModes:
             if let voiceModes, let voiceController { ModesPane(store: voiceModes, models: voiceController) }
         #endif

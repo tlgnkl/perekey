@@ -17,6 +17,8 @@ import PerekeyVoiceCore
 final class VoiceSetup {
     private let input: InputController
     private let models: VoiceModelsController
+    private let text: VoiceTextController
+    private let usage: UsageRecorder
     private(set) var controller: VoiceController?
     private var capture: AudioCapture?
     private var hud: VoiceHUDController?
@@ -29,9 +31,13 @@ final class VoiceSetup {
     /// Consents declined in this run: not asked again after every dictation.
     private var declined: Set<String> = []
 
-    init(input: InputController, models: VoiceModelsController, modes: VoiceModesStore) {
+    init(input: InputController, models: VoiceModelsController, modes: VoiceModesStore, text: VoiceTextController,
+         usage: UsageRecorder)
+    {
         self.input = input
         self.models = models
+        self.text = text
+        self.usage = usage
         self.modes = modes
         models.modes = modes
         input.onVoice = { [weak self] in self?.controller?.voice($0) }
@@ -43,6 +49,18 @@ final class VoiceSetup {
             Task { await controller.modelDownloaded(id) }
         }
         models.settings.observe { [weak self] in self?.apply() }
+    }
+
+    /// "Paste again" in the menu: into the field now in front, as a dictation goes.
+    func pasteAgain(_ entry: HistoryEntry) {
+        let paster = TextPasterAdapter(input.textPaster)
+        guard paster.hasTarget else { return }
+        Task {
+            // The menu has closed; give the focus a moment to settle in the app behind it.
+            try? await Task.sleep(for: .milliseconds(150))
+            let target = await paster.captureTarget()
+            _ = await paster.paste(entry.text, into: target)
+        }
     }
 
     private var settings: VoiceSettings { models.settings.settings }
@@ -72,6 +90,8 @@ final class VoiceSetup {
         self.capture = capture
         let input = self.input
         let trigger = { [weak self] in self?.settings.trigger }
+        let text = self.text
+        let usage = self.usage
         controller = VoiceController(
             preferences: preferences, capture: capture, store: models.store,
             paster: TextPasterAdapter(input.textPaster), secureInput: input.dictationSecureInput,
@@ -79,7 +99,20 @@ final class VoiceSetup {
                 sessionChanged: { input.voiceSessionChanged($0) },
                 holdIsDown: { trigger()?.isHeldNow ?? false },
                 holdLost: { input.voiceHoldLost() },
-                pasted: { input.selectLayout(afterDictating: $0) }),
+                pasted: { input.selectLayout(afterDictating: $0) },
+                edit: { dictated, before, modeRemovesFillers in
+                    let settings = text.text.settings
+                    return TextRules.apply(dictated, before: before, dictionary: settings.dictionary,
+                                           removesFillers: modeRemovesFillers ?? settings.removesFillers)
+                },
+                prompt: {
+                    let prompt = TextRules.whisperPrompt(dictionary: text.text.settings.dictionary)
+                    return prompt.isEmpty ? nil : prompt
+                },
+                record: { record in
+                    text.history.record(record)
+                    usage.recordDictation(words: DictationHistoryText.wordCount(record.text))
+                }),
             cloudEngine: { [modes] id in Self.cloudEngine(id, modes: modes) })
         controller?.modes = runner
         if let controller {

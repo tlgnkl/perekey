@@ -109,7 +109,7 @@ public final class VoiceModeRunner: DictationModeSource {
         var plan = DictationPlan(
             modeID: mode.id, modeName: mode.name,
             output: singleLine && mode.output == .pasteAndEnter ? .paste : mode.output,
-            singleLine: singleLine, appName: front?.name, host: host)
+            singleLine: singleLine, removesFillers: mode.rules.removesFillers, appName: front?.name, host: host)
         guard set.newerSchemaVersion == nil else {
             if !mode.endpoints.isEmpty { plan.fallback = .modesLocked }
             return plan

@@ -191,6 +191,11 @@ struct OpenAICompatibleClientTests {
         #expect(engine.id == "cloud:groq:whisper-large-v3-turbo")
         try await engine.prepare()
         #expect(try await engine.transcribe(AudioBuffer16k([0, 0.1])).text == "Облако.")
+        // The dictionary's words go as the request's prompt; none, no field.
+        _ = try await engine.transcribe(AudioBuffer16k([0, 0.1]), prompt: "Perekey, Parakeet")
+        let bodies = fake.server.requests.map { String(decoding: $0.body, as: UTF8.self) }
+        #expect(!bodies[0].contains("name=\"prompt\""))
+        #expect(bodies[1].contains("name=\"prompt\"\r\n\r\nPerekey, Parakeet\r\n"))
         let gone = CloudSTTEngine(model: CloudSpeechModel(endpoint: "groq", model: "m"), client: fake.client()) { nil }
         await #expect(throws: CloudSTTEngine.Failure.unavailable) { try await gone.transcribe(AudioBuffer16k([0])) }
     }

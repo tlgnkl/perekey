@@ -3,6 +3,7 @@
 import AppKit
 import PerekeyCore
 import PerekeyInput
+import PerekeyVoiceCore
 
 /// `TextPaster` as dictation's paster: the one place that knows its API.
 @MainActor
@@ -19,6 +20,24 @@ public final class TextPasterAdapter: DictationPaster {
         await paster.captureTarget()
     }
 
+    public func caretContext(into target: (any Sendable)?) async -> String? {
+        guard let target = target as? PasteTarget else { return nil }
+        return await paster.textBeforeCaret(in: target)
+    }
+
+    public func application(of target: (any Sendable)?) -> DictationApplication? {
+        guard let target = target as? PasteTarget,
+              let app = NSRunningApplication(processIdentifier: target.pid) else { return nil }
+        return DictationApplication(bundleID: app.bundleIdentifier, name: app.localizedName)
+    }
+
+    public func privacy(of target: (any Sendable)?) -> DictationPrivacy {
+        if (target as? PasteTarget)?.isSecureField == true { return .secureField }
+        if SecureInput.isEnabled { return .secureInput }
+        // No element: the field cannot be told, so nothing of it is kept.
+        return (target as? PasteTarget)?.element == nil ? .unknown : .normal
+    }
+
     public func paste(_ text: String, into target: (any Sendable)?) async -> DictationPasteResult {
         // No app in front when dictation started: `hasTarget` keeps that
         // from starting, but the app may have quit in between.
@@ -31,10 +50,6 @@ public final class TextPasterAdapter: DictationPaster {
         case .failed(.timedOut): .timedOut
         case let .failed(failure): .failed(String(describing: failure))
         }
-    }
-
-    public func isSecureField(_ target: (any Sendable)?) -> Bool {
-        (target as? PasteTarget)?.isSecureField ?? false
     }
 
     /// Return on the target, marked as Perekey's own so the tap lets it

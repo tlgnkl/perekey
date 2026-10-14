@@ -57,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The voice settings and speech models. Lives with the app, so the
     /// network gate and the downloads do not depend on the Settings window.
     private let voiceModels: VoiceModelsController
+    /// The text rules and the dictation history.
+    private let voiceText: VoiceTextController
     /// Dictation: the hotkey, the microphone, the engines, the paste.
     private let voice: VoiceSetup
     /// "What's new: voice input", once, for someone who already uses Perekey.
@@ -87,7 +89,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let voiceModels = VoiceModelsController(settings: VoiceSettingsStore())
         self.voiceModels = voiceModels
         let voiceModes = VoiceModesStore()
-        voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes)
+        let voiceText = VoiceTextController()
+        self.voiceText = voiceText
+        voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes, text: voiceText, usage: usage)
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
@@ -95,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     languages: input.languages, initial: section, scrollTarget: scrollTarget)
             view.voiceController = voiceModels
             view.voiceModes = voiceModes
+            view.voiceTextController = voiceText
             return view
             #else
             return SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
@@ -132,6 +137,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              settings: settings)
         #endif
         super.init()
+        #if PEREKEY_VOICE
+        shell.dictation.menu = voiceText.menu(pasteAgain: { [voice] in voice.pasteAgain($0) })
+        #endif
         ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
     }
 
@@ -154,6 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Counters reach the disk at most every few seconds, and here at quit.
         usage.flush()
+        #if PEREKEY_VOICE
+        // The history writes off the main thread: let the last one land.
+        voiceText.history.flush()
+        #endif
         // The Caps Lock remap would outlive the app until logout.
         CapsLockRemapper.apply(.untouched)
     }
@@ -215,6 +227,8 @@ final class MenuBarShell {
     private let reportWindow = ReportWordWindow()
     private let pause: PauseState
     private var statusItem: StatusItemController?
+    /// What the menu shows of the dictation history; filled once voice is set up.
+    let dictation = DictationMenuSource()
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
          recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates,
@@ -226,6 +240,7 @@ final class MenuBarShell {
         self.recents = recents
         self.onboarding = onboarding
         let reportWindow = reportWindow
+        let dictation = dictation
         menu = MenuPanelController(
             sources: sources, store: store, pause: pause, launch: launch, appModes: input.appModes,
             recents: recents, usage: usage, updates: updates
@@ -245,6 +260,9 @@ final class MenuBarShell {
                 }
             )
             extend(&actions)
+            #if PEREKEY_VOICE
+            actions.dictation = dictation.menu
+            #endif
             return actions
         }
     }
@@ -253,6 +271,14 @@ final class MenuBarShell {
         guard statusItem == nil else { return }
         statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu)
     }
+}
+
+/// Hands the menu the recent dictations once they exist. Empty without voice.
+@MainActor
+final class DictationMenuSource {
+    #if PEREKEY_VOICE
+    var menu: DictationMenu?
+    #endif
 }
 
 /// "Report a word" from the menu: the form in its own small window.

@@ -73,8 +73,27 @@ public protocol DictationPaster: AnyObject {
     func copy(_ text: String)
     /// Return after a paste, for "Paste and Enter": only if `target` is still in front.
     func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult
-    /// The target is a password field: nothing of the dictation leaves the Mac for it.
-    func isSecureField(_ target: (any Sendable)?) -> Bool
+    /// The few characters before the caret in the target field: "" for an
+    /// empty field, nil when it cannot be read. For the text rules.
+    func caretContext(into target: (any Sendable)?) async -> String?
+    /// The program the target belongs to, for the history.
+    func application(of target: (any Sendable)?) -> DictationApplication?
+    /// Whether a text dictated into `target` is private: the field is a
+    /// password field, or Secure Input is on now. Asked whatever the paste
+    /// answered: the paste checks the field only after Accessibility, the
+    /// modifiers and the target, and a refusal on the way says nothing about it.
+    func privacy(of target: (any Sendable)?) -> DictationPrivacy
+}
+
+/// A program a dictation went into.
+public struct DictationApplication: Hashable, Sendable {
+    public var bundleID: String?
+    public var name: String?
+
+    public init(bundleID: String?, name: String?) {
+        self.bundleID = bundleID
+        self.name = name
+    }
 }
 
 extension DictationPaster {
@@ -87,8 +106,9 @@ extension DictationPaster {
     }
 
     public func pressReturn(in _: (any Sendable)?) async -> DictationPasteResult { .pasted }
-
-    public func isSecureField(_: (any Sendable)?) -> Bool { false }
+    public func caretContext(into _: (any Sendable)?) async -> String? { nil }
+    public func application(of _: (any Sendable)?) -> DictationApplication? { nil }
+    public func privacy(of _: (any Sendable)?) -> DictationPrivacy { .normal }
 }
 
 /// The Secure Input rules of a session: no start while it is on; a stop

@@ -20,6 +20,8 @@ struct MenuActions {
     #if PEREKEY_VOICE
     /// The voice mode switch; nil hides it.
     var voiceModes: VoiceModeMenu?
+    /// The recent dictations; nil hides the section.
+    var dictation: DictationMenu?
     #endif
 }
 
@@ -149,6 +151,11 @@ struct MenuContent: View {
             modeCard
                 .padding(.horizontal, 12)
             recentSection
+            #if PEREKEY_VOICE
+            if let dictation = actions.dictation, !dictation.history.entries.isEmpty {
+                DictationMenuSection(menu: dictation, close: actions.close)
+            }
+            #endif
             PKDivider(leading: 12, trailing: 12).padding(.top, 10)
             VStack(alignment: .leading, spacing: 2) {
                 switchRow(
@@ -179,7 +186,13 @@ struct MenuContent: View {
         }
         .frame(width: 318)
         .onPreferenceChange(MenuOrderKey.self) { nav.order = $0 }
-        .onAppear { lastReason.wrappedValue = pause.current }
+        .onAppear {
+            lastReason.wrappedValue = pause.current
+            #if PEREKEY_VOICE
+            // Expired dictations go when the menu opens, at most once a day.
+            actions.dictation?.history.purgeIfDue()
+            #endif
+        }
         .onChange(of: pause.current) { _, new in
             if let new { lastReason.wrappedValue = new }
         }

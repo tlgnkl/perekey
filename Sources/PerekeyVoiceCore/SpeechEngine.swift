@@ -20,6 +20,9 @@ public protocol SpeechEngine: VoiceModel {
     var addsSignOffs: Bool { get }
     /// One dictation, held in memory whole. Throws if not prepared.
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript
+    /// The same, with words the model should spell as given (the user's
+    /// dictionary). An engine without a prompt ignores it; Whisper reads it.
+    func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript
     /// Long audio from disk, with timings: a file or a track's segments.
     func transcribe(source: AudioSource, progress: @escaping @Sendable (Double) -> Void) async throws
         -> TimedTranscript
@@ -27,6 +30,10 @@ public protocol SpeechEngine: VoiceModel {
 
 extension SpeechEngine {
     public var addsSignOffs: Bool { false }
+
+    public func transcribe(_ audio: AudioBuffer16k, prompt _: String?) async throws -> Transcript {
+        try await transcribe(audio)
+    }
 
     /// Files and call recordings come with stage 5.
     public func transcribe(source _: AudioSource, progress _: @escaping @Sendable (Double) -> Void) async throws

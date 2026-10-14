@@ -42,15 +42,13 @@ final class CallRecordingController {
     /// The capsule's ● and time; the menu bar sets it.
     @ObservationIgnored var indicator: CallIndicatorModel?
 
-    /// The file queue, once there is one: stopped calls go to it, and its
-    /// work counts as busy for the updater.
-    @ObservationIgnored var fileQueue: (any FileTranscribing)? {
-        didSet {
-            let queue = fileQueue
-            Task { await recorder.setTranscriber(queue) }
-            watchQueue()
-        }
-    }
+    /// The file queue while voice is on. It is made anew each time voice
+    /// turns on, so it is read when a call stops, never kept.
+    @ObservationIgnored var fileQueue: @MainActor () -> (any FileTranscribing)? = { nil }
+    /// The model for files and calls: the user's choice for transcriptions,
+    /// or the dictation model. A cloud one only if the user chose it; the
+    /// queue asks for the consent to send a conversation itself.
+    @ObservationIgnored var transcriptionModel: @MainActor () -> String = { VoiceSettings.defaultModel }
 
     init(capture: AudioCapture, settings: VoiceSettingsStore, isSupported: @escaping () -> Bool,
          folder: RecordingsFolder = RecordingsFolder())
@@ -69,6 +67,14 @@ final class CallRecordingController {
             }
         }
         observe()
+        // The recorder reads the queue at each «Стоп».
+        let recorder = recorder
+        let queue: @Sendable () async -> (any FileTranscribing)? = { [weak self] in await self?.currentQueue() }
+        Task { await recorder.setTranscriber(queue) }
+    }
+
+    private func currentQueue() -> (any FileTranscribing)? {
+        fileQueue()
     }
 
     private var managed: ManagedSettings { settings.managed }
@@ -80,9 +86,6 @@ final class CallRecordingController {
     }
 
     var isRecording: Bool { status.phase != .idle }
-
-    /// A relaunch would cut work off: a call is recorded or transcribed.
-    var isBusy: Bool { isRecording || fileQueue?.isBusy == true }
 
     // MARK: Menu and panel
 
@@ -131,7 +134,7 @@ final class CallRecordingController {
         let retention = RecordingMeta.AudioRetention(rawValue: voice.callAudioRetention.rawValue) ?? .always
         let options = CallRecorder.Options(
             source: source, retention: managed.callAudioKeepDisabled ? .untilTranscribed : retention,
-            excludedFromBackup: excludedFromBackup, model: voice.model, diarize: voice.callDiarize)
+            excludedFromBackup: excludedFromBackup, model: transcriptionModel(), diarize: voice.callDiarize)
         problem = nil
         let capture = capture
         Task {
@@ -151,10 +154,9 @@ final class CallRecordingController {
         }
     }
 
-    /// The user's Time Machine choice as the folder holds it; a new folder
-    /// stays out of the backups.
+    /// «Включать в Time Machine», unless a profile keeps recordings out.
     private var excludedFromBackup: Bool {
-        FileManager.default.fileExists(atPath: folder.root.path) ? folder.isExcludedFromBackup : true
+        !settings.settings.includesRecordingsInBackup || managed.transcriptsBackupDisabled
     }
 
     func togglePause() {
@@ -173,8 +175,8 @@ final class CallRecordingController {
 
     @discardableResult
     func stopAndWait(_ reason: CallRecorder.StopReason) async -> UUID? {
-        let id = await recorder.stop(reason)
-        if id != nil, reason != .quit {
+        guard let id = await recorder.stop(reason) else { return nil }
+        if reason != .quit {
             CallAnnouncement.post(voiceString("Call recording stopped"))
         }
         return id
@@ -271,6 +273,7 @@ final class CallRecordingController {
     func launched() {
         let interrupted = CallRecordings.recoverInterrupted(in: folder)
         purge()
+        watchQueue()
         guard isAvailable, let last = interrupted.last else { return }
         offerTranscription(of: last, count: interrupted.count)
     }
@@ -285,10 +288,10 @@ final class CallRecordingController {
         NSApp.activate()
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let voice = settings.settings
-        let job = TranscriptionJob(recording: id, model: voice.model, diarize: voice.callDiarize)
+        let job = TranscriptionJob(recording: id, model: transcriptionModel(), diarize: voice.callDiarize)
         _ = try? folder.updateMeta(id) { $0.pendingJob = job }
-        if let fileQueue {
-            Task { await fileQueue.enqueue(job) }
+        if let queue = fileQueue() {
+            Task { await queue.enqueue(job) }
         }
     }
 
@@ -312,13 +315,18 @@ final class CallRecordingController {
         }
     }
 
+    /// Voice turned on or off: the queue is another one.
+    func queueChanged() {
+        watchQueue()
+    }
+
     /// A finished transcript may free its audio («удалять после расшифровки»).
     private func watchQueue() {
         phasesTask?.cancel()
-        guard let fileQueue else { return }
+        guard let queue = fileQueue() else { return }
         phasesTask = Task { [weak self] in
             var done: Set<UUID> = []
-            for await phases in fileQueue.phases() {
+            for await phases in await queue.phases() {
                 let finished = Set(phases.filter { if case .done = $0.value { true } else { false } }.keys)
                 if !finished.subtracting(done).isEmpty {
                     self?.purge()

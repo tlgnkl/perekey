@@ -31,6 +31,8 @@ final class VoiceSetup {
     private let probe = TextProbe()
     /// Consents declined in this run: not asked again after every dictation.
     private var declined: Set<String> = []
+    /// The file queue; it runs while voice is on.
+    let files: FileTranscription
 
     init(input: InputController, models: VoiceModelsController, modes: VoiceModesStore, text: VoiceTextController,
          usage: UsageRecorder)
@@ -40,6 +42,7 @@ final class VoiceSetup {
         self.text = text
         self.usage = usage
         self.modes = modes
+        files = FileTranscription(models: models, modes: modes, text: text)
         models.modes = modes
         input.onVoice = { [weak self] in self?.controller?.voice($0) }
         input.onAccessLost.chain { [weak self] in self?.controller?.accessibilityLost() }
@@ -72,6 +75,7 @@ final class VoiceSetup {
         // The tap's snapshot: the trigger, and the retype narrowed to the left ⌥.
         input.voiceSettings = isOn ? settings : VoiceSettings()
         guard isOn else {
+            files.stop()
             if let controller {
                 self.controller = nil
                 hud?.stop()
@@ -116,6 +120,8 @@ final class VoiceSetup {
                 }),
             cloudEngine: { [modes] id in Self.cloudEngine(id, modes: modes) })
         controller?.modes = runner
+        controller?.dictation = files.dictation
+        files.start()
         if let controller {
             hud = VoiceHUDController(
                 voice: controller,
@@ -169,7 +175,7 @@ final class VoiceSetup {
 
     /// The engine of a cloud speech model: the address and the key are read
     /// for every dictation.
-    private static func cloudEngine(_ id: String, modes: VoiceModesStore) -> (any SpeechEngine)? {
+    nonisolated static func cloudEngine(_ id: String, modes: VoiceModesStore) -> (any SpeechEngine)? {
         guard let model = CloudSpeechModel(id: id) else { return nil }
         return CloudSTTEngine(model: model, client: OpenAICompatibleClient()) { [weak modes] in
             await MainActor.run {

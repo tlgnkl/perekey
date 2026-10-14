@@ -144,6 +144,26 @@ final class VoiceModesStore {
         return ask(request)
     }
 
+    /// Whether a recording of a conversation may go to the server of a cloud
+    /// speech model now; true for any other model.
+    func mayUploadConversation(model id: String) -> Bool {
+        guard let model = CloudSpeechModel(id: id) else { return true }
+        return modes.mayUploadConversation(to: model.endpoint, cloudDisabled: cloudDisabled)
+    }
+
+    /// Before a cloud model gets a file or a call: «На <адрес> уйдёт запись
+    /// разговора, в ней голоса других людей». Asked once per server; true
+    /// for a model of this Mac.
+    @discardableResult
+    func askConversationConsent(model id: String) -> Bool {
+        guard let model = CloudSpeechModel(id: id) else { return true }
+        if mayUploadConversation(model: id) { return true }
+        guard !cloudDisabled, let found = modes.endpoint(model.endpoint), let address = found.endpointAddress
+        else { return false }
+        return ask(ConsentRequest(endpointID: found.id, endpointName: found.name, host: address.displayHost,
+                                  data: .conversationAudio, modeName: ""))
+    }
+
     /// Shows the consent window; records the answer.
     @discardableResult
     func ask(_ request: ConsentRequest) -> Bool {
@@ -189,6 +209,9 @@ enum ConsentWindow {
     }
 
     static func text(_ request: ConsentRequest) -> String {
+        if request.data == .conversationAudio {
+            return voiceString("The recording of a conversation will go to \(request.host). It holds the voices of other people. Until you allow it, recordings are transcribed on this Mac.")
+        }
         let items = ModeData.all.filter { request.data.contains($0) }.map(name)
         let list = ListFormatter.localizedString(byJoining: items)
         return voiceString("In the mode “\(request.modeName)”, Perekey will send to \(request.host): \(list). Until you allow it, the mode pastes the text as recognized.")
@@ -201,6 +224,7 @@ enum ConsentWindow {
         case .selection: voiceString("the selected text")
         case .app: voiceString("the app’s name")
         case .site: voiceString("the site’s address")
+        case .conversationAudio: voiceString("the recording of a conversation, with other people’s voices")
         default: ""
         }
     }

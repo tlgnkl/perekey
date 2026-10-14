@@ -30,6 +30,8 @@ func usage() -> Never {
           track <dir> <hours> <name> <audio[:rttm]>...  a call track from open audio, ADTS segments
           longform <id> <recording> [...]               a recording's tracks in windows, with dictation
           diarize <method> <audio|recording> [...]      one diarizer: time, memory, DER
+          transcribe <recording> <id> [--diarize] [--dictation-every s --phrase audio] [--cancel-after s]
+                                      the app's file queue on a recording folder (JSON)
         """)
     exit(2)
 }
@@ -93,6 +95,8 @@ do {
         try await LongformCommand.run(rest)
     case "diarize":
         try await DiarizeCommand.run(rest)
+    case "transcribe":
+        try await TranscribeCommand.run(rest)
     default:
         usage()
     }

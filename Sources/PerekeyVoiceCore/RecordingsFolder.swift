@@ -130,6 +130,28 @@ public struct RecordingsFolder: Sendable {
         }
     }
 
+    /// `transcript.partial.json`: the windows the queue has done. Only the
+    /// queue reads and writes it; it goes once `transcript.json` is written.
+    public func partialURL(for id: UUID) -> URL {
+        directory(for: id).appending(path: "transcript.partial.json", directoryHint: .notDirectory)
+    }
+
+    /// The saved progress; nil if there is none, or none this version reads.
+    public func partial(_ id: UUID) -> TranscriptionCheckpoint? {
+        guard case let .loaded(partial) = load(partialURL(for: id), current: TranscriptionCheckpoint.schemaVersion)
+            as Loaded<TranscriptionCheckpoint>
+        else { return nil }
+        return partial
+    }
+
+    public func savePartial(_ partial: TranscriptionCheckpoint, id: UUID) throws {
+        try Self.encoder().encode(partial).write(to: partialURL(for: id), options: .atomic)
+    }
+
+    public func removePartial(_ id: UUID) {
+        try? FileManager.default.removeItem(at: partialURL(for: id))
+    }
+
     /// Removes a recording: its folder with the audio and the transcript.
     /// A file the user chose is outside it and stays.
     public func remove(_ id: UUID) throws {
@@ -139,17 +161,20 @@ public struct RecordingsFolder: Sendable {
     /// The Time Machine choice: «Включать в Time Machine» clears the mark.
     public func setExcludedFromBackup(_ excluded: Bool) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        var url = root
+        var url = fresh(root)
         var values = URLResourceValues()
         values.isExcludedFromBackup = excluded
         try url.setResourceValues(values)
     }
 
     public var isExcludedFromBackup: Bool {
-        // A URL caches what it read; ask the disk.
-        var url = root
-        url.removeAllCachedResourceValues()
-        return (try? url.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) ?? false
+        (try? fresh(root).resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) ?? false
+    }
+
+    /// A URL caches the resource values it read or set, and a copy shares
+    /// the cache: a new one asks the disk.
+    private func fresh(_ url: URL) -> URL {
+        URL(filePath: url.path(percentEncoded: false), directoryHint: .isDirectory)
     }
 
     static func encoder() -> JSONEncoder {

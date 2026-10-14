@@ -22,6 +22,19 @@ differently, what was fixed.
 
 ### Changed
 
+- **Words joined by a slash are fixed one by one.** In “доходы/расходы”,
+  “менеджер/CEO” or “приход/расход” automatic switching judges each word on its
+  own: “ghbdtn/vbh” becomes “привет/мир”, and “привет/цщкдв” becomes
+  “привет/world”. Addresses and code such as “github.com/user” or
+  “~/docs” stay as typed. Short parts (“B/C”) and parts with capitals inside
+  (“UX/UI”) stay as they are too. On Russian – PC, where “/” is Shift+\,
+  the token is judged whole, as before.
+- **Option retypes the part after a slash.** In “менеджер/сущ” the first
+  press gives “менеджер/ceo” and leaves the word before the slash alone.
+  Press again to put it back, and a third time to retype the whole word.
+  If the word before the slash is in the wrong layout too, the first press
+  retypes everything, as before. With phrase retype off, every press
+  toggles only the part after the slash.
 - **Conflict warnings read your Mac.** Perekey warns about Spotlight or the
   macOS input switch only when that shortcut really does it on this Mac.
 - **Paste without formatting leaves passwords to your password manager.**
@@ -36,6 +49,9 @@ differently, what was fixed.
 - **The hint stays by the cursor in terminals.** In terminals built on
   xterm.js (Orca, the VS Code terminal) the correction hint appeared in the
   top right corner of the screen. It now shows next to the line you type in.
+- **Switching works in Telegram Lite.** In Telegram Lite and Telegram Desktop
+  Perekey noticed the wrong layout but never fixed the word, neither by itself
+  nor with Option. The native Telegram for macOS was not affected.
 
 ## [0.1.1] - 2026-10-12
 

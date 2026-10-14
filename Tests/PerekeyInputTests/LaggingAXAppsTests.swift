@@ -13,6 +13,13 @@ import Testing
         #expect(LaggingAXApps.isLagging(bundleURL: Self.slack))
     }
 
+    @Test func telegramDesktopLags() {
+        #expect(LaggingAXApps.isLagging(bundleID: "org.telegram.desktop"))
+        #expect(LaggingAXApps.isLagging(bundleID: "com.tdesktop.Telegram"))
+        // The native Telegram for macOS answers correctly.
+        #expect(!LaggingAXApps.isLagging(bundleID: "ru.keepcoder.Telegram"))
+    }
+
     @Test func nativeAppsDoNot() {
         #expect(!LaggingAXApps.isLagging(bundleURL: URL(fileURLWithPath: "/System/Applications/TextEdit.app")))
         #expect(!LaggingAXApps.isLagging(bundleURL: URL(fileURLWithPath: "/Applications/Safari.app")))

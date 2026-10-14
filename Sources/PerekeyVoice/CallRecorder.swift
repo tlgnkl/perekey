@@ -179,7 +179,7 @@ public actor CallRecorder {
     private let freeSpace: @Sendable (URL) -> Int64?
     private let hostTime: @Sendable () -> UInt64
     private let onStatus: @Sendable (Status) -> Void
-    private var transcriber: (any FileTranscribing)?
+    private var transcriber: @Sendable () async -> (any FileTranscribing)? = { nil }
     private static let log = Logger(subsystem: "app.perekey", category: "call-recorder")
 
     private final class Session: @unchecked Sendable {
@@ -253,8 +253,8 @@ public actor CallRecorder {
         }
     }
 
-    /// The file queue, once there is one: a stopped call goes to it.
-    public func setTranscriber(_ transcriber: (any FileTranscribing)?) {
+    /// Where a stopped call goes: the file queue there is at the stop, if any.
+    public func setTranscriber(_ transcriber: @escaping @Sendable () async -> (any FileTranscribing)?) {
         self.transcriber = transcriber
     }
 
@@ -546,8 +546,10 @@ public actor CallRecorder {
             try? folder.remove(session.id)
             return nil
         }
-        if let transcriber {
-            await transcriber.enqueue(job)
+        // Read now: the app's queue is made anew each time voice turns on.
+        // With none, meta.json keeps the job for the queue to find.
+        if let queue = await transcriber() {
+            await queue.enqueue(job)
         }
         return session.id
     }

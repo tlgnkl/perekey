@@ -24,6 +24,11 @@ struct MenuActions {
     var dictation: DictationMenu?
     /// «Записать созвон»; nil hides it.
     var callRecording: CallRecordingController?
+    /// The «Расшифровки» window; nil hides the row.
+    var transcripts: TranscriptsMenu?
+    /// «Расшифровать файл…»; nil, or false from it, hides the row.
+    var transcribeFile: (() -> Void)?
+    var canTranscribeFiles: () -> Bool = { false }
     #endif
 }
 
@@ -172,16 +177,6 @@ struct MenuContent: View {
                 if let voiceModes = actions.voiceModes, voiceModes.isOn() {
                     VoiceModeMenuRow(menu: voiceModes, appModes: appModes, lit: nav.highlighted == "voice-mode")
                         .menuItem("voice-mode", nav: nav, step: { voiceModes.step($0) }, run: { voiceModes.step(1) })
-                }
-                if let call = actions.callRecording, call.isAvailable {
-                    let close = actions.close
-                    if call.isRecording {
-                        MenuCommandRow(id: "call", title: "Stop Recording", table: "Voice", nav: nav,
-                                       run: { close(); call.menuAction() })
-                    } else {
-                        MenuCommandRow(id: "call", title: "Record a Call…", table: "Voice", nav: nav,
-                                       run: { close(); call.menuAction() })
-                    }
                 }
                 #endif
             }
@@ -376,6 +371,31 @@ struct MenuContent: View {
 
     private var commands: some View {
         VStack(alignment: .leading, spacing: 0) {
+            #if PEREKEY_VOICE
+            if let transcripts = actions.transcripts, transcripts.isOn() {
+                MenuCommandRow(id: "transcripts", title: "", label: voiceText("Transcripts…"), shortcut: nil, nav: nav,
+                               run: { actions.close(); transcripts.open() })
+            }
+            if let transcribeFile = actions.transcribeFile, actions.canTranscribeFiles() {
+                MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {
+                    actions.close()
+                    transcribeFile()
+                }
+            }
+            if let call = actions.callRecording, call.isAvailable {
+                if call.isRecording {
+                    MenuCommandRow(id: "call", title: "Stop Recording", table: "Voice", nav: nav) {
+                        actions.close()
+                        call.menuAction()
+                    }
+                } else {
+                    MenuCommandRow(id: "call", title: "Record a Call…", table: "Voice", nav: nav) {
+                        actions.close()
+                        call.menuAction()
+                    }
+                }
+            }
+            #endif
             MenuCommandRow(id: "settings", title: "Settings…", shortcut: "⌘,", nav: nav, run: actions.openSettings)
             if let updates {
                 UpdatesMenuRow(updates: updates, nav: nav, close: actions.close)
@@ -528,7 +548,9 @@ struct LaunchAtLoginRow: View {
 struct MenuCommandRow: View {
     let id: String
     let title: LocalizedStringKey
-    /// The strings table of `title`; nil is Localizable.
+    /// Text in place of `title`, for a string of another table.
+    var label: Text?
+    /// The strings table of the title: `Voice` for voice rows.
     var table: String?
     var shortcut: String?
     var checked = false
@@ -541,7 +563,7 @@ struct MenuCommandRow: View {
         let hot = enabled && nav.highlighted == id
         Button(action: run) {
             HStack {
-                Text(title, tableName: table).font(PK.Font.body)
+                (label ?? Text(title, tableName: table)).font(PK.Font.body)
                 Spacer()
                 if checked { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 if badge {

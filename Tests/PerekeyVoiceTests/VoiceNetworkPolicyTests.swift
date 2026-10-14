@@ -16,6 +16,21 @@ struct VoiceNetworkPolicyTests {
         #expect(!VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings()).contains(.cloudSpeech))
     }
 
+    /// Cloud speech reaches a server agreed for a dictation's audio or for
+    /// recordings of conversations; neither, no server.
+    @Test func conversationConsentOpensCloudSpeech() throws {
+        var modes = VoiceModeSet.defaults()
+        let groq = try #require(modes.endpoint(VoiceEndpoint.Preset.groq.rawValue)?.endpointAddress?.origin)
+        func speech() -> Set<String> {
+            VoiceNetworkPolicy.origins(isEnabled: true, managed: ManagedSettings(), modes: modes)[.cloudSpeech] ?? []
+        }
+        #expect(!speech().contains(groq))
+        modes.consent(.conversationAudio, endpoint: VoiceEndpoint.Preset.groq.rawValue)
+        #expect(speech().contains(groq))
+        #expect(VoiceNetworkPolicy.origins(isEnabled: true, managed: ManagedSettings(voiceCloudDisabled: true),
+                                           modes: modes)[.cloudSpeech]?.contains(groq) != true)
+    }
+
     @Test func aNewerFileAndAnUnsupportedMacKeepTheNetworkClosed() async throws {
         let managed = ManagedSettings()
         #expect(VoiceNetworkPolicy.allowed(isEnabled: true, newerSchemaVersion: 2, managed: managed).isEmpty)

@@ -206,12 +206,17 @@ import Testing
         let mic = FakeMic()
         let queue = FakeQueue()
         let recorder = recorder(mic: mic)
-        await recorder.setTranscriber(queue)
+        // The queue is read at the stop: the one there then gets the job.
+        let first = FakeQueue()
+        let current = OSAllocatedUnfairLock<FakeQueue?>(initialState: first)
+        await recorder.setTranscriber { current.withLock { $0 } }
         let id = try await recorder.start(Self.options)
         mic.feed(seconds: 0.3, clock: clock)
+        current.withLock { $0 = queue } // voice went off and on again
         await recorder.stop()
         let job = TranscriptionJob(recording: id, model: "parakeet-tdt-v3", diarize: true)
         #expect(queue.jobs == [job])
+        #expect(first.jobs.isEmpty)
         #expect(try load(id).pendingJob == job)
         #expect(mic.holds == 0)
     }

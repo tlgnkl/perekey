@@ -109,6 +109,27 @@ private final class CapsuleHost: NSHostingView<StatusCapsuleView> {
 private final class ClickView: NSView {
     var onDown: (() -> Void)?
     var onUp: (() -> Void)?
+    /// Files dropped on the item; false refuses them. Nil takes no drops.
+    var onDrop: (([URL]) -> Bool)? {
+        didSet {
+            if onDrop == nil { unregisterDraggedTypes() } else { registerForDraggedTypes([.fileURL]) }
+        }
+    }
+    /// Whether a file being dragged would be taken, before the drop.
+    var accepts: (URL) -> Bool = { _ in false }
+
+    private func files(_ sender: any NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                              options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        onDrop != nil && files(sender).contains(where: accepts) ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        onDrop?(files(sender)) ?? false
+    }
 
     override func mouseDown(with event: NSEvent) { onDown?() }
     override func mouseUp(with event: NSEvent) { onUp?() }
@@ -132,8 +153,12 @@ final class StatusItemController {
     private let call: CallIndicatorModel
     private var shrink: DispatchWorkItem?
 
+    /// - Parameters:
+    ///   - drop: files dropped on the item (voice: to transcribe); false refuses them.
+    ///   - accepts: whether a dragged file would be taken.
     init(sources: InputSources, store: SettingsStore, pause: PauseState, recents: RecentCorrections,
-         menu: MenuPanelController, call: CallIndicatorModel)
+         menu: MenuPanelController, call: CallIndicatorModel, drop: (([URL]) -> Bool)? = nil,
+         accepts: @escaping (URL) -> Bool = { _ in false })
     {
         self.sources = sources
         self.call = call
@@ -161,6 +186,8 @@ final class StatusItemController {
         click.translatesAutoresizingMaskIntoConstraints = false
         click.onDown = { [weak self] in self?.pressDown() }
         click.onUp = { [weak self] in self?.state.pressed = false }
+        click.accepts = accepts
+        click.onDrop = drop
         button.addSubview(click)
 
         NSLayoutConstraint.activate([

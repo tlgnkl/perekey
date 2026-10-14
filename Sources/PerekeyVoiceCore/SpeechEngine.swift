@@ -23,9 +23,12 @@ public protocol SpeechEngine: VoiceModel {
     /// The same, with words the model should spell as given (the user's
     /// dictionary). An engine without a prompt ignores it; Whisper reads it.
     func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript
-    /// Long audio from disk, with timings: a file or a track's segments.
-    func transcribe(source: AudioSource, progress: @escaping @Sendable (Double) -> Void) async throws
-        -> TimedTranscript
+    /// One window of long audio (`FileTranscriber` cuts it), with timings
+    /// from the window's start. `language` is the one found in the track's
+    /// first window: Whisper otherwise detects it again in every window and
+    /// may switch. `prompt`: the user's dictionary, as for dictation. The
+    /// result carries the language the model heard.
+    func transcribeTimed(_ audio: AudioBuffer16k, language: String?, prompt: String?) async throws -> TimedTranscript
 }
 
 extension SpeechEngine {
@@ -35,8 +38,8 @@ extension SpeechEngine {
         try await transcribe(audio)
     }
 
-    /// Files and call recordings come with stage 5.
-    public func transcribe(source _: AudioSource, progress _: @escaping @Sendable (Double) -> Void) async throws
+    /// An engine without timings cannot transcribe files.
+    public func transcribeTimed(_: AudioBuffer16k, language _: String?, prompt _: String?) async throws
         -> TimedTranscript
     {
         throw SpeechEngineError.unsupported
@@ -65,58 +68,6 @@ public struct Transcript: Sendable, Equatable {
     public var text: String
 
     public init(text: String) {
-        self.text = text
-    }
-}
-
-/// Audio on disk for `transcribe(source:progress:)`: a file, or the segments
-/// of a track, each with its start in the track.
-public enum AudioSource: Sendable, Equatable {
-    case file(path: String)
-    case segments([Segment])
-
-    public struct Segment: Sendable, Equatable {
-        public var path: String
-        public var startOffset: Double
-
-        public init(path: String, startOffset: Double) {
-            self.path = path
-            self.startOffset = startOffset
-        }
-    }
-}
-
-/// Text with timecodes, for subtitles.
-public struct TimedTranscript: Sendable, Equatable {
-    public var segments: [TimedSegment]
-
-    public init(segments: [TimedSegment]) {
-        self.segments = segments
-    }
-}
-
-public struct TimedSegment: Sendable, Equatable {
-    public var start: Double
-    public var end: Double
-    public var text: String
-    public var words: [TimedWord]?
-
-    public init(start: Double, end: Double, text: String, words: [TimedWord]? = nil) {
-        self.start = start
-        self.end = end
-        self.text = text
-        self.words = words
-    }
-}
-
-public struct TimedWord: Sendable, Equatable {
-    public var start: Double
-    public var end: Double
-    public var text: String
-
-    public init(start: Double, end: Double, text: String) {
-        self.start = start
-        self.end = end
         self.text = text
     }
 }

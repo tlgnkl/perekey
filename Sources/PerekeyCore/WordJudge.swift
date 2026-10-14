@@ -122,21 +122,21 @@ struct WordJudge: Sendable {
                       settings: Settings) -> Bool
         {
             guard autoswitchMayAct(settings) || wordFixMayAct(settings), !judged, let last = buffer.entries.last,
-                  !last.isSpace,
+                  !last.isGap,
                   held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit)
                   == 0
             else { return false }
             let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
             guard let typed = layouts.currentMap else { return false }
             return WordJudge.endsLine(key) || stroke.keyCode == KeyCode.space
-                || WordJudge.isPunctuation(stroke, in: typed)
+                || WordJudge.isPunctuation(stroke, in: typed) || WordJudge.typesSlash(stroke, in: typed)
         }
 
         /// Whether `insideWord` may act: the cheap checks, as `mayJudge`.
         func mayActInsideWord(buffer: WordBuffer, settings: Settings) -> Bool {
             let count = buffer.entries.count
             return (count == 3 || count == 4) && autoswitchMayAct(settings) && switching == .allowed
-                && buffer.entries.last?.isSpace == false
+                && buffer.entries.last?.isGap == false
         }
     }
 
@@ -345,7 +345,10 @@ struct WordJudge: Sendable {
         // whether the key ends the word.
         let other = auto?.other ?? layouts.current.flatMap { layouts.counterpart(of: $0) }.flatMap { layouts[$0] }
             ?? typed
-        guard endsLine || Self.endsWord(stroke, typed: typed, other: other) else { return .keep }
+        // A part of a token is cut off only for automatic switching: without
+        // it the retype shortcut weighs the token whole (`ManualActions.lastPart`).
+        let endsPart = auto.map { Self.endsPart(stroke, buffer.entries, typed: typed, candidates: $0.candidates) }
+        guard endsLine || Self.endsWord(stroke, typed: typed, other: other) || endsPart == true else { return .keep }
         if !endsLine, stroke.keyCode != KeyCode.space,
            buffer.entries.dropFirst().contains(where: { $0.stroke.modifiers.contains(.shift) })
         {
@@ -819,6 +822,47 @@ struct WordJudge: Sendable {
         case 0x2E, 0x2C, 0x21, 0x3F, 0x3B, 0x3A, 0x22, 0x29, 0xBB, 0x2026: return true
         default: return false
         }
+    }
+
+    /// Whether the stroke types "/" in this layout, without ⌥.
+    static func typesSlash(_ stroke: KeyStroke, in map: LayoutMap) -> Bool {
+        !stroke.modifiers.contains(.option) && map.text(for: stroke) == "/"
+    }
+
+    /// Whether a "/" ends the part of a token typed before it, to be judged
+    /// as a word: "vtytl;th/" becomes "менеджер/", and the keys after the "/"
+    /// make a word of their own (`WordBuffer.Entry.endsPart`). The key types
+    /// "/" in the typed layout and in every layout the word may switch to, so
+    /// it comes back as "/" after a switch: not on Russian – PC, where "/" is
+    /// Shift+\, nor next to Ukrainian – PC, where the key of "/" types ".".
+    /// The part is three keys or more, a word in one of the readings, with no
+    /// capital past its first key. A shorter part ("B/C", "вк/") reads as a word too
+    /// rarely to judge alone, and a capital inside ("UX/", "ghBdtn/") may be
+    /// an abbreviation or a password: the token stays whole, as one with
+    /// symbols of code does ("github.com/", "~/").
+    static func endsPart(_ stroke: KeyStroke, _ entries: [WordBuffer.Entry], typed: LayoutMap,
+                         candidates: [LayoutMap]) -> Bool
+    {
+        guard typesSlash(stroke, in: typed), !candidates.isEmpty,
+              candidates.allSatisfy({ typesSlash(stroke, in: $0) }), entries.count >= 3,
+              !entries.dropFirst().contains(where: { $0.stroke.modifiers.contains(.shift) })
+        else { return false }
+        return ([typed] + candidates).contains { map in isWord(entries) { _ in map } }
+    }
+
+    /// Whether the keys type a word in the layouts `map` gives for them:
+    /// letters, with "-" and "'" inside. "/" ends a part only after one.
+    static func isWord(_ entries: some Collection<WordBuffer.Entry>,
+                       in map: (WordBuffer.Entry) -> LayoutMap?) -> Bool
+    {
+        guard !entries.isEmpty else { return false }
+        for (index, entry) in entries.enumerated() {
+            guard !entry.isGap, !entry.stroke.modifiers.contains(.option),
+                  let text = map(entry)?.text(for: entry.stroke), text.count == 1, let character = text.first,
+                  character.isLetter || index > 0 && (character == "-" || character == "'")
+            else { return false }
+        }
+        return true
     }
 
     /// Whether a key ends the word typed before it: a space, or punctuation in

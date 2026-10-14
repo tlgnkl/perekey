@@ -13,6 +13,7 @@
 //   perekey-eval coverage --model <file> --language <code> [--cache <dir>]
 //   perekey-eval cyrillic --model <dir> --layouts <dir> [--cache <dir>] [--words N] [--margin M] [--languages ru,uk,be]
 //                         [--margin-sweep]
+//   perekey-eval slash --model <file> --layouts <dir> --tokens <file> [--lead] [--list N]
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -31,6 +32,14 @@
 // `word` explains one decision: both readings, their costs and ranks, typed
 // in the word's own layout and in the other one, and what the typo corrector
 // makes of the word in its own layout.
+// `slash` judges every part of tokens such as "доходы/расходы" or "XP/бейджи"
+// (one per line) on its own, as automatic switching does when a "/" ends a
+// part: each part typed in the layout of its script, and then each part alone
+// typed in the other layout. It prints the parts that switch typed right and
+// the share that switch typed wrong. As in the app, a part of one or two
+// keys or with a capital past its first letter stops the cutting: it and the
+// parts after it are not judged. Context is the parts before; `--lead`
+// also puts the first part's language before the token, as a sentence would.
 // `corpus` writes a TSV of words by category (about N words, default 50 000,
 // plus a tenth of typos).
 // `run` types every word in its own layout and in the other one and prints
@@ -59,13 +68,14 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic"].contains(command) else {
-    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic ... (see the source header)")
+guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash"].contains(command)
+else {
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
-    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep"].contains(argument) {
+    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep", "--lead"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -336,6 +346,80 @@ do {
         let corrector = TypoCorrector(model: model)
         let fix = corrector.correct(strokes, in: own, sentenceStart: flags["--previous"] == nil)
         print("typo correction in \(own.id): " + (fix.map { "\($0.text) (rank \($0.rank))" } ?? "-"))
+
+    case "slash":
+        guard let modelPath = flags["--model"], let layouts = flags["--layouts"], let tokensPath = flags["--tokens"]
+        else { fail("--model, --layouts and --tokens are required") }
+        let model = try ModelFile.load(modelPath, languages: ["ru", "en"])
+        let maps = ["ru": layout("Russian", in: layouts), "en": layout("ABC", in: layouts)]
+        let classifier = Classifier(model: model)
+        let lead = flags["--lead"] != nil
+        var tokens = 0, skipped = 0, parts = 0, falseSwitches = 0, brokenTokens = 0, wrongParts = 0, fixed = 0
+        var falseList: [String] = []
+        var missedList: [String] = []
+        for token in try String(contentsOfFile: tokensPath, encoding: .utf8).split(separator: "\n") {
+            let words = token.split(separator: "/").map(String.init)
+            let languages = words.map { word in
+                word.unicodeScalars.contains { (0x400...0x4FF).contains($0.value) } ? "ru" : "en"
+            }
+            var strokes: [[KeyStroke]] = []
+            for (word, language) in zip(words, languages) {
+                let typed = word.compactMap { maps[language]!.stroke(for: $0) }
+                guard typed.count == word.count else { break }
+                strokes.append(typed)
+            }
+            guard strokes.count == words.count, !words.isEmpty else {
+                skipped += 1
+                continue
+            }
+            tokens += 1
+            var broken = false
+            // A part with a capital past its first letter is not judged at its
+            // "/" (it may be a password), and the token stays whole from there:
+            // the parts after it are not judged on their own either.
+            let judgedParts = (words.indices.first { index in
+                index < words.count - 1
+                    && (words[index].count < 3 || words[index].dropFirst().contains(where: \.isUppercase))
+            }).map { words.indices.prefix($0) } ?? words.indices[...]
+            for index in judgedParts {
+                var before = languages[..<index].reversed().map { Optional($0) }
+                if lead { before.append(languages[0]) }
+                let context = Classifier.Context(recent: RecentLanguages(before))
+                let own = maps[languages[index]]!
+                let other = maps[languages[index] == "ru" ? "en" : "ru"]!
+                parts += 1
+                let right = classifier.classify(strokes[index], typed: own, other: other, context: context)
+                if case .switch = right.verdict {
+                    falseSwitches += 1
+                    broken = true
+                    falseList.append("\(token) [\(words[index])] \(right.reason)")
+                }
+                // This part typed in the other layout, the others right.
+                guard strokes[index].allSatisfy({ other.text(for: $0) != nil }) else { continue }
+                wrongParts += 1
+                let wrong = classifier.classify(strokes[index], typed: other, other: own, context: context)
+                if wrong.verdict == .switch(to: own.id) {
+                    fixed += 1
+                } else {
+                    let reading = strokes[index].map { other.text(for: $0) ?? "?" }.joined()
+                    missedList.append("\(token) [\(reading)] \(wrong.verdict) \(wrong.reason)")
+                }
+            }
+            if broken { brokenTokens += 1 }
+        }
+        print("tokens \(tokens) (skipped \(skipped)), parts \(parts)")
+        print(String(format: "false switches: %d parts (%.3f %%), %d tokens (%.3f %%)", falseSwitches,
+                     100 * Double(falseSwitches) / Double(max(parts, 1)), brokenTokens,
+                     100 * Double(brokenTokens) / Double(max(tokens, 1))))
+        print(String(format: "fixed: %d of %d parts typed in the other layout (%.1f %%)", fixed, wrongParts,
+                     100 * Double(fixed) / Double(max(wrongParts, 1))))
+        let limit = Int(flags["--list"] ?? "0") ?? 0
+        if limit > 0 {
+            print("-- false switches")
+            for line in falseList.prefix(limit) { print("  \(line)") }
+            print("-- missed")
+            for line in missedList.prefix(limit) { print("  \(line)") }
+        }
 
     default:
         fail("unknown command \(command)")

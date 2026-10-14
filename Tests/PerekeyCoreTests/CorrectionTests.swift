@@ -467,11 +467,12 @@ extension Desk {
 
     @Test func aPartGetsNoExplanation() throws {
         // The automatic decision was about the whole word, and «Всегда
-        // исправлять» offered on it would take "сщву" alone.
+        // исправлять» offered on it would take "сщву" alone. The capitals keep
+        // automatic switching from cutting the token at its "/".
         var desk = Desk(Settings(typoCorrection: false), current: ru)
-        desk.type("привет/сщву", on: Fixture.russian)
+        desk.type("ПРИВЕТ/сщву", on: Fixture.russian)
         desk.tapOption()
-        #expect(desk.text == "привет/code")
+        #expect(desk.text == "ПРИВЕТ/code")
         let retype = try #require(desk.history.last)
         #expect(retype.origin == .manual(.convertLastWord))
         #expect(retype.decision == nil)

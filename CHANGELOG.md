@@ -42,6 +42,9 @@ differently, what was fixed.
 - **The hint stays by the cursor in terminals.** In terminals built on
   xterm.js (Orca, the VS Code terminal) the correction hint appeared in the
   top right corner of the screen. It now shows next to the line you type in.
+- **Switching works in Telegram Lite.** In Telegram Lite and Telegram Desktop
+  Perekey noticed the wrong layout but never fixed the word, neither by itself
+  nor with Option. The native Telegram for macOS was not affected.
 
 ## [0.1.1] - 2026-10-12
 

@@ -38,6 +38,12 @@ final class TranscriptsController {
         case deleteNotStopped
     }
 
+    /// What the right side shows: the transcript, or what a model made of it.
+    enum Pane: Hashable {
+        case transcript
+        case note(TranscriptAction)
+    }
+
     private(set) var items: [RecordingItem] = []
     private(set) var transcript: TranscriptState = .none
     private(set) var phases: [UUID: TranscriptionPhase] = [:]
@@ -45,6 +51,9 @@ final class TranscriptsController {
     private(set) var notice: Notice?
     /// Bytes recordings take on disk, as of the last look.
     private(set) var diskUsage: Int64 = 0
+    /// The chosen recording's summary and minutes, as saved.
+    private(set) var notes: [TranscriptAction: String] = [:]
+    var pane: Pane = .transcript
     var isDropTargeted = false
     let player = TranscriptPlayer()
 
@@ -53,6 +62,7 @@ final class TranscriptsController {
             guard selection != oldValue else { return }
             player.stop()
             notice = nil
+            pane = .transcript
             loadTranscript()
         }
     }
@@ -85,6 +95,17 @@ final class TranscriptsController {
     /// Recordings a recorder is writing now. The call recorder wires this when it exists;
     /// until then `TranscriptsLibrary.resume` tells a recording that is going on by its `meta.json`.
     @ObservationIgnored var live: @MainActor () -> Set<UUID>
+
+    /// «Конспект» and «Протокол встречи»; nil hides them.
+    var summaries: TranscriptSummaries? {
+        didSet {
+            summaries?.finished = { [weak self] id, action in
+                guard let self, selection == id else { return }
+                loadTranscript()
+                pane = .note(action)
+            }
+        }
+    }
 
     @ObservationIgnored private var queueTask: Task<Void, Never>?
     @ObservationIgnored private var loading: Task<Void, Never>?
@@ -150,13 +171,15 @@ final class TranscriptsController {
         loading?.cancel()
         guard let id = selection else {
             transcript = .none
+            notes = [:]
             refreshSearch()
             return
         }
         let folder = folder
         loading = Task {
-            let loaded = await Task.detached { folder.transcript(id) }.value
+            let (loaded, notes) = await Task.detached { (folder.transcript(id), folder.notes(of: id)) }.value
             guard !Task.isCancelled, selection == id else { return }
+            self.notes = notes
             switch loaded {
             case .missing: transcript = .none
             case let .loaded(document): transcript = .loaded(document)
@@ -275,6 +298,7 @@ final class TranscriptsController {
         }
         let library = library
         let phase = phases[id]
+        summaries?.cancel(id)
         Task {
             do {
                 try await library.delete(id, phase: phase, live: live)
@@ -297,6 +321,7 @@ final class TranscriptsController {
         let library = library
         let phases = phases
         let live = live()
+        for item in items where !live.contains(item.id) { summaries?.cancel(item.id) }
         Task {
             let failed = await library.deleteAll(phases: phases, live: live)
             selection = nil
@@ -384,6 +409,40 @@ final class TranscriptsController {
         let base = URL(fileURLWithPath: title(of: item)).deletingPathExtension().lastPathComponent
         panel.nameFieldStringValue = "\(base).\(format.fileExtension)"
         if let type = UTType(filenameExtension: format.fileExtension) { panel.allowedContentTypes = [type] }
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try Data(text.utf8).write(to: url, options: .atomic)
+            notice = nil
+        } catch {
+            fail(.exportFailed, error)
+        }
+    }
+
+    // MARK: Summaries
+
+    /// Makes `action` of the chosen transcript; a saved one is replaced.
+    func summarize(_ action: TranscriptAction) {
+        guard let id = selection, let document, let summaries else { return }
+        pane = .note(action)
+        // The queue lives while voice is on, and so does the network.
+        guard canQueue else { return summaries.fail(id, .voiceOff) }
+        summaries.start(action, recording: id, document: document, labels: labels)
+    }
+
+    func copy(_ action: TranscriptAction) {
+        guard let text = notes[action] else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// Asks for a place and writes the Markdown there.
+    func export(_ action: TranscriptAction) {
+        guard let item = selected, let text = notes[action] else { return }
+        let panel = NSSavePanel()
+        let base = URL(fileURLWithPath: title(of: item)).deletingPathExtension().lastPathComponent
+        panel.nameFieldStringValue = "\(base) — \(action.title).md"
+        if let type = UTType(filenameExtension: "md") { panel.allowedContentTypes = [type] }
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {

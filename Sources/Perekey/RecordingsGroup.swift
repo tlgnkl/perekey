@@ -50,6 +50,10 @@ struct RecordingsGroup: View {
                 .toggleStyle(.pkSwitch)
                 .disabled(voice.managed.transcriptsBackupDisabled)
             }
+            if let summaries = controller.summaries {
+                PKDivider()
+                SummaryModelPicker(modes: summaries.modes)
+            }
             PKDivider()
             PKNote(voiceText("Recordings stay on this Mac. The text of a call stays when its audio is gone."))
         }
@@ -72,6 +76,39 @@ struct RecordingsGroup: View {
         voice.managed.transcriptsBackupDisabled
             ? voiceText("Set by your administrator")
             : voiceText("Off by default: calls hold other people's voices.")
+    }
+}
+
+/// «Модель для конспектов»: a local model of the modes by default; a cloud
+/// one only by this choice, and with the consent to send it transcripts.
+private struct SummaryModelPicker: View {
+    let modes: VoiceModesStore
+
+    var body: some View {
+        let set = modes.modes
+        let options = set.summaryModelOptions
+        let local = set.localLanguageModel
+        PKRow(voiceText("Model for summaries"), detail: detail(local: local)) {
+            Picker(selection: Binding(get: { set.summaryModel }, set: { modes.setSummaryModel($0) })) {
+                Text(verbatim: local.map { voiceString("As the modes: \(modes.title(of: $0))") }
+                    ?? voiceString("As the modes: none on this Mac"))
+                    .tag(SummaryModelChoice?.none)
+                ForEach(options, id: \.self) { choice in
+                    Text(verbatim: modes.title(of: choice)).tag(Optional(choice))
+                }
+            } label: {
+                voiceText("Model for summaries")
+            }
+            .labelsHidden()
+            .frame(width: 280)
+            .disabled(modes.isLocked)
+        }
+    }
+
+    private func detail(local: SummaryModelChoice?) -> Text {
+        local == nil && modes.modes.summaryModel == nil
+            ? voiceText("Set up Ollama or LM Studio in the Voice modes tab. A cloud model gets transcripts with other people’s words.")
+            : voiceText("Summary and meeting minutes. A cloud model gets transcripts with other people’s words.")
     }
 }
 

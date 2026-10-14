@@ -49,6 +49,7 @@ enum DebugSnapshot {
         renderVoiceHUD(in: directory)
         renderVoiceIntro(in: directory)
         renderModes(in: directory)
+        renderTranscripts(in: directory)
         #endif
         renderApps(in: directory)
         renderSites(in: directory)
@@ -800,6 +801,165 @@ extension DebugSnapshot {
             onboarding.voiceIntro = step
             render(OnboardingView(model: onboarding, heroPhase: 4.5), dark: dark, size: size,
                    to: directory.appending(path: "voice-onboarding-step-\(tag).png"))
+        }
+    }
+}
+#endif
+
+#if PEREKEY_VOICE
+extension DebugSnapshot {
+    /// A file queue that says fixed phases and queues nothing.
+    private final class PreviewQueue: FileTranscribing {
+        let snapshot: [UUID: TranscriptionPhase]
+        init(_ snapshot: [UUID: TranscriptionPhase]) { self.snapshot = snapshot }
+        func enqueue(_ job: TranscriptionJob) async {}
+        func cancel(_ recording: UUID) async {}
+        func phases() -> AsyncStream<[UUID: TranscriptionPhase]> {
+            let snapshot = snapshot
+            return AsyncStream { continuation in
+                continuation.yield(snapshot)
+                continuation.finish()
+            }
+        }
+        var isBusy: Bool { false }
+    }
+
+    /// Ids of the made-up recordings by what they show.
+    struct TranscriptsFixture {
+        var controller: TranscriptsController
+        var interview: UUID
+        var zoom: UUID
+        var running: UUID
+        var failed: UUID
+        var interrupted: UUID
+        var expired: UUID
+    }
+
+    /// Recordings in every status of the list, in a folder of their own, with a queue that never runs.
+    static func transcriptsPreview(in directory: URL, name: String, empty: Bool = false,
+                                   managed: ManagedSettings = ManagedSettings()) -> TranscriptsFixture
+    {
+        let root = directory.appending(path: "\(name)-recordings", directoryHint: .isDirectory)
+        try? FileManager.default.removeItem(at: root)
+        let folder = RecordingsFolder(root: root)
+        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
+        try? FileManager.default.removeItem(at: voiceFile.url)
+        try? voiceFile.save(VoiceSettings(isEnabled: true))
+        let voice = VoiceSettingsStore(file: voiceFile, managed: managed)
+        let now = Date()
+        func ago(_ hours: Double) -> Date { now.addingTimeInterval(-hours * 3_600) }
+        func file(_ name: String, hours: Double, duration: Double) -> RecordingMeta {
+            var meta = RecordingMeta.file(FileReference(path: "/Users/anna/Movies/\(name)"), createdAt: ago(hours))
+            meta.duration = duration
+            return meta
+        }
+        func call(_ app: String, hours: Double, duration: Double, state: RecordingMeta.State = .done) -> RecordingMeta {
+            var meta = RecordingMeta.call(source: .app(bundleID: "us.zoom.xos", name: app), startHostTime: 1,
+                                          createdAt: ago(hours), audioRetention: .month)
+            meta.state = state
+            meta.duration = duration
+            meta.segments = [
+                RecordingMeta.Segment(track: .mic, file: "mic-0001.aac", startHostTime: 1, startOffset: 0,
+                                      frames: Int64(duration * 16_000), closed: state != .recording),
+                RecordingMeta.Segment(track: .sys, file: "sys-0001.aac", startHostTime: 1, startOffset: 0,
+                                      frames: Int64(duration * 16_000), closed: state != .recording),
+            ]
+            return meta
+        }
+        func phrase(_ start: Double, _ text: String, _ speaker: String?) -> TimedSegment {
+            TimedSegment(start: start, end: start + 5 + Double(text.count) / 25, text: text, speaker: speaker)
+        }
+        let interviewText = TranscriptDocument(model: "parakeet-tdt-v3", engine: "parakeet", language: "ru", segments: [
+            phrase(1, "Давайте начнём. Расскажите, как вы пришли в проект?", "speaker-1"),
+            phrase(9, "Я пришла полгода назад, когда команде нужен был человек на отчёты.", "speaker-2"),
+            phrase(21, "То есть сначала это были только отчёты, а потом стало больше?", "speaker-1"),
+            phrase(30, "Да. Сначала отчёт раз в неделю, потом ежедневный, потом ещё и разбор ошибок.", "speaker-2"),
+            phrase(44, "Звучит как много работы. Что помогало не выгореть?", "speaker-1"),
+            phrase(53, "Честно, договорённость, что отчёт не пишется после шести вечера.", "speaker-2"),
+            phrase(66, "Хорошее правило. А как команда к нему отнеслась?", "speaker-1"),
+            phrase(75, "Сначала удивились, потом сами стали так делать. Отчёт стал короче.", "speaker-2"),
+            phrase(88, "И последнее: что бы вы посоветовали новичку?", "speaker-1"),
+            phrase(96, "Спрашивать сразу. Никто не ждёт, что вы всё знаете в первую неделю.", "speaker-2"),
+        ])
+        var interviewDoc = interviewText
+        interviewDoc.rename(speaker: "speaker-2", to: "Аня")
+        let zoomDoc = TranscriptDocument(model: "whisper-large-v3-turbo", engine: "whisper", language: "ru", segments: [
+            phrase(2, "Всем привет, слышно меня?", "me"),
+            phrase(8, "Да, слышим хорошо. Начнём с итогов недели.", "others"),
+            phrase(17, "По релизу всё готово, ждём только подпись от юристов.", "me"),
+            phrase(27, "Хорошо. Тогда в четверг выкатываем, если нет возражений.", "others"),
+            phrase(38, "Возражений нет. Отчёт по тестам я отправлю до пятницы.", "me"),
+        ])
+        var items: [(UUID, RecordingMeta, TranscriptDocument?)] = []
+        let interview = UUID(), zoom = UUID(), running = UUID(), failed = UUID(), interrupted = UUID(), expired = UUID()
+        let queued = UUID(), preparing = UUID(), waiting = UUID(), diarizing = UUID()
+        var expiredMeta = call("Zoom", hours: 150, duration: 1_260)
+        expiredMeta.audioRemovedAt = ago(5)
+        if !empty {
+            items = [
+                (interview, file("Интервью с Аней.m4a", hours: 2, duration: 1_245), interviewDoc),
+                (zoom, call("Zoom", hours: 26, duration: 2_460), zoomDoc),
+                (running, file("Лекция по акустике.mp4", hours: 0.2, duration: 5_420), nil),
+                (queued, file("Подкаст, выпуск 14.mp3", hours: 0.3, duration: 3_100), nil),
+                (preparing, file("Планёрка.m4a", hours: 0.4, duration: 1_800), nil),
+                (waiting, file("Звонок маме.m4a", hours: 0.5, duration: 640), nil),
+                (diarizing, file("Круглый стол.wav", hours: 0.6, duration: 4_380), nil),
+                (failed, file("Запись с диктофона.amr", hours: 30, duration: 90), nil),
+                (interrupted, call("Telegram", hours: 52, duration: 780, state: .recording), nil),
+                (expired, expiredMeta, zoomDoc),
+            ]
+        }
+        for (id, meta, document) in items {
+            _ = try? folder.create(meta, id: id, excludedFromBackup: true)
+            if let document { try? folder.updateTranscript(id) { $0 = document } }
+        }
+        let queue = PreviewQueue([
+            running: .transcribing(0.34), queued: .queued, preparing: .preparingModel,
+            waiting: .waitingForDictation(0.58), diarizing: .diarizing(0.8), failed: .failed(.unreadable),
+        ])
+        let controller = TranscriptsController(folder: folder, queue: queue, voice: voice, models: {
+            ModelCatalog.recognizers.prefix(2).map { (id: $0.id, title: ModelNames.display($0)) }
+        })
+        return TranscriptsFixture(controller: controller, interview: interview, zoom: zoom, running: running,
+                                  failed: failed, interrupted: interrupted, expired: expired)
+    }
+
+    /// The «Расшифровки» window with a recording of each kind chosen, and the Recordings group of the Voice tab.
+    static func renderTranscripts(in directory: URL) {
+        let size = CGSize(width: 920, height: 620)
+        func shot(_ name: String, empty: Bool = false, query: String = "", pick: (TranscriptsFixture) -> UUID?) {
+            for dark in [false, true] {
+                let fixture = transcriptsPreview(in: directory, name: "t-\(name)", empty: empty)
+                fixture.controller.reload()
+                fixture.controller.selection = pick(fixture)
+                fixture.controller.query = query
+                let view = TranscriptsView(controller: fixture.controller)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: size, to: directory.appending(path: "transcripts-\(name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+        shot("interview", query: "отчёт") { $0.interview }
+        shot("call") { $0.zoom }
+        shot("running") { $0.running }
+        shot("interrupted") { $0.interrupted }
+        shot("failed") { $0.failed }
+        shot("audio-removed") { $0.expired }
+        shot("empty", empty: true) { _ in nil }
+        let cases: [(name: String, managed: ManagedSettings)] = [
+            ("records", ManagedSettings()),
+            ("records-managed", ManagedSettings(callAudioKeepDisabled: true, transcriptsBackupDisabled: true)),
+        ]
+        for dark in [false, true] {
+            for item in cases {
+                let fixture = transcriptsPreview(in: directory, name: "g-\(item.name)", managed: item.managed)
+                fixture.controller.reload()
+                let view = VStack(alignment: .leading, spacing: 16) { RecordingsGroup(controller: fixture.controller) }
+                    .padding(24)
+                    .frame(width: 620, height: 340, alignment: .top)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: CGSize(width: 620, height: 340),
+                       to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
         }
     }
 }

@@ -5,6 +5,7 @@ import PerekeyCore
 import PerekeyInput
 #if PEREKEY_VOICE
 import PerekeyVoice
+import PerekeyVoiceCore
 #endif
 import SwiftUI
 
@@ -59,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let voiceModels: VoiceModelsController
     /// The text rules and the dictation history.
     private let voiceText: VoiceTextController
+    /// The «Расшифровки» window and what it holds. The file queue and the call
+    /// recorder plug into `transcripts.controller` (`queue`, `live`).
+    private let transcripts: TranscriptsWindow
     /// Dictation: the hotkey, the microphone, the engines, the paste.
     private let voice: VoiceSetup
     /// "What's new: voice input", once, for someone who already uses Perekey.
@@ -92,6 +96,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let voiceText = VoiceTextController()
         self.voiceText = voiceText
         voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes, text: voiceText, usage: usage)
+        let transcriptsController = TranscriptsController(voice: voiceModels.settings, models: { [voiceModels, voiceModes] in
+            let local = voiceModels.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
+                .map { (id: $0.id, title: ModelNames.display($0.entry)) }
+            // As in the Voice tab: a cloud model whose server the user set up.
+            let cloud = CloudSpeechModel.known.filter { model in
+                voiceModes.modes.endpoint(model.endpoint).map(voiceModes.isUsable) ?? false
+            }.map { (id: $0.id, title: $0.displayName + " ☁") }
+            return local + cloud
+        })
+        transcriptsController.transcriptionModel = { [voice] in voice.files.model }
+        transcriptsController.consent = { [voiceModes] in voiceModes.askConversationConsent(model: $0) }
+        voice.files.queueChanged = { [transcriptsController] in transcriptsController.queue = $0 }
+        transcriptsController.queue = voice.files.queue
+        let transcriptsWindow = TranscriptsWindow(controller: transcriptsController)
+        transcripts = transcriptsWindow
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
@@ -100,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             view.voiceController = voiceModels
             view.voiceModes = voiceModes
             view.voiceTextController = voiceText
+            view.voiceTranscripts = transcriptsController
             return view
             #else
             return SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
@@ -130,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
                              settings: settings) { [voice] actions in
             actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
+            actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
             actions.transcribeFile = { voice.files.chooseFiles() }
             actions.canTranscribeFiles = { voice.files.queue != nil }
         }

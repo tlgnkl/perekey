@@ -88,6 +88,15 @@ public enum VoiceAutoStop: Int, Hashable, Sendable, CaseIterable, Codable {
     public var seconds: Int? { self == .off ? nil : rawValue }
 }
 
+/// How long the audio of a recorded call stays on disk: «Хранить звук созвонов».
+/// The raw values are those of `RecordingMeta.AudioRetention`.
+public enum CallAudioRetention: String, Hashable, Sendable, CaseIterable, Codable {
+    case always
+    case month
+    /// Removed once the transcript is written.
+    case untilTranscribed
+}
+
 /// How long the speech model stays loaded after the last dictation.
 public enum VoiceUnload: Int, Hashable, Sendable, CaseIterable, Codable {
     case never = 0
@@ -203,6 +212,19 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.unload.stringValue) }
     }
 
+    /// How long the audio of a call stays on disk. The recorder reads it when
+    /// a call starts; a profile that forbids keeping audio overrides it
+    /// (`ManagedSettings.callAudioKeepDisabled`).
+    public var callAudioRetention: CallAudioRetention {
+        didSet { unreadableKeys.remove(CodingKeys.callAudioRetention.stringValue) }
+    }
+
+    /// «Включать в Time Machine»: off by default, because recordings hold
+    /// other people's voices. The recorder reads it for each new recording.
+    public var includesRecordingsInBackup: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.includesRecordingsInBackup.stringValue) }
+    }
+
     /// The «What's new: voice input» window was answered (turned on or put
     /// off): it does not come back.
     public var introAnswered: Bool {
@@ -222,7 +244,8 @@ public struct VoiceSettings: Hashable, Sendable {
                 model: String = VoiceSettings.defaultModel, transcriptionModel: String? = nil,
                 switchesLayout: Bool = true, playsSounds: Bool = true,
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
-                introAnswered: Bool = false)
+                introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .always,
+                includesRecordingsInBackup: Bool = false)
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
@@ -235,6 +258,8 @@ public struct VoiceSettings: Hashable, Sendable {
         self.autoStop = autoStop
         self.unload = unload
         self.introAnswered = introAnswered
+        self.callAudioRetention = callAudioRetention
+        self.includesRecordingsInBackup = includesRecordingsInBackup
     }
 
     /// The trigger the event tap reacts to: none while dictation is off, and
@@ -251,7 +276,7 @@ public struct VoiceSettings: Hashable, Sendable {
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, transcriptionModel, switchesLayout,
-             playsSounds, autoStop, unload, introAnswered
+             playsSounds, autoStop, unload, introAnswered, callAudioRetention, includesRecordingsInBackup
     }
 
     public init(from decoder: any Decoder) throws {
@@ -288,6 +313,8 @@ extension VoiceSettings: Codable {
         autoStop = read(VoiceAutoStop.self, .autoStop) ?? defaults.autoStop
         unload = read(VoiceUnload.self, .unload) ?? defaults.unload
         introAnswered = read(Bool.self, .introAnswered) ?? defaults.introAnswered
+        callAudioRetention = read(CallAudioRetention.self, .callAudioRetention) ?? defaults.callAudioRetention
+        includesRecordingsInBackup = read(Bool.self, .includesRecordingsInBackup) ?? defaults.includesRecordingsInBackup
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -332,6 +359,12 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.introAnswered.stringValue) {
             try container.encode(introAnswered, forKey: .introAnswered)
+        }
+        if !unreadableKeys.contains(CodingKeys.callAudioRetention.stringValue) {
+            try container.encode(callAudioRetention, forKey: .callAudioRetention)
+        }
+        if !unreadableKeys.contains(CodingKeys.includesRecordingsInBackup.stringValue) {
+            try container.encode(includesRecordingsInBackup, forKey: .includesRecordingsInBackup)
         }
     }
 }

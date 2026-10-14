@@ -95,6 +95,15 @@ public struct VoiceModeSet: Hashable, Sendable {
         return origins
     }
 
+    /// Whether a recording of a conversation may go to `endpoint` for its
+    /// transcript: an endpoint on this Mac, or one the user agreed to send
+    /// `conversationAudio` to; never while a profile forbids the cloud.
+    public func mayUploadConversation(to id: String, cloudDisabled: Bool) -> Bool {
+        guard newerSchemaVersion == nil, let address = endpoint(id)?.endpointAddress else { return false }
+        if address.isOnThisMac { return true }
+        return !cloudDisabled && (consents[address.origin] ?? []).contains(.conversationAudio)
+    }
+
     /// Takes back every consent given for `endpoint`'s origin.
     public mutating func revokeConsent(endpoint id: String) {
         guard let origin = endpoint(id)?.endpointAddress?.origin else { return }

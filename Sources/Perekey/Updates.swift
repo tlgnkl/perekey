@@ -3,6 +3,7 @@
 import CoreFoundation
 import Foundation
 import Observation
+import os
 import PerekeyCore
 import Sparkle
 
@@ -35,6 +36,11 @@ final class Updates: NSObject {
     /// A scheduled check found this version, and the menu shows it instead of an alert.
     private(set) var pendingVersion: String?
 
+    /// Work a relaunch for an update would cut off: Sparkle waits while it goes on.
+    @ObservationIgnored let busy = RelaunchBlockers()
+    private static let log = Logger(subsystem: "app.perekey", category: "updates")
+    /// The wait for `busy` before an update's relaunch.
+    @ObservationIgnored private var postponed: Task<Void, Never>?
     @ObservationIgnored private let store: SettingsStore
     @ObservationIgnored private var controller: SPUStandardUpdaterController?
     @ObservationIgnored private var started = false
@@ -121,6 +127,35 @@ extension Updates: SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
         lastCheck = updater.lastUpdateCheckDate
     }
+
+    /// A source that never lets go does not hold an update for good.
+    static let longestPostponement: Duration = .seconds(24 * 3600)
+
+    /// The update installs once `busy` is over, or after a day at most. A
+    /// new call replaces the wait of the one before: its handler is the one
+    /// Sparkle now expects, and it is called once.
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool
+    {
+        postponed?.cancel()
+        postponed = nil
+        guard busy.isBusy else { return false }
+        let busy = self.busy
+        postponed = Task { @MainActor in
+            let deadline = ContinuousClock.now + Self.longestPostponement
+            while busy.isBusy {
+                if ContinuousClock.now >= deadline {
+                    Self.log.warning("Update relaunch postponed for a day; installing while busy")
+                    break
+                }
+                try? await Task.sleep(for: .seconds(15))
+                if Task.isCancelled { return }
+            }
+            guard !Task.isCancelled else { return }
+            installHandler()
+        }
+        return true
+    }
 }
 
 /// Gentle reminders (sparkle-project.org/documentation/gentle-reminders): a menu
@@ -147,4 +182,20 @@ extension Updates: @preconcurrency SPUStandardUserDriverDelegate {
     func standardUserDriverWillFinishUpdateSession() {
         pendingVersion = nil
     }
+}
+
+/// What keeps an update from relaunching Perekey: work a relaunch would cut
+/// off. Each part adds its source once, by name — the file queue
+/// ("transcription"), the call recorder ("recording") — and the Sparkle
+/// delegate asks only `isBusy`.
+@MainActor
+final class RelaunchBlockers {
+    private var sources: [String: @MainActor () -> Bool] = [:]
+
+    /// Adds or replaces the source under `name`.
+    func add(_ name: String, _ isBusy: @escaping @MainActor () -> Bool) {
+        sources[name] = isBusy
+    }
+
+    var isBusy: Bool { sources.values.contains { $0() } }
 }

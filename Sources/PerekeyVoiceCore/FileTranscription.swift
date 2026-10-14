@@ -7,9 +7,10 @@ import os
 public protocol DiarizerEngine: VoiceModel {
     /// The `ModelCatalog` id of the model it runs.
     var id: String { get }
-    /// Who speaks when, on the source's scale. Reads the audio from disk:
-    /// four hours of floats in memory would take 0.9 GB.
-    func diarize(_ source: AudioSource, progress: @escaping @Sendable (Double) -> Void) async throws
+    /// Who speaks when, on the audio's scale. Takes the track or file the
+    /// queue has open and reads it from disk: four hours of floats in memory
+    /// would take 0.9 GB, and a file is decoded once.
+    func diarize(_ audio: any LongAudio, progress: @escaping @Sendable (Double) -> Void) async throws
         -> [SpeakerTurn]
 }
 
@@ -131,6 +132,9 @@ public enum TranscriptionFailure: Sendable, Equatable {
     case modelUnavailable
     /// The model failed on the audio.
     case engineFailed
+    /// A cloud model was chosen, and the user has not agreed to send it the
+    /// recording of a conversation (`ModeData.conversationAudio`). Nothing left this Mac.
+    case needsConsent
     /// `meta.json` or `transcript.json` could not be read or written.
     case storageFailed
     /// A newer Perekey wrote `meta.json` or `transcript.json`: this one leaves them alone.
@@ -150,8 +154,9 @@ public protocol FileTranscribing: Sendable {
     /// runs. The old transcript, if any, stays.
     func cancel(_ recording: UUID) async
     /// The phase of every recording queued since launch, sent whole on
-    /// each change, starting with the current one.
-    func phases() -> AsyncStream<[UUID: TranscriptionPhase]>
+    /// each change, starting with the current one, which is in the stream
+    /// when it returns.
+    func phases() async -> AsyncStream<[UUID: TranscriptionPhase]>
     /// Something is queued or running: Sparkle waits with the relaunch.
     /// Any thread.
     var isBusy: Bool { get }

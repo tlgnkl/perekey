@@ -212,6 +212,9 @@ public final class VoiceController {
         let residency: ModelResidency
     }
 
+    /// Told when a session starts and ends: the file queue stops at its next
+    /// window's edge for dictation and goes on once the text is in.
+    @ObservationIgnored public var dictation: DictationActivity?
     @ObservationIgnored private var machine = DictationMachine()
     @ObservationIgnored private let microphone: any DictationMicrophone
     @ObservationIgnored private let paster: any DictationPaster
@@ -433,6 +436,8 @@ public final class VoiceController {
             observer.finish()
         }
         observers = [:]
+        // Whatever the session was doing, the file queue must not wait for it.
+        dictation?.ended()
         await unloadModels()
     }
 
@@ -500,8 +505,10 @@ public final class VoiceController {
         case let .sessionActive(on):
             if on {
                 secureInput?.sessionBegan()
+                dictation?.began()
             } else {
                 secureInput?.sessionEnded()
+                dictation?.ended()
                 if let work = current {
                     work.stopTimers()
                     release(work)

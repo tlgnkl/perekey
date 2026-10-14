@@ -105,6 +105,60 @@ public struct OpenAICompatibleClient: Sendable {
         return answer.text
     }
 
+    /// Whether the model answers with the timings of its phrases
+    /// (`verbose_json`): Whisper does, on OpenAI (whisper-1) and Groq.
+    /// OpenAI's gpt-4o models take only `json`.
+    public static func givesSegmentTimings(model: String) -> Bool {
+        !model.lowercased().hasPrefix("gpt-4o")
+    }
+
+    /// The phrases of `audio` with their timings, for files. A model without
+    /// timings gives its whole text as one phrase from the start of the piece.
+    public func transcribeTimed(_ audio: AudioBuffer16k, model: String, address: EndpointAddress, key: String?,
+                                language: String?, prompt: String?) async throws -> TimedTranscript
+    {
+        struct Answer: Decodable {
+            struct Segment: Decodable {
+                let start: Double
+                let end: Double
+                let text: String
+            }
+
+            let text: String
+            let language: String?
+            let segments: [Segment]?
+        }
+        let timed = Self.givesSegmentTimings(model: model)
+        let boundary = "perekey-\(UUID().uuidString)"
+        var request = try request(address, "/audio/transcriptions", key: key)
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var form = MultipartForm(boundary: boundary)
+        form.field("model", model)
+        form.field("response_format", timed ? "verbose_json" : "json")
+        if timed { form.field("timestamp_granularities[]", "segment") }
+        if let language { form.field("language", language) }
+        if let prompt, !prompt.isEmpty { form.field("prompt", prompt) }
+        form.file("file", name: "recording.wav", type: "audio/wav", data: WAV.encode(audio))
+        let body = form.finish()
+        request.httpBody = body
+        let timeout = Self.transcriptionTimeout(bytes: body.count)
+        request.timeoutInterval = Self.seconds(timeout)
+        let data = try await send(request, purpose: .cloudSpeech, timeout: timeout)
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: data) else { throw Failure.badResponse }
+        let segments = answer.segments.map { list in
+            list.compactMap { segment -> TimedSegment? in
+                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty ? nil : TimedSegment(start: segment.start, end: segment.end, text: text)
+            }
+        } ?? {
+            let text = answer.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? [] : [TimedSegment(start: 0, end: audio.seconds, text: text)]
+        }()
+        // verbose_json names the language in English ("russian"); a code only is kept.
+        let code = answer.language.flatMap { $0.count == 2 ? $0 : nil }
+        return TimedTranscript(segments: segments, language: language ?? code)
+    }
+
     /// The wait for a transcription grows with the upload: 30 s and 1 s
     /// for every 100 KB (a minute of 16 kHz audio is about 1.9 MB).
     static func transcriptionTimeout(bytes: Int) -> Duration {

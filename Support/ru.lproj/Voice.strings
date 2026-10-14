@@ -288,3 +288,13 @@
 
 /* Review 2: plain http */
 "http is allowed only for this Mac and the local network. For a server over Tailscale use https (tailscale serve)." = "http разрешён только для этого Mac и локальной сети. Для сервера в Tailscale используйте https (tailscale serve).";
+
+/* Transcription of files */
+"Transcribe File…" = "Расшифровать файл…";
+"Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Выберите звук или видео для расшифровки. Perekey читает файл и не копирует его.";
+"Transcribe" = "Расшифровать";
+"Model for transcriptions" = "Модель для расшифровок";
+"Files and calls. A cloud model gets recordings with other people’s voices." = "Файлы и созвоны. Облачная модель получит записи с голосами других людей.";
+"As dictation" = "Как у диктовки";
+"The recording of a conversation will go to %@. It holds the voices of other people. Until you allow it, recordings are transcribed on this Mac." = "На %@ уйдёт запись разговора, в ней голоса других людей. Пока вы не разрешите, записи расшифровываются на этом Mac.";
+"the recording of a conversation, with other people’s voices" = "запись разговора с голосами других людей";

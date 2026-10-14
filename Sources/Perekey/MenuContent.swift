@@ -22,6 +22,9 @@ struct MenuActions {
     var voiceModes: VoiceModeMenu?
     /// The recent dictations; nil hides the section.
     var dictation: DictationMenu?
+    /// «Расшифровать файл…»; nil, or false from it, hides the row.
+    var transcribeFile: (() -> Void)?
+    var canTranscribeFiles: () -> Bool = { false }
     #endif
 }
 
@@ -363,6 +366,14 @@ struct MenuContent: View {
 
     private var commands: some View {
         VStack(alignment: .leading, spacing: 0) {
+            #if PEREKEY_VOICE
+            if let transcribeFile = actions.transcribeFile, actions.canTranscribeFiles() {
+                MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {
+                    actions.close()
+                    transcribeFile()
+                }
+            }
+            #endif
             MenuCommandRow(id: "settings", title: "Settings…", shortcut: "⌘,", nav: nav, run: actions.openSettings)
             if let updates {
                 UpdatesMenuRow(updates: updates, nav: nav, close: actions.close)
@@ -515,6 +526,8 @@ struct LaunchAtLoginRow: View {
 struct MenuCommandRow: View {
     let id: String
     let title: LocalizedStringKey
+    /// The strings table of the title: `Voice` for voice rows.
+    var table: String?
     var shortcut: String?
     var checked = false
     var badge = false
@@ -526,7 +539,7 @@ struct MenuCommandRow: View {
         let hot = enabled && nav.highlighted == id
         Button(action: run) {
             HStack {
-                Text(title).font(PK.Font.body)
+                Text(title, tableName: table).font(PK.Font.body)
                 Spacer()
                 if checked { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 if badge {

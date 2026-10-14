@@ -25,6 +25,8 @@ func usage() -> Never {
           store <command> [id...]     the app's model store in $PEREKEY_VOICE_MODELS
           dictate <id> <audio>... [--realtime] [--runs n]  the app's dictation path, from files
           speech                      Apple Speech locales
+          transcribe <recording> <id> [--diarize] [--dictation-every s --phrase audio] [--cancel-after s]
+                                      the app's file queue on a recording folder (JSON)
         """)
     exit(2)
 }
@@ -75,6 +77,8 @@ do {
         try await DictateCommand.run(rest)
     case "speech":
         await Commands.appleSpeech()
+    case "transcribe":
+        try await TranscribeCommand.run(rest)
     default:
         usage()
     }

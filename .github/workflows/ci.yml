@@ -37,6 +37,24 @@ jobs:
       - run: scripts/check-strings.sh
       - run: swift build
       - run: scripts/test.sh
+      # A test process that dies on a signal prints little; its crash report
+      # has the message and the stack. ReportCrash writes it a moment later.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crash-reports
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            ls ~/Library/Logs/DiagnosticReports/*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crash-reports/ 2>/dev/null || true
+          ls -l .build/crash-reports
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crash-reports-build
+          path: .build/crash-reports
+          if-no-files-found: ignore
       - name: Cache the model and held-out data
         uses: actions/cache@v4
         with:
@@ -68,6 +86,24 @@ jobs:
       - name: Where Swift Testing lives in these Command Line Tools
         run: find /Library/Developer/CommandLineTools -maxdepth 7 -name 'Testing*' | head -20
       - run: scripts/test.sh
+      # A test process that dies on a signal prints little; its crash report
+      # has the message and the stack. ReportCrash writes it a moment later.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crash-reports
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            ls ~/Library/Logs/DiagnosticReports/*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crash-reports/ 2>/dev/null || true
+          ls -l .build/crash-reports
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crash-reports-clt-only
+          path: .build/crash-reports
+          if-no-files-found: ignore
 
   # Voice input, built only with PEREKEY_VOICE=1 (Package.swift); releases set it too.
   # Its own scratch path, as locally; its pins in Support/voice/Package.resolved.
@@ -86,6 +122,24 @@ jobs:
         run: scripts/voice-pins.sh check
       - run: swift build --scratch-path .build/voice
       - run: scripts/test.sh
+      # A test process that dies on a signal prints little; its crash report
+      # has the message and the stack. ReportCrash writes it a moment later.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crash-reports
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            ls ~/Library/Logs/DiagnosticReports/*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crash-reports/ 2>/dev/null || true
+          ls -l .build/crash-reports
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crash-reports-voice
+          path: .build/crash-reports
+          if-no-files-found: ignore
 
   # The release configuration, as release.yml builds it: universal, with voice
   # input, packed into a DMG. Ad hoc signed, since the signing secrets live in

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import Carbon
 import Foundation
 import Observation
@@ -27,6 +28,7 @@ public final class InputSources {
     @ObservationIgnored private var sourcesByID: [LayoutID: TISInputSource] = [:]
     /// The keyboard type the maps were built with: `UCKeyTranslate` output depends on it.
     @ObservationIgnored private var builtKeyboardType: UInt8 = 0
+    @ObservationIgnored private var icons: [LayoutID: IconEntry] = [:]
     @ObservationIgnored private var observer: NotificationObserver?
 
     #if DEBUG
@@ -75,6 +77,16 @@ public final class InputSources {
         return String(name(of: id).prefix(2)).uppercased()
     }
 
+    /// The icon of the layout in the system's input menu; `nil` when it has none.
+    public func icon(of id: LayoutID) -> NSImage? {
+        if let cached = icons[id] { return cached.image }
+        let image = source(for: id).flatMap { LayoutReader.icon(of: $0) }
+        icons[id] = IconEntry(image: image)
+        return image
+    }
+
+    private struct IconEntry { let image: NSImage? }
+
     private func source(for id: LayoutID) -> TISInputSource? {
         sourcesByID[id] ?? LayoutReader.anySource(id)
     }
@@ -82,6 +94,7 @@ public final class InputSources {
     private func reload() {
         let enabled = LayoutReader.enabledSources()
         builtKeyboardType = LMGetKbdType()
+        icons = [:]
         sourcesByID = Dictionary(enabled.map { ($0.map.id, $0.source) }, uniquingKeysWith: { first, _ in first })
         layouts = enabled.map(\.map)
     }

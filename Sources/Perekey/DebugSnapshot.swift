@@ -64,12 +64,33 @@ enum DebugSnapshot {
         exit(0)
     }
 
+    /// Settings → General → «Menu bar» in its notes: the language shown twice, and not at all.
+    private static func renderMenuBarSettings(into directory: URL, sources: InputSources) {
+        let cases: [(name: String, settings: AppSettings, systemMenu: Bool?)] = [
+            ("twice", AppSettings(), true),
+            ("not-shown", { var s = AppSettings(); s.menuBarIcon = .mark; return s }(), false),
+            ("never", { var s = AppSettings(); s.menuBarVisibility = .never; return s }(), true),
+        ]
+        for item in cases {
+            let file = SettingsFile(url: directory.appending(path: "menubar-\(item.name).json"))
+            try? file.save(item.settings)
+            let store = SettingsStore(file: file)
+            let size = CGSize(width: 560, height: 360)
+            for dark in [false, true] {
+                render(MenuBarGroup(store: store, sources: sources, systemMenu: SystemInputMenu(preview: item.systemMenu))
+                    .padding(20).frame(width: size.width, height: size.height, alignment: .top), dark: dark, size: size,
+                       to: directory.appending(path: "menubar-settings-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
     /// The capsule in every state, through the same `NSImage` path as the menu bar
     /// (on a strip tinted like the bar), and the menu content in a few states.
     private static func renderMenuBar(into directory: URL) {
         let now = Date()
         let sources = InputSources()
         let code = sources.currentLayout.map(sources.indicator(of:)) ?? "EN"
+        let preview = MenuBarPreview(sources: sources)
         func set(_ build: (inout PauseSet) -> Void) -> PauseSet {
             var value = PauseSet()
             build(&value)
@@ -83,6 +104,7 @@ enum DebugSnapshot {
             ("password", false, set { $0.setPasswordField(true) }),
             ("appoff", false, set { $0.setAppOff(app: "Terminal") }),
         ]
+        renderMenuBarSettings(into: directory, sources: sources)
         for dark in [false, true] {
             let suffix = dark ? "dark" : "light"
             let bar = dark ? Color(white: 0.16) : Color(white: 0.92)
@@ -91,6 +113,14 @@ enum DebugSnapshot {
                 let view = CapsuleView(model: model, dark: dark).padding(.horizontal, 16).frame(height: 28).background(bar)
                 render(view.fixedSize(), dark: dark, size: CGSize(width: 220, height: 28),
                        to: directory.appending(path: "capsule-\(state.name)-\(suffix).png"))
+                // The other looks, drawn in the bar's foreground.
+                for style in [MenuBarIconStyle.letters, .system, .mark] {
+                    let glyph = MenuBarGlyph(style: style, model: model, icon: preview.icon)
+                        .padding(.horizontal, 16).frame(height: 28).background(bar)
+                        .foregroundStyle(dark ? Color.white : Color.black)
+                    render(glyph.fixedSize(), dark: dark, size: CGSize(width: 220, height: 28),
+                           to: directory.appending(path: "menubar-\(style.rawValue)-\(state.name)-\(suffix).png"))
+                }
             }
             let menus: [(name: String, pause: PauseSet, launch: LaunchAtLogin, autoswitch: Bool)] = [
                 ("normal", PauseSet(), LaunchAtLogin(previewStatus: .notFound), true),

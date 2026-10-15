@@ -150,7 +150,7 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch current {
-        case .general: GeneralPane(store: store, updates: updates, layouts: sources.layouts)
+        case .general: GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources)
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         #if PEREKEY_VOICE
         case .voice:
@@ -260,6 +260,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// behind the frontmost app.
     func show() {
         let window = window ?? make()
+        SystemInputMenu.shared.refresh()
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
     }

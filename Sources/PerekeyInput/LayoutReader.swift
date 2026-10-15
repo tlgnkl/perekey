@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import Carbon
 import PerekeyCore
 
@@ -106,6 +107,42 @@ public enum LayoutReader {
     private static func sources(includeAllInstalled: Bool) -> [TISInputSource] {
         let filter = [kTISPropertyInputSourceType as String: kTISTypeKeyboardLayout as String] as CFDictionary
         return TISCreateInputSourceList(filter, includeAllInstalled)?.takeRetainedValue() as? [TISInputSource] ?? []
+    }
+
+    /// The icon the system's input menu shows for the source: the file behind
+    /// `kTISPropertyIconImageURL`, else the `IconRef`. Template when it has no
+    /// color, so it follows the menu bar; a flag stays as it is.
+    static func icon(of source: TISInputSource) -> NSImage? {
+        var image: NSImage?
+        if let raw = TISGetInputSourceProperty(source, kTISPropertyIconImageURL) {
+            let url = Unmanaged<CFURL>.fromOpaque(raw).takeUnretainedValue() as URL
+            image = NSImage(contentsOf: url)
+        }
+        if image == nil, let raw = TISGetInputSourceProperty(source, kTISPropertyIconRef) {
+            image = NSImage(iconRef: IconRef(raw))
+        }
+        guard let image, image.size.width > 0, image.size.height > 0 else { return nil }
+        let height: CGFloat = 16
+        image.size = NSSize(width: (height * image.size.width / image.size.height).rounded(), height: height)
+        image.isTemplate = isColorless(image)
+        return image
+    }
+
+    /// Whether every visible pixel of the image is a shade of gray.
+    static func isColorless(_ image: NSImage) -> Bool {
+        let side = 32
+        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let data = context.data else { return false }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        let pixels = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        for i in 0..<side * side where pixels[i * 4 + 3] > 16 {
+            let (r, g, b) = (Int(pixels[i * 4]), Int(pixels[i * 4 + 1]), Int(pixels[i * 4 + 2]))
+            if abs(r - g) > 12 || abs(g - b) > 12 { return false }
+        }
+        return true
     }
 
     static func string(of source: TISInputSource, _ key: CFString) -> String? {

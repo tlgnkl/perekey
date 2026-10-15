@@ -11,6 +11,16 @@ differently, what was fixed.
 
 ## [Unreleased]
 
+### Added
+
+- **Menu bar icon.** Settings → General → Menu bar: keep the capsule, or show
+  the layout as plain letters, as the system's own icon, or as a single
+  Perekey mark. The icon can show always, only when there is news (a pause,
+  automatic switching off, a call being recorded), or never. Open Perekey
+  again from Finder or Spotlight and Settings opens, so a hidden icon is
+  never a dead end. Settings also tells you when the system's input menu and
+  Perekey show the language twice, or when neither shows it.
+
 ## [0.2.0] - 2026-10-14
 
 ### Added

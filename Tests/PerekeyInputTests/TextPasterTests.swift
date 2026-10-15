@@ -346,11 +346,10 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         probe.flags = Array(repeating: [.maskAlternate], count: 10000)
         let pasteboard = FakePasteboard()
         let (paster, _) = make(probe, pasteboard: pasteboard, modifierTimeout: .milliseconds(50))
-        let clock = ContinuousClock()
-        let start = clock.now
         #expect(await paster.paste("text", into: target()) == .failed(.modifiersHeld))
-        // It gives up instead of waiting forever; a loaded machine sleeps long.
-        #expect(clock.now - start < .seconds(20))
+        // It gave up instead of waiting for the key: most of the held states
+        // were never read. Reads, not seconds, so a loaded machine passes too.
+        #expect(probe.flags.count > 5000)
         #expect(pasteboard.writes == 0)
     }
 

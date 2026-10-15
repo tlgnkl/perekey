@@ -285,7 +285,12 @@ private struct MenuSurface<S: InsettableShape>: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 26, *), liquid {
-            content.pkGlass(in: shape)
+            // Liquid Glass takes its brightness from what is behind it: a light
+            // menu over a dark wallpaper turns mid-grey, and the inks, fixed per
+            // appearance, sink into it. The plate keeps the surface light (or dark).
+            content
+                .background(Color.pkWindowGlass, in: shape)
+                .pkGlass(in: shape)
         } else {
             content
                 .background(.regularMaterial, in: shape)

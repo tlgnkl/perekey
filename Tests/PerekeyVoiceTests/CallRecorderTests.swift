@@ -625,14 +625,17 @@ final class StatusLog: @unchecked Sendable {
     var last: CallRecorder.Status? { lock.withLock { all.last } }
 }
 
-/// Polls up to 10 s: a loaded machine may stall the tests for seconds.
+/// Polls until `condition` holds. It counts polls, not wall time: when other
+/// tests keep the pool busy for seconds, the polls slow down with the work
+/// they wait for, and a deadline in wall time would run out before that work
+/// had a turn. At least 20 s on an idle machine before it gives up.
 func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async throws {
-    let deadline = ContinuousClock.now + .seconds(10)
-    while ContinuousClock.now < deadline {
+    for _ in 0..<2_000 {
         if await condition() { return }
-        try await Task.sleep(for: .milliseconds(5))
+        try await Task.sleep(for: .milliseconds(10))
     }
-    Issue.record("the condition did not come true in 10 s")
+    if await condition() { return }
+    Issue.record("the condition did not come true in 2000 polls")
 }
 
 extension RecordingsFolder.Loaded {

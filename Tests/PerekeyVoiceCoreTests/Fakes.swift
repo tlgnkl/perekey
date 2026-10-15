@@ -122,11 +122,13 @@ final class VirtualClock: Sendable {
     }
 }
 
-/// Waits until `condition` holds, up to two seconds.
+/// Waits until `condition` holds. It counts polls, not wall time: when other
+/// tests keep the pool busy, the polls slow down with the work they wait for.
+/// At least 20 s on an idle machine before it gives up.
 func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
-    for _ in 0..<400 {
+    for _ in 0..<2_000 {
         if await condition() { return true }
-        try? await Task.sleep(for: .milliseconds(5))
+        try? await Task.sleep(for: .milliseconds(10))
     }
     return await condition()
 }

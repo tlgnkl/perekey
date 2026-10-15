@@ -235,8 +235,10 @@ final class StatusItemController {
         fit(width: host.intrinsicContentSize.width)
 
         menu.statusWindow = button.window
-        menu.anchor = { [weak button] in
-            guard let button, let window = button.window, button.window?.isVisible == true else { return nil }
+        // A hidden item has no anchor. Its window may also be off screen while a
+        // full-screen app hides the menu bar, and the menu still opens then.
+        menu.anchor = { [weak self, weak button] in
+            guard let self, statusItem.isVisible, let button, let window = button.window else { return nil }
             return window.convertToScreen(button.convert(button.bounds, to: nil))
         }
         observeVoiceOverState()

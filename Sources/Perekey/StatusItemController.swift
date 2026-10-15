@@ -49,18 +49,50 @@ private struct StatusCapsuleView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        let model = capsuleModel(sources: sources, store: store, pause: pause)
+        let style = store.settings.menuBarIcon
         HStack(spacing: 4) {
             if call.timeline != nil {
                 CallBadge(call: call)
             }
-            CapsuleView(
-                model: capsuleModel(sources: sources, store: store, pause: pause),
-                dark: scheme == .dark, animated: true,
-                pressed: state.pressed, open: menu.isOpen, flash: recents.flashes
-            )
+            if style == .capsule {
+                CapsuleView(
+                    model: model,
+                    dark: scheme == .dark, animated: true,
+                    pressed: state.pressed, open: menu.isOpen, flash: recents.flashes
+                )
+            } else {
+                MenuBarGlyph(style: style, model: model, icon: sources.currentLayout.flatMap(sources.icon(of:)))
+                    .modifier(GlyphMotion(pressed: state.pressed, open: menu.isOpen, flash: recents.flashes))
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .accessibilityHidden(true)
+    }
+}
+
+/// What the capsule does for a press, an open menu and a correction, for the
+/// plain styles: a small scale, a dimmed press, and a pulse of the item.
+private struct GlyphMotion: ViewModifier {
+    let pressed: Bool
+    let open: Bool
+    let flash: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let reduce = reduceMotion
+        return content
+            .opacity(pressed || open ? 0.6 : 1)
+            .scaleEffect(pressed && !reduceMotion ? 0.94 : 1)
+            .keyframeAnimator(initialValue: 1.0, trigger: flash) { view, level in
+                view.scaleEffect(reduce ? 1 : level).opacity(reduce ? 1 - (level - 1) * 4 : 1)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    CubicKeyframe(1.18, duration: 0.12)
+                    CubicKeyframe(1.0, duration: 0.48)
+                }
+            }
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : PK.Motion.spring, value: pressed)
     }
 }
 
@@ -204,10 +236,26 @@ final class StatusItemController {
 
         menu.statusWindow = button.window
         menu.anchor = { [weak button] in
-            guard let button, let window = button.window else { return nil }
+            guard let button, let window = button.window, button.window?.isVisible == true else { return nil }
             return window.convertToScreen(button.convert(button.bounds, to: nil))
         }
         observeVoiceOverState()
+        observeVisibility()
+    }
+
+    /// Shows or hides the item as the setting and the situation say. A hidden
+    /// item has no anchor, so the menu does not open: Perekey opens its
+    /// Settings when it is launched again instead (`applicationShouldHandleReopen`).
+    private func observeVisibility() {
+        let visible = withObservationTracking {
+            MenuBarPolicy.isVisible(store.settings.menuBarVisibility, MenuBarSituation(
+                paused: pause.current != nil, autoswitchOff: !store.settings.autoswitch,
+                recordingCall: call.timeline != nil))
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeVisibility() }
+        }
+        if !visible { menu.close() }
+        statusItem.isVisible = visible
     }
 
     private func pressDown() {

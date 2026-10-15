@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let input: InputController
     private let shell: MenuBarShell
     private let usage: UsageRecorder
+    private let settingsWindow: SettingsWindow
     #if PEREKEY_VOICE
     /// The voice settings and speech models. Lives with the app, so the
     /// network gate and the downloads do not depend on the Settings window.
@@ -157,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboarding.makeVoiceIntro = { VoiceIntro.offer(situation()) == .none ? nil : makeIntro() }
         voice.openVoiceSettings = { settings.show(section: .voice, scrollTarget: "models") }
         #endif
+        settingsWindow = settings
         #if PEREKEY_VOICE
         let voiceIsOn: @MainActor () -> Bool = { voiceModels.settings.isOn && voiceModels.isSupported }
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
@@ -205,6 +207,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A call a crash cut off is offered for transcription; old audio goes.
         callRecording.launched()
         #endif
+    }
+
+    /// Opening Perekey again (Finder, Spotlight, Launchpad) opens Settings. It is
+    /// the way back to the menu bar item when the user hid it.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        settingsWindow.show()
+        return false
     }
 
     /// ⌘Q, logout and an update's relaunch wait while a call is recorded,

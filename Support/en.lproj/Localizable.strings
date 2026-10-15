@@ -335,7 +335,7 @@
 "Undone share" = "Undone share";
 "Today: no corrections" = "Today: no corrections";
 "Privacy" = "Privacy";
-"Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. The only network request is the update check." = "Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory. The only network request is the update check.";
+"Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory." = "Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory.";
 "Languages of apps" = "Languages of apps";
 "Forget the languages of apps" = "Forget the languages of apps";
 "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit.";
@@ -357,3 +357,4 @@
 "%@ by macOS, ⌥ retypes" = "%@ by macOS, ⌥ retypes";
 "macOS switches with %@." = "macOS switches with %@.";
 "Click and press another shortcut, such as ⌥Space" = "Click and press another shortcut, such as ⌥Space";
+"The only network request is the update check." = "The only network request is the update check.";

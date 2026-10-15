@@ -420,6 +420,9 @@
 "Put on headphones: from the speakers the others also reach your microphone." = "Наденьте наушники: из динамиков собеседники попадают и в ваш микрофон.";
 "Close" = "Закрыть";
 
+/* Privacy: what the network is used for */
+"Speech models run on this Mac. The network is used for the update check and for what you start yourself: downloading a speech model, and a server you set up for a voice mode." = "Модели речи работают на этом Mac. Сеть нужна для проверки обновлений и для того, что запускаете вы сами: скачивание модели речи и ваш сервер для режима голоса.";
+
 /* Summary and meeting minutes of a transcript */
 "Summary" = "Конспект";
 "Meeting minutes" = "Протокол встречи";

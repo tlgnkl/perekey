@@ -11,17 +11,70 @@ differently, what was fixed.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-14
+
 ### Added
 
+- **Voice input.** Tap the right Option key, say a phrase, tap again, and the
+  text lands at the cursor, in any field. Or hold a shortcut such as ⌥Space
+  while you speak. Russian, English and Ukrainian work in one phrase, and
+  Perekey can switch the layout to the language you spoke. The right Option key now belongs to
+  voice, so retyping moves to the left one; the first launch explains this,
+  and you can pick another key to keep Option as it was. Voice needs a Mac with
+  Apple Silicon and macOS 15 or newer. On any other Mac Perekey works as
+  before, and the Voice tab says why.
+- **Speech models on your Mac.** Pick Parakeet (Russian, Ukrainian, English and
+  22 more European languages) or Whisper (99 languages, Belarusian included)
+  in Settings → Voice, and download it with one button. Nothing is
+  downloaded before you click, and recognition runs on this Mac: with a local
+  model voice makes no network requests.
+- **Clean text without a language model.** Filler words go, and your
+  dictionary of names and terms helps the recognizer. Recent dictations stay
+  for 7 days, so a lost phrase can be pasted again; turn the history off or shorten it in Settings.
+  Audio of dictations is not kept unless you tick “Keep the audio of
+  dictations”.
+- **Voice modes.** A mode decides what happens to the text after recognition:
+  as said, a clean draft, a short message, an email, a terminal mode that adds
+  nothing and never presses Enter, or a translation into English. Perekey
+  picks the mode by the site, then by the app, and you can write your own.
+- **Your own LLM or cloud, only on your terms.** Point a mode at OpenAI, Groq,
+  Ollama, LM Studio or any server with an OpenAI-compatible API. The key stays
+  in the Keychain, and Perekey asks before the first request to each server.
+  Cloud is off until you set it up.
+- **Transcripts.** A new window lists your transcripts: drag in an audio or
+  video file to turn it into text with timestamps and speakers, search inside
+  a transcript, click a phrase to hear it, and export to TXT, Markdown, SRT, VTT
+  or JSON. A long recording is split, queued, and finished in the background.
+- **Summary and meeting minutes.** A finished transcript can become a summary
+  or meeting minutes, made by a language model on this Mac by default. A cloud
+  model works only if you pick it and allow sending the transcript, which holds
+  other people’s words. The text is saved beside the transcript.
+- **Record a call.** Record a call from the menu: your microphone is “Me”, the
+  sound of one app or of the whole Mac is “Others”, and each gets its own
+  track, so the transcript tells who said what. Perekey asks for “System Audio
+  Recording” the first time. A recording survives a crash or a change of
+  headphones. After you stop, the call is transcribed and the audio stays on
+  this Mac; choose to keep it always, for 30 days, or to delete it after
+  transcription. Calls and transcripts stay out of Time Machine unless you
+  turn that on.
 - **Keep the macOS shortcut.** If you switch layouts with ⌃Space, ⌘Space or
   the 🌐 key, pick “As now in macOS”: Perekey leaves switching to macOS and
   only adds Option to retype the word. Onboarding picks it for you when you
   have changed that shortcut yourself.
 - **Your own switch shortcut in onboarding.** Click the keys of “Switch layout”
   and press any shortcut, such as ⌥Space.
+- **For organizations.** Configuration profiles can turn voice, cloud
+  services, model downloads, call recording, call audio and the Time Machine
+  option off, and cap how long the history is kept. See
+  `docs/managed-preferences.md`.
 
 ### Changed
 
+- **Voice and privacy.** Voice is silent where macOS hides the keys (Secure
+  Input) and in password fields. Everything else about privacy is as before:
+  typed text is never saved. The network now has two more reasons to wake up,
+  both yours: the “Download” button of a speech model, and a mode that you
+  pointed at a cloud server or an LLM.
 - **Words joined by a slash are fixed one by one.** In “доходы/расходы”,
   “менеджер/CEO” or “приход/расход” automatic switching judges each word on its
   own: “ghbdtn/vbh” becomes “привет/мир”, and “привет/цщкдв” becomes
@@ -43,6 +96,8 @@ differently, what was fixed.
   so your password manager's own clearing still works. Anything else you
   copied comes back as before. The plain text Perekey pastes stays on this
   Mac and is not sent to your iPhone or iPad.
+- **A bigger download.** Voice adds the speech libraries to the app. The
+  speech models themselves are not in the DMG.
 
 ### Fixed
 
@@ -113,6 +168,7 @@ to confirm the first launch (the release notes say how).
   captcha-like strings are left alone.
 - The only network request is the update check.
 
-[Unreleased]: https://github.com/tlgnkl/perekey/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/tlgnkl/perekey/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tlgnkl/perekey/releases/tag/v0.2.0
 [0.1.1]: https://github.com/tlgnkl/perekey/releases/tag/v0.1.1
 [0.1.0]: https://github.com/tlgnkl/perekey/releases/tag/v0.1.0

@@ -145,6 +145,10 @@ first launch after the update asks first.
   it on this Mac with timestamps and, if you ask, speakers. Click a phrase to
   hear it, search inside the text, and export to TXT, Markdown, SRT, VTT or
   JSON.
+- **Summary and meeting minutes.** A finished transcript becomes a summary or
+  meeting minutes. By default a language model on this Mac writes them (Ollama
+  or LM Studio). A cloud model is used only if you pick it, and Perekey first
+  asks to send the transcript: it holds the other people’s words too.
 - **Record a call.** From the menu. Your microphone is “Me”; the sound of one
   app, or of the whole Mac, is “Others”. Each is a separate track, so the
   transcript says who spoke. A crash, or a switch to headphones, does not stop

@@ -45,6 +45,10 @@ differently, what was fixed.
   video file to turn it into text with timestamps and speakers, search inside
   a transcript, click a phrase to hear it, and export to TXT, Markdown, SRT, VTT
   or JSON. A long recording is split, queued, and finished in the background.
+- **Summary and meeting minutes.** A finished transcript can become a summary
+  or meeting minutes, made by a language model on this Mac by default. A cloud
+  model works only if you pick it and allow sending the transcript, which holds
+  other people’s words. The text is saved beside the transcript.
 - **Record a call.** Record a call from the menu: your microphone is “Me”, the
   sound of one app or of the whole Mac is “Others”, and each gets its own
   track, so the transcript tells who said what. Perekey asks for “System Audio

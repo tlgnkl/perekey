@@ -7,7 +7,10 @@ import Testing
 /// A user may go back to 0.1.1 and forward again. 0.1.1 decodes `hotkeys`
 /// with `try`: one shortcut it does not know, and it drops the whole file
 /// (`SettingsFile.load`). So nothing new goes into `settings.json`; dictation
-/// keeps its settings in `voice.json`.
+/// keeps its settings in `voice.json`. The one exception is the two scalar
+/// menu bar keys (`addedSince0_1_1`): 0.1.1 ignores keys it does not know and
+/// drops them when it saves, so the choice falls back to the capsule, and the
+/// rest of the file is read as before.
 @Suite struct SettingsRollbackTests {
     /// Every field away from its default, the shortcuts included.
     static var filled: AppSettings {
@@ -28,6 +31,16 @@ import Testing
         settings.words.always = ["артём"]
         settings.statistics = true
         return settings
+    }
+
+    /// Keys a later version added to `settings.json`; 0.1.1 does not write them back.
+    static let addedSince0_1_1: Set<String> = ["menuBarIcon", "menuBarVisibility"]
+
+    /// The JSON object without the keys 0.1.1 does not know.
+    static func object(_ data: Data, as0_1_1: Bool) throws -> NSDictionary {
+        let object = try Self.object(data).mutableCopy() as! NSMutableDictionary
+        for key in addedSince0_1_1 { object.removeObject(forKey: key) }
+        return object
     }
 
     static func fixture(_ name: String) throws -> Data {
@@ -65,13 +78,15 @@ import Testing
         // 0.1.1 opens it: a decoding error here would make it drop every setting.
         let legacy = try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: saved)
         let resaved = try Self.encode(legacy)
-        #expect(try Self.object(resaved) == Self.object(saved), "0.1.1 writes back what it read")
+        #expect(try Self.object(resaved) == Self.object(saved, as0_1_1: true), "0.1.1 writes back what it read")
         #expect(try JSONDecoder().decode(AppSettings.self, from: resaved) == settings)
     }
 
     @Test func dictationWritesNothingNewToSettings() throws {
         let saved = try Self.object(Self.encode(Self.filled))
-        #expect(Set(saved.allKeys.compactMap { $0 as? String }) == LegacyAppSettings_0_1_1.keys)
+        let keys = Set(saved.allKeys.compactMap { $0 as? String })
+        #expect(keys.subtracting(Self.addedSince0_1_1) == LegacyAppSettings_0_1_1.keys)
+        #expect(keys.isSuperset(of: Self.addedSince0_1_1))
         // The snapshot with dictation on saved and loaded through
         // `SettingsFile`: VoiceSettingsFileTests.snapshotWithVoiceChangesNoSavedSetting.
     }
@@ -84,7 +99,7 @@ import Testing
         let settings = try JSONDecoder().decode(AppSettings.self, from: data)
         #expect(settings == Self.filled)
         let resaved = try Self.encode(settings)
-        #expect(try Self.object(resaved) == Self.object(data))
+        #expect(try Self.object(resaved, as0_1_1: true) == Self.object(data))
         #expect(try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: resaved) == legacy)
     }
 

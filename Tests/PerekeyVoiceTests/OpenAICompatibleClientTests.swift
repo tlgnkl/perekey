@@ -96,7 +96,9 @@ struct OpenAICompatibleClientTests {
         await #expect(throws: OpenAICompatibleClient.Failure.timedOut) {
             try await fake.client(timeout: .milliseconds(300)).complete(messages, model: "m", address: fake.address, key: nil, purpose: .cloudLanguageModel)
         }
-        #expect(ContinuousClock.now - start < .seconds(5))
+        // The server never finishes: the 300 ms timeout ended the request, not
+        // URLSession's own 60 s. Generous, since a busy machine runs tests slowly.
+        #expect(ContinuousClock.now - start < .seconds(20))
     }
 
     @Test func anOriginNotAllowedIsNeverReached() async throws {
@@ -151,12 +153,14 @@ struct OpenAICompatibleClientTests {
         let address = fake.address
         let messages = self.messages
         let request = Task { try await client.complete(messages, model: "m", address: address, key: nil, purpose: .cloudLanguageModel) }
-        for _ in 0..<200 where fake.server.requests.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        let server = fake.server
+        try await waitUntil { !server.requests.isEmpty }
         let start = ContinuousClock.now
         // Consent revoked while the model thinks.
         fake.http.allowedOrigins = [:]
         await #expect(throws: (any Error).self) { try await request.value }
-        #expect(ContinuousClock.now - start < .seconds(5))
+        // Well under the 30 s timeout: closing the origin ended the request.
+        #expect(ContinuousClock.now - start < .seconds(20))
     }
 
     @Test func theTranscriptionWaitGrowsWithTheUpload() {

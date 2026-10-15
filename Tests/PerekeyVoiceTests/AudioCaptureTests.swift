@@ -85,7 +85,9 @@ private final class Collector: AudioSink, @unchecked Sendable {
     var reasons: [AudioCaptureInterruption] { state.withLock { $0.reasons } }
 }
 
-/// Waits for work the actor started from an event (a Task of its own).
+/// Gives work the actor started from an event (a Task of its own) a chance
+/// to run. Only for checks that nothing happens: a check that something does
+/// waits for it with `eventually`.
 private func settle(_ capture: AudioCapture, for duration: Duration = .milliseconds(100)) async {
     let clock = ContinuousClock()
     let end = clock.now + duration
@@ -96,24 +98,33 @@ private func settle(_ capture: AudioCapture, for duration: Duration = .milliseco
     _ = await capture.isRunning
 }
 
-/// Waits until `condition` holds, at most two seconds: timing tests then pass
-/// on a busy machine too.
+/// Waits until `condition` holds. It counts polls, not wall time: when other
+/// tests keep the pool busy, the polls slow down with the work they wait for.
+/// At least 20 s on an idle machine before it gives up.
 private func eventually(_ condition: () async -> Bool) async -> Bool {
-    let clock = ContinuousClock()
-    let end = clock.now + .seconds(2)
-    while clock.now < end {
+    for _ in 0..<2_000 {
         if await condition() {
             return true
         }
-        try? await Task.sleep(for: .milliseconds(5))
+        try? await Task.sleep(for: .milliseconds(10))
     }
     return await condition()
+}
+
+/// A capture whose watchdog waits on `clock`: without `advance` it never
+/// fires, however slow the machine.
+private func makeCapture(_ input: FakeInput, preferredUID: String? = nil, clock: VirtualClock = VirtualClock(),
+                         stallTimeout: Duration = .milliseconds(1500),
+                         firstBlockTimeout: Duration = .seconds(4)) -> AudioCapture
+{
+    AudioCapture(input: input, preferredUID: preferredUID, stallTimeout: stallTimeout,
+                 firstBlockTimeout: firstBlockTimeout, sleep: clock.sleep)
 }
 
 struct AudioCaptureTests {
     @Test func theMicrophoneRunsWhileAnySubscriberIs() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         let dictation = try await capture.subscribe(Collector())
         let call = try await capture.subscribe(Collector())
         #expect(input.log == ["start system", "started"])
@@ -128,7 +139,7 @@ struct AudioCaptureTests {
 
     @Test func blocksGoToEverySubscriberUntilItLeaves() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         let a = Collector(), b = Collector()
         let tokenA = try await capture.subscribe(a)
         let tokenB = try await capture.subscribe(b)
@@ -146,7 +157,7 @@ struct AudioCaptureTests {
     @Test func withoutAccessNothingStarts() async {
         let input = FakeInput()
         input.isAuthorized = false
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         await #expect(throws: AudioCaptureError.notAuthorized) { try await capture.subscribe(Collector()) }
         #expect(input.log.isEmpty)
         #expect(await capture.subscriberCount == 0)
@@ -155,7 +166,7 @@ struct AudioCaptureTests {
     @Test func aFailedStartAddsNoSubscriber() async throws {
         let input = FakeInput()
         input.failStarts = 1
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         await #expect(throws: AudioCaptureError.self) { try await capture.subscribe(Collector()) }
         #expect(await capture.subscriberCount == 0)
         #expect(await !capture.isRunning)
@@ -169,7 +180,7 @@ struct AudioCaptureTests {
         let input = FakeInput()
         let gate = DispatchSemaphore(value: 0)
         input.startGate = gate
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         let starting = Task { try await capture.subscribe(Collector()) }
         // The start holds the actor until the gate opens, however late the
         // task began: nothing but the test ends it.
@@ -187,11 +198,11 @@ struct AudioCaptureTests {
 
     @Test func aConfigurationChangeRestartsAndTellsSubscribers() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         let sink = Collector()
         _ = try await capture.subscribe(sink)
         input.send(.configurationChange)
-        await settle(capture)
+        #expect(await eventually { input.log.count == 5 })
         #expect(sink.reasons == [.configurationChange])
         #expect(sink.tails == 1) // the audio up to the gap
         #expect(input.log == ["start system", "started", "stop", "start system", "started"])
@@ -200,12 +211,12 @@ struct AudioCaptureTests {
 
     @Test func aLostMicrophoneFallsBackToTheSystemOne() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, preferredUID: "usb")
+        let capture = makeCapture(input, preferredUID: "usb")
         let sink = Collector()
         _ = try await capture.subscribe(sink)
         input.available.remove("usb")
         input.send(.configurationChange)
-        await settle(capture)
+        #expect(await eventually { await capture.activeDevice?.uid == "built-in" })
         #expect(sink.reasons == [.deviceLost])
         #expect(input.log.last(where: { $0.hasPrefix("start ") }) == "start system")
         #expect(await capture.activeDevice?.uid == "built-in")
@@ -216,19 +227,19 @@ struct AudioCaptureTests {
     /// tells.
     @Test func aDeadDeviceRestartsAsLost() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, preferredUID: "usb")
+        let capture = makeCapture(input, preferredUID: "usb")
         let sink = Collector()
         _ = try await capture.subscribe(sink)
         input.available.remove("usb")
         input.send(.deviceDied)
-        await settle(capture)
+        #expect(await eventually { input.log.count == 5 })
         #expect(sink.reasons == [.deviceLost])
         #expect(input.log == ["start usb", "started", "stop", "start system", "started"])
     }
 
     @Test func anEventOfAStoppedEngineIsIgnored() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         let token = try await capture.subscribe(Collector())
         await capture.unsubscribe(token)
         input.send(.configurationChange)
@@ -239,7 +250,7 @@ struct AudioCaptureTests {
 
     @Test func selectingAMicrophoneSwitchesARunningCapture() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         await capture.selectMicrophone(uid: "usb") // idle: only remembered
         #expect(input.log.isEmpty)
         let sink = Collector()
@@ -253,12 +264,12 @@ struct AudioCaptureTests {
     /// wake them up behind their back.
     @Test func aFailedRestartRemovesTheSubscribers() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input)
+        let capture = makeCapture(input)
         let old = Collector()
         let token = try await capture.subscribe(old)
         input.failStarts = 1
         input.send(.configurationChange)
-        await settle(capture)
+        #expect(await eventually { old.reasons.count == 2 })
         #expect(old.reasons == [.configurationChange, .failed("engine(\"fake\")")])
         #expect(await !capture.isRunning)
         #expect(await capture.subscriberCount == 0)
@@ -268,15 +279,25 @@ struct AudioCaptureTests {
         #expect(old.samples.isEmpty)
     }
 
+    // The watchdog tests move its time with a VirtualClock: what they check
+    // is which wait comes next and what a stall does, not how fast a busy
+    // machine runs them. `clock.pending` has one wait while the watchdog
+    // sleeps, so each step waits for it before `advance`.
+
     @Test func blocksKeepTheWatchdogQuiet() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(200), firstBlockTimeout: .milliseconds(200))
+        let clock = VirtualClock()
+        let capture = makeCapture(input, clock: clock, stallTimeout: .milliseconds(200),
+                                  firstBlockTimeout: .milliseconds(200))
         let sink = Collector()
         _ = try await capture.subscribe(sink)
-        for _ in 0..<40 {
+        for _ in 0..<5 {
+            #expect(await eventually { clock.pending.count == 1 })
             input.push([0])
-            try await Task.sleep(for: .milliseconds(10))
+            clock.advance()
         }
+        // It heard the last block and waits again.
+        #expect(await eventually { clock.pending.count == 1 })
         #expect(sink.reasons.isEmpty)
         #expect(input.log == ["start system", "started"])
     }
@@ -284,12 +305,17 @@ struct AudioCaptureTests {
     /// No blocks from a running engine: restart once, then give up.
     @Test func aStalledEngineRestartsOnceThenFails() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(80), firstBlockTimeout: .milliseconds(80))
+        let clock = VirtualClock()
+        let capture = makeCapture(input, clock: clock, stallTimeout: .milliseconds(80),
+                                  firstBlockTimeout: .milliseconds(80))
         let sink = Collector()
         _ = try await capture.subscribe(sink)
-        #expect(await eventually { !sink.reasons.isEmpty })
+        #expect(await eventually { clock.pending.count == 1 })
+        clock.advance()
+        #expect(await eventually { !sink.reasons.isEmpty && clock.pending.count == 1 })
         #expect(sink.reasons == [.stalled])
         #expect(await capture.isRunning)
+        clock.advance()
         #expect(await eventually { sink.reasons.count == 2 })
         #expect(sink.reasons.last == .failed("no audio from built-in"))
         #expect(await !capture.isRunning)
@@ -299,11 +325,19 @@ struct AudioCaptureTests {
     /// A stall, then audio again: the next stall restarts once more instead of failing.
     @Test func audioAfterAStallResetsTheWatchdog() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(80), firstBlockTimeout: .milliseconds(80))
+        let clock = VirtualClock()
+        let capture = makeCapture(input, clock: clock, stallTimeout: .milliseconds(80),
+                                  firstBlockTimeout: .milliseconds(80))
         let sink = Collector()
         _ = try await capture.subscribe(sink)
-        #expect(await eventually { !sink.reasons.isEmpty })
+        #expect(await eventually { clock.pending.count == 1 })
+        clock.advance()
+        #expect(await eventually { !sink.reasons.isEmpty && clock.pending.count == 1 })
         input.push([0])
+        clock.advance()
+        // It heard the block and waits again.
+        #expect(await eventually { clock.pending.count == 1 })
+        clock.advance()
         #expect(await eventually { sink.reasons.count >= 2 })
         #expect(sink.reasons.prefix(2) == [.stalled, .stalled])
     }
@@ -312,31 +346,39 @@ struct AudioCaptureTests {
     /// buffers: the watchdog waits longer for the first block than between blocks.
     @Test func theFirstBlockMayTakeLonger() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(60), firstBlockTimeout: .milliseconds(400))
+        let clock = VirtualClock()
+        let capture = makeCapture(input, clock: clock, stallTimeout: .milliseconds(60),
+                                  firstBlockTimeout: .milliseconds(400))
         let sink = Collector()
-        let clock = ContinuousClock()
-        let started = clock.now
         _ = try await capture.subscribe(sink)
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(sink.reasons.isEmpty)
+        #expect(await eventually { clock.pending == [.milliseconds(400)] })
         input.push([0]) // the first block, late
+        clock.advance()
+        #expect(await eventually { clock.pending == [.milliseconds(60)] })
+        #expect(sink.reasons.isEmpty)
+        clock.advance()
         #expect(await eventually { !sink.reasons.isEmpty })
         #expect(sink.reasons == [.stalled])
-        #expect(clock.now - started >= .milliseconds(400))
     }
 
     /// A stall whose restart fails, then a new subscriber: its first stall
     /// restarts again instead of failing at once on the old count.
     @Test func aNewSessionStartsWithACleanWatchdog() async throws {
         let input = FakeInput()
-        let capture = AudioCapture(input: input, stallTimeout: .milliseconds(50), firstBlockTimeout: .milliseconds(50))
+        let clock = VirtualClock()
+        let capture = makeCapture(input, clock: clock, stallTimeout: .milliseconds(50),
+                                  firstBlockTimeout: .milliseconds(50))
         let first = Collector()
         _ = try await capture.subscribe(first)
         input.failStarts = 1
+        #expect(await eventually { clock.pending.count == 1 })
+        clock.advance()
         #expect(await eventually { first.reasons.count == 2 })
         #expect(first.reasons == [.stalled, .failed("engine(\"fake\")")])
         let second = Collector()
         _ = try await capture.subscribe(second)
+        #expect(await eventually { clock.pending.count == 1 })
+        clock.advance()
         #expect(await eventually { !second.reasons.isEmpty })
         #expect(second.reasons.first == .stalled)
     }
@@ -521,7 +563,7 @@ struct ResamplerTests {
 }
 
 struct DictationAudioTests {
-    @Test func keepsAudioUpToTheLimitAndSaysSoOnce() {
+    @Test func keepsAudioUpToTheLimitAndSaysSoOnce() async throws {
         let hits = OSAllocatedUnfairLock(initialState: 0)
         let audio = DictationAudio(seconds: 1) { hits.withLock { $0 += 1 } }
         #expect(audio.capacity == 16_000)
@@ -532,10 +574,8 @@ struct DictationAudioTests {
         #expect(audio.count == 16_000)
         #expect(audio.isFull)
         // onLimit runs on a queue of its own, not under the delivery lock.
-        for _ in 0..<200 where hits.withLock({ $0 }) == 0 {
-            Thread.sleep(forTimeInterval: 0.005)
-        }
-        Thread.sleep(forTimeInterval: 0.02)
+        #expect(await eventually { hits.withLock { $0 } > 0 })
+        try await Task.sleep(for: .milliseconds(20))
         #expect(hits.withLock { $0 } == 1)
         #expect(audio.samples.allSatisfy { $0 == 0.25 })
         #expect(audio.firstHostTime == 100)

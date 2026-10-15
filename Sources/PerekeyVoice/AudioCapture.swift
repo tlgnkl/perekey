@@ -97,6 +97,8 @@ public actor AudioCapture {
     /// microphone profile give the first buffers only after 1–2 s.
     private let firstBlockTimeout: Duration
     private var watchdog: Task<Void, Never>?
+    /// The watchdog's wait. Tests move its time themselves.
+    private let sleep: @Sendable (Duration) async throws -> Void
     /// The block count when a stall last restarted the engine: no block since
     /// then means the new engine stalled too.
     private var blocksAtStall: Int?
@@ -111,11 +113,13 @@ public actor AudioCapture {
     }
 
     init(input: any AudioInput, preferredUID: String? = nil, stallTimeout: Duration = .milliseconds(1500),
-         firstBlockTimeout: Duration = .seconds(4)) {
+         firstBlockTimeout: Duration = .seconds(4),
+         sleep: @escaping @Sendable (Duration) async throws -> Void = taskSleep) {
         self.input = input
         self.preferredUID = preferredUID
         self.stallTimeout = stallTimeout
         self.firstBlockTimeout = firstBlockTimeout
+        self.sleep = sleep
     }
 
     /// Adds a subscriber and starts the microphone if it is the first. Throws,
@@ -229,11 +233,12 @@ public actor AudioCapture {
         let timeout = stallTimeout
         let firstTimeout = firstBlockTimeout
         let sinks = self.sinks
+        let sleep = self.sleep
         watchdog = Task { [weak self] in
             var seen = sinks.blockCount
             var heard = false
             while !Task.isCancelled {
-                try? await Task.sleep(for: heard ? timeout : firstTimeout)
+                try? await sleep(heard ? timeout : firstTimeout)
                 let blocks = sinks.blockCount
                 if blocks != seen {
                     seen = blocks

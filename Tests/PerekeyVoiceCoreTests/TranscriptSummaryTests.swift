@@ -221,7 +221,7 @@ struct TranscriptSummarizerTests {
         let started = Flag(false)
         let model = FakeSummaryModel { messages, _ in
             started.value = true
-            try await Task.sleep(for: .seconds(30))
+            try await Task.sleep(for: .seconds(3600))
             return FakeSummaryModel.echo(messages)
         }
         let summarizer = TranscriptSummarizer(model: model, budget: Self.budget(2_000))
@@ -231,7 +231,9 @@ struct TranscriptSummarizerTests {
         let cancelled = clock.now
         task.cancel()
         await #expect(throws: CancellationError.self) { try await task.value }
-        #expect(cancelled.duration(to: clock.now) < .seconds(2))
+        // The request sleeps for an hour: well under that means the cancel
+        // ended it. Generous, since a busy machine runs the tests slowly.
+        #expect(cancelled.duration(to: clock.now) < .seconds(20))
         #expect(model.requests.count == 1)
     }
 

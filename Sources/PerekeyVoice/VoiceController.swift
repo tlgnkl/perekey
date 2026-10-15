@@ -295,7 +295,7 @@ public final class VoiceController {
                 secureInput: (any DictationSecureInputRules)?, detector: (any SpeechDetector)?,
                 makeEngine: @escaping (String) -> (any SpeechEngine)?, hooks: Hooks = Hooks(),
                 limitSeconds: Int = DictationAudio.limitSeconds,
-                sleep: @escaping Sleep = { try await Task.sleep(for: $0) })
+                sleep: @escaping Sleep = taskSleep)
     {
         self.preferences = preferences
         self.microphone = microphone

@@ -78,6 +78,10 @@ public struct AppSettings: Hashable, Sendable {
     public var caretHint: CaretHintMode
     /// Opt-in counters of corrections per day (`UsageStats`). Off by default.
     public var statistics = false
+    /// How the menu bar item looks (Settings → General, «Menu bar»).
+    public var menuBarIcon: MenuBarIconStyle = .capsule
+    /// When the menu bar item is on screen.
+    public var menuBarVisibility: MenuBarVisibility = .always
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
@@ -153,7 +157,7 @@ public struct AppSettings: Hashable, Sendable {
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
-        case checkForUpdates, typoCorrection, corrections, caretHint, statistics
+        case checkForUpdates, typoCorrection, corrections, caretHint, statistics, menuBarIcon, menuBarVisibility
     }
 
     public init(from decoder: any Decoder) throws {
@@ -175,5 +179,8 @@ extension AppSettings: Codable {
         typoCorrection = (try? container.decodeIfPresent(Bool.self, forKey: .typoCorrection)) ?? defaults.typoCorrection
         caretHint = (try? container.decodeIfPresent(CaretHintMode.self, forKey: .caretHint)) ?? defaults.caretHint
         statistics = (try? container.decodeIfPresent(Bool.self, forKey: .statistics)) ?? defaults.statistics
+        menuBarIcon = (try? container.decodeIfPresent(MenuBarIconStyle.self, forKey: .menuBarIcon)) ?? defaults.menuBarIcon
+        menuBarVisibility = (try? container.decodeIfPresent(MenuBarVisibility.self, forKey: .menuBarVisibility))
+            ?? defaults.menuBarVisibility
     }
 }

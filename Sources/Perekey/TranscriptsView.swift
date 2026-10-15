@@ -217,6 +217,9 @@ private struct TranscriptDetail: View {
         if let item = controller.selected {
             VStack(alignment: .leading, spacing: 0) {
                 TranscriptHeader(controller: controller, item: item, deleting: deleting)
+                if controller.summaries != nil, controller.document != nil {
+                    TranscriptPanePicker(controller: controller)
+                }
                 Rectangle().fill(Color.pkRule).frame(height: 0.5)
                 if let notice = controller.notice {
                     Button { controller.dismissNotice() } label: {
@@ -225,7 +228,13 @@ private struct TranscriptDetail: View {
                     .buttonStyle(.plain)
                     .accessibilityHint(Text(verbatim: voiceString("Dismiss")))
                 }
-                TranscriptBody(controller: controller, item: item)
+                if case let .note(action) = controller.pane, let summaries = controller.summaries,
+                   controller.document != nil
+                {
+                    TranscriptNotePane(controller: controller, summaries: summaries, item: item, action: action)
+                } else {
+                    TranscriptBody(controller: controller, item: item)
+                }
             }
         } else {
             VStack {
@@ -276,7 +285,7 @@ private struct TranscriptHeader: View {
                     .help(voiceText("Delete…"))
                     .accessibilityLabel(voiceText("Delete…"))
             }
-            if controller.document != nil { searchField }
+            if controller.document != nil, controller.pane == .transcript { searchField }
         }
         .padding(.horizontal, PK.Space.xl)
         .padding(.vertical, PK.Space.lg)

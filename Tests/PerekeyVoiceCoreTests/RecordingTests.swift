@@ -132,10 +132,19 @@ struct RecordingTests {
         let fixture = Fixture()
         try fixture.folder.create(Self.call(), excludedFromBackup: true)
         #expect(fixture.folder.isExcludedFromBackup)
+        #expect(Self.hasExcludeAttribute(fixture.root))
+        #expect((try? fixture.root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) == true)
         try fixture.folder.create(Self.call(), excludedFromBackup: false)
         #expect(!fixture.folder.isExcludedFromBackup)
+        #expect(!Self.hasExcludeAttribute(fixture.root))
         try fixture.folder.create(Self.call(), excludedFromBackup: true)
         #expect(fixture.folder.isExcludedFromBackup)
+        #expect(Self.hasExcludeAttribute(fixture.root))
+    }
+
+    /// The extended attribute Time Machine reads, asked of the disk directly.
+    private static func hasExcludeAttribute(_ url: URL) -> Bool {
+        getxattr(url.path(percentEncoded: false), "com.apple.metadata:com_apple_backup_excludeItem", nil, 0, 0, 0) >= 0
     }
 
     /// A field set back to nil stays nil: the file's own keys never come back from the disk.

@@ -422,3 +422,51 @@
 
 /* Privacy: what the network is used for */
 "Speech models run on this Mac. The network is used for the update check and for what you start yourself: downloading a speech model, and a server you set up for a voice mode." = "Speech models run on this Mac. The network is used for the update check and for what you start yourself: downloading a speech model, and a server you set up for a voice mode.";
+
+/* Summary and meeting minutes of a transcript */
+"Summary" = "Summary";
+"Meeting minutes" = "Meeting minutes";
+"Transcript" = "Transcript";
+"Show" = "Show";
+"Make a summary" = "Make a summary";
+"Make the minutes" = "Make the minutes";
+"Make again" = "Make again";
+"Export .md" = "Export .md";
+"Replace" = "Replace";
+"Replace the summary?" = "Replace the summary?";
+"Replace the minutes?" = "Replace the minutes?";
+"The saved text is replaced with a new one." = "The saved text is replaced with a new one.";
+"Runs on %@. The text is saved beside the transcript." = "Runs on %@. The text is saved beside the transcript.";
+"Needs consent to send the transcript" = "Needs consent to send the transcript";
+"No model for summaries" = "No model for summaries";
+"No answer" = "No answer";
+"The transcript has no text." = "The transcript has no text.";
+"Set up a model on this Mac (Ollama or LM Studio) in the Voice modes tab, or pick one under Voice → Recordings." = "Set up a model on this Mac (Ollama or LM Studio) in the Voice modes tab, or pick one under Voice → Recordings.";
+"Your administrator turned off cloud models. Pick a model on this Mac." = "Your administrator turned off cloud models. Pick a model on this Mac.";
+"%@ needs a key. Add it in the Voice modes tab." = "%@ needs a key. Add it in the Voice modes tab.";
+"Nothing was sent. Allow sending the transcript to the server, or pick a model on this Mac." = "Nothing was sent. Allow sending the transcript to the server, or pick a model on this Mac.";
+"The language model did not answer. Check that it is running, then try again." = "The language model did not answer. Check that it is running, then try again.";
+"Perekey could not save the answer." = "Perekey could not save the answer.";
+"Model for summaries" = "Model for summaries";
+"As the modes: %@" = "As the modes: %@";
+"As the modes: none on this Mac" = "As the modes: none on this Mac";
+"Set up Ollama or LM Studio in the Voice modes tab. A cloud model gets transcripts with other people’s words." = "Set up Ollama or LM Studio in the Voice modes tab. A cloud model gets transcripts with other people’s words.";
+"Summary and meeting minutes. A cloud model gets transcripts with other people’s words." = "Summary and meeting minutes. A cloud model gets transcripts with other people’s words.";
+"The transcript of a conversation will go to %@, other people’s voices included. Until you allow it, summaries are made on this Mac only." = "The transcript of a conversation will go to %@, other people’s voices included. Until you allow it, summaries are made on this Mac only.";
+"the transcript of a conversation, with other people’s words" = "the transcript of a conversation, with other people’s words";
+"Voice input is off. Turn it on in Settings → Voice." = "Voice input is off. Turn it on in Settings → Voice.";
+"A summary needs at least %lld words." = "A summary needs at least %lld words.";
+"Consent taken back" = "Consent taken back";
+"Made of the earlier transcript. Make it again to take the changes in." = "Made of the earlier transcript. Make it again to take the changes in.";
+"Minutes: %lld of %lld" = "Minutes: %lld of %lld";
+"Summary: %lld of %lld" = "Summary: %lld of %lld";
+"Perekey did not let the request out. Check that voice is on and the server is allowed." = "Perekey did not let the request out. Check that voice is on and the server is allowed.";
+"Stops it" = "Stops it";
+"The model’s window is smaller than needed" = "The model’s window is smaller than needed";
+"The server cut the start of the request. Give the model a larger context (num_ctx in Ollama), or pick another model." = "The server cut the start of the request. Give the model a larger context (num_ctx in Ollama), or pick another model.";
+"The server says the request is too long for this model. Pick a model with a larger context." = "The server says the request is too long for this model. Pick a model with a larger context.";
+"The transcript does not fit the model’s window" = "The transcript does not fit the model’s window";
+"The work stopped. Part of the transcript has already gone to %@." = "The work stopped. Part of the transcript has already gone to %@.";
+"Too short a recording for a summary" = "Too short a recording for a summary";
+"Writing the minutes: %lld of %lld" = "Writing the minutes: %lld of %lld";
+"Writing the summary: %lld of %lld" = "Writing the summary: %lld of %lld";

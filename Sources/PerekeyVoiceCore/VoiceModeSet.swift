@@ -32,6 +32,11 @@ public struct VoiceModeSet: Hashable, Sendable {
     /// version adds those it does not list, never one the user deleted.
     public var builtIns: [String]
 
+    /// The language model of «Конспект» and «Протокол встречи»; nil takes a
+    /// local model of the modes (`summaryLanguageModel`). An older Perekey
+    /// drops it, and the summaries go back to this Mac.
+    public var summaryModel: SummaryModelChoice?
+
     /// The `schemaVersion` of the file read, if it is higher than this version's.
     public private(set) var newerSchemaVersion: Int?
     /// The file has a value this version could not read.
@@ -42,9 +47,11 @@ public struct VoiceModeSet: Hashable, Sendable {
 
     public init(modes: [VoiceMode], defaultModeID: String, pinnedModeID: String? = nil,
                 endpoints: [VoiceEndpoint] = VoiceEndpoint.Preset.allCases.map(VoiceEndpoint.init),
-                consents: [String: ModeData] = [:], builtIns: [String] = BuiltInMode.allCases.map(\.rawValue))
+                consents: [String: ModeData] = [:], builtIns: [String] = BuiltInMode.allCases.map(\.rawValue),
+                summaryModel: SummaryModelChoice? = nil)
     {
         self.builtIns = builtIns
+        self.summaryModel = summaryModel
         self.modes = modes
         self.defaultModeID = defaultModeID
         self.pinnedModeID = pinnedModeID
@@ -154,7 +161,7 @@ public struct VoiceModeSet: Hashable, Sendable {
 
 extension VoiceModeSet: Codable {
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, modes, defaultModeID, pinnedModeID, endpoints, consents, builtIns
+        case schemaVersion, modes, defaultModeID, pinnedModeID, endpoints, consents, builtIns, summaryModel
     }
 
     /// Missing or unreadable keys fall back to the defaults; modes and
@@ -179,6 +186,7 @@ extension VoiceModeSet: Codable {
         // A file without the key had every built-in mode of this version.
         builtIns = ((try? container.decodeIfPresent([String].self, forKey: .builtIns)) ?? nil)
             ?? BuiltInMode.allCases.map(\.rawValue)
+        summaryModel = (try? container.decodeIfPresent(SummaryModelChoice.self, forKey: .summaryModel)) ?? nil
         hasUnreadableContent = (try? StrictModeSet(from: decoder)) == nil
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion),
            version > Self.schemaVersion
@@ -196,6 +204,7 @@ extension VoiceModeSet: Codable {
         try container.encode(endpoints, forKey: .endpoints)
         try container.encode(consents, forKey: .consents)
         try container.encode(builtIns, forKey: .builtIns)
+        try container.encodeIfPresent(summaryModel, forKey: .summaryModel)
     }
 }
 
@@ -231,6 +240,7 @@ private struct StrictModeSet: Decodable {
     let endpoints: [VoiceEndpoint]?
     let consents: [String: ModeData]?
     let builtIns: [String]?
+    let summaryModel: SummaryModelChoice?
 }
 
 // MARK: - Built-in modes over time

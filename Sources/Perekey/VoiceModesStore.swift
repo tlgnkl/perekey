@@ -164,6 +164,43 @@ final class VoiceModesStore {
                                   data: .conversationAudio, modeName: ""))
     }
 
+    // MARK: Summaries
+
+    /// Whether «Конспект» or «Протокол встречи» may run now, and on what.
+    func summaryReadiness() -> SummaryReadiness {
+        modes.summaryReadiness(cloudDisabled: cloudDisabled, hasKey: hasKey)
+    }
+
+    /// Whether the transcript of a conversation may go to `endpoint` now.
+    func maySendConversationText(endpoint: String) -> Bool {
+        modes.maySendConversationText(to: endpoint, cloudDisabled: cloudDisabled)
+    }
+
+    /// Before a model off this Mac gets a transcript: «На <адрес> уйдёт
+    /// расшифровка разговора, в том числе чужие голоса». Asked once per
+    /// server; true for one on this Mac.
+    @discardableResult
+    func askConversationTextConsent(endpoint id: String) -> Bool {
+        if maySendConversationText(endpoint: id) { return true }
+        guard !cloudDisabled, let found = modes.endpoint(id), let address = found.endpointAddress else { return false }
+        return ask(ConsentRequest(endpointID: found.id, endpointName: found.name, host: address.displayHost,
+                                  data: .conversationText, modeName: ""))
+    }
+
+    /// «Модель для конспектов»; nil takes a local model of the modes. A
+    /// model off this Mac needs the consent first; refused, nothing changes.
+    func setSummaryModel(_ choice: SummaryModelChoice?) {
+        if let choice, !askConversationTextConsent(endpoint: choice.endpoint) { return }
+        update { $0.summaryModel = choice }
+    }
+
+    /// What the setting calls a model: the server, the model, ☁ off this Mac.
+    func title(of choice: SummaryModelChoice) -> String {
+        guard let endpoint = modes.endpoint(choice.endpoint) else { return choice.model }
+        let cloud = endpoint.endpointAddress?.isOnThisMac == true ? "" : " ☁"
+        return "\(endpoint.name) · \(choice.model)\(cloud)"
+    }
+
     /// Shows the consent window; records the answer.
     @discardableResult
     func ask(_ request: ConsentRequest) -> Bool {
@@ -209,6 +246,9 @@ enum ConsentWindow {
     }
 
     static func text(_ request: ConsentRequest) -> String {
+        if request.data == .conversationText {
+            return voiceString("The transcript of a conversation will go to \(request.host), other people’s voices included. Until you allow it, summaries are made on this Mac only.")
+        }
         if request.data == .conversationAudio {
             return voiceString("The recording of a conversation will go to \(request.host). It holds the voices of other people. Until you allow it, recordings are transcribed on this Mac.")
         }
@@ -225,6 +265,7 @@ enum ConsentWindow {
         case .app: voiceString("the app’s name")
         case .site: voiceString("the site’s address")
         case .conversationAudio: voiceString("the recording of a conversation, with other people’s voices")
+        case .conversationText: voiceString("the transcript of a conversation, with other people’s words")
         default: ""
         }
     }

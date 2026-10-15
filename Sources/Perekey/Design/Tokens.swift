@@ -94,6 +94,9 @@ extension Color {
     static let pkWash = PK.washPair.color
     static let pkWashDeep = PK.washDeepPair.color
     static let pkRow = PK.rowPair.color
+    /// Window Glass: the near-solid plate under Liquid Glass, so text keeps its
+    /// contrast whatever lies behind the glass.
+    static let pkWindowGlass = PK.windowGlassPair.color
 }
 
 extension PK {

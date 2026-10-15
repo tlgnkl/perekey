@@ -324,13 +324,13 @@ struct MenuContent: View {
             HStack {
                 Text("Recent corrections").font(PK.Font.captionStrong).foregroundStyle(Color.pkInk2)
                 Spacer()
-                Text("memory only").font(PK.Font.caption).foregroundStyle(Color.pkInk3)
+                Text("memory only").font(PK.Font.caption).foregroundStyle(Color.pkInk2)
             }
             .padding(.horizontal, 4)
             if recents.log.isEmpty {
                 Text("Nothing yet. Corrections appear here as you type.")
                     .font(PK.Font.caption)
-                    .foregroundStyle(Color.pkInk3)
+                    .foregroundStyle(Color.pkInk2)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
@@ -362,7 +362,7 @@ struct MenuContent: View {
         if today.undone > 0 { text += " · " + String(localized: "\(today.undone) undone") }
         return Text(verbatim: text)
             .font(PK.Font.caption)
-            .foregroundStyle(Color.pkInk3)
+            .foregroundStyle(Color.pkInk2)
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, alignment: .leading)

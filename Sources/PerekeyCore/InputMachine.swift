@@ -105,10 +105,15 @@ public struct InputMachine: Sendable {
         case let .scroll(time):
             shortcuts.otherInput(at: time)
 
-        case let .focusChanged(newFocus):
+        case let .focusChanged(newFocus, change):
+            // The same place known better keeps the word: one typed before
+            // the focus was known is judged once it is.
+            let samePlace = change == .resolved && focus?.bundleID == newFocus.bundleID
             focus = newFocus
-            forgetText()
-            judge.forgetContext(newField: true)
+            if !samePlace {
+                forgetText()
+                judge.forgetContext(newField: true)
+            }
 
         case let .layoutChanged(id):
             if !fence.confirmed(id, effects: &effects) {

@@ -111,7 +111,7 @@ struct FocusObserverTests {
     @MainActor
     @Test(.timeLimit(.minutes(1))) func startAndStopWithoutPermission() async throws {
         let received = OSAllocatedUnfairLock<[Focus]>(initialState: [])
-        let observer = FocusObserver { focus in received.withLock { $0.append(focus) } }
+        let observer = FocusObserver { focus, _ in received.withLock { $0.append(focus) } }
         observer.start()
         observer.start() // idempotent
         let thread = try #require(observer.thread)
@@ -153,5 +153,106 @@ struct FocusObserverTests {
             }
             try await Task.sleep(for: .milliseconds(10))
         }
+    }
+}
+
+struct FocusTrackerTests {
+    private typealias Tracker = FocusTracker<Int>
+    private let app = "com.stablyai.orca"
+    private var known: Focus { Focus(bundleID: app) }
+    private var unknown: Focus { .unknown(bundleID: app) }
+
+    @Test func readAfterTheSwitchResolves() {
+        var tracker = Tracker()
+        #expect(tracker.activated(unknown, switched: true, at: 10) == .init(focus: unknown, change: .moved))
+        let step = tracker.read(1, focus: known, at: 10.02)
+        #expect(step.publication == .init(focus: known, change: .resolved))
+        #expect(step.note == .known(seconds: 10.02 - 10, reads: 1, byNotification: false))
+        #expect(!tracker.isWaiting)
+        #expect(tracker.retryDelay(at: 10.02) == nil)
+    }
+
+    @Test func failedReadsRetryThenWaitForANotification() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        var delays: [Double] = []
+        var now = 0.0
+        for _ in Tracker.retryOffsets {
+            #expect(tracker.readFailed(at: now) == nil)
+            guard let delay = tracker.retryDelay(at: now) else { break }
+            delays.append(delay)
+            now += delay
+        }
+        #expect(delays.map { ($0 * 1000).rounded() } == [50, 100, 250])
+        #expect(tracker.readFailed(at: now) == .gaveUp(reads: 4))
+        #expect(tracker.retryDelay(at: now) == nil)
+        #expect(tracker.isWaiting, "the first notification still resolves")
+        #expect(tracker.notified(1, focus: known, at: 2).publication == .init(focus: known, change: .resolved))
+    }
+
+    @Test func slowReadRetriesAtOnce() {
+        // Each read may take the whole messaging timeout.
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.readFailed(at: 0.2)
+        #expect(tracker.retryDelay(at: 0.2) == 0)
+    }
+
+    @Test func notificationWhileWaitingResolvesAndStopsRetries() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.readFailed(at: 0)
+        let step = tracker.notified(7, focus: known, at: 0.3)
+        #expect(step.publication == .init(focus: known, change: .resolved))
+        #expect(step.note == .known(seconds: 0.3, reads: 1, byNotification: true))
+        #expect(tracker.retryDelay(at: 0.3) == nil)
+    }
+
+    @Test func sameElementAgainIsNotANewPlace() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0)
+        #expect(tracker.notified(7, focus: known, at: 1) == .init(publication: nil, note: .sameElement))
+        // Its kind may still change: a field turned into a password field.
+        let secure = Focus(bundleID: app, isSecureField: true)
+        #expect(tracker.notified(7, focus: secure, at: 2).publication == .init(focus: secure, change: .resolved))
+    }
+
+    @Test func anotherElementIsANewPlace() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0)
+        #expect(tracker.notified(8, focus: known, at: 1).publication == .init(focus: known, change: .moved))
+        #expect(tracker.read(9, focus: known, at: 2).publication == .init(focus: known, change: .moved))
+    }
+
+    @Test func unreadableKindKeepsRetrying() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        let first = tracker.read(7, focus: unknown, at: 0)
+        #expect(first == .init(publication: nil, note: nil))
+        #expect(tracker.retryDelay(at: 0) != nil)
+        #expect(tracker.read(7, focus: known, at: 0.05).publication == .init(focus: known, change: .resolved))
+    }
+
+    @Test func switchStartsOver() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0)
+        let other = Focus.unknown(bundleID: "com.apple.Safari")
+        #expect(tracker.activated(other, switched: true, at: 5) == .init(focus: other, change: .moved))
+        #expect(tracker.isWaiting)
+        let safari = Focus(bundleID: "com.apple.Safari")
+        #expect(tracker.notified(8, focus: safari, at: 5.1).publication == .init(focus: safari, change: .resolved))
+    }
+
+    @Test func refreshPublishesOnlyAChange() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        #expect(tracker.activated(unknown, switched: false, at: 1) == nil)
+        #expect(tracker.lost(unknown) == nil)
+        #expect(!tracker.isWaiting)
+        _ = tracker.readFailed(at: 2)
+        #expect(tracker.retryDelay(at: 2) == nil, "no timers once accessibility is gone")
     }
 }

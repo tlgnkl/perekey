@@ -117,9 +117,9 @@ final class InputController {
         sources.onCurrentChanged = { engine.send(.layoutChanged($0)) }
         store.onChange = { [weak self] in self?.pushSettings() }
 
-        focus = FocusObserver { focus in
+        focus = FocusObserver { focus, change in
             // Called on the accessibility thread.
-            engine.send(.focusChanged(focus))
+            engine.send(.focusChanged(focus, change))
             Task { @MainActor in pause.setPasswordField(focus.isKnown && focus.isSecureField) }
         }
         secureInput.onChange = { [secureInput] isOn in

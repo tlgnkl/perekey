@@ -83,6 +83,7 @@ public final class InputEngine: @unchecked Sendable {
     private let textProbe: TextProbe?
     private let started = DispatchSemaphore(value: 0)
     private let log = Logger(subsystem: "app.perekey", category: "engine")
+    private let focusLog = Logger(subsystem: "app.perekey", category: "focus")
 
     // Tap thread
     private var runLoop: CFRunLoop?
@@ -532,7 +533,22 @@ public final class InputEngine: @unchecked Sendable {
     }
 
     private func handle(_ event: InputEvent) {
+        guard case let .focusChanged(focus, change) = event else {
+            execute(machine.handle(event).effects)
+            return
+        }
+        let word = wordInProgress
         execute(machine.handle(event).effects)
+        guard word > 0 else { return }
+        // Numbers only. A lost first word after an app switch shows here.
+        let app = focus.bundleID ?? "?"
+        let kept = wordInProgress == word
+        focusLog.info("Focus \(String(describing: change), privacy: .public) in \(app, privacy: .public): \(kept ? "kept" : "dropped", privacy: .public) a word of \(word, privacy: .public) keys")
+    }
+
+    /// Keys of the word being typed: after the last space or part end.
+    private var wordInProgress: Int {
+        machine.buffer.entries.reversed().prefix { !$0.isGap }.count
     }
 
     private func execute(_ effects: [Effect]) {

@@ -570,7 +570,7 @@ prior программы, затем первый кандидат. `LayoutState
 |---|---|
 | Автопереключение выключено | `Settings.autoswitch`, ⇧+⇧ |
 | Режим программы «только вручную» или «выкл.» | `InputEvent.appModeChanged` от `AppModeController` |
-| Фокус неизвестен или поле пароля | `Focus.isKnown`, `Focus.isSecureField` |
+| Фокус неизвестен или поле пароля | `Focus.isKnown`, `Focus.isSecureField`; слово, начатое до того, как фокус стал известен, судится после (`FocusChange.resolved`) |
 | Secure Input | `secureInputChanged` |
 | Нет модели | `classifierChanged(nil)`, `ModelStore` не нашёл файл |
 | Слово в исключениях, в любом прочтении | `Settings.exceptions`, нормализованы как `WordRules.normalize`, края без знаков |

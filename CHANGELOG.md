@@ -21,6 +21,14 @@ differently, what was fixed.
   never a dead end. Settings also tells you when the system's input menu and
   Perekey show the language twice, or when neither shows it.
 
+### Fixed
+
+- **The first word after switching apps is fixed too.** In Electron apps
+  (Slack, Obsidian, Orca and others) a word in the wrong layout typed right
+  after you switched to the app often stayed as typed, and only the next word
+  was fixed. Perekey now waits for the app to name the field you type in and
+  judges that first word as well.
+
 ## [0.2.0] - 2026-10-14
 
 ### Added

@@ -461,4 +461,24 @@ extension ModelFixture {
         judge.languageChosen("ru")
         #expect(judge.recent == RecentLanguages(["ru"]))
     }
+
+    @Test func aManualRetypeBreaksTheChainOfSameScriptGuesses() {
+        var judge = WordJudge(classifier: UkrainianFixture.classifier)
+        judge.languageChosen("uk")
+        judge.typed(startsWord: true)
+        judge.languageChosen("uk")
+        judge.typed(startsWord: true)
+        judge.languageChosen("ru")
+        #expect(judge.recent == RecentLanguages(["ru"]))
+    }
+
+    @Test func aManualRetypeKeepsWordsOfAnotherScript() {
+        var judge = WordJudge(classifier: UkrainianFixture.classifier)
+        judge.languageChosen("ru")
+        judge.typed(startsWord: true)
+        judge.languageChosen("ru")
+        judge.typed(startsWord: true)
+        judge.languageChosen("en")
+        #expect(judge.recent == RecentLanguages(["en", "ru", "ru"]))
+    }
 }

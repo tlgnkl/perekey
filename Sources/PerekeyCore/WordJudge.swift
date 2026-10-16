@@ -281,12 +281,23 @@ struct WordJudge: Sendable {
     // MARK: - Languages of the words
 
     /// The user retyped the word into a layout of `language` by hand: the
-    /// word is in it, and the words before, as Perekey judged them, no
-    /// longer count. An explicit choice breaks a chain of wrong guesses
-    /// (a Russian text taken for Ukrainian keeps leaning to Ukrainian).
+    /// word is in it. The earlier words in another language of the same
+    /// script, as Perekey judged them, no longer count: an explicit choice
+    /// breaks a chain of wrong guesses (a Russian text taken for Ukrainian
+    /// keeps leaning to Ukrainian). Words in another script stay, so a short
+    /// word after an English word still sees the Russian sentence around it.
     mutating func languageChosen(_ language: String?) {
         record(language)
-        recent.removeAll()
+        // `record` put the chosen word first; the words before it stay or go.
+        recent.dropLatest()
+        if let language {
+            recent.removeAll { earlier in
+                guard let earlier, earlier != language else { return false }
+                return !Classifier.switchesAutomatically(from: earlier, to: language)
+            }
+        } else {
+            recent.removeAll()
+        }
         recent.push(language)
     }
 

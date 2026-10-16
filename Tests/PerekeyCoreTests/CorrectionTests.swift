@@ -550,3 +550,18 @@ extension Desk {
         #expect(settings.snapshot.corrections == TextCorrections())
     }
 }
+
+@Suite struct ShortWordAfterManualRetypeTests {
+    /// The sentence is Russian, the English word is fixed by hand (Option),
+    /// and the short word after it, typed on ABC keys, is Russian again.
+    @Test(arguments: [("b", "и"), ("yt", "не")])
+    func aShortRussianWordFollowsAnEnglishWordFixedByHand(typed: String, expected: String) {
+        var desk = Desk(Settings(autoswitch: false), current: ru)
+        desk.type("привет руддщ ", on: Fixture.russian)
+        desk.tapOption()
+        #expect(desk.text == "привет hello ")
+        desk.send(.settingsChanged(Settings()))
+        desk.type(typed + " ")
+        #expect(desk.text == "привет hello " + expected + " ")
+    }
+}

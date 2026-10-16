@@ -59,6 +59,18 @@ public struct RecentLanguages: Hashable, Sendable {
         count = min(count, 1)
     }
 
+    /// Forgets the latest word; the ones before move up.
+    public mutating func dropLatest() {
+        self = RecentLanguages((1..<max(count, 1)).map { self[$0] })
+    }
+
+    /// Drops the words whose language `shouldRemove` accepts (nil for a word
+    /// of no language); the others keep their order.
+    public mutating func removeAll(where shouldRemove: (String?) -> Bool) {
+        let kept = (0..<count).map { self[$0] }.filter { !shouldRemove($0) }
+        self = RecentLanguages(kept)
+    }
+
     public mutating func removeAll() {
         self = RecentLanguages()
     }

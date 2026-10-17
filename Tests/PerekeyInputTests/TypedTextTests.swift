@@ -110,6 +110,7 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         var log: [String] = []
         /// The tap sees the checkpoints.
         var acknowledges = true
+        var tapRunning = true
         weak var paster: TextPaster?
         /// Called after every stroke, with the strokes so far.
         var onStroke: ((Int) -> Void)?
@@ -144,6 +145,7 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
                 probe.pauses.append(duration)
                 await sleep(duration)
             },
+            tapRunning: { probe.tapRunning },
             typingChanged: { probe.log.append("typing \($0 ? "on" : "off")") },
             afterPaste: {
                 probe.afterPaste += 1
@@ -193,17 +195,55 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
     @Test func aTapThatDoesNotSeeTheCheckpointsIsWaitedForOnce() async {
         let probe = Probe()
         probe.acknowledges = false
-        var events: [String] = []
-        let paster = make(probe, sleep: { duration in
-            if duration == TextPaster.seenPoll { events.append("poll") }
-            try? await Task.sleep(for: duration)
-        })
-        probe.onStroke = { if $0.isMultiple(of: TypedText.ackEvery) { events.append("checkpoint") } }
+        let paster = make(probe)
         #expect(await paster.paste(String(repeating: "x", count: 300), into: field()) == .pasted)
         #expect(probe.strokes.count == 300)
-        let second = events.indices.filter { events[$0] == "checkpoint" }.dropFirst().first
-        #expect(events.first == "checkpoint" && events.contains("poll"), "the first checkpoint is waited for")
-        #expect(second.map { !events[$0...].contains("poll") } == true, "no more waiting after it")
+        #expect(probe.pauses.filter { $0 == TextPaster.seenTimeout }.count == 1, "no more waiting after the first")
+    }
+
+    /// A paster whose checkpoints never come back, and whose wait for one
+    /// lasts a minute unless `whileWaiting`, run as the wait begins, ends it.
+    private func waiting(_ probe: Probe, whileWaiting: @escaping @MainActor (TextPaster) -> Void) -> TextPaster {
+        probe.acknowledges = false
+        var paster: TextPaster!
+        paster = make(probe, sleep: { duration in
+            guard duration == TextPaster.seenTimeout else { return }
+            Task { whileWaiting(paster) }
+            try? await Task.sleep(for: .seconds(60))
+        })
+        return paster
+    }
+
+    @Test func cancellingTheTaskEndsTheWaitForACheckpoint() async {
+        let probe = Probe()
+        let paster = waiting(probe) { _ in probe.task?.cancel() }
+        let task = Task { await paster.paste(Self.long, into: field()) }
+        probe.task = task
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(await task.value == .failed(.interrupted))
+        #expect(clock.now - start < .seconds(10), "not the minute of the wait")
+        #expect(probe.strokes.count == TypedText.ackEvery)
+        #expect(probe.afterPaste == 1)
+    }
+
+    @Test func aKeyOfTheUsersEndsTheWaitForACheckpoint() async {
+        let probe = Probe()
+        let paster = waiting(probe) { $0.typingInterrupted() }
+        #expect(await paster.paste(Self.long, into: field()) == .failed(.interrupted))
+        #expect(probe.strokes.count == TypedText.ackEvery)
+    }
+
+    @Test func withoutPerekeysTapATerminalGetsThePaste() async {
+        // Suspended or without access: typing would see neither the
+        // user's keys nor its checkpoints.
+        let probe = Probe()
+        probe.tapRunning = false
+        let paster = make(probe)
+        #expect(paster.strategy(for: "text", pid: 100) == .commandV)
+        #expect(await paster.paste("text", into: field()) == .pasted)
+        #expect(probe.strokes.isEmpty)
+        #expect(probe.commandV == 1)
     }
 
     @Test func strategyByAppTextAndChoice() {
@@ -297,12 +337,13 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         #expect(probe.strokes.count == 100)
     }
 
-    @Test func secureInputMidTypingStopsItAsSecureInput() async {
+    @Test func secureInputMidTypingStopsItAsSecureInputWhileTyping() async {
         let probe = Probe()
         let paster = make(probe)
         let owner = SecureInputOwner.process(pid: 300, name: "Terminal", bundleID: "com.apple.Terminal")
         probe.onStroke = { if $0 == 20 { probe.secureInputOwner = owner } }
-        #expect(await paster.paste(Self.long, into: field()) == .secureInput(owner: owner))
+        #expect(await paster.paste(Self.long, into: field()) == .secureInputWhileTyping(owner: owner),
+                "not .secureInput, which offers the whole text again")
         #expect(probe.strokes.count == 2 * TypedText.burst)
         #expect(probe.afterPaste == 1)
     }

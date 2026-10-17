@@ -179,7 +179,7 @@ private let ru = Fixture.russian.id
         // Ours pass and stop nothing.
         #expect(kb.press(0, origin: EventOrigin(mark: .typed(seq: 0, ack: false))).effects.isEmpty)
         let first = kb.press(Fixture.abc.strokes("g")[0].keyCode)
-        #expect(first.disposition == .pass)
+        #expect(first.disposition == .drop, "it would land in the middle of the text")
         #expect(first.effects == [.typingInterrupted])
         // "ghbdtn " in the middle of the dictation: nothing to retype, no Backspaces.
         kb.type("hbdtn ", in: Fixture.abc)
@@ -190,6 +190,23 @@ private let ru = Fixture.russian.id
         kb.send(.inputLost)
         kb.type("ghbdtn", in: Fixture.abc)
         _ = try #require(kb.tapOption().retype, "judged again once typing ends")
+    }
+
+    @Test func theKeyThatStopsTheTypingGoesNowhereItsKeyUpToo() {
+        var kb = Keyboard()
+        kb.send(.dictationTyping(true))
+        let time = 1.0
+        let down = kb.send(.key(KeyEvent(.down, keyCode: KeyCode.escape, flags: 0, origin: .user), time: time))
+        #expect(down.disposition == .drop, "Esc would stop the agent in the terminal")
+        #expect(down.effects == [.typingInterrupted])
+        // The typing ends and the tap forgets before the key comes up.
+        kb.send(.dictationTyping(false))
+        kb.send(.inputLost)
+        let up = kb.send(.key(KeyEvent(.up, keyCode: KeyCode.escape, flags: 0, origin: .user), time: time + 0.05))
+        #expect(up.disposition == .drop)
+        // The next Esc is the app's again.
+        #expect(kb.press(KeyCode.escape).disposition == .pass)
+        #expect(kb.send(.key(KeyEvent(.up, keyCode: KeyCode.escape, flags: 0, origin: .user), time: 9)).disposition == .pass)
     }
 
     @Test func aModifierWhileDictationTypesStopsIt() {

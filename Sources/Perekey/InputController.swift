@@ -92,7 +92,8 @@ final class InputController {
         // The tap forgets the word it saw: autoswitching must not retype what
         // was just pasted.
         // While dictation types, the tap judges no key and stops it at the user's first.
-        textPaster = TextPaster(plainPaste: plainPaste, typingChanged: { [weak self] typing in
+        textPaster = TextPaster(plainPaste: plainPaste, tapRunning: { [weak self] in self?.tapState == .running },
+                                typingChanged: { [weak self] typing in
             if typing { self?.engine.send(.inputLost) }
             self?.engine.send(.dictationTyping(typing))
         }, afterPaste: { [weak self] in self?.engine.send(.inputLost) })

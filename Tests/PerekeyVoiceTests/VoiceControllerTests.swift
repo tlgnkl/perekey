@@ -1019,6 +1019,20 @@ struct VoiceControllerTests {
         #expect(rig.layoutTexts == ["Привет, мир."])
     }
 
+    @Test func secureInputWhileTypingOffersOnlyCopyAndStaysOutOfTheHistory() async {
+        // The start of the text is typed: "Вставить" would put it in twice.
+        let rig = Rig()
+        rig.paster.targetPrivacy = .normal
+        rig.paster.result = .interruptedBySecureInput
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.interrupted) })
+        #expect(!NotPastedReason.interrupted.offersPaste)
+        #expect(rig.controller.last?.isPrivate == true)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(rig.records.isEmpty)
+    }
+
     @Test func aNewDictationCancelsPastingAgain() async {
         // Typing into a terminal takes a while: two typings must not mix.
         let rig = Rig()

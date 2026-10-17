@@ -41,6 +41,9 @@ public struct InputMachine: Sendable {
     private var voiceSession = false
     /// Dictation types its text (`InputEvent.dictationTyping`).
     private var dictationTyping = false
+    /// Keys pressed while dictation typed: their key ups go too, even after
+    /// the typing ended and `.inputLost` reset the shortcuts.
+    private var typingKeyUps: Set<UInt16> = []
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil,
                 classifier: Classifier? = nil)
@@ -189,6 +192,8 @@ public struct InputMachine: Sendable {
 
         case let .dictationTyping(on):
             dictationTyping = on
+            // A key up lost since the last typing must not take a later one.
+            if on { typingKeyUps.removeAll() }
 
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
@@ -208,11 +213,16 @@ public struct InputMachine: Sendable {
         case .user, .replayed:
             if fence.isHolding { return .hold }
         }
-        // A key of the user's while dictation types stops it, and is not
-        // judged: the word around it is half dictation.
-        if dictationTyping, key.origin == .user {
-            if key.phase == .down { effects.append(.typingInterrupted) }
-            return .pass
+        // A key of the user's while dictation types stops it, and goes
+        // nowhere: it would land in the middle of the text, and Esc would
+        // stop the agent in the terminal.
+        if key.origin == .user {
+            if key.phase == .up, typingKeyUps.remove(key.keyCode) != nil { return .drop }
+            if dictationTyping, key.phase == .down {
+                effects.append(.typingInterrupted)
+                typingKeyUps.insert(key.keyCode)
+                return .drop
+            }
         }
         if fence.takeUndoKey(key) {
             shortcuts.swallow(key.keyCode)

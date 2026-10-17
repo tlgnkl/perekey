@@ -125,8 +125,8 @@ public enum InputEvent: Sendable {
     case inputLost
     /// Dictation started or stopped typing its text (`TypedText`). Meanwhile
     /// the user's keys are not judged, and the first one stops the typing
-    /// (`Effect.typingInterrupted`): what the user types would land in the
-    /// middle of the text.
+    /// (`Effect.typingInterrupted`) and is dropped, its key up too: it would
+    /// land in the middle of the text.
     case dictationTyping(Bool)
     /// A deadline requested with `Effect.scheduleDeadline` has passed.
     case deadline(time: Double)

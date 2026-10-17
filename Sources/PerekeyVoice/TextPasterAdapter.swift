@@ -47,6 +47,7 @@ public final class TextPasterAdapter: DictationPaster {
         case .targetChanged: .targetChanged
         case .secureField: .secureField
         case let .secureInput(owner): .secureInput(owner: owner.name)
+        case .secureInputWhileTyping: .interruptedBySecureInput
         case .failed(.timedOut): .timedOut
         case .failed(.interrupted): .interrupted
         case let .failed(failure): .failed(String(describing: failure))

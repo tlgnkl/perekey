@@ -988,7 +988,7 @@ public final class VoiceController {
         // timeout) says nothing about the field.
         let privacy: DictationPrivacy = switch pasted {
         case .secureField: .secureField
-        case .secureInput: .secureInput
+        case .secureInput, .interruptedBySecureInput: .secureInput
         default: currentPrivacy(of: target)
         }
         finishPaste(text, result, wasPrivate: privacy.isPrivate, fallback: fallback)
@@ -1038,10 +1038,11 @@ public final class VoiceController {
         case .secureField: .secureField
         case let .secureInput(owner): .secureInput(owner: owner)
         case .timedOut: .timedOut
-        case .interrupted: .interrupted
+        case .interrupted, .interruptedBySecureInput: .interrupted
         case let .failed(message): .failed(message)
         }
-        let isPrivate = wasPrivate || reason == .secureField || { if case .secureInput = reason { true } else { false } }()
+        let isPrivate = wasPrivate || reason == .secureField || result == .interruptedBySecureInput
+            || { if case .secureInput = reason { true } else { false } }()
         last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
         if let reason {
             hud = .notPasted(reason)

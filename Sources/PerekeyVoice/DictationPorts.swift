@@ -59,6 +59,9 @@ public enum DictationPasteResult: Hashable, Sendable {
     /// dictation began. The start of the text may be in the old field, so it
     /// is offered for copying only.
     case interrupted
+    /// Typing stopped part way because another app turned Secure Input on:
+    /// as `interrupted`, and private, so it stays out of the history.
+    case interruptedBySecureInput
     /// Not pasted, for certain.
     case failed(String)
 }

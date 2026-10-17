@@ -39,6 +39,11 @@ public struct InputMachine: Sendable {
     private var focus: Focus?
     /// A dictation session is on: Esc cancels it.
     private var voiceSession = false
+    /// Dictation types its text (`InputEvent.dictationTyping`).
+    private var dictationTyping = false
+    /// Keys pressed while dictation typed: their key ups go too, even after
+    /// the typing ended and `.inputLost` reset the shortcuts.
+    private var typingKeyUps: Set<UInt16> = []
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil,
                 classifier: Classifier? = nil)
@@ -75,6 +80,12 @@ public struct InputMachine: Sendable {
             if fence.expire(at: time, effects: &effects), !origin.isOwn { return .hold }
             if case .own = origin { return .pass }
             if fence.isHolding { return .hold }
+            // ⌘ or ⌥ down would turn the typed keys into shortcuts.
+            if dictationTyping, origin == .user,
+               flags & (EventFlags.command | EventFlags.option | EventFlags.control | EventFlags.shift) != 0
+            {
+                effects.append(.typingInterrupted)
+            }
             // Modifier changes arrive under Secure Input too: a voice hold
             // still ends when its modifier comes up.
             if let signal = shortcuts.holdModifiersChanged(flags: flags) { effects.append(.voice(signal)) }
@@ -179,6 +190,11 @@ public struct InputMachine: Sendable {
         case let .voiceSession(on):
             voiceSession = on
 
+        case let .dictationTyping(on):
+            dictationTyping = on
+            // A key up lost since the last typing must not take a later one.
+            if on { typingKeyUps.removeAll() }
+
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
             guard undo.isLast(seq: seq) else { break }
@@ -196,6 +212,20 @@ public struct InputMachine: Sendable {
             return .pass
         case .user, .replayed:
             if fence.isHolding { return .hold }
+        }
+        // A key of the user's while dictation types stops it, and goes
+        // nowhere: it would land in the middle of the text, and Esc would
+        // stop the agent in the terminal.
+        if key.origin == .user {
+            // Pressed again after the typing: its key up was lost, and the
+            // next one is the app's.
+            if key.phase == .down, !dictationTyping { typingKeyUps.remove(key.keyCode) }
+            if key.phase == .up, typingKeyUps.remove(key.keyCode) != nil { return .drop }
+            if dictationTyping, key.phase == .down {
+                effects.append(.typingInterrupted)
+                typingKeyUps.insert(key.keyCode)
+                return .drop
+            }
         }
         if fence.takeUndoKey(key) {
             shortcuts.swallow(key.keyCode)

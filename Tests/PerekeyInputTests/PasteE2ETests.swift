@@ -86,7 +86,7 @@ struct PasteE2ETests {
         let line = [
             "PASTE-E2E app=\(app?.bundleIdentifier ?? "?")",
             "mode=\(mode)",
-            "strategy=\(paster.strategy.rawValue)",
+            "strategy=\(paster.strategy?.rawValue ?? "auto")",
             "result=\(result)",
             "inserted=\(inserted)",
             "touched=\(touched)",

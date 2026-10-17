@@ -152,6 +152,7 @@
 "Still recognizing…" = "Ещё распознаю…";
 "Tap %@, say a phrase, tap again, and the text lands at the cursor" = "Тап %@, фраза, ещё тап — текст встанет на место курсора";
 "Text not pasted" = "Текст не вставлен";
+"Typing stopped" = "Набор прерван";
 "The app did not answer" = "Программа не ответила";
 "The cursor is in a password field" = "Курсор в поле пароля";
 "The speech model is not ready" = "Модель речи не готова";
@@ -470,3 +471,12 @@
 "Too short a recording for a summary" = "Слишком короткая запись для конспекта";
 "Writing the minutes: %lld of %lld" = "Пишу протокол: %lld из %lld";
 "Writing the summary: %lld of %lld" = "Пишу конспект: %lld из %lld";
+
+/* Панель «Программы»: как диктовка попадает в программу */
+"Dictation input" = "Вставка диктовки";
+"Automatic" = "Авто";
+"Paste (⌘V)" = "Вставкой (⌘V)";
+"Type as keystrokes" = "Набором с клавиатуры";
+"Dictation: pasted" = "Диктовка: вставкой";
+"Dictation: typed" = "Диктовка: набором";
+"Remove the rule and the dictation input" = "Удалить правило и вставку диктовки";

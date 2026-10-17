@@ -131,6 +131,9 @@ first launch after the update asks first.
   said, a clean draft, a short message, an email, a terminal mode that adds
   nothing and never presses Enter, a translation into English, or your own.
   Perekey picks the mode by the site, then by the app.
+- **Terminals.** In a terminal the text is typed instead of pasted, so a tool
+  such as Claude Code shows a long dictation in full; Settings → Apps sets
+  paste or typing per app.
 - **Cloud, only by your key.** A mode can send the text to an LLM (OpenAI,
   Groq, Ollama, LM Studio, any OpenAI-compatible server), and speech
   recognition can run on OpenAI or Groq. All of it is off until you add the

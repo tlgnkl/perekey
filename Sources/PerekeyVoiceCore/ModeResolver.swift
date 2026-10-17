@@ -43,10 +43,7 @@ public enum ModeResolver {
 /// Terminals: a line break there runs what was typed, so dictated text goes
 /// in on one line and Enter is never pressed, whatever the mode.
 public enum Terminals {
-    public static let bundleIDs: Set<String> = [
-        "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "com.mitchellh.ghostty",
-        "net.kovidgoyal.kitty", "org.alacritty", "com.github.wez.wezterm",
-    ]
+    public static let bundleIDs = Set(AppModes.terminalBundleIDs)
 
     public static func contains(_ bundleID: String?) -> Bool {
         bundleID.map(bundleIDs.contains) ?? false

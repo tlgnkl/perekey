@@ -53,6 +53,9 @@ final class VoiceSetup {
             Task { await controller.modelDownloaded(id) }
         }
         models.settings.observe { [weak self] in self?.apply() }
+        // «Вставка диктовки» of the Apps pane, read at each paste.
+        let voice = models.settings
+        input.textPaster.insertion = { voice.settings.insertion(bundleID: $0) }
     }
 
     /// "Paste again" in the menu: into the field now in front, as a dictation goes.

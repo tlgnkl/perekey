@@ -9,7 +9,7 @@
 # hands off keyboard and mouse while it runs. The pasteboard is the user's
 # again at the end of every step.
 #
-# Usage: scripts/e2e-paste.sh [--no-build] [--apps "TextEdit Safari ..."] [--strategy menu|accessibility]
+# Usage: scripts/e2e-paste.sh [--no-build] [--apps "TextEdit Safari ..."] [--strategy menu|accessibility|keystrokes]
 #   --apps      subset of: TextEdit Safari Chrome Notes Terminal Zen Slack VSCode
 #               (apps that are not installed are skipped)
 #   CHROME_APP  path of a Chromium app, e.g. Google Chrome for Testing.app

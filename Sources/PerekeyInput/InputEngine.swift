@@ -49,6 +49,12 @@ public enum EngineMessage: Sendable {
     /// its keys on the main thread (`VoiceTrigger.isHeldNow`) and send
     /// `.voiceHoldLost` if they are up: a key up can be lost.
     case voice(VoiceSignal)
+    /// The tap saw the checkpoint `seq` of dictation's typing
+    /// (`SyntheticMark.typed`): `TextPaster.typedSeen(seq:)`.
+    case typedSeen(seq: UInt32)
+    /// The user pressed a key while dictation typed (`Effect.typingInterrupted`):
+    /// `TextPaster.typingInterrupted()`.
+    case typingInterrupted
 }
 
 public enum TapState: Hashable, Sendable {
@@ -319,7 +325,9 @@ public final class InputEngine: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
-        let origin = EventOrigin(mark: SyntheticMark(userData: event.getIntegerValueField(.eventSourceUserData)))
+        let mark = SyntheticMark(userData: event.getIntegerValueField(.eventSourceUserData))
+        if case let .typed(seq, ack: true) = mark { toMain(.typedSeen(seq: seq)) }
+        let origin = EventOrigin(mark: mark)
         if origin == .user, type != .keyUp {
             // Key presses do not arrive under Secure Input, modifier changes do.
             let secure = IsSecureEventInputEnabled()
@@ -598,6 +606,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.convertSelection(seq: seq))
             case let .voice(signal):
                 toMain(.voice(signal))
+            case .typingInterrupted:
+                toMain(.typingInterrupted)
             }
             index += 1
         }

@@ -89,7 +89,7 @@ public enum NotPastedReason: Hashable, Sendable {
     case noAccessibility
     /// The app did not answer in time; the text may still arrive.
     case timedOut
-    /// The focus moved while the text was typed; its start went in.
+    /// Typing stopped part way (the focus moved, a key was pressed); its start went in.
     case interrupted
     case failed(String)
 
@@ -424,6 +424,8 @@ public final class VoiceController {
         isShutDown = true
         retrying?.cancel()
         retrying = nil
+        pastingAgain?.cancel()
+        pastingAgain = nil
         retained = nil
         holdWatch?.cancel()
         holdWatch = nil
@@ -581,6 +583,8 @@ public final class VoiceController {
         // A new dictation wins over "Повторить": its audio is let go.
         retrying?.cancel()
         retrying = nil
+        pastingAgain?.cancel()
+        pastingAgain = nil
         retained = nil
         let plan = modes?.plan()
         let work = Work(session: session, audio: audio, model: model(for: plan?.speechModel ?? preferences.modelID),
@@ -1011,13 +1015,18 @@ public final class VoiceController {
         let paster = self.paster
         // Private stays private: the text was meant for a password field once.
         let wasPrivate = last?.isPrivate ?? false
-        Task {
+        pastingAgain?.cancel()
+        pastingAgain = Task {
             let result = await paster.paste(text, into: await paster.captureTarget())
             // A new dictation began meanwhile: its HUD and its text are the current ones.
-            guard !isShutDown, machine.state == .idle else { return }
+            guard !Task.isCancelled, !isShutDown, machine.state == .idle else { return }
             finishPaste(text, result, wasPrivate: wasPrivate)
         }
     }
+
+    /// "Вставить" of the HUD at work. A new dictation cancels it: a typing
+    /// (`.keystrokes`) stops, and the two texts never mix.
+    @ObservationIgnored private var pastingAgain: Task<Void, Never>?
 
     /// - Parameter fallback: a step of the mode the dictation skipped; the HUD names it.
     private func finishPaste(_ text: String, _ result: DictationPasteResult, wasPrivate: Bool,

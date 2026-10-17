@@ -1019,6 +1019,28 @@ struct VoiceControllerTests {
         #expect(rig.layoutTexts == ["Привет, мир."])
     }
 
+    @Test func aNewDictationCancelsPastingAgain() async {
+        // Typing into a terminal takes a while: two typings must not mix.
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.targetChanged) })
+        final class Seen { var cancelled = false }
+        let seen = Seen()
+        rig.paster.result = .interrupted
+        rig.paster.waits = {
+            while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
+            seen.cancelled = true
+        }
+        rig.controller.pasteLast()
+        #expect(rig.hud == .pasting)
+        await rig.startRecording()
+        #expect(await rig.until { seen.cancelled })
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(rig.hud != .notPasted(.interrupted), "the old paste does not take over the new dictation's HUD")
+    }
+
     @Test func pastingAgainIntoAPasswordFieldStaysOut() async {
         let rig = Rig()
         rig.paster.result = .targetChanged

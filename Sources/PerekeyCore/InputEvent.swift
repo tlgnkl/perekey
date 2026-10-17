@@ -16,6 +16,8 @@ public enum EventOrigin: Hashable, Sendable {
         switch mark {
         case nil: self = .user
         case let .own(seq, last): self = .own(seq: seq, last: last)
+        // Perekey's own, of no retype: `seq` 0 is never a fence's.
+        case .typed: self = .own(seq: 0, last: false)
         case .replayed: self = .replayed
         }
     }
@@ -121,6 +123,11 @@ public enum InputEvent: Sendable {
     /// Events may have been lost: the tap was disabled, the Mac woke up, or the
     /// user session changed.
     case inputLost
+    /// Dictation started or stopped typing its text (`TypedText`). Meanwhile
+    /// the user's keys are not judged, and the first one stops the typing
+    /// (`Effect.typingInterrupted`): what the user types would land in the
+    /// middle of the text.
+    case dictationTyping(Bool)
     /// A deadline requested with `Effect.scheduleDeadline` has passed.
     case deadline(time: Double)
     /// The mode of the frontmost app. Only `.auto` switches by itself; the

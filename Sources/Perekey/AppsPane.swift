@@ -275,6 +275,14 @@ private struct AppRow: View {
         return Self.layoutWidth
     }
 
+    /// The reset removes «Вставка диктовки» too, where the row shows it.
+    private var resetHelp: String {
+        #if PEREKEY_VOICE
+        if voice != nil { return voiceString("Remove the rule and the dictation input") }
+        #endif
+        return String(localized: "Remove the rule")
+    }
+
     /// The row has a rule to remove: its mode and layout, or its dictation input.
     private var hasRule: Bool { entry.rule != nil || entry.insertion != .automatic }
 
@@ -335,8 +343,8 @@ private struct AppRow: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.pkIndigoInk)
-            .help("Remove the rule")
-            .accessibilityLabel("Remove the rule")
+            .help(resetHelp)
+            .accessibilityLabel(resetHelp)
             .opacity(hasRule ? 1 : 0)
             .disabled(!hasRule)
         }

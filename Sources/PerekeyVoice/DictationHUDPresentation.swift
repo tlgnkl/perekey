@@ -34,7 +34,7 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case noAccessibility
         /// The app did not answer; the text may still arrive.
         case timedOut
-        /// The focus moved while the text was typed.
+        /// Typing stopped part way: the focus moved or a key was pressed.
         case interrupted
         case nothingHeard
         case cancelled

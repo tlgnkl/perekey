@@ -152,7 +152,7 @@
 "Still recognizing…" = "Still recognizing…";
 "Tap %@, say a phrase, tap again, and the text lands at the cursor" = "Tap %@, say a phrase, tap again, and the text lands at the cursor";
 "Text not pasted" = "Text not pasted";
-"Typing stopped: the focus moved" = "Typing stopped: the focus moved";
+"Typing stopped" = "Typing stopped";
 "The app did not answer" = "The app did not answer";
 "The cursor is in a password field" = "The cursor is in a password field";
 "The speech model is not ready" = "The speech model is not ready";
@@ -479,3 +479,4 @@
 "Type as keystrokes" = "Type as keystrokes";
 "Dictation: pasted" = "Dictation: pasted";
 "Dictation: typed" = "Dictation: typed";
+"Remove the rule and the dictation input" = "Remove the rule and the dictation input";

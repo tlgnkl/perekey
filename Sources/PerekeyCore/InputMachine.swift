@@ -39,6 +39,8 @@ public struct InputMachine: Sendable {
     private var focus: Focus?
     /// A dictation session is on: Esc cancels it.
     private var voiceSession = false
+    /// Dictation types its text (`InputEvent.dictationTyping`).
+    private var dictationTyping = false
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil,
                 classifier: Classifier? = nil)
@@ -75,6 +77,12 @@ public struct InputMachine: Sendable {
             if fence.expire(at: time, effects: &effects), !origin.isOwn { return .hold }
             if case .own = origin { return .pass }
             if fence.isHolding { return .hold }
+            // ⌘ or ⌥ down would turn the typed keys into shortcuts.
+            if dictationTyping, origin == .user,
+               flags & (EventFlags.command | EventFlags.option | EventFlags.control | EventFlags.shift) != 0
+            {
+                effects.append(.typingInterrupted)
+            }
             // Modifier changes arrive under Secure Input too: a voice hold
             // still ends when its modifier comes up.
             if let signal = shortcuts.holdModifiersChanged(flags: flags) { effects.append(.voice(signal)) }
@@ -179,6 +187,9 @@ public struct InputMachine: Sendable {
         case let .voiceSession(on):
             voiceSession = on
 
+        case let .dictationTyping(on):
+            dictationTyping = on
+
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
             guard undo.isLast(seq: seq) else { break }
@@ -196,6 +207,12 @@ public struct InputMachine: Sendable {
             return .pass
         case .user, .replayed:
             if fence.isHolding { return .hold }
+        }
+        // A key of the user's while dictation types stops it, and is not
+        // judged: the word around it is half dictation.
+        if dictationTyping, key.origin == .user {
+            if key.phase == .down { effects.append(.typingInterrupted) }
+            return .pass
         }
         if fence.takeUndoKey(key) {
             shortcuts.swallow(key.keyCode)

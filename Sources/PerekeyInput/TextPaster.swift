@@ -33,9 +33,9 @@ public enum PasteFailure: Equatable, Sendable {
     /// The app did not answer the fallback strategy in time: the text may
     /// still arrive. Offer "Paste again" rather than pasting again by itself.
     case timedOut
-    /// The focus moved while the text was typed (`.keystrokes`): typing
-    /// stopped, and the start of the text may be in the old target. Not to
-    /// be pasted again whole.
+    /// Typing (`.keystrokes`) stopped part way: the focus moved, the user
+    /// pressed a key or a modifier, or the task was cancelled. The start of
+    /// the text may be in the target. Not to be pasted again whole.
     case interrupted
 }
 
@@ -97,16 +97,38 @@ public final class TextPaster {
     private let modifierFlags: @MainActor () -> CGEventFlags
     private let modifierTimeout: Duration
     private let bundleID: @MainActor (_ pid: pid_t) -> String?
-    private let postStroke: @MainActor (_ stroke: String, _ source: CGEventSource?) -> Void
+    private let postStroke: @MainActor (_ stroke: String, _ source: CGEventSource?, _ mark: SyntheticMark) -> Void
     private let sleep: @MainActor (Duration) async -> Void
+    private let typingChanged: @MainActor (_ typing: Bool) -> Void
     private let afterPaste: @MainActor () -> Void
+
+    /// The typing in progress, if any (`.keystrokes`).
+    private var typing: Typing?
+    /// The last checkpoint posted, by any typing: an older typing's
+    /// checkpoint is below the current one's.
+    private var checkpoint: UInt32 = 0
+
+    private final class Typing {
+        /// The highest checkpoint the tap saw.
+        var seen: UInt32 = 0
+        /// The user pressed a key, or a newer typing began.
+        var stopped = false
+        /// Checkpoints come back: false once one did not, and the tap is
+        /// not waited for any more.
+        var acknowledges = true
+    }
 
     /// - Parameters:
     ///   - plainPaste: the app's one instance, so "Paste without formatting"
     ///     and dictation share the saved pasteboard.
+    ///   - typingChanged: typing starts or ends; the app tells the tap
+    ///     (`InputEvent.dictationTyping`), after `.inputLost` at the start.
     ///   - afterPaste: called after the text went in; the app tells the tap to
     ///     forget what it saw, so autoswitching leaves the pasted text alone.
-    public convenience init(plainPaste: PlainPaste, afterPaste: @escaping @MainActor () -> Void) {
+    public convenience init(plainPaste: PlainPaste,
+                            typingChanged: @escaping @MainActor (_ typing: Bool) -> Void = { _ in },
+                            afterPaste: @escaping @MainActor () -> Void)
+    {
         let reader = PasteTargetReader()
         self.init(plainPaste: plainPaste,
                   readTarget: { await reader.current(frontmostPID: $0) },
@@ -119,8 +141,9 @@ public final class TextPaster {
                   },
                   modifierFlags: { CGEventSource.flagsState(.combinedSessionState) },
                   bundleID: { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier },
-                  postStroke: { TypedText.post($0, source: $1) },
+                  postStroke: { TypedText.post($0, source: $1, mark: $2) },
                   sleep: { try? await Task.sleep(for: $0) },
+                  typingChanged: typingChanged,
                   afterPaste: afterPaste)
         readContext = { await reader.textBeforeCaret(in: $0) }
     }
@@ -136,8 +159,10 @@ public final class TextPaster {
          modifierFlags: @escaping @MainActor () -> CGEventFlags,
          modifierTimeout: Duration = TextPaster.modifierTimeout,
          bundleID: @escaping @MainActor (_ pid: pid_t) -> String? = { _ in nil },
-         postStroke: @escaping @MainActor (_ stroke: String, _ source: CGEventSource?) -> Void = { _, _ in },
+         postStroke: @escaping @MainActor (_ stroke: String, _ source: CGEventSource?, _ mark: SyntheticMark)
+             -> Void = { _, _, _ in },
          sleep: @escaping @MainActor (Duration) async -> Void = { _ in },
+         typingChanged: @escaping @MainActor (_ typing: Bool) -> Void = { _ in },
          afterPaste: @escaping @MainActor () -> Void)
     {
         self.plainPaste = plainPaste
@@ -152,6 +177,7 @@ public final class TextPaster {
         self.bundleID = bundleID
         self.postStroke = postStroke
         self.sleep = sleep
+        self.typingChanged = typingChanged
         self.afterPaste = afterPaste
     }
 
@@ -192,7 +218,7 @@ public final class TextPaster {
 
         switch strategy(for: text, pid: current.pid) {
         case .keystrokes:
-            if let failure = await type(text, into: current) { return .failed(failure) }
+            if let stopped = await type(text, into: current) { return stopped }
         case .commandV:
             plainPaste.paste(text: text, restoreDelay: Self.restoreDelay)
         case .menu:
@@ -219,37 +245,108 @@ public final class TextPaster {
         return insertion(bundleID).types(text, bundleID: bundleID) ? .keystrokes : .commandV
     }
 
-    /// Types `text` into `target`, already checked; nil when all of it went.
-    /// Between bursts the app in front must still be the target's, and at
-    /// most every `typingCheck` the focus, as far as AX answers: an app busy
-    /// with the keys may not answer, and that alone does not stop typing.
-    private func type(_ text: String, into target: PasteTarget) async -> PasteFailure? {
+    /// The tap saw the checkpoint `seq` of a typing (`EngineMessage.typedSeen`).
+    public func typedSeen(seq: UInt32) {
+        guard let typing, seq > typing.seen else { return }
+        typing.seen = seq
+    }
+
+    /// The user pressed a key while dictation typed (`EngineMessage.typingInterrupted`).
+    public func typingInterrupted() {
+        typing?.stopped = true
+    }
+
+    /// Types `text` into `target`, already checked; nil when all of it went
+    /// and the tap saw the last stroke.
+    ///
+    /// It stops, `.failed(.interrupted)`, when the task is cancelled or the
+    /// user presses a key (`typingInterrupted`), and at a pause when a
+    /// modifier is down (⌘ and the next stroke would be ⌘A), another app is
+    /// in front, or AX, at most every `typingCheck`, names another field. An
+    /// app busy with the keys may not answer AX: that alone does not stop
+    /// it. Secure Input at a pause: `.secureInput`. After the last stroke
+    /// has passed the tap, the focus once more: it may have moved while the
+    /// strokes were on their way.
+    private func type(_ text: String, into target: PasteTarget) async -> PasteResult? {
+        let typing = Typing()
+        self.typing?.stopped = true
+        self.typing = typing
+        typingChanged(true)
+        defer { end(typing) }
         let source = CGEventSource(stateID: .privateState)
         let clock = ContinuousClock()
         var checked = clock.now
+        let strokes = TypedText.strokes(text)
         var count = 0
-        for stroke in TypedText.strokes(text) {
-            postStroke(stroke, source)
+        for (index, stroke) in strokes.enumerated() {
+            if Task.isCancelled || typing.stopped { return stop(typing, after: index) }
+            let last = index == strokes.count - 1
+            var mark = SyntheticMark.typed(seq: 0, ack: false)
+            if last || (index + 1).isMultiple(of: TypedText.ackEvery) {
+                checkpoint &+= 1
+                mark = .typed(seq: checkpoint, ack: true)
+            }
+            postStroke(stroke, source, mark)
             count += 1
-            guard let pause = TypedText.pause(after: stroke, count: count) else { continue }
-            count = 0
-            await sleep(pause)
+            let pause = TypedText.pause(after: stroke, count: count)
+            if pause != nil { count = 0 }
+            if let pause, !last { await sleep(pause) }
+            if case let .typed(seq, ack: true) = mark { await waitUntilSeen(seq, typing) }
+            guard pause != nil || last else { continue }
+            // Keys and modifiers after the last stroke come after the text.
+            if !last {
+                if Task.isCancelled || typing.stopped { return stop(typing, after: index + 1) }
+                if !modifierFlags().intersection(Self.heldModifiers).isEmpty { return stop(typing, after: index + 1) }
+                if let owner = secureInputOwner() { return stop(typing, after: index + 1, .secureInput(owner: owner)) }
+            }
             var moved = frontmostPID() != target.pid
-            if !moved, clock.now - checked >= Self.typingCheck {
+            if !moved, last || clock.now - checked >= Self.typingCheck {
                 checked = clock.now
                 if let now = await readTarget(target.pid) { moved = !target.isSame(as: now) }
             }
-            if moved {
-                // Some of the text went in: the tap must leave it alone too.
-                afterPaste()
-                return .interrupted
-            }
+            if moved { return stop(typing, after: index + 1) }
         }
         return nil
     }
 
+    /// Typing stopped after `posted` strokes. Some of the text went in: the
+    /// tap must leave it alone too.
+    private func stop(_ typing: Typing, after posted: Int, _ result: PasteResult = .failed(.interrupted))
+        -> PasteResult
+    {
+        end(typing)
+        if posted > 0 { afterPaste() }
+        return result
+    }
+
+    /// The tap judges the user's keys again, unless a newer typing runs.
+    private func end(_ typing: Typing) {
+        guard self.typing === typing else { return }
+        self.typing = nil
+        typingChanged(false)
+    }
+
+    /// Waits until the tap saw checkpoint `seq`, the typing stopped, or
+    /// `seenTimeout` passed. A checkpoint that does not come (the tap is off
+    /// or suspended) is the last one waited for.
+    private func waitUntilSeen(_ seq: UInt32, _ typing: Typing) async {
+        guard typing.acknowledges else { return }
+        let clock = ContinuousClock()
+        let deadline = clock.now + Self.seenTimeout
+        while typing.seen < seq, !typing.stopped, !Task.isCancelled {
+            guard clock.now < deadline else {
+                typing.acknowledges = false
+                return
+            }
+            await sleep(Self.seenPoll)
+        }
+    }
+
     /// How often typing reads the focus through AX.
     static let typingCheck: Duration = .milliseconds(100)
+    /// How long a checkpoint may take to pass the tap.
+    static let seenTimeout: Duration = .milliseconds(500)
+    static let seenPoll: Duration = .milliseconds(1)
 
     /// Nil when the strategy worked. Text that may still arrive gets
     /// `afterPaste` as well: the tap must not retype it either.

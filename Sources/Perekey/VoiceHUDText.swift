@@ -30,7 +30,7 @@ extension DictationHUDPresentation.Message {
         case .secureInput(nil): voiceString("Input is protected in another app")
         case .noAccessibility: voiceString("Perekey lost its Accessibility access")
         case .timedOut: voiceString("The app did not answer")
-        case .interrupted: voiceString("Typing stopped: the focus moved")
+        case .interrupted: voiceString("Typing stopped")
         case .nothingHeard: voiceString("Nothing heard")
         case .cancelled: voiceString("Cancelled")
         case .microphoneDenied: voiceString("No access to the microphone")

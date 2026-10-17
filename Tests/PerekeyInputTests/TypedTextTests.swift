@@ -15,13 +15,21 @@ import Testing
     @Test func charactersOfMoreThanOneUnitStayWhole() {
         let family = "👨‍👩‍👧‍👦"
         let flag = "🇷🇺"
+        // é composes; the circumflex has nothing to compose with and stays a mark.
         let combining = "e\u{301}\u{302}"
-        #expect(TypedText.strokes("a😀\(family)\(flag)\(combining)b") == ["a", "😀", family, flag, combining, "b"])
+        #expect(TypedText.strokes("a😀\(family)\(flag)\(combining)b") == ["a", "😀", family, flag, "\u{E9}\u{302}", "b"])
+    }
+
+    @Test func decomposedTextIsComposedFirst() {
+        // NFD from a file or a model: one unit a stroke, no slow pauses.
+        let strokes = TypedText.strokes("cafe\u{301} и\u{306}")
+        #expect(strokes == ["c", "a", "f", "\u{E9}", " ", "\u{439}"])
+        #expect(strokes.allSatisfy { TypedText.pause(after: $0, count: 1) == nil })
     }
 
     @Test func aCharacterOverTheLimitIsSplitBetweenItsScalars() {
         // A letter under 30 combining marks: 31 units, one character.
-        let zalgo = "z" + String(repeating: "\u{301}", count: 30)
+        let zalgo = "q" + String(repeating: "\u{301}", count: 30)
         let strokes = TypedText.strokes(zalgo)
         #expect(strokes.count == 2)
         #expect(strokes.joined() == zalgo)
@@ -41,7 +49,7 @@ import Testing
     }
 
     @Test func eventsCarryTheTextMarkedAsOwn() throws {
-        let events = TypedText.events(for: "ж", source: nil)
+        let events = TypedText.events(for: "ж", source: nil, mark: .typed(seq: 3, ack: true))
         try #require(events.count == 2)
         #expect(events.map { $0.type } == [.keyDown, .keyUp])
         for (index, event) in events.enumerated() {
@@ -53,7 +61,7 @@ import Testing
             event.keyboardGetUnicodeString(maxStringLength: 4, actualStringLength: &length, unicodeString: &units)
             #expect(String(utf16CodeUnits: units, count: length) == "ж")
             let mark = SyntheticMark(userData: event.getIntegerValueField(.eventSourceUserData))
-            #expect(mark == .own(seq: 0, last: index == 1), "seq 0 is never a fence's")
+            #expect(mark == .typed(seq: 3, ack: index == 1), "the key up is the checkpoint")
             #expect(EventOrigin(mark: mark).isOwn, "the tap lets it through without autoswitching")
         }
     }
@@ -92,30 +100,61 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         var bundleID: String? = "com.apple.Terminal"
         var current: PasteTarget? = field()
         var frontmost: pid_t? = 100
+        var secureInputOwner: SecureInputOwner?
+        var flags: CGEventFlags = []
         var strokes: [String] = []
         var commandV = 0
         var afterPaste = 0
         var pauses: [Duration] = []
+        /// What happened, in order: "typing on", "seen 1", "after paste", …
+        var log: [String] = []
+        /// The tap sees the checkpoints.
+        var acknowledges = true
+        weak var paster: TextPaster?
         /// Called after every stroke, with the strokes so far.
         var onStroke: ((Int) -> Void)?
+        var task: Task<PasteResult, Never>?
     }
 
-    private func make(_ probe: Probe, pasteboard: CountingPasteboard = CountingPasteboard()) -> TextPaster {
+    private func make(_ probe: Probe, pasteboard: CountingPasteboard = CountingPasteboard(),
+                      read: (@MainActor (Int) -> PasteTarget?)? = nil,
+                      sleep: @escaping @MainActor (Duration) async -> Void = { _ in }) -> TextPaster
+    {
         let plain = PlainPaste(pasteboard: pasteboard, restoreDelay: .seconds(60)) { probe.commandV += 1 }
-        return TextPaster(
+        var reads = 0
+        let paster = TextPaster(
             plainPaste: plain,
-            readTarget: { _ in probe.current },
+            readTarget: { _ in
+                reads += 1
+                return read.map { $0(reads) } ?? probe.current
+            },
             frontmostPID: { probe.frontmost },
-            modifierFlags: { [] },
+            secureInputOwner: { probe.secureInputOwner },
+            modifierFlags: { probe.flags },
             bundleID: { _ in probe.bundleID },
-            postStroke: { stroke, _ in
+            postStroke: { stroke, _, mark in
                 probe.strokes.append(stroke)
+                if case let .typed(seq, ack: true) = mark, probe.acknowledges {
+                    probe.log.append("seen \(seq)")
+                    probe.paster?.typedSeen(seq: seq)
+                }
                 probe.onStroke?(probe.strokes.count)
             },
-            sleep: { probe.pauses.append($0) },
-            afterPaste: { probe.afterPaste += 1 }
+            sleep: { duration in
+                probe.pauses.append(duration)
+                await sleep(duration)
+            },
+            typingChanged: { probe.log.append("typing \($0 ? "on" : "off")") },
+            afterPaste: {
+                probe.afterPaste += 1
+                probe.log.append("after paste")
+            }
         )
+        probe.paster = paster
+        return paster
     }
+
+    private static let long = String(repeating: "x", count: 100)
 
     @Test func aTerminalGetsTheTextTypedAndThePasteboardStaysAlone() async {
         let probe = Probe()
@@ -129,6 +168,42 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         #expect(probe.afterPaste == 1)
         #expect(probe.pauses.contains(TypedText.slowPause))
         #expect(probe.pauses.contains(TypedText.pause))
+    }
+
+    @Test func theTapIsToldAndTheTextGoesOnlyAfterTheLastCheckpoint() async {
+        let probe = Probe()
+        let paster = make(probe)
+        #expect(await paster.paste(Self.long, into: field()) == .pasted)
+        // 100 strokes: checkpoints after 64 and on the last one.
+        #expect(probe.log == ["typing on", "seen 1", "seen 2", "typing off", "after paste"])
+    }
+
+    @Test func noMoreThanACheckpointOfStrokesIsOnItsWay() async {
+        let probe = Probe()
+        let paster = make(probe)
+        var unseenAtMost = 0
+        probe.onStroke = { count in
+            let seen = probe.log.filter { $0.hasPrefix("seen") }.count
+            unseenAtMost = max(unseenAtMost, count - seen * TypedText.ackEvery)
+        }
+        #expect(await paster.paste(String(repeating: "x", count: 300), into: field()) == .pasted)
+        #expect(unseenAtMost <= TypedText.ackEvery)
+    }
+
+    @Test func aTapThatDoesNotSeeTheCheckpointsIsWaitedForOnce() async {
+        let probe = Probe()
+        probe.acknowledges = false
+        var events: [String] = []
+        let paster = make(probe, sleep: { duration in
+            if duration == TextPaster.seenPoll { events.append("poll") }
+            try? await Task.sleep(for: duration)
+        })
+        probe.onStroke = { if $0.isMultiple(of: TypedText.ackEvery) { events.append("checkpoint") } }
+        #expect(await paster.paste(String(repeating: "x", count: 300), into: field()) == .pasted)
+        #expect(probe.strokes.count == 300)
+        let second = events.indices.filter { events[$0] == "checkpoint" }.dropFirst().first
+        #expect(events.first == "checkpoint" && events.contains("poll"), "the first checkpoint is waited for")
+        #expect(second.map { !events[$0...].contains("poll") } == true, "no more waiting after it")
     }
 
     @Test func strategyByAppTextAndChoice() {
@@ -184,41 +259,79 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         #expect(await paster.paste("text", into: probe.current!) == .secureField)
         #expect(probe.strokes.isEmpty)
         #expect(probe.afterPaste == 0)
+        #expect(probe.log.isEmpty, "the tap is not told")
     }
 
     @Test func anotherAppInFrontStopsTheTyping() async {
         let probe = Probe()
         let paster = make(probe)
         probe.onStroke = { if $0 == 20 { probe.frontmost = 200 } }
-        let text = String(repeating: "x", count: 100)
-        #expect(await paster.paste(text, into: field()) == .failed(.interrupted))
+        #expect(await paster.paste(Self.long, into: field()) == .failed(.interrupted))
         #expect(probe.strokes.count == 2 * TypedText.burst, "stops at the next pause")
         #expect(probe.afterPaste == 1, "the tap must leave the typed part alone")
+        #expect(probe.log == ["typing on", "typing off", "after paste"], "the tap judges again, then forgets")
     }
 
-    /// A paster whose AX reads come from `read` (the first is the check
-    /// before typing), and whose every pause outlasts the AX check interval.
-    private func typer(_ probe: Probe, read: @escaping @MainActor (Int) -> PasteTarget?) -> TextPaster {
-        var reads = 0
-        return TextPaster(
-            plainPaste: PlainPaste(pasteboard: CountingPasteboard(), restoreDelay: .seconds(60)) {},
-            readTarget: { _ in
-                reads += 1
-                return read(reads)
-            },
-            frontmostPID: { probe.frontmost },
-            modifierFlags: { [] },
-            bundleID: { _ in probe.bundleID },
-            postStroke: { stroke, _ in probe.strokes.append(stroke) },
-            sleep: { _ in try? await Task.sleep(for: TextPaster.typingCheck) },
-            afterPaste: { probe.afterPaste += 1 }
-        )
+    @Test func cancellingTheTaskStopsTheTypingAtOnce() async {
+        let probe = Probe()
+        let paster = make(probe)
+        probe.onStroke = { if $0 == 20 { probe.task?.cancel() } }
+        let task = Task { await paster.paste(Self.long, into: field()) }
+        probe.task = task
+        #expect(await task.value == .failed(.interrupted))
+        #expect(probe.strokes.count == 20, "the rest is not typed")
+        #expect(probe.afterPaste == 1)
+    }
+
+    @Test func aKeyOfTheUsersStopsTheTypingAtOnce() async {
+        let probe = Probe()
+        let paster = make(probe)
+        probe.onStroke = { if $0 == 20 { paster.typingInterrupted() } }
+        #expect(await paster.paste(Self.long, into: field()) == .failed(.interrupted))
+        #expect(probe.strokes.count == 20)
+        #expect(probe.afterPaste == 1)
+        // The next typing is not stopped by it.
+        probe.onStroke = nil
+        probe.strokes = []
+        #expect(await paster.paste(Self.long, into: field()) == .pasted)
+        #expect(probe.strokes.count == 100)
+    }
+
+    @Test func secureInputMidTypingStopsItAsSecureInput() async {
+        let probe = Probe()
+        let paster = make(probe)
+        let owner = SecureInputOwner.process(pid: 300, name: "Terminal", bundleID: "com.apple.Terminal")
+        probe.onStroke = { if $0 == 20 { probe.secureInputOwner = owner } }
+        #expect(await paster.paste(Self.long, into: field()) == .secureInput(owner: owner))
+        #expect(probe.strokes.count == 2 * TypedText.burst)
+        #expect(probe.afterPaste == 1)
+    }
+
+    @Test func aModifierDownMidTypingStopsIt() async {
+        // ⌘ and the next stroke on the A key would be ⌘A.
+        let probe = Probe()
+        let paster = make(probe)
+        probe.onStroke = { if $0 == 20 { probe.flags = .maskCommand } }
+        #expect(await paster.paste(Self.long, into: field()) == .failed(.interrupted))
+        #expect(probe.strokes.count == 2 * TypedText.burst)
+        #expect(probe.afterPaste == 1)
+    }
+
+    @Test func theFocusIsCheckedOnceMoreAfterTheLastStrokeWasSeen() async {
+        let probe = Probe()
+        let paster = make(probe)
+        probe.onStroke = { if $0 == 100 { probe.frontmost = 200 } }
+        #expect(await paster.paste(Self.long, into: field()) == .failed(.interrupted))
+        #expect(probe.strokes.count == 100)
+        #expect(probe.log == ["typing on", "seen 1", "seen 2", "typing off", "after paste"])
     }
 
     @Test func anotherFieldStopsTheTyping() async {
         let probe = Probe()
-        let paster = typer(probe) { $0 == 1 ? field() : field(element: 3) }
-        #expect(await paster.paste(String(repeating: "x", count: 100), into: field()) == .failed(.interrupted))
+        // Every pause outlasts the AX check interval; the first read is the check before typing.
+        let paster = make(probe, read: { $0 == 1 ? field() : field(element: 3) },
+                          sleep: { _ in try? await Task.sleep(for: TextPaster.typingCheck) })
+        #expect(await paster.paste(Self.long, into: field()) == .failed(.interrupted))
         #expect(probe.strokes.count == TypedText.burst)
         #expect(probe.afterPaste == 1)
     }
@@ -227,11 +340,11 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         // An app busy with the keys may not answer AX meanwhile.
         let probe = Probe()
         var reads = 0
-        let paster = typer(probe) {
+        let paster = make(probe, read: {
             reads = $0
             return $0 == 1 ? field() : nil
-        }
-        #expect(await paster.paste(String(repeating: "x", count: 100), into: field()) == .pasted)
+        }, sleep: { _ in try? await Task.sleep(for: TextPaster.typingCheck) })
+        #expect(await paster.paste(Self.long, into: field()) == .pasted)
         #expect(probe.strokes.count == 100)
         #expect(reads > 1, "the focus was read while typing")
     }

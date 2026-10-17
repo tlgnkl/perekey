@@ -152,7 +152,7 @@
 "Still recognizing…" = "Ещё распознаю…";
 "Tap %@, say a phrase, tap again, and the text lands at the cursor" = "Тап %@, фраза, ещё тап — текст встанет на место курсора";
 "Text not pasted" = "Текст не вставлен";
-"Typing stopped: the focus moved" = "Набор прерван: фокус сменился";
+"Typing stopped" = "Набор прерван";
 "The app did not answer" = "Программа не ответила";
 "The cursor is in a password field" = "Курсор в поле пароля";
 "The speech model is not ready" = "Модель речи не готова";
@@ -479,3 +479,4 @@
 "Type as keystrokes" = "Набором с клавиатуры";
 "Dictation: pasted" = "Диктовка: вставкой";
 "Dictation: typed" = "Диктовка: набором";
+"Remove the rule and the dictation input" = "Удалить правило и вставку диктовки";

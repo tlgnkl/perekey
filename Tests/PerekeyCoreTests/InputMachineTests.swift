@@ -158,17 +158,47 @@ private let ru = Fixture.russian.id
         #expect(kb.machine.buffer.isEmpty)
     }
 
-    /// Dictation typed into a terminal (`TypedText`): key code 0, `seq` 0.
+    /// Dictation typed into a terminal (`TypedText`): key code 0, marked `.typed`.
     @Test func typedDictationPassesWithoutTouchingBufferOrFence() throws {
         var kb = Keyboard()
-        for last in [false, true] {
-            #expect(kb.press(0, origin: .own(seq: 0, last: last)).disposition == .pass)
+        for ack in [false, true] {
+            let origin = EventOrigin(mark: .typed(seq: 3, ack: ack))
+            #expect(origin == .own(seq: 0, last: false))
+            #expect(kb.press(0, origin: origin).disposition == .pass)
         }
         #expect(kb.machine.buffer.isEmpty)
         kb.type("ghbdtn", in: Fixture.abc)
         _ = try #require(kb.tapOption().retype)
-        #expect(kb.press(0, origin: .own(seq: 0, last: true)).disposition == .pass)
-        #expect(kb.machine.isHolding, "seq 0 is never a fence's")
+        #expect(kb.press(0, origin: EventOrigin(mark: .typed(seq: 1, ack: true))).disposition == .pass)
+        #expect(kb.machine.isHolding, "a typed checkpoint is never a fence's")
+    }
+
+    @Test func aUserKeyWhileDictationTypesStopsItAndIsNotJudged() throws {
+        var kb = Keyboard()
+        kb.send(.dictationTyping(true))
+        // Ours pass and stop nothing.
+        #expect(kb.press(0, origin: EventOrigin(mark: .typed(seq: 0, ack: false))).effects.isEmpty)
+        let first = kb.press(Fixture.abc.strokes("g")[0].keyCode)
+        #expect(first.disposition == .pass)
+        #expect(first.effects == [.typingInterrupted])
+        // "ghbdtn " in the middle of the dictation: nothing to retype, no Backspaces.
+        kb.type("hbdtn ", in: Fixture.abc)
+        #expect(kb.machine.buffer.isEmpty)
+        #expect(kb.tapOption().retype == nil)
+
+        kb.send(.dictationTyping(false))
+        kb.send(.inputLost)
+        kb.type("ghbdtn", in: Fixture.abc)
+        _ = try #require(kb.tapOption().retype, "judged again once typing ends")
+    }
+
+    @Test func aModifierWhileDictationTypesStopsIt() {
+        var kb = Keyboard()
+        kb.send(.dictationTyping(true))
+        #expect(kb.modifiers(keyCode: 55, flags: Keyboard.leftCommand).effects.contains(.typingInterrupted))
+        #expect(!kb.modifiers(keyCode: 55, flags: 0).effects.contains(.typingInterrupted), "the release is not a stop")
+        kb.send(.dictationTyping(false))
+        #expect(!kb.modifiers(keyCode: 55, flags: Keyboard.leftCommand).effects.contains(.typingInterrupted))
     }
 }
 

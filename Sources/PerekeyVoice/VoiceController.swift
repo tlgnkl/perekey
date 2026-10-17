@@ -89,15 +89,17 @@ public enum NotPastedReason: Hashable, Sendable {
     case noAccessibility
     /// The app did not answer in time; the text may still arrive.
     case timedOut
+    /// The focus moved while the text was typed; its start went in.
+    case interrupted
     case failed(String)
 
     /// Whether the HUD offers "Вставить" again. Not after a timeout (the
-    /// first paste may still land: twice the text), nor into a password
-    /// field, nor without Accessibility.
+    /// first paste may still land: twice the text) or a typing that stopped
+    /// part way, nor into a password field, nor without Accessibility.
     public var offersPaste: Bool {
         switch self {
         case .targetChanged, .secureInput, .failed: true
-        case .secureField, .noAccessibility, .timedOut: false
+        case .secureField, .noAccessibility, .timedOut, .interrupted: false
         }
     }
 }
@@ -1027,6 +1029,7 @@ public final class VoiceController {
         case .secureField: .secureField
         case let .secureInput(owner): .secureInput(owner: owner)
         case .timedOut: .timedOut
+        case .interrupted: .interrupted
         case let .failed(message): .failed(message)
         }
         let isPrivate = wasPrivate || reason == .secureField || { if case .secureInput = reason { true } else { false } }()

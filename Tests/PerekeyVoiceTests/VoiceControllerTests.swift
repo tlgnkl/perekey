@@ -678,6 +678,19 @@ struct VoiceControllerTests {
         #expect(rig.layoutTexts.isEmpty)
     }
 
+    @Test func aStoppedTypingOffersOnlyCopyAndGoesToTheHistory() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .normal
+        rig.paster.result = .interrupted
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.interrupted) })
+        #expect(rig.controller.last?.pasted == false)
+        #expect(rig.layoutTexts.isEmpty)
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(!rig.records[0].pasted)
+    }
+
     @Test func secureInputOfAnotherApp() async {
         let rig = Rig()
         rig.paster.result = .secureInput(owner: "Terminal")

@@ -30,6 +30,7 @@ extension DictationHUDPresentation.Message {
         case .secureInput(nil): voiceString("Input is protected in another app")
         case .noAccessibility: voiceString("Perekey lost its Accessibility access")
         case .timedOut: voiceString("The app did not answer")
+        case .interrupted: voiceString("Typing stopped: the focus moved")
         case .nothingHeard: voiceString("Nothing heard")
         case .cancelled: voiceString("Cancelled")
         case .microphoneDenied: voiceString("No access to the microphone")
@@ -45,7 +46,7 @@ extension DictationHUDPresentation.Message {
     /// What the HUD shows is a problem the person can still act on.
     var isProblem: Bool {
         switch self {
-        case .notPasted, .secureField, .secureInput, .noAccessibility, .timedOut, .nothingHeard,
+        case .notPasted, .secureField, .secureInput, .noAccessibility, .timedOut, .interrupted, .nothingHeard,
              .microphoneDenied, .noMicrophone, .microphoneFailed, .modelFailed, .recognitionFailed,
              .cloudSpeechFailed: true
         case .starting, .recording, .preparingModel, .recognizing, .stillRecognizing, .refining, .pasting, .pasted,
@@ -63,7 +64,8 @@ extension DictationHUDPresentation.Message {
         case .nothingHeard: "mic.slash"
         case .microphoneDenied, .noMicrophone, .microphoneFailed: "mic.slash.fill"
         case .secureField, .secureInput: "lock.fill"
-        case .notPasted, .noAccessibility, .timedOut, .modelFailed, .recognitionFailed, .cloudSpeechFailed:
+        case .notPasted, .noAccessibility, .timedOut, .interrupted, .modelFailed, .recognitionFailed,
+             .cloudSpeechFailed:
             "exclamationmark.triangle.fill"
         case .starting, .recording, .preparingModel, .recognizing, .stillRecognizing, .refining, .pasting: nil
         }

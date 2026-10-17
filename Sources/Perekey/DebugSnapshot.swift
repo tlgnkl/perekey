@@ -229,6 +229,16 @@ enum DebugSnapshot {
                 .background(Color(nsColor: .windowBackgroundColor)),
                    dark: dark, size: size, to: directory.appending(path: "apps-\(dark ? "dark" : "light").png"))
         }
+        #if PEREKEY_VOICE
+        // «Вставка диктовки»: VS Code types, Terminal is automatic.
+        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "apps-voice.json"))
+        try? FileManager.default.removeItem(at: voiceFile.url)
+        try? voiceFile.save(VoiceSettings(isEnabled: true, insertion: ["com.microsoft.VSCode": .typing]))
+        let voice = VoiceSettingsStore(file: voiceFile, managed: ManagedSettings())
+        render(AppsPane(store: store, sources: sources, languages: languages, voice: voice, model: model())
+            .background(Color(nsColor: .windowBackgroundColor)),
+               dark: false, size: size, to: directory.appending(path: "apps-voice.png"))
+        #endif
         let filtered = model()
         filtered.modeFilter = .manualOnly
         render(AppsPane(store: store, sources: sources, model: filtered).background(Color(nsColor: .windowBackgroundColor)),
@@ -765,6 +775,7 @@ extension DebugSnapshot {
             ("not-pasted", .notPasted(.targetChanged), false, false),
             ("not-pasted-contrast", .notPasted(.targetChanged), false, true),
             ("not-pasted-timeout", .notPasted(.timedOut), false, false),
+            ("not-pasted-interrupted", .notPasted(.interrupted), false, false),
             ("password-field", .notPasted(.secureField), false, false),
             ("secure-input", .notPasted(.secureInput(owner: "Terminal")), false, false),
             ("secure-input-unknown", .notPasted(.secureInput(owner: nil)), false, false),

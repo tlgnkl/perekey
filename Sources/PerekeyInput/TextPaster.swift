@@ -2,6 +2,7 @@
 
 import AppKit
 import CoreGraphics
+import PerekeyCore
 
 /// What became of a paste.
 public enum PasteResult: Equatable, Sendable {
@@ -32,10 +33,15 @@ public enum PasteFailure: Equatable, Sendable {
     /// The app did not answer the fallback strategy in time: the text may
     /// still arrive. Offer "Paste again" rather than pasting again by itself.
     case timedOut
+    /// The focus moved while the text was typed (`.keystrokes`): typing
+    /// stopped, and the start of the text may be in the old target. Not to
+    /// be pasted again whole.
+    case interrupted
 }
 
 /// How the text gets into the app. ⌘V works in every app tried so far; the
-/// others are for an app where it does not, and are never the default.
+/// others are for an app where it does not. Each paste picks one
+/// (`TextPaster.insertion`): ⌘V, or `.keystrokes` for a terminal.
 public enum PasteStrategy: String, Sendable, CaseIterable {
     /// The pasteboard and ⌘V on the layout's V key.
     case commandV
@@ -45,6 +51,9 @@ public enum PasteStrategy: String, Sendable, CaseIterable {
     /// breaks undo and formatting in many apps. Safari and Chromium text
     /// areas answer "success" and insert nothing: not for web content.
     case accessibility
+    /// Key events that carry the text (`TypedText`), no pasteboard: for a
+    /// terminal, where a paste arrives bracketed and may be folded.
+    case keystrokes
 }
 
 /// Pastes text into another app on the user's behalf, for dictation: checks
@@ -67,7 +76,13 @@ public final class TextPaster {
         .maskCommand, .maskAlternate, .maskControl, .maskShift, .maskSecondaryFn,
     ]
 
-    public var strategy: PasteStrategy = .commandV
+    /// The strategy of every paste, for tests and the e2e run; nil picks one
+    /// per paste from `insertion`.
+    public var strategy: PasteStrategy?
+
+    /// «Вставка диктовки» for the app with this bundle ID. The app reads it
+    /// from the voice settings.
+    public var insertion: @MainActor (_ bundleID: String?) -> DictationInsertion = { _ in .automatic }
 
     /// Reads the text before the caret of a field; nothing without the AX reader.
     private var readContext: @MainActor (AXElementRef) async -> String? = { _ in nil }
@@ -81,6 +96,9 @@ public final class TextPaster {
     private let secureInputOwner: @MainActor () -> SecureInputOwner?
     private let modifierFlags: @MainActor () -> CGEventFlags
     private let modifierTimeout: Duration
+    private let bundleID: @MainActor (_ pid: pid_t) -> String?
+    private let postStroke: @MainActor (_ stroke: String, _ source: CGEventSource?) -> Void
+    private let sleep: @MainActor (Duration) async -> Void
     private let afterPaste: @MainActor () -> Void
 
     /// - Parameters:
@@ -100,6 +118,9 @@ public final class TextPaster {
                       SecureInput.isEnabled ? SecureInput.owner(pid: SecureInput.ownerPID()) : nil
                   },
                   modifierFlags: { CGEventSource.flagsState(.combinedSessionState) },
+                  bundleID: { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier },
+                  postStroke: { TypedText.post($0, source: $1) },
+                  sleep: { try? await Task.sleep(for: $0) },
                   afterPaste: afterPaste)
         readContext = { await reader.textBeforeCaret(in: $0) }
     }
@@ -114,6 +135,9 @@ public final class TextPaster {
          secureInputOwner: @escaping @MainActor () -> SecureInputOwner? = { nil },
          modifierFlags: @escaping @MainActor () -> CGEventFlags,
          modifierTimeout: Duration = TextPaster.modifierTimeout,
+         bundleID: @escaping @MainActor (_ pid: pid_t) -> String? = { _ in nil },
+         postStroke: @escaping @MainActor (_ stroke: String, _ source: CGEventSource?) -> Void = { _, _ in },
+         sleep: @escaping @MainActor (Duration) async -> Void = { _ in },
          afterPaste: @escaping @MainActor () -> Void)
     {
         self.plainPaste = plainPaste
@@ -125,6 +149,9 @@ public final class TextPaster {
         self.secureInputOwner = secureInputOwner
         self.modifierFlags = modifierFlags
         self.modifierTimeout = modifierTimeout
+        self.bundleID = bundleID
+        self.postStroke = postStroke
+        self.sleep = sleep
         self.afterPaste = afterPaste
     }
 
@@ -149,6 +176,8 @@ public final class TextPaster {
     /// the focus is still `target` (or `.targetChanged`); no password field
     /// (or `.secureField`) and no Secure Input (or `.secureInput`). Only then
     /// is the pasteboard touched, and it comes back by itself (`PlainPaste`).
+    /// `.keystrokes` leaves the pasteboard alone and keeps checking the
+    /// target while it types (or `.failed(.interrupted)`).
     ///
     /// The caller keeps `text` for "Paste again" and decides about history.
     public func paste(_ text: String, into target: PasteTarget) async -> PasteResult {
@@ -161,7 +190,9 @@ public final class TextPaster {
         if current.isSecureField { return .secureField }
         if let owner = secureInputOwner() { return .secureInput(owner: owner) }
 
-        switch strategy {
+        switch strategy(for: text, pid: current.pid) {
+        case .keystrokes:
+            if let failure = await type(text, into: current) { return .failed(failure) }
         case .commandV:
             plainPaste.paste(text: text, restoreDelay: Self.restoreDelay)
         case .menu:
@@ -179,6 +210,46 @@ public final class TextPaster {
         afterPaste()
         return .pasted
     }
+
+    /// The fixed strategy, else `.keystrokes` where the user's choice for the
+    /// app types `text`, else ⌘V.
+    func strategy(for text: String, pid: pid_t) -> PasteStrategy {
+        if let strategy { return strategy }
+        let bundleID = bundleID(pid)
+        return insertion(bundleID).types(text, bundleID: bundleID) ? .keystrokes : .commandV
+    }
+
+    /// Types `text` into `target`, already checked; nil when all of it went.
+    /// Between bursts the app in front must still be the target's, and at
+    /// most every `typingCheck` the focus, as far as AX answers: an app busy
+    /// with the keys may not answer, and that alone does not stop typing.
+    private func type(_ text: String, into target: PasteTarget) async -> PasteFailure? {
+        let source = CGEventSource(stateID: .privateState)
+        let clock = ContinuousClock()
+        var checked = clock.now
+        var count = 0
+        for stroke in TypedText.strokes(text) {
+            postStroke(stroke, source)
+            count += 1
+            guard let pause = TypedText.pause(after: stroke, count: count) else { continue }
+            count = 0
+            await sleep(pause)
+            var moved = frontmostPID() != target.pid
+            if !moved, clock.now - checked >= Self.typingCheck {
+                checked = clock.now
+                if let now = await readTarget(target.pid) { moved = !target.isSame(as: now) }
+            }
+            if moved {
+                // Some of the text went in: the tap must leave it alone too.
+                afterPaste()
+                return .interrupted
+            }
+        }
+        return nil
+    }
+
+    /// How often typing reads the focus through AX.
+    static let typingCheck: Duration = .milliseconds(100)
 
     /// Nil when the strategy worked. Text that may still arrive gets
     /// `afterPaste` as well: the tap must not retype it either.

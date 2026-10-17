@@ -34,6 +34,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case noAccessibility
         /// The app did not answer; the text may still arrive.
         case timedOut
+        /// The focus moved while the text was typed.
+        case interrupted
         case nothingHeard
         case cancelled
         case microphoneDenied
@@ -178,6 +180,7 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case let .secureInput(owner): .secureInput(owner: owner)
         case .noAccessibility: .noAccessibility
         case .timedOut: .timedOut
+        case .interrupted: .interrupted
         }
         var buttons: [Button] = []
         // A text meant for a password or a protected field never goes to the

@@ -157,6 +157,19 @@ private let ru = Fixture.russian.id
         }
         #expect(kb.machine.buffer.isEmpty)
     }
+
+    /// Dictation typed into a terminal (`TypedText`): key code 0, `seq` 0.
+    @Test func typedDictationPassesWithoutTouchingBufferOrFence() throws {
+        var kb = Keyboard()
+        for last in [false, true] {
+            #expect(kb.press(0, origin: .own(seq: 0, last: last)).disposition == .pass)
+        }
+        #expect(kb.machine.buffer.isEmpty)
+        kb.type("ghbdtn", in: Fixture.abc)
+        _ = try #require(kb.tapOption().retype)
+        #expect(kb.press(0, origin: .own(seq: 0, last: true)).disposition == .pass)
+        #expect(kb.machine.isHolding, "seq 0 is never a fence's")
+    }
 }
 
 @Suite struct FenceTests {

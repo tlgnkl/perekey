@@ -111,6 +111,8 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         /// The tap sees the checkpoints.
         var acknowledges = true
         var tapRunning = true
+        /// The last checkpoint posted.
+        var checkpoint: UInt32 = 0
         weak var paster: TextPaster?
         /// Called after every stroke, with the strokes so far.
         var onStroke: ((Int) -> Void)?
@@ -135,6 +137,7 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
             bundleID: { _ in probe.bundleID },
             postStroke: { stroke, _, mark in
                 probe.strokes.append(stroke)
+                if case let .typed(seq, ack: true) = mark { probe.checkpoint = seq }
                 if case let .typed(seq, ack: true) = mark, probe.acknowledges {
                     probe.log.append("seen \(seq)")
                     probe.paster?.typedSeen(seq: seq)
@@ -177,6 +180,23 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         let paster = make(probe)
         #expect(await paster.paste(Self.long, into: field()) == .pasted)
         // 100 strokes: checkpoints after 64 and on the last one.
+        #expect(probe.log == ["typing on", "seen 1", "seen 2", "typing off", "after paste"])
+        #expect(!probe.pauses.contains(TextPaster.seenTimeout), "seen before any wait, no timeout ran")
+    }
+
+    @Test func aCheckpointSeenWhileWaitingEndsTheWaitAndTheNextIsWaitedForToo() async {
+        // The tap answers through the main queue, after the wait began; the
+        // timeout would take a minute.
+        let probe = Probe()
+        let paster = waiting(probe) { paster in
+            probe.log.append("seen \(probe.checkpoint)")
+            paster.typedSeen(seq: probe.checkpoint)
+        }
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(await paster.paste(Self.long, into: field()) == .pasted)
+        #expect(clock.now - start < .seconds(10), "the answers ended the waits, not the timeout")
+        #expect(probe.pauses.filter { $0 == TextPaster.seenTimeout }.count == 2, "both checkpoints were waited for")
         #expect(probe.log == ["typing on", "seen 1", "seen 2", "typing off", "after paste"])
     }
 
@@ -365,6 +385,7 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         #expect(await paster.paste(Self.long, into: field()) == .failed(.interrupted))
         #expect(probe.strokes.count == 100)
         #expect(probe.log == ["typing on", "seen 1", "seen 2", "typing off", "after paste"])
+        #expect(!probe.pauses.contains(TextPaster.seenTimeout))
     }
 
     @Test func anotherFieldStopsTheTyping() async {

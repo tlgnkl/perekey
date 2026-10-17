@@ -209,6 +209,18 @@ private let ru = Fixture.russian.id
         #expect(kb.send(.key(KeyEvent(.up, keyCode: KeyCode.escape, flags: 0, origin: .user), time: 9)).disposition == .pass)
     }
 
+    @Test func aKeyUpLostAfterTheTypingDoesNotTakeTheNextOne() {
+        var kb = Keyboard()
+        kb.send(.dictationTyping(true))
+        let a = Fixture.abc.strokes("a")[0].keyCode
+        #expect(kb.send(.key(KeyEvent(.down, keyCode: a, flags: 0, origin: .user), time: 1)).disposition == .drop)
+        kb.send(.dictationTyping(false))
+        // Its key up never came (the tap was disabled meanwhile); the key is pressed again.
+        #expect(kb.send(.key(KeyEvent(.down, keyCode: a, flags: 0, origin: .user), time: 2)).disposition == .pass)
+        #expect(kb.send(.key(KeyEvent(.up, keyCode: a, flags: 0, origin: .user), time: 2.1)).disposition == .pass,
+                "the app sees the key come up")
+    }
+
     @Test func aModifierWhileDictationTypesStopsIt() {
         var kb = Keyboard()
         kb.send(.dictationTyping(true))

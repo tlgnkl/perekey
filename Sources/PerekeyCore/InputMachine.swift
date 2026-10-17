@@ -217,6 +217,9 @@ public struct InputMachine: Sendable {
         // nowhere: it would land in the middle of the text, and Esc would
         // stop the agent in the terminal.
         if key.origin == .user {
+            // Pressed again after the typing: its key up was lost, and the
+            // next one is the app's.
+            if key.phase == .down, !dictationTyping { typingKeyUps.remove(key.keyCode) }
             if key.phase == .up, typingKeyUps.remove(key.keyCode) != nil { return .drop }
             if dictationTyping, key.phase == .down {
                 effects.append(.typingInterrupted)

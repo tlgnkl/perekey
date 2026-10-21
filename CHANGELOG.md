@@ -28,6 +28,11 @@ differently, what was fixed.
   after you switched to the app often stayed as typed, and only the next word
   was fixed. Perekey now waits for the app to name the field you type in and
   judges that first word as well.
+- **A comma after a word in the wrong layout stays a comma.** If you type
+  “нет,” with English on and the comma on the English comma key, Perekey now
+  gives “нет,” instead of leaving “ytn,” or typing “нетб”, also when it has
+  switched the layout before you reached the comma. The same goes for a
+  period, a semicolon and a colon. Backspace right after gives “ytn,” back.
 
 ## [0.2.0] - 2026-10-14
 
@@ -124,11 +129,6 @@ differently, what was fixed.
 
 ### Fixed
 
-- **A comma after a word in the wrong layout stays a comma.** If you type
-  “нет,” with English on and the comma on the English comma key, Perekey now
-  gives “нет,” instead of leaving “ytn,” or typing “нетб”, also when it has
-  switched the layout before you reached the comma. The same goes for a
-  period, a semicolon and a colon. Backspace right after gives “ytn,” back.
 - **The hint stays by the cursor in terminals.** In terminals built on
   xterm.js (Orca, the VS Code terminal) the correction hint appeared in the
   top right corner of the screen. It now shows next to the line you type in.

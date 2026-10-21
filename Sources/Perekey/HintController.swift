@@ -26,6 +26,7 @@ final class HintController {
     private var generation = 0
     private var timer: Timer?
     private var lifetime = HintLifetime(now: 0)
+    private var hover = HintHover(pointer: .zero)
     private var keyMonitor: Any?
     private var currentAction: (() -> Void)?
     private var publishedButtonFrame: CGRect?
@@ -179,8 +180,10 @@ final class HintController {
             // Keep the clock the press set.
         } else if wasVisible {
             lifetime.restart(at: Self.now)
+            hover = HintHover(pointer: NSEvent.mouseLocation)
         } else {
             lifetime = HintLifetime(now: Self.now)
+            hover = HintHover(pointer: NSEvent.mouseLocation)
         }
         startKeyMonitor()
         startTimer()
@@ -307,7 +310,7 @@ final class HintController {
 
     private func step() {
         let now = Self.now
-        lifetime.setHovering(bubbleScreen.contains(NSEvent.mouseLocation), at: now)
+        lifetime.setHovering(hover.isHovering(pointer: NSEvent.mouseLocation, bubble: bubbleScreen), at: now)
         expireIfDone()
     }
 

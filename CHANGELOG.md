@@ -28,6 +28,11 @@ differently, what was fixed.
   after you switched to the app often stayed as typed, and only the next word
   was fixed. Perekey now waits for the app to name the field you type in and
   judges that first word as well.
+- **The hint no longer stays under a pointer the caret covered.** The hint comes
+  up just under the cursor, often where the pointer was left, and it stayed
+  until you moved the mouse. Now the pointer holds the hint only after it
+  moves, and a finished word ends the hint either way. The hint's glow is no
+  longer cut off at the edge.
 
 ## [0.2.0] - 2026-10-14
 

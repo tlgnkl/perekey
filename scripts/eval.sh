@@ -98,3 +98,10 @@ echo "en → ru | be:"
 echo
 echo "en → ru | uk | be:"
 "$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE" --languages ru,uk,be
+
+# The hyphen step: recovery on held-out text, and no word of data/ru/hyphen.txt
+# changed by the typo step, which runs before it.
+echo
+echo "ru hyphen:"
+"$bin" hyphen --model "$MODEL/ru.pklm" --cache "$CACHE" --list 0 --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" \
+    --words "$PWD/data/ru/hyphen.txt"

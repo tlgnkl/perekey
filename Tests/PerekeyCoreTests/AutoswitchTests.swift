@@ -27,6 +27,87 @@ private let ru = Fixture.russian.id
         #expect(desk.text == "будет ")
     }
 
+    /// "yt," switches at its end; "ytn" switches inside, before the comma,
+    /// and the comma key is "б" in Russian then: the end gives it back.
+    @Test(arguments: [("yt, ", "не, "), ("yf. ", "на. "), ("yt, vbh ", "не, мир "), ("ytn, ", "нет, "),
+                      ("ytn. ", "нет. "), ("ghbdtn, vbh ", "привет, мир "), ("ytn... ", "нет... "),
+                      ("[kt, ", "хлеб "), ("yj; ", "нож "), ("b[ ", "их ")])
+    func punctuationOnARussianLetterKeyStaysPunctuation(typed: String, expected: String) {
+        for russian in [Fixture.russian, Fixture.russianPC] {
+            var desk = Desk(layouts: [Fixture.abc, russian])
+            desk.type(typed)
+            #expect(desk.text == expected, "\(russian.id)")
+            #expect(desk.appLayout == russian.id)
+        }
+    }
+
+    @Test func markAfterASwitchInsideTheWordIsOneCorrection() throws {
+        var desk = Desk()
+        desk.type("ytn, ")
+        #expect(desk.corrections.count == 1)
+        let correction = try #require(desk.corrections.first)
+        #expect(correction.original == "ytn,")
+        #expect(correction.replacement == "нет,")
+        #expect(correction.source == en)
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "ytn, ")
+        #expect(desk.appLayout == en)
+        #expect(desk.undone == [correction.seq])
+    }
+
+    /// Several Cyrillic layouts: the classifier walks its candidates.
+    @Test(arguments: [("yt, ", "не, "), ("ytn, ", "нет, ")])
+    func punctuationStaysWithSeveralCyrillicLayouts(typed: String, expected: String) {
+        var desk = Desk(layouts: [Fixture.abc, Fixture.russian, Fixture.ukrainianPC])
+        desk.type(typed)
+        #expect(desk.text == expected)
+        #expect(desk.appLayout == ru)
+    }
+
+    @Test func returnAfterASwitchInsideTheWordKeepsTheMark() throws {
+        var desk = Desk()
+        desk.type("ytn,")
+        desk.press(KeyCode.return)
+        #expect(desk.text == "нет,\n")
+        #expect(try #require(desk.corrections.first).undoable == false)
+    }
+
+    @Test func cancelledMarkRetypeLeavesTheWordAsTyped() {
+        var desk = Desk()
+        desk.type("ytn")
+        #expect(desk.text == "нет")
+        // The caret check fails for the retype at the word's end.
+        desk.cancelRetypes = true
+        desk.type(", ")
+        #expect(desk.text == "нетб ")
+        #expect(desk.appLayout == ru)
+        desk.cancelRetypes = false
+        desk.type("vbh ")
+        #expect(desk.text == "нетб мир ")
+    }
+
+    @Test func russianWordEndingInALetterOnAMarkKeyStaysAfterASwitchInsideIt() {
+        // "ckjdj" switches inside; "слово" is a word, so "ю" after "слов" stays.
+        var desk = Desk()
+        desk.type("ckjdj ")
+        #expect(desk.text == "слово ")
+        desk = Desk()
+        desk.type("ckjd. ")
+        #expect(desk.text == "словю ", "\"слов\" is no known form: nothing to give the mark back to")
+    }
+
+    @Test func markKeptBySwitchIsUndoneWithTheWord() throws {
+        var desk = Desk()
+        desk.type("yt, ")
+        let correction = try #require(desk.corrections.first)
+        #expect(correction.original == "yt,")
+        #expect(correction.replacement == "не,")
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "yt, ")
+        #expect(desk.appLayout == en)
+        #expect(desk.undone == [correction.seq])
+    }
+
     @Test func englishTypedInRussianSwitches() {
         var desk = Desk(current: ru)
         desk.type("руддщ ", on: Fixture.russian)
@@ -78,6 +159,13 @@ private let ru = Fixture.russian.id
         desk.settle()
         let expected = Fixture.russian.type(Fixture.abc.strokes(typed))
         #expect(desk.text == expected)
+    }
+
+    @Test func fastTypingKeepsTheCommaAfterASwitchInsideTheWord() {
+        var desk = Desk()
+        desk.type("ghbdtn, vbh ", settling: false)
+        desk.settle()
+        #expect(desk.text == "привет, мир ")
     }
 
     @Test func fastTypingGivesPrivetMir() {

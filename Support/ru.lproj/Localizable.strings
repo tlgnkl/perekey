@@ -112,6 +112,7 @@
 "Tab" = "Tab";
 "The app modes say so. Perekey does not fix words or change the layout here." = "Так задано в режимах программ. Здесь Perekey не исправляет и не меняет раскладку.";
 "The dictionary spells this word with «ё»" = "В словаре это слово пишется с «ё»";
+"This word is written with a hyphen" = "Это слово пишется через дефис";
 "The fn / 🌐 key also runs its own macOS action, which can switch the input source." = "Клавиша fn / 🌐 запускает и своё действие macOS, которое может сменить источник ввода.";
 "The same shortcut brought ghbdtn back" = "То же сочетание вернуло ghbdtn";
 "The shortcut turned ghbdtn into привет" = "Сочетание превратило ghbdtn в привет";
@@ -279,6 +280,8 @@
 "Abbreviations" = "Аббревиатуры";
 "Letter ё" = "Буква ё";
 "Russian only, where the word with «е» is no other word" = "Только там, где слово с «е» — не другое слово";
+"Hyphen" = "Дефис";
+"Russian only, where the merged word is no word" = "Только там, где слитное написание — не слово";
 "Layout on entry" = "Раскладка при входе";
 "Perekey does not touch" = "Perekey не трогает";
 "Password fields" = "Поля паролей";

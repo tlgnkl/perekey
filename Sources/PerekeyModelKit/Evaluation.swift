@@ -44,7 +44,25 @@ public struct Evaluation {
         /// Typos that are words themselves ("form" for "from"): the
         /// corrector leaves known words alone, so these set the ceiling.
         public var typosThatAreWords = 0
+        /// Words with trailing punctuation typed in the other layout with the
+        /// marks where that layout has them: "нет," on ABC is "ytn,", whose
+        /// comma is "б" in Russian. How many switched back with the marks
+        /// kept, and how many switch inside the word before the marks
+        /// (`Classifier.impossiblePrefix`): the classifier never sees those
+        /// at the word's end.
+        public var punctuationWords = 0
+        public var punctuationSwitches = 0
+        public var punctuationEarly = 0
+        /// Of `punctuationEarly`, how many get the marks back at the word's
+        /// end (`Classifier.marksAfterSwitch`).
+        public var punctuationEarlyFixed = 0
+        /// Words typed right in their own layout that the same rule would
+        /// change, had they been switched inside: "любовю" would lose its "ю".
+        public var marksWrong = 0
 
+        public var punctuationRecall: Double {
+            punctuationWords > 0 ? Double(punctuationSwitches) / Double(punctuationWords) : 1
+        }
         public var falseRate: Double { keepWords > 0 ? Double(falseSwitches) / Double(keepWords) : 0 }
         public var recall: Double { switchWords > 0 ? Double(switches) / Double(switchWords) : 1 }
         public var wrongCorrectionRate: Double {
@@ -81,6 +99,11 @@ public struct Evaluation {
                 total.typosFixed += category.typosFixed
                 total.typosFixedAfterSwitch += category.typosFixedAfterSwitch
                 total.typosThatAreWords += category.typosThatAreWords
+                total.punctuationWords += category.punctuationWords
+                total.punctuationSwitches += category.punctuationSwitches
+                total.punctuationEarly += category.punctuationEarly
+                total.punctuationEarlyFixed += category.punctuationEarlyFixed
+                total.marksWrong += category.marksWrong
             }
             return total
         }
@@ -149,6 +172,7 @@ public struct Evaluation {
 
             let kept = classifier.classify(strokes, typed: own, other: other, context: context)
             category.keepWords += 1
+            if classifier.marksAfterSwitch(strokes, in: own, from: other) > 0 { category.marksWrong += 1 }
             var keptInOwnLayout = true
             if case .switch = kept.verdict {
                 category.falseSwitches += 1
@@ -198,10 +222,27 @@ public struct Evaluation {
             if Corpus.switchable.contains(item.category) {
                 let wrong = classifier.classify(strokes, typed: other, other: own, context: context)
                 category.switchWords += 1
-                if wrong.verdict == .switch(to: own.id) {
+                // A switch that turns the word's last letters into marks
+                // misses the word: "e;byf." must be "ужинаю", not "ужина.".
+                if wrong.verdict == .switch(to: own.id), wrong.punctuationKeys == 0 {
                     category.switches += 1
                 } else {
                     record(item, typed: other.id, expectSwitch: true, decision: wrong)
+                }
+                if let habit = Self.punctuatedInOther(item.text, strokes, own: own, other: other) {
+                    category.punctuationWords += 1
+                    let decision = classifier.classify(habit, typed: other, other: own, context: context)
+                    if decision.verdict == .switch(to: own.id), decision.punctuationKeys > 0 {
+                        category.punctuationSwitches += 1
+                    }
+                    if [3, 4].contains(where: {
+                        $0 <= habit.count && classifier.impossiblePrefix(habit.prefix($0), typed: other, other: own)
+                    }) {
+                        category.punctuationEarly += 1
+                        if classifier.marksAfterSwitch(habit, in: own, from: other) > 0 {
+                            category.punctuationEarlyFixed += 1
+                        }
+                    }
                 }
             } else if !Corpus.englishOnly.contains(item.category) {
                 // Captcha in the other layout: still nothing to switch to.
@@ -216,6 +257,27 @@ public struct Evaluation {
         }
         results.categories = Corpus.categories.compactMap { categories[$0] }
         return results
+    }
+
+    /// The word typed in `other` with its letters where `own` has them and
+    /// its trailing punctuation where `other` has it: the user who misses the
+    /// layout still types "," on the comma key they see. Nil when no mark
+    /// lands on a letter of `own`: such a word is the plain case.
+    static func punctuatedInOther(_ text: String, _ strokes: [KeyStroke], own: LayoutMap,
+                                  other: LayoutMap) -> [KeyStroke]?
+    {
+        let characters = Array(text)
+        var start = characters.count
+        while start > 0, !characters[start - 1].isLetter, !characters[start - 1].isNumber { start -= 1 }
+        guard start > 0, start < characters.count, characters[..<start].contains(where: \.isLetter) else { return nil }
+        var result = Array(strokes[..<start])
+        var landsOnLetter = false
+        for character in characters[start...] {
+            guard let stroke = other.stroke(for: character), !stroke.modifiers.contains(.option) else { return nil }
+            if own.text(for: stroke)?.first?.isLetter == true { landsOnLetter = true }
+            result.append(stroke)
+        }
+        return landsOnLetter ? result : nil
     }
 
     /// Runs the corpus at every threshold: the ROC points.
@@ -282,6 +344,14 @@ public struct Evaluation {
                            category.keepWords, category.falseSwitches, category.falseRate * 100,
                            category.switchWords, category.switches, category.recall * 100)
         }
+        let total = results.total
+        text += String(format: "punctuation where the wrong layout has it (\"ytn,\" for \"нет,\"): "
+                       + "%d of %d switched with the marks kept, %.2f%%; %d switch inside the word first, "
+                       + "%d of them get the marks back at its end\n",
+                       total.punctuationSwitches, total.punctuationWords, total.punctuationRecall * 100,
+                       total.punctuationEarly, total.punctuationEarlyFixed)
+        text += String(format: "words typed right that would lose a last letter to a mark after a switch inside: "
+                       + "%d of %d\n", total.marksWrong, total.keepWords)
         text += String(format: "\ntypo correction: minScore %d, margin %d\n", results.typoOptions.minScore,
                        results.typoOptions.margin)
         text += "category  checked   wrong corrections     rate    typos    fixed    share  after switch  are words\n"

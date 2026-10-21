@@ -308,7 +308,7 @@ private func buffer(_ text: String, in layout: LayoutID = en) -> WordBuffer {
         #expect(retype?.pending.isOpen == true)
         #expect(retype?.pending.correction.replacement == "при")
         #expect(retype?.held == .boundary(keyCode: Fixture.abc.strokes("b")[0].keyCode, endsWord: false))
-        #expect(wordJudge.switching == .suppressed)
+        #expect(wordJudge.switching == .switchedInside)
     }
 
     @Test func wordEnds() {

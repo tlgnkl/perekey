@@ -20,6 +20,11 @@ differently, what was fixed.
   again from Finder or Spotlight and Settings opens, so a hidden icon is
   never a dead end. Settings also tells you when the system's input menu and
   Perekey show the language twice, or when neither shows it.
+- **Hyphen.** Settings → General → Corrections: a Russian word typed without
+  its hyphen gets it back: «вопервых» → «во-первых», «чтото» → «что-то»,
+  «изза» → «из-за», «помоему» → «по-моему». Only words whose merged spelling
+  is no word, from a fixed list; «что то» with a space stays as typed. Off by
+  default; Backspace undoes it and Perekey leaves that word alone from then on.
 
 ### Fixed
 
@@ -35,6 +40,16 @@ differently, what was fixed.
   after you switched to the app often stayed as typed, and only the next word
   was fixed. Perekey now waits for the app to name the field you type in and
   judges that first word as well.
+- **A comma after a word in the wrong layout stays a comma.** If you type
+  “нет,” with English on and the comma on the English comma key, Perekey now
+  gives “нет,” instead of leaving “ytn,” or typing “нетб”, also when it has
+  switched the layout before you reached the comma. The same goes for a
+  period, a semicolon and a colon. Backspace right after gives “ytn,” back.
+- **The hint no longer stays under a pointer the caret covered.** The hint comes
+  up just under the cursor, often where the pointer was left, and it stayed
+  until you moved the mouse. Now the pointer holds the hint only after it
+  moves, and a finished word ends the hint either way. The hint's glow is no
+  longer cut off at the edge.
 
 ## [0.2.0] - 2026-10-14
 

@@ -27,6 +27,9 @@ struct WordJudge: Sendable {
         /// Suppressed, and a switch inside this word was undone: learn the
         /// whole word at its end.
         case learnAtEnd
+        /// Suppressed: a switch inside the word decided it (`insideWord`).
+        /// Its end may still give marks back (`marksAfterSwitch`).
+        case switchedInside
     }
 
     /// What to do at the key that ends the word.
@@ -208,6 +211,9 @@ struct WordJudge: Sendable {
         get { gate.switching }
         set { gate.switching = newValue }
     }
+    /// The layout the word was typed in before a switch inside it
+    /// (`.switchedInside`).
+    private var switchedFrom: LayoutID?
 
     init(classifier: Classifier?) {
         setClassifier(classifier)
@@ -380,6 +386,17 @@ struct WordJudge: Sendable {
             if startsSentence { recent.keepLatest() }
         }
 
+        if switching == .switchedInside {
+            switching = .suppressed
+            if let auto, let source = switchedFrom.flatMap({ layouts[$0] }),
+               let retype = marksAfterSwitch(buffer, auto: auto, source: source, held: endsLine ? nil : stroke,
+                                             heldKeyCode: key.keyCode, undoable: !endsLine, layouts: layouts,
+                                             settings: settings)
+            {
+                record(auto.typed.language)
+                return .retype(retype)
+            }
+        }
         if switching != .allowed {
             var ruling = Ruling.keep
             if switching == .learnAtEnd {
@@ -445,7 +462,18 @@ struct WordJudge: Sendable {
                 // The listed form is what the user wants, spelt as listed
                 // ("артем" typed gives "артём"); a forced one gets no word
                 // correction on top.
-                let spelling = listed.flatMap { Self.spell($0, buffer.entries, in: auto.other) }
+                var spelling = listed.flatMap { Self.spell($0, buffer.entries, in: auto.other) }
+                if spelling == nil, switches, found.punctuationKeys > 0 {
+                    // "ytn," is "нет,": the comma stays a comma. Without a
+                    // key for it in the new layout the word stays as typed.
+                    guard let marked = Self.keepingMarks(found.punctuationKeys, buffer.entries, from: auto.typed,
+                                                         in: auto.other)
+                    else {
+                        record(auto.typed.language)
+                        return .keep
+                    }
+                    spelling = marked
+                }
                 guard var retype = autoRetype(auto, buffer.entries[...], held: boundary, heldKeyCode: key.keyCode,
                                               midWord: false, undoable: !endsLine, corrects: !forced,
                                               spelling: spelling, layouts: layouts, settings: settings)
@@ -527,7 +555,33 @@ struct WordJudge: Sendable {
         else { return nil }
         retype.dropsLastKey = true
         // Decided for the whole word: the end of it must not switch it back.
-        switching = .suppressed
+        switching = .switchedInside
+        switchedFrom = context.typed.id
+        return retype
+    }
+
+    /// The end of a word switched inside it: "ytn" went to Russian as
+    /// "нет", and the comma typed next on the ABC comma key is "б" there.
+    /// When the word ends in letters that `source` types as marks, is no word
+    /// with them and a known one without, the marks come back. The whole word
+    /// is retyped as one correction from `source`: the hint shows "ytn," →
+    /// "нет,", and its undo gives "ytn,". The open switch inside the word
+    /// goes unreported; this correction stands for it.
+    private func marksAfterSwitch(_ buffer: WordBuffer, auto: AutoContext, source: LayoutMap, held: KeyStroke?,
+                                  heldKeyCode: UInt16, undoable: Bool, layouts: LayoutState,
+                                  settings: Settings) -> WordRetype?
+    {
+        guard wordIsPlain(buffer, layouts: layouts) else { return nil }
+        let strokes = buffer.entries.lazy.map(\.stroke)
+        let marks = auto.classifier.marksAfterSwitch(strokes, in: auto.typed, from: source)
+        guard marks > 0, let spelling = Self.keepingMarks(marks, buffer.entries, from: source, in: auto.typed)
+        else { return nil }
+        let back = AutoContext(classifier: auto.classifier, typed: source, other: auto.typed, candidates: [auto.typed])
+        guard var retype = autoRetype(back, buffer.entries[...], held: held, heldKeyCode: heldKeyCode, midWord: false,
+                                      undoable: undoable, spelling: spelling, layouts: layouts, settings: settings)
+        else { return nil }
+        retype.decision = auto.classifier.classify(strokes, typed: source, other: auto.typed,
+                                                   context: contextAtJudge, explaining: true)
         return retype
     }
 
@@ -690,10 +744,16 @@ struct WordJudge: Sendable {
         guard WordCorrections.run(&word, settings: settings, model: model), let kind = word.kind else { return fix }
         var corrected: [KeyStroke] = []
         corrected.reserveCapacity(word.characters.count)
+        // A character a step inserted ("-" of "что-то") has no typed key: the
+        // characters after it map to the key one place earlier.
+        let inserted = word.insertedAt
+        guard word.characters.count == strokes.count + (inserted == nil ? 0 : 1) else { return fix }
         for (index, character) in word.characters.enumerated() {
             // Keep the key the user pressed where it still types the character.
-            if index < strokes.count, map.text(for: strokes[index]) == String(character) {
-                corrected.append(strokes[index])
+            var key: Int? = index
+            if let inserted { key = index == inserted ? nil : index - (index > inserted ? 1 : 0) }
+            if let key, map.text(for: strokes[key]) == String(character) {
+                corrected.append(strokes[key])
             } else if let stroke = map.stroke(for: character), !stroke.modifiers.contains(.option) {
                 corrected.append(stroke)
             } else {
@@ -776,6 +836,24 @@ struct WordJudge: Sendable {
             changed = true
         }
         return changed ? strokes : nil
+    }
+
+    /// The word's keys with the last `count` typing in `map` the marks they
+    /// type in `typed`: "ytn," on ABC gives the keys of "нет," in Russian,
+    /// where the comma is Shift+6 or Shift+/. Nil when `map` has no key for
+    /// a mark without ⌥.
+    static func keepingMarks(_ count: Int, _ entries: [WordBuffer.Entry], from typed: LayoutMap,
+                             in map: LayoutMap) -> [KeyStroke]?
+    {
+        guard count <= entries.count, !entries.contains(where: \.isSpace) else { return nil }
+        var strokes = entries.map(\.stroke)
+        for index in strokes.count - count..<strokes.count {
+            guard let text = typed.text(for: strokes[index]), text.count == 1, let mark = text.first,
+                  let stroke = map.stroke(for: mark), !stroke.modifiers.contains(.option)
+            else { return nil }
+            strokes[index] = stroke
+        }
+        return strokes
     }
 
     static func text(of entries: [WordBuffer.Entry], in map: LayoutMap) -> String? {
@@ -879,7 +957,8 @@ struct WordJudge: Sendable {
     /// Whether a key ends the word typed before it: a space, or punctuation in
     /// the typed layout that is no letter or digit in the other one. "," on the
     /// ABC keys is "б" in Russian, so it stays in the word ("ghbdtn," may be
-    /// "приветб"); Shift+1 is "!" in both and ends it.
+    /// "приветб", and the classifier weighs "привет," too); Shift+1 is "!" in
+    /// both and ends it.
     static func endsWord(_ stroke: KeyStroke, typed: LayoutMap, other: LayoutMap) -> Bool {
         if stroke.keyCode == KeyCode.space { return true }
         guard isPunctuation(stroke, in: typed) else { return false }

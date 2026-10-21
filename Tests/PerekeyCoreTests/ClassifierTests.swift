@@ -24,6 +24,48 @@ import Testing
         #expect(decision.score > 0)
     }
 
+    /// "," "." ";" on ABC are "б" "ю" "ж" in Russian: "нетб" is no word,
+    /// "нет," is. The mark stays a mark.
+    @Test(arguments: ["ytn,", "ytn.", "ghbdtn,", "[jhjij;", "ghbdtn?.", "Ytn,"])
+    func trailingMarkOnARussianLetterStaysAMark(typed: String) {
+        let decision = decide(typed, typed: abc, other: russian)
+        #expect(decision.verdict == .switch(to: russian.id))
+        #expect(decision.language == "ru")
+        #expect(decision.punctuationKeys == 1)
+    }
+
+    /// The whole reading is a word: the last key is its letter.
+    @Test(arguments: ["[kt,", "yj;", "b[", "[kt,", ",eltn"])
+    func wholeRussianWordKeepsItsLastLetter(typed: String) {
+        let decision = decide(typed, typed: abc, other: russian)
+        #expect(decision.verdict == .switch(to: russian.id))
+        #expect(decision.punctuationKeys == 0)
+    }
+
+    @Test func ellipsisStaysAnEllipsis() {
+        let decision = decide("ytn...", typed: abc, other: russian)
+        #expect(decision.verdict == .switch(to: russian.id))
+        #expect(decision.punctuationKeys == 3)
+    }
+
+    /// Different marks in a row, a quote: noise, not a sentence end.
+    @Test(arguments: ["Uj:;'", "ytn\"", "ytn;."])
+    func onlyPlainMarksAreKept(typed: String) {
+        #expect(decide(typed, typed: abc, other: russian).punctuationKeys == 0)
+    }
+
+    @Test(arguments: ["hello,", "world.", "the,", "keyboard;", "time..."])
+    func englishWithTrailingMarksStays(typed: String) {
+        let decision = decide(typed, typed: abc, other: russian)
+        #expect(decision.verdict == .keep)
+        #expect(decision.punctuationKeys == 0)
+    }
+
+    @Test func manualRetypeConvertsTheMarkToo() {
+        let decision = decide("ytn,", typed: abc, other: russian, mode: .manual)
+        #expect(decision.punctuationKeys == 0)
+    }
+
     @Test(arguments: ["руддщ", "цщкдв", "лунищфкв", "Руддщ"])
     func englishTypedInRussianSwitches(typed: String) {
         let decision = decide(typed, typed: russian, other: abc)

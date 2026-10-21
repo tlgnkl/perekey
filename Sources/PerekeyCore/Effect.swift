@@ -146,6 +146,8 @@ public struct Correction: Hashable, Sendable {
         case abbreviation
         /// "ё" where the word has it: "еще" → "ещё" (`YoStep`).
         case yo
+        /// The hyphen typed merged: "чтото" → "что-то" (`HyphenStep`).
+        case hyphen
     }
 
     public init(seq: UInt32, original: String, replacement: String, source: LayoutID, target: LayoutID,

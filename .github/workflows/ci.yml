@@ -4,8 +4,29 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
+  # Whether a pull request touches what the release build is made of.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.diff.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ -z "$BASE" ]]; then echo "release=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --name-only "$BASE" HEAD | grep -qE '^(Package\.swift|Package\.resolved|scripts/|\.github/|Support/|Sources/|data/)'; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     runs-on: macos-latest
     steps:
@@ -16,6 +37,24 @@ jobs:
       - run: scripts/check-strings.sh
       - run: swift build
       - run: scripts/test.sh
+      # A test process that dies on a signal prints little; its crash report
+      # has the message and the stack. ReportCrash writes it a moment later.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crash-reports
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            ls ~/Library/Logs/DiagnosticReports/*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crash-reports/ 2>/dev/null || true
+          ls -l .build/crash-reports
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crash-reports-build
+          path: .build/crash-reports
+          if-no-files-found: ignore
       - name: Cache the model and held-out data
         uses: actions/cache@v4
         with:
@@ -47,8 +86,26 @@ jobs:
       - name: Where Swift Testing lives in these Command Line Tools
         run: find /Library/Developer/CommandLineTools -maxdepth 7 -name 'Testing*' | head -20
       - run: scripts/test.sh
+      # A test process that dies on a signal prints little; its crash report
+      # has the message and the stack. ReportCrash writes it a moment later.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crash-reports
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            ls ~/Library/Logs/DiagnosticReports/*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crash-reports/ 2>/dev/null || true
+          ls -l .build/crash-reports
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crash-reports-clt-only
+          path: .build/crash-reports
+          if-no-files-found: ignore
 
-  # Voice input, built only with PEREKEY_VOICE=1 until it ships (Package.swift).
+  # Voice input, built only with PEREKEY_VOICE=1 (Package.swift); releases set it too.
   # Its own scratch path, as locally; its pins in Support/voice/Package.resolved.
   voice:
     runs-on: macos-latest
@@ -65,3 +122,52 @@ jobs:
         run: scripts/voice-pins.sh check
       - run: swift build --scratch-path .build/voice
       - run: scripts/test.sh
+      # A test process that dies on a signal prints little; its crash report
+      # has the message and the stack. ReportCrash writes it a moment later.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crash-reports
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            ls ~/Library/Logs/DiagnosticReports/*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crash-reports/ 2>/dev/null || true
+          ls -l .build/crash-reports
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crash-reports-voice
+          path: .build/crash-reports
+          if-no-files-found: ignore
+
+  # The release configuration, as release.yml builds it: universal, with voice
+  # input, packed into a DMG. Ad hoc signed, since the signing secrets live in
+  # the release environment. Fails here, not on the tag, when a slice stops
+  # compiling or the app loses what voice needs (scripts/check-release-app.sh).
+  release-build:
+    # About 13 minutes: runs on main, by hand, and on pull requests that touch
+    # what the release build is made of.
+    if: github.event_name != 'pull_request' || needs.changes.outputs.release == 'true'
+    needs: changes
+    runs-on: macos-26 # as in release.yml
+    env:
+      PEREKEY_VOICE: 1
+      SIGN_IDENTITY: "-"
+      VERSION: 0.0.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Command Line Tools
+        run: sudo xcode-select -s /Library/Developer/CommandLineTools
+      - name: Cache the model data
+        uses: actions/cache@v4
+        with:
+          path: .build/data-cache
+          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
+      - run: scripts/fetch-data.sh lexicon wikifreq
+      - run: scripts/build-model.sh --out .build/universal/model
+      - run: scripts/check-voice-loaders.sh
+      - run: scripts/voice-pins.sh use
+      - run: scripts/build-universal.sh
+      - run: scripts/check-release-app.sh
+      - run: scripts/dmg.sh .build/voice-universal/app/Perekey.app

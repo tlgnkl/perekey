@@ -18,9 +18,12 @@ import PerekeyCore
 ///
 /// Right after an app switch the focused element is not known yet, and the
 /// observer publishes `Focus.unknown`; the core must not switch automatically
-/// then. Without the Accessibility permission the observer makes no AX calls
-/// and every focus stays unknown. It checks the permission again on each app
-/// activation and on `refresh()`, not on a timer: idle CPU stays at 0.
+/// then. A read that gives no known focus is tried again a few times while
+/// the focus stays unknown (`FocusTracker`): Electron apps often fail it right
+/// after the switch. Without the Accessibility permission the observer makes
+/// no AX calls and every focus stays unknown. It checks the permission again
+/// on each app activation and on `refresh()`, not on a timer: idle CPU stays
+/// at 0.
 ///
 /// Password fields are found by subrole (`AXSecureTextField`), not by role:
 /// their role is the plain `AXTextField`.
@@ -34,11 +37,12 @@ public final class FocusObserver: Sendable {
         let notifications: NotificationTokens
     }
 
-    private let onFocus: @Sendable (Focus) -> Void
+    private let onFocus: @Sendable (Focus, FocusChange) -> Void
     private let running = OSAllocatedUnfairLock<Running?>(initialState: nil)
 
-    /// `onFocus` is called on the AX thread.
-    public init(onFocus: @escaping @Sendable (Focus) -> Void) {
+    /// `onFocus` is called on the AX thread, with how the focus came about
+    /// for `InputEvent.focusChanged`.
+    public init(onFocus: @escaping @Sendable (Focus, FocusChange) -> Void) {
         self.onFocus = onFocus
     }
 
@@ -115,15 +119,27 @@ private final class Worker: @unchecked Sendable {
         }
     }
 
-    private let publish: @Sendable (Focus) -> Void
+    /// An AX element compared by `CFEqual`.
+    struct Element: Equatable {
+        let element: AXUIElement
+
+        static func == (lhs: Element, rhs: Element) -> Bool {
+            CFEqual(lhs.element, rhs.element)
+        }
+    }
+
+    private let publish: @Sendable (Focus, FocusChange) -> Void
+    private let log = Logger(subsystem: "app.perekey", category: "focus")
     private var app: App?
     private var appElement: AXUIElement?
     private var observer: AXObserver?
-    private var lastPublished: Focus?
+    private var tracker = FocusTracker<Element>()
+    /// The next read while the focus is unknown after a switch.
+    private var retryTimer: CFRunLoopTimer?
     /// Apps already asked for `AXManualAccessibility`, by PID.
     private var manualAccessibilityAsked: Set<pid_t> = []
 
-    init(publish: @escaping @Sendable (Focus) -> Void) {
+    init(publish: @escaping @Sendable (Focus, FocusChange) -> Void) {
         self.publish = publish
     }
 
@@ -133,26 +149,27 @@ private final class Worker: @unchecked Sendable {
         app = target
         guard let target else {
             detach()
-            send(.unknown(bundleID: nil), always: switched)
+            send(tracker.activated(.unknown(bundleID: nil), switched: switched, at: Self.now))
             return
         }
         // The permission can be granted or revoked at any time; `AXIsProcessTrusted`
         // is a cheap local check, unlike a timer it costs nothing while idle.
         guard AXIsProcessTrusted() else {
             detach()
-            send(.unknown(bundleID: target.bundleID), always: switched)
+            send(tracker.activated(.unknown(bundleID: target.bundleID), switched: switched, at: Self.now))
             return
         }
         if switched || observer == nil {
             detach()
             // The new app's focused element is not known until AX answers.
-            send(.unknown(bundleID: target.bundleID), always: switched)
+            send(tracker.activated(.unknown(bundleID: target.bundleID), switched: switched, at: Self.now))
             attach(to: target.pid)
         }
         readFocusedElement()
     }
 
     func detach() {
+        cancelRetry()
         if let observer {
             if let appElement {
                 AXObserverRemoveNotification(observer, appElement, kAXFocusedUIElementChangedNotification as CFString)
@@ -206,23 +223,48 @@ private final class Worker: @unchecked Sendable {
     }
 
     private func readFocusedElement() {
+        cancelRetry()
         guard let appElement else { return }
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &value)
         if status == .apiDisabled {
             // Permission revoked since the check.
             detach()
-            send(.unknown(bundleID: app?.bundleID), always: false)
+            send(tracker.lost(.unknown(bundleID: app?.bundleID)))
             return
         }
-        guard status == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return }
-        send(focus(of: unsafeDowncast(value, to: AXUIElement.self)), always: false)
+        let now = Self.now
+        if status == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
+            let element = unsafeDowncast(value, to: AXUIElement.self)
+            apply(tracker.read(Element(element: element), focus: focus(of: element), at: now))
+        } else {
+            note(tracker.readFailed(at: now))
+        }
+        if let delay = tracker.retryDelay(at: now) { scheduleRetry(after: delay) }
     }
 
     private func focusChanged(to element: AXUIElement) {
-        // Every notification counts, even with an equal `Focus`: another field
-        // of the same kind is still a new place, and the core forgets the word.
-        send(focus(of: element), always: true)
+        // Another element is a new place even if it is a field of the same
+        // kind, and the core forgets the word. The element published already,
+        // or the first one after a switch, is not (`FocusTracker`).
+        apply(tracker.notified(Element(element: element), focus: focus(of: element), at: Self.now))
+        if !tracker.isWaiting { cancelRetry() }
+    }
+
+    private func scheduleRetry(after delay: Double) {
+        let timer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + delay, 0, 0, 0) {
+            [weak self] _ in
+            guard let self else { return }
+            retryTimer = nil
+            readFocusedElement()
+        }
+        retryTimer = timer
+        CFRunLoopAddTimer(CFRunLoopGetCurrent(), timer, .defaultMode)
+    }
+
+    private func cancelRetry() {
+        if let retryTimer { CFRunLoopTimerInvalidate(retryTimer) }
+        retryTimer = nil
     }
 
     private func focus(of element: AXUIElement) -> Focus {
@@ -231,9 +273,32 @@ private final class Worker: @unchecked Sendable {
         return FocusObserver.focus(bundleID: app?.bundleID, subroleError: status, subrole: value as? String)
     }
 
-    private func send(_ focus: Focus, always: Bool) {
-        guard always || focus != lastPublished else { return }
-        lastPublished = focus
-        publish(focus)
+    private func apply(_ step: FocusTracker<Element>.Step) {
+        note(step.note)
+        send(step.publication)
     }
+
+    private func send(_ publication: FocusTracker<Element>.Publication?) {
+        guard let publication else { return }
+        publish(publication.focus, publication.change)
+    }
+
+    /// Bundle IDs and numbers only: never the element's text.
+    private func note(_ note: FocusTracker<Element>.Note?) {
+        let app = app?.bundleID ?? "?"
+        switch note {
+        case let .known(seconds, reads, byNotification):
+            let ms = seconds * 1000
+            let source = byNotification ? "a notification" : "read \(reads)"
+            log.info("Focus known in \(app, privacy: .public) \(ms, format: .fixed(precision: 0), privacy: .public) ms after the switch, by \(source, privacy: .public) (\(reads, privacy: .public) reads)")
+        case .sameElement:
+            log.info("Focus: \(app, privacy: .public) reported the same element again, the word stays")
+        case let .gaveUp(reads):
+            log.info("Focus unknown in \(app, privacy: .public) after \(reads, privacy: .public) reads, waits for a notification")
+        case nil:
+            break
+        }
+    }
+
+    private static var now: Double { ProcessInfo.processInfo.systemUptime }
 }

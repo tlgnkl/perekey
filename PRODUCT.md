@@ -6,7 +6,9 @@
 
 macos
 
-Native macOS app (SwiftUI + AppKit), macOS 14+. Design mockups are built as
+Native macOS app (SwiftUI + AppKit), macOS 14+ on Apple Silicon and Intel;
+voice input, transcripts and call recording need Apple Silicon and macOS 15+
+(off at run time elsewhere). Design mockups are built as
 HTML that imitates the native app; the shipped product is not a web app.
 
 ## Stack
@@ -40,8 +42,12 @@ after Perekey.
   remembered word and offers "Forget".
 - **Honest about code:** terminals and IDEs default to manual-only switching.
 - **Verifiable privacy:** open code (GPL-3.0-or-later), typed text stays in
-  memory only, the only network request is the update check, no device or
-  install identifiers.
+  memory only, no device or install identifiers. The network is used for the
+  update check and for what the user starts: a speech model download, or a
+  cloud mode they set up with their own key. Speech models run on the Mac.
+- **Voice next to the layout switcher:** voice input (tap the right Option),
+  transcripts of files and recorded calls, modes with an optional LLM. The
+  same promise: local by default, cloud only by the user's own key.
 - Any shortcut on any action: Shift, Option, ⌥⇧, ⌃⇧, ⌘⇧, right ⌘ / right ⌥.
 
 ## Operating Context

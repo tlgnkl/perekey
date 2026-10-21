@@ -12,6 +12,8 @@ final class TestServer: Sendable {
         let target: String
         /// Lowercased names.
         let headers: [String: String]
+        var method = "GET"
+        var body = Data()
 
         var path: String { String(target.prefix { $0 != "?" }) }
         var range: String? { headers["range"] }
@@ -80,7 +82,16 @@ final class TestServer: Sendable {
             var buffer = buffer
             if let data { buffer.append(data) }
             if let end = buffer.range(of: Data("\r\n\r\n".utf8)) {
-                self.respond(connection, head: buffer[..<end.lowerBound])
+                let head = buffer[..<end.lowerBound]
+                let length = Self.contentLength(head)
+                let body = buffer[end.upperBound...]
+                if body.count >= length {
+                    self.respond(connection, head: head, body: Data(body.prefix(length)))
+                } else if done || error != nil {
+                    connection.cancel()
+                } else {
+                    self.read(connection, buffer)
+                }
             } else if done || error != nil {
                 connection.cancel()
             } else {
@@ -89,15 +100,27 @@ final class TestServer: Sendable {
         }
     }
 
-    private func respond(_ connection: NWConnection, head: Data) {
+    private static func contentLength(_ head: Data) -> Int {
+        for line in String(decoding: head, as: UTF8.self).components(separatedBy: "\r\n") {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            if parts.count == 2, parts[0].lowercased() == "content-length" {
+                return Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+            }
+        }
+        return 0
+    }
+
+    private func respond(_ connection: NWConnection, head: Data, body: Data) {
         let lines = String(decoding: head, as: UTF8.self).components(separatedBy: "\r\n")
-        let target = lines.first?.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+        let words = lines.first?.split(separator: " ") ?? []
+        let target = words.dropFirst().first.map(String.init) ?? "/"
         var headers: [String: String] = [:]
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":") else { continue }
             headers[line[..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
-        let request = Request(target: target, headers: headers)
+        let request = Request(target: target, headers: headers, method: words.first.map(String.init) ?? "GET",
+                              body: body)
         let response = state.withLock { state in
             let earlier = state.requests.filter { $0.path == request.path }.count
             state.requests.append(request)

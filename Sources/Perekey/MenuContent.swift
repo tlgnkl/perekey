@@ -17,6 +17,21 @@ struct MenuActions {
     /// (names and numbers) filled in.
     var report: (String, String) -> Void = { _, _ in }
     var close: () -> Void = {}
+    #if PEREKEY_VOICE
+    /// The voice mode switch; nil hides it.
+    var voiceModes: VoiceModeMenu?
+    /// The recent dictations; nil hides the section.
+    var dictation: DictationMenu?
+    /// «Записать созвон»; nil hides it.
+    var callRecording: CallRecordingController?
+    /// The «Расшифровки» window; nil hides the row.
+    var transcripts: TranscriptsMenu?
+    /// «Конспект» and «Протокол встречи» that go on, each a row with «Остановить».
+    var summaries: TranscriptSummaries?
+    /// «Расшифровать файл…»; nil, or false from it, hides the row.
+    var transcribeFile: (() -> Void)?
+    var canTranscribeFiles: () -> Bool = { false }
+    #endif
 }
 
 // MARK: - Keyboard navigation
@@ -145,6 +160,11 @@ struct MenuContent: View {
             modeCard
                 .padding(.horizontal, 12)
             recentSection
+            #if PEREKEY_VOICE
+            if let dictation = actions.dictation, !dictation.history.entries.isEmpty {
+                DictationMenuSection(menu: dictation, close: actions.close)
+            }
+            #endif
             PKDivider(leading: 12, trailing: 12).padding(.top, 10)
             VStack(alignment: .leading, spacing: 2) {
                 switchRow(
@@ -155,6 +175,12 @@ struct MenuContent: View {
                     )
                 )
                 LaunchAtLoginRow(launch: launch, nav: nav)
+                #if PEREKEY_VOICE
+                if let voiceModes = actions.voiceModes, voiceModes.isOn() {
+                    VoiceModeMenuRow(menu: voiceModes, appModes: appModes, lit: nav.highlighted == "voice-mode")
+                        .menuItem("voice-mode", nav: nav, step: { voiceModes.step($0) }, run: { voiceModes.step(1) })
+                }
+                #endif
             }
             .padding(.vertical, 6)
             PKDivider(leading: 12, trailing: 12)
@@ -169,7 +195,14 @@ struct MenuContent: View {
         }
         .frame(width: 318)
         .onPreferenceChange(MenuOrderKey.self) { nav.order = $0 }
-        .onAppear { lastReason.wrappedValue = pause.current }
+        .onAppear {
+            lastReason.wrappedValue = pause.current
+            #if PEREKEY_VOICE
+            // Expired dictations go when the menu opens, at most once a day.
+            actions.dictation?.history.purgeIfDue()
+            actions.callRecording?.purgeIfDue()
+            #endif
+        }
         .onChange(of: pause.current) { _, new in
             if let new { lastReason.wrappedValue = new }
         }
@@ -291,13 +324,13 @@ struct MenuContent: View {
             HStack {
                 Text("Recent corrections").font(PK.Font.captionStrong).foregroundStyle(Color.pkInk2)
                 Spacer()
-                Text("memory only").font(PK.Font.caption).foregroundStyle(Color.pkInk3)
+                Text("memory only").font(PK.Font.caption).foregroundStyle(Color.pkInk2)
             }
             .padding(.horizontal, 4)
             if recents.log.isEmpty {
                 Text("Nothing yet. Corrections appear here as you type.")
                     .font(PK.Font.caption)
-                    .foregroundStyle(Color.pkInk3)
+                    .foregroundStyle(Color.pkInk2)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
@@ -329,7 +362,7 @@ struct MenuContent: View {
         if today.undone > 0 { text += " · " + String(localized: "\(today.undone) undone") }
         return Text(verbatim: text)
             .font(PK.Font.caption)
-            .foregroundStyle(Color.pkInk3)
+            .foregroundStyle(Color.pkInk2)
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -340,6 +373,40 @@ struct MenuContent: View {
 
     private var commands: some View {
         VStack(alignment: .leading, spacing: 0) {
+            #if PEREKEY_VOICE
+            if let transcripts = actions.transcripts, transcripts.isOn() {
+                MenuCommandRow(id: "transcripts", title: "", label: voiceText("Transcripts…"), shortcut: nil, nav: nav,
+                               run: { actions.close(); transcripts.open() })
+            }
+            if let summaries = actions.summaries {
+                // A run goes on with the window closed, and never unseen: one line each, a click stops it.
+                ForEach(summaries.running.sorted { $0.key.uuidString < $1.key.uuidString }, id: \.key) { id, running in
+                    MenuCommandRow(id: "summary-\(id.uuidString)", title: "",
+                                   label: Text(verbatim: "\(running.action.menuText(running.progress)) · \(voiceString("Stop"))"),
+                                   shortcut: nil, nav: nav) { summaries.cancel(id) }
+                        .accessibilityHint(voiceText("Stops it"))
+                }
+            }
+            if let transcribeFile = actions.transcribeFile, actions.canTranscribeFiles() {
+                MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {
+                    actions.close()
+                    transcribeFile()
+                }
+            }
+            if let call = actions.callRecording, call.isAvailable {
+                if call.isRecording {
+                    MenuCommandRow(id: "call", title: "Stop Recording", table: "Voice", nav: nav) {
+                        actions.close()
+                        call.menuAction()
+                    }
+                } else {
+                    MenuCommandRow(id: "call", title: "Record a Call…", table: "Voice", nav: nav) {
+                        actions.close()
+                        call.menuAction()
+                    }
+                }
+            }
+            #endif
             MenuCommandRow(id: "settings", title: "Settings…", shortcut: "⌘,", nav: nav, run: actions.openSettings)
             if let updates {
                 UpdatesMenuRow(updates: updates, nav: nav, close: actions.close)
@@ -492,6 +559,10 @@ struct LaunchAtLoginRow: View {
 struct MenuCommandRow: View {
     let id: String
     let title: LocalizedStringKey
+    /// Text in place of `title`, for a string of another table.
+    var label: Text?
+    /// The strings table of the title: `Voice` for voice rows.
+    var table: String?
     var shortcut: String?
     var checked = false
     var badge = false
@@ -503,7 +574,7 @@ struct MenuCommandRow: View {
         let hot = enabled && nav.highlighted == id
         Button(action: run) {
             HStack {
-                Text(title).font(PK.Font.body)
+                (label ?? Text(title, tableName: table)).font(PK.Font.body)
                 Spacer()
                 if checked { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
                 if badge {

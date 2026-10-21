@@ -37,17 +37,16 @@ jobs:
   release:
     environment: release
     runs-on: macos-26 # the macOS 26 SDK and Swift 6.2+ (Liquid Glass, isolated deinit), as in ci.yml
+    env:
+      # Releases carry voice input. The universal build puts FluidAudio and
+      # WhisperKit into both slices; the app turns voice off on Intel and on
+      # macOS 14 at run time (VoiceHost.isSupported). The voice build keeps its
+      # own scratch path, .build/voice-universal.
+      PEREKEY_VOICE: 1
     steps:
       - uses: actions/checkout@v4
       - name: Select Command Line Tools
         run: sudo xcode-select -s /Library/Developer/CommandLineTools
-      # Voice input stays out of releases until it ships (Package.swift).
-      - name: No voice in the release
-        run: |
-          if [[ -n "${PEREKEY_VOICE:-}" ]]; then
-            echo "::error::PEREKEY_VOICE is set; releases build without voice input"
-            exit 1
-          fi
       - name: Read the version from the tag
         run: |
           echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
@@ -71,12 +70,15 @@ jobs:
       # files and only checks their hashes.
       - name: Build the model files and check their hashes
         run: scripts/build-model.sh --out .build/universal/model
-      # Fetches Sparkle's zip. Voice input stays out of releases until it
-      # ships, and its pins are not at the package root, so nothing else.
+      # Fetches Sparkle's zip and the voice packages at the pins of
+      # Support/voice/Package.resolved. All of it before the certificate is in
+      # an unlocked keychain; the build then finds the sources and only compiles.
       - name: Resolve the packages
         run: |
+          scripts/check-voice-loaders.sh
+          scripts/voice-pins.sh use
           for arch in arm64 x86_64; do
-            swift package resolve --scratch-path ".build/universal/$arch"
+            swift package resolve --scratch-path ".build/voice-universal/$arch"
           done
 
       # Writes the signing identity to a temporary keychain with a random
@@ -135,18 +137,10 @@ jobs:
 
       - name: Universal build
         run: scripts/build-universal.sh
-      - name: No speech engines in the app
-        run: |
-          bin=.build/universal/app/Perekey.app/Contents/MacOS/Perekey
-          for arch in arm64 x86_64; do
-            symbols="$(nm -arch "$arch" "$bin")"
-            if grep -qE 'FluidAudio|WhisperKit' <<< "$symbols"; then
-              echo "::error::The $arch slice links FluidAudio or WhisperKit"
-              exit 1
-            fi
-          done
+      - name: Check the app
+        run: scripts/check-release-app.sh
       - name: DMG
-        run: scripts/dmg.sh
+        run: scripts/dmg.sh .build/voice-universal/app/Perekey.app
 
       - name: Notarize and staple
         id: notary

@@ -66,7 +66,9 @@ import Testing
 
 @Suite struct SyntheticMarkTests {
     @Test func roundTrip() {
-        for mark in [SyntheticMark.own(seq: 1, last: false), .own(seq: .max, last: true), .replayed] {
+        for mark in [SyntheticMark.own(seq: 1, last: false), .own(seq: .max, last: true), .replayed,
+                     .typed(seq: 0, ack: false), .typed(seq: .max, ack: true)]
+        {
             #expect(SyntheticMark(userData: mark.userData) == mark)
         }
     }

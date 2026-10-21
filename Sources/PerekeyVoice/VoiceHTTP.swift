@@ -2,6 +2,7 @@
 
 import Foundation
 import os
+import PerekeyVoiceCore
 
 /// The one HTTP client of voice input. Everything voice sends to the network
 /// goes through it: model downloads now, cloud speech and language models
@@ -12,7 +13,11 @@ import os
 /// so a test can show that voice made no request. The record keeps hosts
 /// only, never paths or bodies. A purpose that is not allowed fails before
 /// any request. None is allowed until the app allows one, and the app allows
-/// none while voice is off.
+/// none while voice is off. Cloud speech and language models may reach only
+/// the origins the app allows for each besides (`allowedOrigins`): servers on
+/// this Mac, and those the user agreed to send the audio, or the text, to.
+/// When a purpose or an origin is no longer allowed, its requests in flight
+/// are cancelled.
 ///
 /// Sessions of FluidAudio and WhisperKit are not seen here; their loaders are
 /// kept out of the sources by scripts/check-voice-loaders.sh.
@@ -21,6 +26,9 @@ public final class VoiceHTTP: Sendable {
         case modelDownload
         case cloudSpeech
         case cloudLanguageModel
+        /// A language model reading the transcript of a conversation: a
+        /// summary or the minutes. Its own origins, those agreed for it.
+        case conversationLanguageModel
     }
 
     public struct Request: Sendable, Equatable {
@@ -35,6 +43,8 @@ public final class VoiceHTTP: Sendable {
         case redirectRefused(host: String)
         /// No network for the whole `connectivityTimeout`.
         case offline
+        /// A response body over the limit of `data(for:purpose:limit:)`.
+        case tooLarge
     }
 
     /// Hosts a redirect may lead to, by purpose.
@@ -47,7 +57,7 @@ public final class VoiceHTTP: Sendable {
 
     let session: URLSession
     let router: Router
-    private let state: OSAllocatedUnfairLock<(log: [Request], allowed: Set<Purpose>)>
+    private let state: OSAllocatedUnfairLock<(log: [Request], allowed: Set<Purpose>, origins: [Purpose: Set<String>])>
 
     /// `requestTimeout` is the longest wait for the next bytes of a response.
     /// Without a network a request waits for one up to `connectivityTimeout`,
@@ -69,7 +79,8 @@ public final class VoiceHTTP: Sendable {
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         queue.name = "app.perekey.voice.http"
-        let state = OSAllocatedUnfairLock(initialState: (log: [Request](), allowed: allowed))
+        let state = OSAllocatedUnfairLock(
+            initialState: (log: [Request](), allowed: allowed, origins: [Purpose: Set<String>]()))
         self.state = state
         router = Router(connectivityTimeout: connectivityTimeout, redirects: redirects) { host, purpose in
             state.withLock {
@@ -102,7 +113,52 @@ public final class VoiceHTTP: Sendable {
     /// The purposes requests may have. None by default.
     public var allowed: Set<Purpose> {
         get { state.withLock { $0.allowed } }
-        set { state.withLock { $0.allowed = newValue } }
+        set {
+            state.withLock { $0.allowed = newValue }
+            cancelDisallowed()
+        }
+    }
+
+    /// The origins (`EndpointAddress.origin`) requests of cloud speech and
+    /// of language models may go to, by purpose. None by default.
+    public var allowedOrigins: [Purpose: Set<String>] {
+        get { state.withLock { $0.origins } }
+        set {
+            state.withLock { $0.origins = newValue }
+            cancelDisallowed()
+        }
+    }
+
+    /// Cancels the requests in flight that the gate no longer lets out.
+    private func cancelDisallowed() {
+        router.cancel { [weak self] purpose, origin in
+            guard let self else { return true }
+            return !self.permits(purpose: purpose, origin: origin)
+        }
+    }
+
+    /// Purposes that may reach only `allowedOrigins`.
+    static let originBound: Set<Purpose> = [.cloudSpeech, .cloudLanguageModel, .conversationLanguageModel]
+
+    /// Whether `purpose` may send `request` now.
+    func permits(_ request: URLRequest, _ purpose: Purpose) -> Bool {
+        permits(purpose: purpose, origin: request.url.flatMap(Self.origin(of:)))
+    }
+
+    func permits(purpose: Purpose, origin: String?) -> Bool {
+        let (allowed, origins) = state.withLock { ($0.allowed, $0.origins) }
+        guard allowed.contains(purpose) else { return false }
+        guard Self.originBound.contains(purpose) else { return true }
+        guard let origin else { return false }
+        return origins[purpose]?.contains(origin) ?? false
+    }
+
+    /// "scheme://host:port" of `url`, as `EndpointAddress.origin` writes it.
+    static func origin(of url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              let host = url.host(percentEncoded: false), !host.isEmpty
+        else { return nil }
+        return EndpointAddress.origin(scheme: scheme, host: host, port: url.port ?? (scheme == "https" ? 443 : 80))
     }
 
     /// Sends `request` and hands its body to `receive` chunk by chunk, on a
@@ -120,7 +176,7 @@ public final class VoiceHTTP: Sendable {
         waiting: (@Sendable (Bool) -> Void)? = nil,
         receive: @escaping @Sendable (Data) throws -> Void
     ) async throws -> HTTPURLResponse {
-        guard allowed.contains(purpose) else { throw Failure.blocked(purpose) }
+        guard permits(request, purpose) else { throw Failure.blocked(purpose) }
         try Task.checkCancellation()
         let task = session.dataTask(with: request)
         return try await withTaskCancellationHandler {
@@ -128,8 +184,17 @@ public final class VoiceHTTP: Sendable {
                 router.add(
                     task,
                     Router.Handler(
+                        task: task, origin: request.url.flatMap(Self.origin(of:)),
                         purpose: purpose, range: request.value(forHTTPHeaderField: "Range"),
                         accept: accept, receive: receive, waiting: waiting, continuation: continuation))
+                // The gate may have closed between the first check and the
+                // handler going in, where `cancelDisallowed` could not see it.
+                guard permits(request, purpose) else {
+                    router.remove(task)
+                    task.cancel()
+                    continuation.resume(throwing: Failure.blocked(purpose))
+                    return
+                }
                 router.record(request.url?.host() ?? "", purpose)
                 task.resume()
             }
@@ -138,11 +203,20 @@ public final class VoiceHTTP: Sendable {
         }
     }
 
-    /// The whole body of `request`, for small answers.
-    public func data(for request: URLRequest, purpose: Purpose) async throws -> (Data, HTTPURLResponse) {
+    /// The most `data(for:purpose:)` reads by default.
+    public static let dataLimit = 2 << 20
+
+    /// The whole body of `request`, for small answers; a body over `limit`
+    /// bytes cancels the request with `tooLarge`.
+    public func data(for request: URLRequest, purpose: Purpose, limit: Int = VoiceHTTP.dataLimit)
+        async throws -> (Data, HTTPURLResponse)
+    {
         let body = OSAllocatedUnfairLock(initialState: Data())
         let response = try await stream(request, purpose: purpose) { chunk in
-            body.withLock { $0.append(chunk) }
+            try body.withLock {
+                guard $0.count + chunk.count <= limit else { throw Failure.tooLarge }
+                $0.append(chunk)
+            }
         }
         return (body.withLock { $0 }, response)
     }
@@ -151,6 +225,9 @@ public final class VoiceHTTP: Sendable {
 /// The session delegate: routes the callbacks of each task to its handler.
 final class Router: NSObject, URLSessionDataDelegate, Sendable {
     struct Handler {
+        let task: URLSessionTask
+        /// The request's origin, for the gate.
+        let origin: String?
         let purpose: VoiceHTTP.Purpose
         let range: String?
         let accept: @Sendable (HTTPURLResponse) -> Bool
@@ -179,6 +256,19 @@ final class Router: NSObject, URLSessionDataDelegate, Sendable {
 
     func add(_ task: URLSessionTask, _ handler: Handler) {
         handlers.withLockUnchecked { $0[task.taskIdentifier] = handler }
+    }
+
+    /// Forgets a task that never started.
+    func remove(_ task: URLSessionTask) {
+        _ = handlers.withLockUnchecked { $0.removeValue(forKey: task.taskIdentifier) }
+    }
+
+    /// Cancels the tasks `drop` names by purpose and origin.
+    func cancel(where drop: @Sendable (VoiceHTTP.Purpose, String?) -> Bool) {
+        let tasks = handlers.withLockUnchecked { all in
+            all.values.filter { drop($0.purpose, $0.origin) }.map(\.task)
+        }
+        for task in tasks { task.cancel() }
     }
 
     private func update(_ task: URLSessionTask, _ change: (inout Handler) -> Void) {

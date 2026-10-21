@@ -49,6 +49,12 @@ public enum EngineMessage: Sendable {
     /// its keys on the main thread (`VoiceTrigger.isHeldNow`) and send
     /// `.voiceHoldLost` if they are up: a key up can be lost.
     case voice(VoiceSignal)
+    /// The tap saw the checkpoint `seq` of dictation's typing
+    /// (`SyntheticMark.typed`): `TextPaster.typedSeen(seq:)`.
+    case typedSeen(seq: UInt32)
+    /// The user pressed a key while dictation typed (`Effect.typingInterrupted`):
+    /// `TextPaster.typingInterrupted()`.
+    case typingInterrupted
 }
 
 public enum TapState: Hashable, Sendable {
@@ -83,6 +89,7 @@ public final class InputEngine: @unchecked Sendable {
     private let textProbe: TextProbe?
     private let started = DispatchSemaphore(value: 0)
     private let log = Logger(subsystem: "app.perekey", category: "engine")
+    private let focusLog = Logger(subsystem: "app.perekey", category: "focus")
 
     // Tap thread
     private var runLoop: CFRunLoop?
@@ -318,7 +325,9 @@ public final class InputEngine: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
-        let origin = EventOrigin(mark: SyntheticMark(userData: event.getIntegerValueField(.eventSourceUserData)))
+        let mark = SyntheticMark(userData: event.getIntegerValueField(.eventSourceUserData))
+        if case let .typed(seq, ack: true) = mark { toMain(.typedSeen(seq: seq)) }
+        let origin = EventOrigin(mark: mark)
         if origin == .user, type != .keyUp {
             // Key presses do not arrive under Secure Input, modifier changes do.
             let secure = IsSecureEventInputEnabled()
@@ -532,7 +541,22 @@ public final class InputEngine: @unchecked Sendable {
     }
 
     private func handle(_ event: InputEvent) {
+        guard case let .focusChanged(focus, change) = event else {
+            execute(machine.handle(event).effects)
+            return
+        }
+        let word = wordInProgress
         execute(machine.handle(event).effects)
+        guard word > 0 else { return }
+        // Numbers only. A lost first word after an app switch shows here.
+        let app = focus.bundleID ?? "?"
+        let kept = wordInProgress == word
+        focusLog.info("Focus \(String(describing: change), privacy: .public) in \(app, privacy: .public): \(kept ? "kept" : "dropped", privacy: .public) a word of \(word, privacy: .public) keys")
+    }
+
+    /// Keys of the word being typed: after the last space or part end.
+    private var wordInProgress: Int {
+        machine.buffer.entries.reversed().prefix { !$0.isGap }.count
     }
 
     private func execute(_ effects: [Effect]) {
@@ -582,6 +606,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.convertSelection(seq: seq))
             case let .voice(signal):
                 toMain(.voice(signal))
+            case .typingInterrupted:
+                toMain(.typingInterrupted)
             }
             index += 1
         }

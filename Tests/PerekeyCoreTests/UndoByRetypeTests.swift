@@ -82,7 +82,7 @@ private let ru = Fixture.russian.id
         desk.type("hello hello")
         desk.tapOption()
         #expect(desk.text == "hello руддщ")
-        #expect(desk.machine.judge.recent == RecentLanguages(["ru"]))
+        #expect(desk.machine.judge.recent == RecentLanguages(["ru", "en"]), "the English word is another script: it stays")
     }
 
     @Test func anUndoMakesTheOriginalLayoutTheOneUsedLast() {

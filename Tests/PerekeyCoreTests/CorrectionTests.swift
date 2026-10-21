@@ -389,6 +389,96 @@ extension Desk {
     }
 }
 
+@Suite struct SlashPartRetypeTests {
+    private static let settings = Settings(autoswitch: false, typoCorrection: false)
+
+    @Test func thePartAfterTheSlashFirstThenTheWholeWord() {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("привет/сщву", on: Fixture.russian)
+        desk.tapOption()
+        #expect(desk.text == "привет/code")
+        #expect(desk.appLayout == en)
+        desk.tapOption()
+        #expect(desk.text == "привет/сщву")
+        desk.tapOption()
+        #expect(desk.text == "ghbdtn/code")
+        desk.tapOption()
+        #expect(desk.text == "привет/сщву")
+        #expect(desk.appLayout == ru)
+    }
+
+    @Test func spacesAfterThePartStay() {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("привет/сщву ", on: Fixture.russian)
+        desk.tapOption()
+        #expect(desk.text == "привет/code ")
+    }
+
+    @Test func aWrongLayoutBeforeTheSlashTakesTheWholeWord() {
+        var desk = Desk(Self.settings)
+        desk.type("ghbdtn/vbh")
+        desk.tapOption()
+        #expect(desk.text == "привет/мир")
+    }
+
+    @Test func codeBeforeTheSlashStays() {
+        var desk = Desk(Self.settings)
+        desk.type("hello.world/ghbdtn")
+        desk.tapOption()
+        #expect(desk.text == "hello.world/привет")
+    }
+
+    @Test(arguments: ["привет/", "/сщву", "привет/2"])
+    func noPartWithoutLettersOnBothSides(typed: String) {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        desk.tapOption()
+        #expect(desk.text == Fixture.abc.type(Fixture.russian.strokes(typed)))
+    }
+
+    @Test func withoutAModelTheWholeWord() {
+        var desk = Desk(Self.settings, current: ru, classifier: nil)
+        desk.type("привет/сщву", on: Fixture.russian)
+        desk.tapOption()
+        #expect(desk.text == "ghbdtn/code")
+    }
+
+    @Test func withoutPhrasesEveryPressTogglesThePart() {
+        var settings = Self.settings
+        settings.corrections.phraseRetype = false
+        var desk = Desk(settings, current: ru)
+        desk.type("привет/сщву", on: Fixture.russian)
+        for _ in 0..<3 { desk.tapOption() }
+        #expect(desk.text == "привет/code")
+    }
+
+    @Test func withoutPhrasesTheWholeWordGoesBackWhole() {
+        // After the first press "привет" reads right: the second press must
+        // not take the part alone.
+        var settings = Self.settings
+        settings.corrections.phraseRetype = false
+        var desk = Desk(settings)
+        desk.type("ghbdtn/vbh")
+        desk.tapOption()
+        #expect(desk.text == "привет/мир")
+        desk.tapOption()
+        #expect(desk.text == "ghbdtn/vbh")
+    }
+
+    @Test func aPartGetsNoExplanation() throws {
+        // The automatic decision was about the whole word, and «Всегда
+        // исправлять» offered on it would take "сщву" alone. The capitals keep
+        // automatic switching from cutting the token at its "/".
+        var desk = Desk(Settings(typoCorrection: false), current: ru)
+        desk.type("ПРИВЕТ/сщву", on: Fixture.russian)
+        desk.tapOption()
+        #expect(desk.text == "ПРИВЕТ/code")
+        let retype = try #require(desk.history.last)
+        #expect(retype.origin == .manual(.convertLastWord))
+        #expect(retype.decision == nil)
+    }
+}
+
 @Suite struct CorrectionModelTests {
     @Test func casedFormsAndYoMasks() throws {
         let model = ModelFixture.model
@@ -458,5 +548,20 @@ extension Desk {
         let settings = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         #expect(settings.corrections == TextCorrections())
         #expect(settings.snapshot.corrections == TextCorrections())
+    }
+}
+
+@Suite struct ShortWordAfterManualRetypeTests {
+    /// The sentence is Russian, the English word is fixed by hand (Option),
+    /// and the short word after it, typed on ABC keys, is Russian again.
+    @Test(arguments: [("b", "и"), ("yt", "не")])
+    func aShortRussianWordFollowsAnEnglishWordFixedByHand(typed: String, expected: String) {
+        var desk = Desk(Settings(autoswitch: false), current: ru)
+        desk.type("привет руддщ ", on: Fixture.russian)
+        desk.tapOption()
+        #expect(desk.text == "привет hello ")
+        desk.send(.settingsChanged(Settings()))
+        desk.type(typed + " ")
+        #expect(desk.text == "привет hello " + expected + " ")
     }
 }

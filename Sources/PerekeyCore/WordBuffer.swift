@@ -7,19 +7,28 @@
 /// in English and "привет" in Russian. Keys `,` `.` `;` `'` `[` `]` are letters
 /// in Russian, so they belong to the word too: ",eltn" is "будет".
 ///
+/// A word ends at a space, or at a "/" that ended a part of a token
+/// (`Entry.endsPart`): in "менеджер/ceo" each part is a word of its own.
+///
 /// Typed text lives here only, in memory. It is never written anywhere.
 public struct WordBuffer: Hashable, Sendable {
     public struct Entry: Hashable, Sendable {
         public var stroke: KeyStroke
         /// The layout that was selected when the key was typed.
         public var layout: LayoutID
+        /// A "/" the word judge ended a part of the token at
+        /// (`WordJudge.endsPart`): the next key starts a word, as after a space.
+        public var endsPart: Bool
 
-        public init(_ stroke: KeyStroke, in layout: LayoutID) {
+        public init(_ stroke: KeyStroke, in layout: LayoutID, endsPart: Bool = false) {
             self.stroke = stroke
             self.layout = layout
+            self.endsPart = endsPart
         }
 
         public var isSpace: Bool { stroke.keyCode == KeyCode.space }
+        /// A space or a "/" that ended a part: what comes after a word.
+        public var isGap: Bool { isSpace || endsPart }
     }
 
     /// Longer runs are not words: a pasted token, a key held down. Retyping
@@ -46,21 +55,22 @@ public struct WordBuffer: Hashable, Sendable {
 
     /// The layout of the word itself, ignoring the spaces after it.
     public var wordLayout: LayoutID? {
-        entries.first { !$0.isSpace }?.layout
+        entries.first { !$0.isGap }?.layout
     }
 
-    public mutating func type(_ stroke: KeyStroke, in layout: LayoutID) {
-        let entry = Entry(stroke, in: layout)
+    /// `endsPart`: the key is a "/" that ends a part of the token.
+    public mutating func type(_ stroke: KeyStroke, in layout: LayoutID, endsPart: Bool = false) {
+        let entry = Entry(stroke, in: layout, endsPart: endsPart)
         if overflowed {
             if entry.isSpace { overflowed = false }
             return
         }
-        if entry.isSpace {
-            // Spaces only follow a word; leading spaces are nothing to retype.
+        if entry.isGap {
+            // Gaps only follow a word; leading spaces are nothing to retype.
             if !entries.isEmpty { entries.append(entry) }
             return
         }
-        if entries.last?.isSpace == true {
+        if entries.last?.isGap == true {
             pushHistory()
             entries.removeAll(keepingCapacity: true)
         }
@@ -107,8 +117,8 @@ public struct WordBuffer: Hashable, Sendable {
         guard historyCount > 2 * Self.historyWords else { return }
         var end = history.startIndex
         for _ in 0..<(historyCount - Self.historyWords) {
-            while end < history.endIndex, !history[end].isSpace { end += 1 }
-            while end < history.endIndex, history[end].isSpace { end += 1 }
+            while end < history.endIndex, !history[end].isGap { end += 1 }
+            while end < history.endIndex, history[end].isGap { end += 1 }
         }
         history.removeSubrange(..<end)
         historyCount = Self.historyWords
@@ -121,30 +131,31 @@ public struct WordBuffer: Hashable, Sendable {
         guard words >= 1, !entries.isEmpty, words - 1 <= min(historyCount, Self.historyWords) else { return nil }
         var start = history.endIndex
         for _ in 0..<(words - 1) {
-            // Back over the spaces after the word, then over the word.
-            while start > history.startIndex, history[start - 1].isSpace { start -= 1 }
-            while start > history.startIndex, !history[start - 1].isSpace { start -= 1 }
+            // Back over the gap after the word, then over the word.
+            while start > history.startIndex, history[start - 1].isGap { start -= 1 }
+            while start > history.startIndex, !history[start - 1].isGap { start -= 1 }
         }
         return Array(history[start...]) + entries
     }
 
-    /// Puts other layouts on the last `entries.count` keys: the phrase as a
-    /// retype left it. The keys themselves must be the same.
+    /// Puts other layouts on the last `phrase.count` keys: the phrase, or the
+    /// end of the word, as a retype left it. The keys themselves must be the same.
     public mutating func relabelPhrase(_ phrase: [Entry]) {
-        let fromHistory = phrase.count - entries.count
-        guard fromHistory >= 0, fromHistory <= history.count else { return }
+        let fromHistory = max(0, phrase.count - entries.count)
+        guard fromHistory <= history.count else { return }
         for (offset, entry) in phrase.prefix(fromHistory).enumerated() {
             history[history.count - fromHistory + offset].layout = entry.layout
         }
-        for (index, entry) in zip(entries.indices, phrase.suffix(entries.count)) {
+        let inWord = phrase.count - fromHistory
+        for (index, entry) in zip(entries.indices.suffix(inWord), phrase.suffix(inWord)) {
             entries[index].layout = entry.layout
         }
     }
 
     /// After a correction the word is other keys, possibly more or fewer,
-    /// in `layout`. The spaces after it, if any, stay.
+    /// in `layout`. The gap after it, if any, stays.
     public mutating func replaceWord(_ strokes: [KeyStroke], in layout: LayoutID) {
-        let spaces = entries.reversed().prefix(while: \.isSpace).count
+        let spaces = entries.reversed().prefix(while: \.isGap).count
         let tail = entries.suffix(spaces)
         entries = strokes.map { Entry($0, in: layout) } + tail
     }

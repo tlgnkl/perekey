@@ -15,8 +15,13 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case preparingModel
         case recognizing
         case stillRecognizing
+        /// The mode's language model edits the text: "Улучшаю".
+        case refining
         case pasting
         case pasted
+        /// The text went in as recognized: the mode's step was skipped, for
+        /// this reason ("Вставлен исходный текст").
+        case pastedAsSaid(ModeFallback)
         /// The text went to the pasteboard.
         case copied
         /// "Текст не вставлен".
@@ -29,6 +34,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case noAccessibility
         /// The app did not answer; the text may still arrive.
         case timedOut
+        /// Typing stopped part way: the focus moved or a key was pressed.
+        case interrupted
         case nothingHeard
         case cancelled
         case microphoneDenied
@@ -36,6 +43,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case microphoneFailed
         /// The speech model is missing or did not load.
         case modelFailed
+        /// The cloud did not answer and no model on this Mac could stand in.
+        case cloudSpeechFailed
         case recognitionFailed
     }
 
@@ -43,6 +52,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         /// Esc: ends the dictation. It matters under Secure Input, where Esc
         /// does not reach Perekey.
         case cancel
+        /// Esc while the language model works: paste the text as recognized.
+        case pasteAsSaid
         /// Paste the last text where the caret is now.
         case paste
         /// Put the last text on the pasteboard.
@@ -53,6 +64,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case openAccessibilitySettings
         /// Settings → Voice, where the models are.
         case openVoiceSettings
+        /// Send the kept audio to the cloud again.
+        case retry
     }
 
     /// The level and the timer above the message.
@@ -78,9 +91,12 @@ public struct DictationHUDPresentation: Hashable, Sendable {
     public var buttons: [Button]
     public var meter: Meter?
     public var hidesAfter: TimeInterval?
-    /// Reserved: a cloud mode shows ☁ and a mode shows its name. Nothing sets them yet.
+    /// The audio or the text leaves the Mac: ☁ beside the mode.
     public var cloud = false
+    /// The dictation's mode, while it records and while the language model works.
     public var modeName: String?
+    /// The language model's server, while it works: "Ollama", "OpenAI".
+    public var endpointName: String?
 
     public var isVisible: Bool { true }
 
@@ -110,6 +126,13 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case let .recording(recording):
             self.init(message: recording.preparingModel ? .preparingModel : .recording, buttons: [.cancel],
                       meter: Meter(level: min(1, max(0, recording.level)), seconds: recording.seconds))
+            modeName = recording.mode
+            cloud = recording.cloudHost != nil
+        case let .refining(refining):
+            self.init(message: .refining, buttons: [.pasteAsSaid])
+            modeName = refining.mode
+            endpointName = refining.endpoint
+            cloud = refining.isCloud
         case let .recognizing(preparingModel):
             self.init(message: preparingModel ? .preparingModel : .recognizing, buttons: [.cancel])
         case .stillRecognizing:
@@ -118,6 +141,12 @@ public struct DictationHUDPresentation: Hashable, Sendable {
             self.init(message: .pasting)
         case .pasted:
             self.init(message: .pasted, hidesAfter: Lifetime.confirmation)
+        case let .pastedFallback(fallback):
+            // Esc asked for it: a confirmation. Anything else is news.
+            self.init(message: .pastedAsSaid(fallback),
+                      hidesAfter: fallback == .escape ? Lifetime.confirmation : Lifetime.notice)
+        case .copied:
+            self.init(message: .copied, hidesAfter: Lifetime.confirmation)
         case let .notPasted(reason):
             self.init(reason, hasText: hasText)
         case .nothingHeard:
@@ -134,6 +163,8 @@ public struct DictationHUDPresentation: Hashable, Sendable {
                 self.init(message: .microphoneFailed, hidesAfter: Lifetime.error)
             case .model:
                 self.init(message: .modelFailed, buttons: [.openVoiceSettings], hidesAfter: Lifetime.error)
+            case .cloudSpeech:
+                self.init(message: .cloudSpeechFailed, buttons: [.retry], hidesAfter: Lifetime.notPasted)
             case .recognition:
                 self.init(message: .recognitionFailed, hidesAfter: Lifetime.error)
             }
@@ -149,6 +180,7 @@ public struct DictationHUDPresentation: Hashable, Sendable {
         case let .secureInput(owner): .secureInput(owner: owner)
         case .noAccessibility: .noAccessibility
         case .timedOut: .timedOut
+        case .interrupted: .interrupted
         }
         var buttons: [Button] = []
         // A text meant for a password or a protected field never goes to the

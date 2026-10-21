@@ -3,6 +3,7 @@
 import Foundation
 import os
 import PerekeyCore
+import PerekeyInput
 @testable import PerekeyVoice
 import PerekeyVoiceCore
 import Testing
@@ -123,11 +124,57 @@ private actor FakeEngine: SpeechEngine {
         prepared = false
     }
 
+    /// The prompt of each transcription.
+    private(set) var prompts: [String?] = []
+
+    func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript {
+        prompts.append(prompt)
+        return try await transcribe(audio)
+    }
+
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {
         guard prepared else { throw SpeechEngineError.notPrepared }
         heard.append(audio.samples.count)
         if holds { await withCheckedContinuation { gate = $0 } }
         return Transcript(text: text)
+    }
+}
+
+/// A cloud speech model that fails, answers or hangs as the test says.
+private actor FakeCloudEngine: SpeechEngine {
+    enum Behavior { case fail, answer(String), hang }
+
+    nonisolated let id = "cloud:groq:whisper"
+    private var behavior: Behavior = .fail
+    private(set) var calls = 0
+    private(set) var cancelled = 0
+    private(set) var prompts: [String?] = []
+
+    func set(_ behavior: Behavior) { self.behavior = behavior }
+
+    func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript {
+        prompts.append(prompt)
+        return try await transcribe(audio)
+    }
+    func prepare() async throws {}
+    func unload() async {}
+
+    func transcribe(_: AudioBuffer16k) async throws -> Transcript {
+        calls += 1
+        switch behavior {
+        case .fail:
+            throw OpenAICompatibleClient.Failure.server(status: 503, message: nil)
+        case let .answer(text):
+            return Transcript(text: text)
+        case .hang:
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                cancelled += 1
+                throw error
+            }
+            return Transcript(text: "")
+        }
     }
 }
 
@@ -156,6 +203,35 @@ private final class FakePaster: DictationPaster {
     private(set) var pasted: [String] = []
     private(set) var finished = 0
     private(set) var targets = 0
+    private(set) var copied: [String] = []
+    private(set) var returns = 0
+
+    func copy(_ text: String) { copied.append(text) }
+
+    func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult {
+        #expect(target as? String == "front")
+        returns += 1
+        return .pasted
+    }
+    /// What the field has before the caret.
+    var context: String?
+    private(set) var contextAsked = 0
+    var application: DictationApplication?
+
+    /// Awaited before the caret context answers.
+    var contextWaits: (() async -> Void)?
+
+    func caretContext(into _: (any Sendable)?) async -> String? {
+        contextAsked += 1
+        await contextWaits?()
+        return context
+    }
+
+    func application(of _: (any Sendable)?) -> DictationApplication? { application }
+
+    /// What the field `captureTarget` returns is, whatever the paste answers.
+    var targetPrivacy: DictationPrivacy = .normal
+    func privacy(of _: (any Sendable)?) -> DictationPrivacy { targetPrivacy }
 
     func captureTarget() async -> (any Sendable)? {
         targets += 1
@@ -189,6 +265,7 @@ private final class Rig {
     let microphone = FakeMicrophone()
     let engine = FakeEngine()
     let otherEngine = FakeEngine(id: "fake2", text: "Другая модель.")
+    let cloud = FakeCloudEngine()
     let detector = FakeDetector()
     let paster = FakePaster()
     let secureInput = FakeSecureInput()
@@ -201,11 +278,19 @@ private final class Rig {
     let sleeps = OSAllocatedUnfairLock(initialState: 0)
     var layoutTexts: [String] = []
     var controller: VoiceController!
+    /// The text rules of the test, and what they were asked.
+    var editor: (String, String?) -> String = { text, _ in text }
+    var edits: [(text: String, before: String?)] = []
+    /// The mode's filler words rule of each edit.
+    var fillerRules: [Bool?] = []
+    var prompt: String?
+    var dictionary: (String) -> String = { $0 }
+    var records: [DictationRecord] = []
 
     init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil),
          limitSeconds: Int = DictationAudio.limitSeconds)
     {
-        let engines = ["fake": engine, "fake2": otherEngine]
+        let engines: [String: any SpeechEngine] = ["fake": engine, "fake2": otherEngine, cloud.id: cloud]
         controller = VoiceController(
             preferences: preferences, microphone: microphone, paster: paster, secureInput: secureInput,
             detector: detector, makeEngine: { engines[$0] },
@@ -217,7 +302,15 @@ private final class Rig {
                 },
                 holdLost: { [weak self] in self?.holdLosses += 1 },
                 pasted: { [weak self] in self?.layoutTexts.append($0) },
-                play: { [weak self] in self?.sounds.append($0) }),
+                play: { [weak self] in self?.sounds.append($0) },
+                edit: { [weak self] text, before, removesFillers in
+                    self?.edits.append((text, before))
+                    self?.fillerRules.append(removesFillers)
+                    return self?.editor(text, before) ?? text
+                },
+                dictionary: { [weak self] in self?.dictionary($0) ?? $0 },
+                prompt: { [weak self] in self?.prompt },
+                record: { [weak self] in self?.records.append($0) }),
             limitSeconds: limitSeconds,
             sleep: { [sleeps] _ in
                 sleeps.withLock { $0 += 1 }
@@ -246,6 +339,189 @@ private final class Rig {
 
 @MainActor
 struct VoiceControllerTests {
+    @Test func textRulesRunOnTheRecognizedTextWithTheCaretContext() async {
+        let rig = Rig()
+        rig.paster.context = "Я сказал, что "
+        rig.editor = { text, before in before == nil ? text : text.lowercased() }
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.edits.map(\.text) == ["Привет, мир."])
+        #expect(rig.edits.map(\.before) == ["Я сказал, что "])
+        #expect(rig.paster.pasted == ["привет, мир."])
+        #expect(rig.controller.last?.text == "привет, мир.")
+        #expect(rig.layoutTexts == ["привет, мир."])
+    }
+
+    @Test func unreadableFieldPassesNilContext() async {
+        let rig = Rig()
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.edits.map(\.before) == [nil])
+    }
+
+    @Test func textRulesLeavingNothingPasteNothing() async {
+        let rig = Rig()
+        rig.editor = { _, _ in "" }
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .nothingHeard })
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.records.isEmpty)
+        #expect(await rig.until { rig.state == .idle })
+    }
+
+    @Test func whisperGetsThePromptFromTheDictionary() async {
+        let rig = Rig()
+        rig.prompt = "Perekey, Parakeet"
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.prompts == ["Perekey, Parakeet"])
+    }
+
+    @Test func finishedDictationGoesToTheHistoryHook() async {
+        let rig = Rig()
+        rig.paster.application = DictationApplication(bundleID: "com.apple.Notes", name: "Notes")
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.until { rig.records.count == 1 })
+        let record = rig.records[0]
+        #expect(record.text == "Привет, мир.")
+        #expect(record.bundleID == "com.apple.Notes" && record.appName == "Notes")
+        #expect(record.model == "fake")
+        #expect(record.pasted && record.privacy == .normal)
+        #expect(record.duration > 0 && record.audio?.isEmpty == false)
+    }
+
+    /// The file queue learns when a session starts and once its text is in.
+    @Test func dictationActivityFollowsTheSession() async {
+        let rig = Rig()
+        let activity = DictationActivity()
+        rig.controller.dictation = activity
+        await rig.startRecording()
+        #expect(activity.isActive)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.until { !activity.isActive })
+        activity.began()
+        await rig.controller.shutdown()
+        #expect(!activity.isActive)
+    }
+
+    @Test func passwordFieldAndSecureInputAreMarkedPrivateAndNotRecorded() async {
+        for result in [DictationPasteResult.secureField, .secureInput(owner: "Terminal")] {
+            let rig = Rig()
+            rig.paster.result = result
+            await rig.startRecording()
+            rig.controller.voice(.toggle)
+            #expect(await rig.until { rig.controller.last != nil && rig.state == .idle })
+            #expect(rig.controller.last?.isPrivate == true)
+            #expect(rig.records.isEmpty)
+        }
+    }
+
+    @Test func aPasswordTargetStaysPrivateWhateverTheRefusal() async {
+        let refusals: [DictationPasteResult] = [.targetChanged, .failed("modifiersHeld"), .failed("noAccess"), .timedOut, .pasted]
+        for result in refusals {
+            let rig = Rig()
+            rig.paster.targetPrivacy = .secureField
+            rig.paster.result = result
+            await rig.startRecording()
+            rig.controller.voice(.toggle)
+            #expect(await rig.until { rig.state == .idle && rig.controller.last != nil })
+            #expect(rig.controller.last?.isPrivate == true, "\(result)")
+            #expect(rig.records.isEmpty, "\(result): nothing private goes to the history")
+        }
+    }
+
+    @Test func secureInputNowKeepsATimedOutDictationOutOfTheHistory() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .secureInput
+        rig.paster.result = .timedOut
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.controller.last != nil && rig.state == .idle })
+        #expect(rig.controller.last?.isPrivate == true)
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func keptTextOfAPasswordTargetIsPrivateAndUnrecorded() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .secureField
+        await rig.startRecording()
+        rig.controller.accessibilityLost()
+        #expect(await rig.until { rig.hud == .notPasted(.noAccessibility) })
+        #expect(rig.controller.last?.isPrivate == true)
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func keptTextOfAnOrdinaryFieldIsRecorded() async {
+        let rig = Rig()
+        await rig.startRecording()
+        rig.controller.accessibilityLost()
+        #expect(await rig.until { rig.hud == .notPasted(.noAccessibility) })
+        #expect(rig.controller.last?.isPrivate == false)
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(!rig.records[0].pasted)
+    }
+
+    @Test func keptTextOfATargetWithoutElementIsNotRecordedNorPrivate() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .unknown
+        await rig.startRecording()
+        rig.controller.accessibilityLost()
+        #expect(await rig.until { rig.hud == .notPasted(.noAccessibility) })
+        #expect(rig.controller.last?.isPrivate == false)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func targetWithoutElementIsNotStoredButStaysOnTheHUD() async {
+        for result in [DictationPasteResult.targetChanged, .timedOut, .pasted] {
+            let rig = Rig()
+            rig.paster.targetPrivacy = .unknown
+            rig.paster.result = result
+            await rig.startRecording()
+            rig.controller.voice(.toggle)
+            #expect(await rig.until { rig.controller.last != nil })
+            #expect(rig.controller.last?.isPrivate == false)
+            #expect(rig.records.isEmpty)
+        }
+    }
+
+    @Test func fieldWithElementIsStored() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .normal
+        rig.paster.result = .timedOut
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.records.count == 1 })
+    }
+
+    @Test func pasteFromTheHUDAddsNoSecondEntry() async {
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.records.count == 1 })
+        rig.paster.result = .pasted
+        rig.controller.pasteLast()
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.records.count == 1)
+    }
+
+    @Test func notPastedDictationStillGoesToTheHook() async {
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(rig.records[0].privacy == .normal && !rig.records[0].pasted)
+    }
+
     @Test func dictationEndToEnd() async {
         let rig = Rig()
         await rig.startRecording()
@@ -400,6 +676,19 @@ struct VoiceControllerTests {
         #expect(!NotPastedReason.timedOut.offersPaste)
         #expect(rig.controller.last?.text == "Привет, мир.")
         #expect(rig.layoutTexts.isEmpty)
+    }
+
+    @Test func aStoppedTypingOffersOnlyCopyAndGoesToTheHistory() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .normal
+        rig.paster.result = .interrupted
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.interrupted) })
+        #expect(rig.controller.last?.pasted == false)
+        #expect(rig.layoutTexts.isEmpty)
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(!rig.records[0].pasted)
     }
 
     @Test func secureInputOfAnotherApp() async {
@@ -730,6 +1019,42 @@ struct VoiceControllerTests {
         #expect(rig.layoutTexts == ["Привет, мир."])
     }
 
+    @Test func secureInputWhileTypingOffersOnlyCopyAndStaysOutOfTheHistory() async {
+        // The start of the text is typed: "Вставить" would put it in twice.
+        let rig = Rig()
+        rig.paster.targetPrivacy = .normal
+        rig.paster.result = .interruptedBySecureInput
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.interrupted) })
+        #expect(!NotPastedReason.interrupted.offersPaste)
+        #expect(rig.controller.last?.isPrivate == true)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func aNewDictationCancelsPastingAgain() async {
+        // Typing into a terminal takes a while: two typings must not mix.
+        let rig = Rig()
+        rig.paster.result = .targetChanged
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.targetChanged) })
+        final class Seen { var cancelled = false }
+        let seen = Seen()
+        rig.paster.result = .interrupted
+        rig.paster.waits = {
+            while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
+            seen.cancelled = true
+        }
+        rig.controller.pasteLast()
+        #expect(rig.hud == .pasting)
+        await rig.startRecording()
+        #expect(await rig.until { seen.cancelled })
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(rig.hud != .notPasted(.interrupted), "the old paste does not take over the new dictation's HUD")
+    }
+
     @Test func pastingAgainIntoAPasswordFieldStaysOut() async {
         let rig = Rig()
         rig.paster.result = .targetChanged
@@ -789,5 +1114,600 @@ struct VoiceControllerTests {
         #expect(await rig.until { rig.paster.finished == 2 })
         if case .recording = rig.hud {} else { Issue.record("the new dictation's HUD was overwritten: \(rig.hud)") }
         #expect(rig.controller.last?.pasted == false)
+    }
+}
+
+/// Modes for the controller: a fixed plan, and a language model that answers,
+/// fails or hangs as the test says.
+@MainActor
+private final class FakeModes: DictationModeSource {
+    var fixed: DictationPlan
+    var answer: String? = "Привет, мир!"
+    var hangs = false
+    private(set) var asked: [String] = []
+    private(set) var cancelled = 0
+    private(set) var ended: [String] = []
+
+    init(_ plan: DictationPlan) {
+        fixed = plan
+    }
+
+    func plan() -> DictationPlan { fixed }
+
+    func refine(_ text: String, plan: DictationPlan) async throws -> String {
+        asked.append(text)
+        if hangs {
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                cancelled += 1
+                throw error
+            }
+        }
+        guard let answer else { throw OpenAICompatibleClient.Failure.server(status: 500, message: nil) }
+        return answer
+    }
+
+    func sessionEnded(_ plan: DictationPlan) { ended.append(plan.modeID) }
+}
+
+private extension DictationPlan {
+    static func refining(timeout: Duration = .seconds(5)) -> DictationPlan {
+        DictationPlan(modeID: "clean", modeName: "Чистовик",
+                      refine: Refine(endpointName: "Ollama", isCloud: false, timeout: timeout))
+    }
+}
+
+@MainActor
+struct VoiceControllerModeTests {
+    @Test func theLanguageModelEditsTheText() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining())
+        rig.controller.modes = modes
+        await rig.startRecording()
+        if case let .recording(recording) = rig.hud { #expect(recording.mode == "Чистовик") }
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(modes.asked == ["Привет, мир."])
+        #expect(rig.paster.pasted == ["Привет, мир!"])
+        #expect(rig.controller.last?.text == "Привет, мир!")
+        #expect(modes.ended == ["clean"])
+    }
+
+    @Test func theLanguageModelReadsTheDictionarysWords() async {
+        let rig = Rig()
+        await rig.engine.set(text: "Скажи перекей\u{07}")
+        rig.dictionary = { TextRules.replace($0, with: [DictionaryEntry(from: "перекей", to: "Perekey")]) }
+        let modes = FakeModes(.refining())
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(modes.asked == ["Скажи Perekey"], "the dictionary's spelling, no control characters")
+        #expect(rig.edits.map(\.text) == ["Привет, мир!"], "the rest of the rules edit the answer")
+    }
+
+    @Test func refiningShowsAndATapIsIgnored() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining())
+        modes.hangs = true
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .refining(.init(mode: "Чистовик", endpoint: "Ollama", isCloud: false)) })
+        rig.controller.voice(.toggle)
+        #expect(rig.state == .refining(1, .paste, raw: "Привет, мир."))
+        #expect(rig.paster.pasted.isEmpty)
+        rig.controller.voice(.cancel)
+        #expect(await rig.until { rig.hud == .pastedFallback(.escape) })
+    }
+
+    @Test func escPastesTheRawText() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining())
+        modes.hangs = true
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { modes.asked.count == 1 })
+        rig.controller.voice(.cancel)
+        #expect(await rig.until { rig.hud == .pastedFallback(.escape) })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.until { modes.cancelled == 1 })
+        #expect(rig.state == .idle)
+        #expect(rig.sessionChanges == [true, false])
+    }
+
+    @Test func aTimeoutPastesTheRawText() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining(timeout: .milliseconds(50)))
+        modes.hangs = true
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.timedOut) })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.until { modes.cancelled == 1 })
+    }
+
+    @Test func aFailurePastesTheRawText() async {
+        let rig = Rig()
+        let modes = FakeModes(.refining())
+        modes.answer = nil
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.failed) })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+    }
+
+    @Test func anAnswerInsteadOfAnEditPastesTheRawText() async {
+        let rig = Rig()
+        await rig.engine.set(text: "Какая завтра погода?")
+        let modes = FakeModes(.refining())
+        modes.answer = "Конечно! Завтра солнечно."
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.answered) })
+        #expect(rig.paster.pasted == ["Какая завтра погода?"])
+    }
+
+    @Test func aPasswordFieldNeverReachesTheLanguageModel() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .secureField
+        rig.paster.result = .secureField
+        let modes = FakeModes(.refining())
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(modes.asked.isEmpty)
+    }
+
+    @Test func aSkippedStepIsNamedAfterThePaste() async {
+        let rig = Rig()
+        let modes = FakeModes(DictationPlan(modeID: "mail", modeName: "Письмо",
+                                            fallback: .needsConsent(host: "api.openai.com")))
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.needsConsent(host: "api.openai.com")) })
+        #expect(modes.asked.isEmpty)
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(modes.ended == ["mail"])
+    }
+
+    @Test func theModesSpeechModelHears() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", speechModel: "fake2",
+                                                       speechHost: "api.groq.com"))
+        await rig.startRecording()
+        if case let .recording(recording) = rig.hud { #expect(recording.cloudHost == "api.groq.com") }
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Другая модель."])
+        #expect(await rig.engine.heard.isEmpty)
+    }
+
+    @Test func copyOnly() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", output: .copy))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .copied })
+        #expect(rig.paster.copied == ["Привет, мир."])
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.state == .idle)
+    }
+
+    @Test func pasteAndEnter() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", output: .pasteAndEnter))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.returns == 1)
+    }
+
+    @Test func noEnterAfterALanguageModelOrInATerminal() async {
+        for plan in [DictationPlan(modeID: "x", modeName: "X", refine: .init(endpointName: "O", isCloud: false),
+                                   output: .pasteAndEnter),
+                     DictationPlan(modeID: "x", modeName: "X", output: .pasteAndEnter, singleLine: true)]
+        {
+            let rig = Rig()
+            rig.controller.modes = FakeModes(plan)
+            await rig.startRecording()
+            rig.controller.voice(.toggle)
+            #expect(await rig.until { rig.hud == .pasted })
+            #expect(rig.paster.returns == 0)
+        }
+    }
+
+    @Test func aTerminalTakesOneLine() async {
+        let rig = Rig()
+        await rig.engine.set(text: "git status\nrm -rf /")
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "terminal", modeName: "T", singleLine: true))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["git status rm -rf /"])
+    }
+
+    /// Voice on, the local model, a mode without a language model: not one
+    /// request leaves, though the network gate is open for this Mac's servers.
+    @Test func aLocalDictationMakesNoRequest() async throws {
+        let fake = try await FakeOpenAI()
+        VoiceNetworkPolicy.apply(isEnabled: true, managed: ManagedSettings(), modes: VoiceModeSet.defaults(), to: fake.http)
+        fake.http.allowedOrigins = [.cloudLanguageModel: [fake.address.origin], .cloudSpeech: [fake.address.origin]]
+        var set = VoiceModeSet.defaults()
+        set.endpoints[set.endpoints.firstIndex { $0.id == "ollama" }!].address = fake.address.url("")
+        set.modes[set.modes.firstIndex { $0.id == "message" }!].refine =
+            RefineConfig(endpoint: "ollama", model: "qwen2.5:7b", prompt: "Short.")
+        let front = VoiceModeRunner.Front(bundleID: "com.apple.Notes", name: "Notes")
+        let runner = VoiceModeRunner(
+            environment: .init(modes: { set }, front: { front }, host: { nil }, hasKey: { _ in false }, key: { _ in nil },
+                               cloudDisabled: { false }, askConsent: { _ in }),
+            client: fake.client())
+        let rig = Rig()
+        rig.controller.modes = runner
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(fake.http.requests.isEmpty)
+        #expect(fake.server.requests.isEmpty)
+
+        // The same Mac in a messenger: the mode with a language model reaches
+        // the server on this Mac, once.
+        set.bind(.app("com.apple.Notes"), to: "message")
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.paster.pasted.count == 2 })
+        #expect(fake.http.requests.map(\.purpose) == [.cloudLanguageModel])
+        #expect(fake.server.requests.count == 1)
+    }
+}
+
+/// Cloud speech that fails, and what the dictation does then.
+@MainActor
+struct VoiceControllerCloudSpeechTests {
+    let cloudPlan = DictationPlan(modeID: "x", modeName: "X", speechModel: "cloud:groq:whisper", speechHost: "api.groq.com")
+
+    @Test func aFailingCloudFallsBackToThisMac() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pastedFallback(.cloudSpeechFailed) })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.cloud.calls == 1)
+        #expect(await rig.engine.heard == [16000])
+        #expect(!rig.controller.canRetry)
+    }
+
+    @Test func withNothingOnThisMacTheAudioWaitsForRetry() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.controller.canRetry)
+        #expect(DictationHUDPresentation(.failed(.cloudSpeech))?.buttons == [.retry])
+        // The cloud is back: "Повторить" sends the same audio, and the text goes in.
+        await rig.cloud.set(.answer("Облако вернулось."))
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Облако вернулось."])
+        #expect(await rig.cloud.calls == 2)
+        #expect(!rig.controller.canRetry)
+    }
+
+    @Test func aRetryThatFailsKeepsTheAudio() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        rig.controller.retryLast()
+        #expect(await rig.until { await rig.cloud.calls == 2 })
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        #expect(rig.controller.canRetry)
+    }
+
+    @Test func aPasswordFieldKeepsTheAudioHere() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .secureField
+        rig.paster.result = .secureField
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(await rig.cloud.calls == 0)
+        #expect(await rig.engine.heard == [16000])
+    }
+
+    @Test func secureInputKeepsTheAudioAndTheTextHere() async {
+        let rig = Rig()
+        var plan = cloudPlan
+        plan.refine = .init(endpointName: "OpenAI", isCloud: true)
+        let modes = FakeModes(plan)
+        rig.controller.modes = modes
+        await rig.startRecording()
+        // Secure Input came on during the recording; the paste then refuses.
+        rig.secureInput.allowsStart = false
+        rig.paster.result = .secureInput(owner: nil)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureInput(owner: nil)) })
+        #expect(await rig.cloud.calls == 0)
+        #expect(modes.asked.isEmpty, "nor the language model")
+    }
+
+    @Test func escStopsTheCloudRequest() async {
+        let rig = Rig()
+        await rig.cloud.set(.hang)
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { await rig.cloud.calls == 1 })
+        rig.controller.voice(.cancel)
+        #expect(rig.hud == .cancelled)
+        #expect(await rig.until { await rig.cloud.cancelled == 1 })
+        #expect(await rig.until { rig.controller.recognitionsDone == 1 })
+        // Cancelled, not failed: no fallback, no retry, nothing pasted.
+        #expect(rig.hud == .cancelled)
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(await rig.engine.heard.isEmpty)
+        #expect(!rig.controller.canRetry)
+    }
+
+    @Test func aPasswordIsNeverCopied() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .secureField
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", output: .copy))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(rig.paster.copied.isEmpty)
+        #expect(rig.controller.last?.isPrivate == true)
+        #expect(DictationHUDPresentation(.notPasted(.secureField))?.buttons.isEmpty == true)
+    }
+
+    @Test func enterGoesOnlyToTheAppStillInFront() async {
+        var front: pid_t? = 42
+        var posted = 0
+        let lost = await TextPasterAdapter.pressReturn(pid: 42, frontmost: { front },
+                                                       wait: { front = 7 }, post: { posted += 1 })
+        #expect(lost == .targetChanged)
+        #expect(posted == 0)
+        front = 42
+        let kept = await TextPasterAdapter.pressReturn(pid: 42, frontmost: { front }, wait: {}, post: { posted += 1 })
+        #expect(kept == .pasted)
+        #expect(posted == 1)
+        front = 3
+        #expect(await TextPasterAdapter.pressReturn(pid: 42, frontmost: { front }, wait: {}, post: { posted += 1 })
+            == .targetChanged)
+        #expect(posted == 1)
+    }
+
+    @Test func cloudTextIsCleanedInAnyMode() async {
+        let rig = Rig()
+        await rig.cloud.set(.answer("git status\u{1B}[201~rm -rf ~\u{0F}"))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["git status[201~rm -rf ~"])
+    }
+
+    @Test func aRetryIntoAPasswordFieldStaysHere() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        // The field turned out to be a password one: no model here, no cloud.
+        rig.paster.targetPrivacy = .secureField
+        await rig.cloud.set(.answer("секрет"))
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(await rig.cloud.calls == 1)
+        #expect(!rig.controller.canRetry)
+        #expect(rig.paster.pasted.isEmpty)
+    }
+
+    @Test func aRetryUnderSecureInputUsesThisMac() async {
+        let rig = Rig()
+        // The cloud failed and this Mac had no model then; now Secure Input is on.
+        let modes = FakeModes(cloudPlan)
+        rig.controller.modes = modes
+        await rig.startRecording()
+        rig.controller.apply(DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        rig.controller.apply(DictationPreferences(modelID: "fake", silenceStop: nil))
+        rig.secureInput.allowsStart = false
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.paster.pasted == ["Привет, мир."] })
+        #expect(await rig.cloud.calls == 1)
+    }
+
+    @Test func aRetryGoesWhereTheModeSendsIt() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        var plan = cloudPlan
+        plan.output = .copy
+        rig.controller.modes = FakeModes(plan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        await rig.cloud.set(.answer("В буфер."))
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.hud == .copied })
+        #expect(rig.paster.copied == ["В буфер."])
+        #expect(rig.paster.pasted.isEmpty, "not into the field")
+    }
+
+    @Test func aNewDictationCancelsTheRetry() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        await rig.cloud.set(.hang)
+        rig.controller.retryLast()
+        #expect(await rig.until { await rig.cloud.calls == 2 })
+        // A new dictation, on this Mac's model now.
+        rig.controller.apply(DictationPreferences(modelID: "fake", silenceStop: nil))
+        rig.controller.modes = nil
+        await rig.startRecording()
+        #expect(await rig.until { await rig.cloud.cancelled == 1 })
+        #expect(!rig.controller.canRetry)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+    }
+
+    @Test func aRetryANewDictationCancelledPastesAndRecordsNothing() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        await rig.cloud.set(.answer("Старый текст."))
+        // The retry has its text and reads the caret: a new dictation starts then.
+        let gate = Gate()
+        rig.paster.contextWaits = { await gate.wait() }
+        rig.controller.retryLast()
+        #expect(await rig.until { gate.isWaiting })
+        rig.paster.contextWaits = nil
+        rig.controller.apply(DictationPreferences(modelID: "fake", silenceStop: nil))
+        rig.controller.modes = nil
+        await rig.startRecording()
+        gate.open()
+        try? await Task.sleep(for: .milliseconds(30))
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.records.isEmpty)
+        guard case .recording = rig.hud else {
+            Issue.record("the new session's HUD: \(rig.hud)")
+            return
+        }
+        // The new dictation goes in as usual: one paste, one entry.
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.until { rig.records.count == 1 })
+    }
+
+    @Test func turningVoiceOffDropsTheKeptAudio() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        #expect(rig.controller.canRetry)
+        await rig.controller.shutdown()
+        #expect(!rig.controller.canRetry)
+    }
+
+    // MARK: The history
+
+    @Test func aCloudDictationIsRecordedWithTheCloudModel() async {
+        let rig = Rig()
+        rig.prompt = "Perekey, Parakeet"
+        await rig.cloud.set(.answer("Из облака."))
+        var plan = cloudPlan
+        plan.host = "mail.google.com"
+        rig.controller.modes = FakeModes(plan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.records.count == 1 })
+        let record = rig.records[0]
+        #expect(record.model == "cloud:groq:whisper")
+        #expect(record.text == "Из облака." && record.pasted)
+        #expect(record.host == "mail.google.com", "the history's excluded sites see it")
+        #expect(await rig.cloud.prompts == ["Perekey, Parakeet"], "the dictionary goes to the cloud too")
+    }
+
+    @Test func aCloudFallbackIsRecordedWithThisMacsModel() async {
+        let rig = Rig()
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(rig.records[0].model == "fake")
+    }
+
+    @Test func aPrivateCloudDictationIsNotRecorded() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .secureField
+        rig.paster.result = .secureField
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(await rig.until { rig.state == .idle })
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func anUnknownTargetReachesTheCloudButNotTheHistory() async {
+        let rig = Rig()
+        rig.paster.targetPrivacy = .unknown
+        await rig.cloud.set(.answer("Из облака."))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.cloud.calls == 1)
+        #expect(rig.paster.pasted == ["Из облака."])
+        #expect(rig.records.isEmpty)
+    }
+
+    @Test func aRetryAfterTheCloudFailedWritesOneEntry() async {
+        let rig = Rig(preferences: DictationPreferences(modelID: "not-downloaded", silenceStop: nil))
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        #expect(rig.records.isEmpty, "nothing heard yet")
+        await rig.cloud.set(.answer("Облако вернулось."))
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.records.count == 1 })
+        try? await Task.sleep(for: .milliseconds(30))
+        #expect(rig.records.count == 1)
+        let record = rig.records[0]
+        #expect(record.text == "Облако вернулось." && record.pasted)
+        #expect(record.model == "cloud:groq:whisper")
+        #expect(record.audio?.count == 16000)
+    }
+
+    @Test func theTextRulesComeFirstThenTheFilterThenOneLine() async {
+        let rig = Rig()
+        rig.editor = { _, _ in " ls\u{1B}[201~\n-la" }
+        rig.controller.modes = FakeModes(
+            DictationPlan(modeID: "terminal", modeName: "Терминал", singleLine: true, removesFillers: false))
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == [" ls[201~ -la"])
+        #expect(rig.fillerRules == [false], "the mode's filler words rule")
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(rig.records[0].text == " ls[201~ -la", "the history keeps what went in")
+    }
+}
+
+/// Holds an await until the test opens it.
+@MainActor
+private final class Gate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    var isWaiting: Bool { continuation != nil }
+
+    func wait() async {
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        continuation?.resume()
+        continuation = nil
     }
 }

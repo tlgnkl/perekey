@@ -58,6 +58,9 @@ struct VoiceHUDContent: View {
                     .foregroundStyle(presentation.message.isProblem ? Color.pkInk : Color.pkInk)
                     .lineLimit(1)
             }
+            if let mode = presentation.modeName, !mode.isEmpty {
+                modeTag(mode)
+            }
             if !presentation.buttons.isEmpty {
                 Rectangle().fill(Color.pkRule).frame(width: 1, height: 14).accessibilityHidden(true)
                 ForEach(presentation.buttons, id: \.self) { button in
@@ -94,6 +97,29 @@ struct VoiceHUDContent: View {
         case .secureField, .secureInput: Color.pkInk2
         default: Color.pkWarn
         }
+    }
+
+    /// The mode, ☁ when the audio or the text leaves the Mac, and the
+    /// language model's server while it works.
+    private func modeTag(_ mode: String) -> some View {
+        HStack(spacing: 5) {
+            Text(verbatim: mode)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.pkIndigoInk)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 1.5)
+                .background(Capsule().fill(Color.pkMist))
+            if presentation.cloud || presentation.endpointName != nil {
+                HStack(spacing: 3) {
+                    if presentation.cloud { Image(systemName: "cloud").font(.system(size: 10, weight: .semibold)) }
+                    if let endpoint = presentation.endpointName { Text(verbatim: endpoint) }
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(Color.pkInk2)
+            }
+        }
+        .lineLimit(1)
+        .accessibilityElement(children: .combine)
     }
 
     private func meterView(_ meter: DictationHUDPresentation.Meter) -> some View {

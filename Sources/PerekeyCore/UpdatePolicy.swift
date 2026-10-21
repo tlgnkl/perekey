@@ -18,16 +18,41 @@ public struct ManagedSettings: Hashable, Sendable {
         /// the folder an administrator fills, `VoiceModels/<id>/` in
         /// `/Library/Application Support/Perekey`, checked against the same SHA-256.
         public static let voiceModelDownloadsDisabled = "VoiceModelDownloadsDisabled"
+        /// Bool. `true`: no cloud speech recognition and no cloud language models.
+        public static let voiceCloudDisabled = "VoiceCloudDisabled"
+        /// Integer. The most days the dictation history is kept; 0 keeps nothing.
+        public static let voiceHistoryMaxDays = "VoiceHistoryMaxDays"
+        /// Bool. `true`: no call recording; its menu item and panel are hidden.
+        public static let callRecordingDisabled = "CallRecordingDisabled"
+        /// Bool. `true`: the audio of a call is always removed once its transcript is written.
+        public static let callAudioKeepDisabled = "CallAudioKeepDisabled"
+        /// Bool. `true`: recordings and transcripts stay out of Time Machine, and the user cannot include them.
+        public static let transcriptsBackupDisabled = "TranscriptsBackupDisabled"
     }
 
     public var updatesDisabled: Bool
     public var voiceDisabled: Bool
     public var voiceModelDownloadsDisabled: Bool
+    public var voiceCloudDisabled: Bool
+    /// The profile's limit on the history, in days; nil when it sets none.
+    public var voiceHistoryMaxDays: Int?
+    public var callRecordingDisabled: Bool
+    public var callAudioKeepDisabled: Bool
+    public var transcriptsBackupDisabled: Bool
 
-    public init(updatesDisabled: Bool = false, voiceDisabled: Bool = false, voiceModelDownloadsDisabled: Bool = false) {
+    public init(updatesDisabled: Bool = false, voiceDisabled: Bool = false, voiceModelDownloadsDisabled: Bool = false,
+                voiceCloudDisabled: Bool = false, voiceHistoryMaxDays: Int? = nil,
+                callRecordingDisabled: Bool = false, callAudioKeepDisabled: Bool = false,
+                transcriptsBackupDisabled: Bool = false)
+    {
         self.updatesDisabled = updatesDisabled
         self.voiceDisabled = voiceDisabled
         self.voiceModelDownloadsDisabled = voiceModelDownloadsDisabled
+        self.voiceCloudDisabled = voiceCloudDisabled
+        self.voiceHistoryMaxDays = voiceHistoryMaxDays.map { max(0, $0) }
+        self.callRecordingDisabled = callRecordingDisabled
+        self.callAudioKeepDisabled = callAudioKeepDisabled
+        self.transcriptsBackupDisabled = transcriptsBackupDisabled
     }
 
     /// Reads the keys through `forced`, which returns a value only when a profile forces the key.
@@ -35,11 +60,19 @@ public struct ManagedSettings: Hashable, Sendable {
         updatesDisabled = (forced(Key.updatesDisabled) as? Bool) ?? false
         voiceDisabled = (forced(Key.voiceDisabled) as? Bool) ?? false
         voiceModelDownloadsDisabled = (forced(Key.voiceModelDownloadsDisabled) as? Bool) ?? false
+        voiceCloudDisabled = (forced(Key.voiceCloudDisabled) as? Bool) ?? false
+        voiceHistoryMaxDays = (forced(Key.voiceHistoryMaxDays) as? Int).map { max(0, $0) }
+        callRecordingDisabled = (forced(Key.callRecordingDisabled) as? Bool) ?? false
+        callAudioKeepDisabled = (forced(Key.callAudioKeepDisabled) as? Bool) ?? false
+        transcriptsBackupDisabled = (forced(Key.transcriptsBackupDisabled) as? Bool) ?? false
     }
 
     /// True when a profile forces any key, updates or voice. A pane with a
     /// "Managed by your organization" note asks about its own key instead.
-    public var forcesAnyKey: Bool { updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled }
+    public var forcesAnyKey: Bool {
+        updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled || voiceCloudDisabled || voiceHistoryMaxDays != nil
+            || callRecordingDisabled || callAudioKeepDisabled || transcriptsBackupDisabled
+    }
 }
 
 /// What the updater may do: the result of the build, the profile and the user's switch.
@@ -90,5 +123,23 @@ public enum UpdateFeed {
         guard let feedURL, feedURL.hasPrefix("https://"), let publicKey,
               let key = Data(base64Encoded: publicKey) else { return false }
         return key.count == 32
+    }
+
+    /// True when the offered version ("0.1.1") is lower than the installed one
+    /// ("0.2.0"). Sparkle compares build numbers only, and a local build has
+    /// build 0, so it would take any release for an update. A version that is
+    /// not dotted numbers is never older.
+    public static func isOlder(_ offered: String, than installed: String) -> Bool {
+        guard let offered = numbers(offered), let installed = numbers(installed) else { return false }
+        let count = max(offered.count, installed.count)
+        let a = offered + Array(repeating: 0, count: count - offered.count)
+        let b = installed + Array(repeating: 0, count: count - installed.count)
+        return a.lexicographicallyPrecedes(b)
+    }
+
+    private static func numbers(_ version: String) -> [Int]? {
+        let parts = version.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+        guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return nil }
+        return parts.compactMap { $0 }
     }
 }

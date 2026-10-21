@@ -1,0 +1,310 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+import PerekeyVoiceCore
+
+/// One client for every OpenAI-compatible server: OpenAI, Groq, OpenRouter,
+/// Mistral, Gemini, Ollama, LM Studio, or an address the user typed. Chat
+/// completions for the modes' language models, audio transcriptions for
+/// cloud speech. Everything goes through `VoiceHTTP`, which lets a request
+/// out only to an origin the app allowed.
+///
+/// The key goes in the `Authorization` header and nowhere else; errors never
+/// carry it, nor the text sent.
+public struct OpenAICompatibleClient: Sendable {
+    public enum Failure: Error, Hashable, Sendable {
+        /// Not https, and not on this Mac or in the local network.
+        case badAddress
+        /// `VoiceHTTP` did not let the request out: voice off, cloud off by
+        /// the profile, or no consent for the origin.
+        case blocked
+        /// 401 or 403: the key is wrong, missing or revoked.
+        case unauthorized
+        /// 429.
+        case rateLimited
+        /// 404: often a model name the server does not know.
+        case notFound
+        /// Another status, with the server's message if it gave one.
+        case server(status: Int, message: String?)
+        /// The answer is not what the API returns.
+        case badResponse
+        case timedOut
+        case offline
+    }
+
+    let http: VoiceHTTP
+    /// The longest wait for a whole answer.
+    let timeout: Duration
+
+    public init(http: VoiceHTTP = .shared, timeout: Duration = .seconds(30)) {
+        self.http = http
+        self.timeout = timeout
+    }
+
+    // MARK: Chat
+
+    /// The text of the first choice of a chat completion. `purpose` is what
+    /// the gate lets out by: a dictation's text, or a conversation's transcript.
+    public func complete(_ messages: [ChatMessage], model: String, address: EndpointAddress, key: String?,
+                         temperature: Double = 0.2, purpose: VoiceHTTP.Purpose) async throws -> String
+    {
+        try await chat(messages, model: model, address: address, key: key, temperature: temperature,
+                       purpose: purpose).text
+    }
+
+    /// A chat completion's answer.
+    public struct ChatAnswer: Hashable, Sendable {
+        public var text: String
+        /// `usage.prompt_tokens`: how much of the prompt the server read, if it says.
+        public var promptTokens: Int?
+    }
+
+    public func chat(_ messages: [ChatMessage], model: String, address: EndpointAddress, key: String?,
+                     temperature: Double = 0.2, purpose: VoiceHTTP.Purpose) async throws -> ChatAnswer
+    {
+        struct Body: Encodable {
+            let model: String
+            let messages: [ChatMessage]
+            let temperature: Double
+            let stream = false
+        }
+        struct Answer: Decodable {
+            struct Choice: Decodable {
+                struct Message: Decodable {
+                    let content: String?
+                }
+
+                let message: Message
+            }
+
+            struct Usage: Decodable {
+                let prompt_tokens: Int?
+            }
+
+            let choices: [Choice]
+            let usage: Usage?
+        }
+        var request = try request(address, "/chat/completions", key: key)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(Body(model: model, messages: messages, temperature: temperature))
+        request.timeoutInterval = Self.seconds(timeout)
+        let data = try await send(request, purpose: purpose)
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
+              let content = answer.choices.first?.message.content
+        else { throw Failure.badResponse }
+        return ChatAnswer(text: content, promptTokens: answer.usage?.prompt_tokens)
+    }
+
+    // MARK: Transcription
+
+    /// The text of `audio`, sent as a 16-bit WAV file. `prompt` is text the
+    /// model reads as what came before: the words it should spell so.
+    public func transcribe(_ audio: AudioBuffer16k, model: String, address: EndpointAddress, key: String?,
+                           language: String? = nil, prompt: String? = nil) async throws -> String
+    {
+        struct Answer: Decodable {
+            let text: String
+        }
+        let boundary = "perekey-\(UUID().uuidString)"
+        var request = try request(address, "/audio/transcriptions", key: key)
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var form = MultipartForm(boundary: boundary)
+        form.field("model", model)
+        form.field("response_format", "json")
+        if let language { form.field("language", language) }
+        if let prompt, !prompt.isEmpty { form.field("prompt", prompt) }
+        form.file("file", name: "dictation.wav", type: "audio/wav", data: WAV.encode(audio))
+        let body = form.finish()
+        request.httpBody = body
+        let timeout = Self.transcriptionTimeout(bytes: body.count)
+        // The wait for the next bytes too, over the session's 60 s: a long
+        // upload is answered only once the server has transcribed it.
+        request.timeoutInterval = Self.seconds(timeout)
+        let data = try await send(request, purpose: .cloudSpeech, timeout: timeout)
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: data) else { throw Failure.badResponse }
+        return answer.text
+    }
+
+    /// Whether the model answers with the timings of its phrases
+    /// (`verbose_json`): Whisper does, on OpenAI (whisper-1) and Groq.
+    /// OpenAI's gpt-4o models take only `json`.
+    public static func givesSegmentTimings(model: String) -> Bool {
+        !model.lowercased().hasPrefix("gpt-4o")
+    }
+
+    /// The phrases of `audio` with their timings, for files. A model without
+    /// timings gives its whole text as one phrase from the start of the piece.
+    public func transcribeTimed(_ audio: AudioBuffer16k, model: String, address: EndpointAddress, key: String?,
+                                language: String?, prompt: String?) async throws -> TimedTranscript
+    {
+        struct Answer: Decodable {
+            struct Segment: Decodable {
+                let start: Double
+                let end: Double
+                let text: String
+            }
+
+            let text: String
+            let language: String?
+            let segments: [Segment]?
+        }
+        let timed = Self.givesSegmentTimings(model: model)
+        let boundary = "perekey-\(UUID().uuidString)"
+        var request = try request(address, "/audio/transcriptions", key: key)
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var form = MultipartForm(boundary: boundary)
+        form.field("model", model)
+        form.field("response_format", timed ? "verbose_json" : "json")
+        if timed { form.field("timestamp_granularities[]", "segment") }
+        if let language { form.field("language", language) }
+        if let prompt, !prompt.isEmpty { form.field("prompt", prompt) }
+        form.file("file", name: "recording.wav", type: "audio/wav", data: WAV.encode(audio))
+        let body = form.finish()
+        request.httpBody = body
+        let timeout = Self.transcriptionTimeout(bytes: body.count)
+        request.timeoutInterval = Self.seconds(timeout)
+        let data = try await send(request, purpose: .cloudSpeech, timeout: timeout)
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: data) else { throw Failure.badResponse }
+        let segments = answer.segments.map { list in
+            list.compactMap { segment -> TimedSegment? in
+                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty ? nil : TimedSegment(start: segment.start, end: segment.end, text: text)
+            }
+        } ?? {
+            let text = answer.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? [] : [TimedSegment(start: 0, end: audio.seconds, text: text)]
+        }()
+        // verbose_json names the language in English ("russian"); a code only is kept.
+        let code = answer.language.flatMap { $0.count == 2 ? $0 : nil }
+        return TimedTranscript(segments: segments, language: language ?? code)
+    }
+
+    /// The wait for a transcription grows with the upload: 30 s and 1 s
+    /// for every 100 KB (a minute of 16 kHz audio is about 1.9 MB).
+    static func transcriptionTimeout(bytes: Int) -> Duration {
+        .seconds(30) + .milliseconds(bytes / 100)
+    }
+
+    static func seconds(_ duration: Duration) -> TimeInterval {
+        let parts = duration.components
+        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
+    }
+
+    // MARK: Requests
+
+    private func request(_ address: EndpointAddress, _ path: String, key: String?) throws -> URLRequest {
+        guard let url = URL(string: address.url(path)) else { throw Failure.badAddress }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let key, !key.isEmpty { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+        return request
+    }
+
+    /// The body of a 2xx answer, within `timeout`.
+    private func send(_ request: URLRequest, purpose: VoiceHTTP.Purpose, timeout: Duration? = nil) async throws
+        -> Data
+    {
+        let http = self.http
+        let timeout = timeout ?? self.timeout
+        let (data, response) = try await withThrowingTaskGroup(of: (Data, HTTPURLResponse)?.self) { group in
+            group.addTask { try await http.data(for: request, purpose: purpose) }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return nil
+            }
+            defer { group.cancelAll() }
+            do {
+                guard let first = try await group.next(), let answer = first else { throw Failure.timedOut }
+                return answer
+            } catch let failure as VoiceHTTP.Failure {
+                switch failure {
+                case .blocked: throw Failure.blocked
+                case .offline: throw Failure.offline
+                case .redirectRefused, .tooLarge: throw Failure.badResponse
+                }
+            } catch let error as URLError where error.code == .timedOut {
+                throw Failure.timedOut
+            } catch let error as URLError where [.notConnectedToInternet, .cannotConnectToHost, .cannotFindHost,
+                                                 .networkConnectionLost].contains(error.code)
+            {
+                throw Failure.offline
+            }
+        }
+        switch response.statusCode {
+        case 200..<300: return data
+        case 401, 403: throw Failure.unauthorized
+        case 404: throw Failure.notFound
+        case 429: throw Failure.rateLimited
+        default: throw Failure.server(status: response.statusCode, message: Self.message(in: data))
+        }
+    }
+
+    /// `error.message` of an OpenAI-style error body, one line, at most 200 characters.
+    static func message(in data: Data) -> String? {
+        struct Body: Decodable {
+            struct Inner: Decodable {
+                let message: String?
+            }
+
+            let error: Inner?
+        }
+        guard let message = (try? JSONDecoder().decode(Body.self, from: data))?.error?.message else { return nil }
+        return String(message.split(whereSeparator: \.isNewline).joined(separator: " ").prefix(200))
+    }
+}
+
+/// A `multipart/form-data` body.
+struct MultipartForm {
+    let boundary: String
+    private var body = Data()
+
+    init(boundary: String) {
+        self.boundary = boundary
+    }
+
+    mutating func field(_ name: String, _ value: String) {
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+    }
+
+    mutating func file(_ name: String, name fileName: String, type: String, data: Data) {
+        body.append(Data(
+            "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"; filename=\"\(fileName)\"\r\nContent-Type: \(type)\r\n\r\n"
+                .utf8))
+        body.append(data)
+        body.append(Data("\r\n".utf8))
+    }
+
+    func finish() -> Data {
+        body + Data("--\(boundary)--\r\n".utf8)
+    }
+}
+
+/// 16 kHz mono audio as a 16-bit PCM WAV file.
+enum WAV {
+    static func encode(_ audio: AudioBuffer16k) -> Data {
+        let rate = UInt32(VoiceCore.sampleRate)
+        let samples = audio.samples
+        var data = Data(capacity: 44 + samples.count * 2)
+        func append<T: FixedWidthInteger>(_ value: T) {
+            withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+        }
+        let payload = UInt32(samples.count * 2)
+        data.append(Data("RIFF".utf8))
+        append(36 + payload)
+        data.append(Data("WAVEfmt ".utf8))
+        append(UInt32(16))
+        append(UInt16(1)) // PCM
+        append(UInt16(1)) // mono
+        append(rate)
+        append(rate * 2) // bytes per second
+        append(UInt16(2)) // block align
+        append(UInt16(16)) // bits per sample
+        data.append(Data("data".utf8))
+        append(payload)
+        for sample in samples {
+            append(Int16((max(-1, min(1, sample)) * Float(Int16.max)).rounded()))
+        }
+        return data
+    }
+}

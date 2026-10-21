@@ -4,6 +4,7 @@ import AppKit
 import Observation
 import PerekeyCore
 import PerekeyInput
+import PerekeyVoiceCore
 import SwiftUI
 
 /// What the capsule shows for the current layout, settings and pause state.
@@ -15,6 +16,17 @@ func capsuleModel(sources: InputSources, store: SettingsStore, pause: PauseState
         reason: pause.current,
         now: pause.now
     )
+}
+
+/// What the capsule shows of a call being recorded: ● and the time. Empty
+/// without voice.
+@MainActor
+@Observable
+final class CallIndicatorModel {
+    var timeline: CallTimeline?
+    var paused = false
+
+    var elapsed: Double { timeline?.offset(of: mach_absolute_time()) ?? 0 }
 }
 
 /// The press state of the status item, read by the capsule.
@@ -33,17 +45,79 @@ private struct StatusCapsuleView: View {
     let recents: RecentCorrections
     let state: StatusItemModel
     let menu: MenuPanelController
+    let call: CallIndicatorModel
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        CapsuleView(
-            model: capsuleModel(sources: sources, store: store, pause: pause),
-            dark: scheme == .dark, animated: true,
-            pressed: state.pressed, open: menu.isOpen, flash: recents.flashes
-        )
+        let model = capsuleModel(sources: sources, store: store, pause: pause)
+        let style = store.settings.menuBarIcon
+        HStack(spacing: 4) {
+            if call.timeline != nil {
+                CallBadge(call: call)
+            }
+            if style == .capsule {
+                CapsuleView(
+                    model: model,
+                    dark: scheme == .dark, animated: true,
+                    pressed: state.pressed, open: menu.isOpen, flash: recents.flashes
+                )
+            } else {
+                MenuBarGlyph(style: style, model: model, icon: sources.currentLayout.flatMap(sources.icon(of:)))
+                    .modifier(GlyphMotion(pressed: state.pressed, open: menu.isOpen, flash: recents.flashes))
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .accessibilityHidden(true)
     }
+}
+
+/// What the capsule does for a press, an open menu and a correction, for the
+/// plain styles: a small scale, a dimmed press, and a pulse of the item.
+private struct GlyphMotion: ViewModifier {
+    let pressed: Bool
+    let open: Bool
+    let flash: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let reduce = reduceMotion
+        return content
+            .opacity(pressed || open ? 0.6 : 1)
+            .scaleEffect(pressed && !reduceMotion ? 0.94 : 1)
+            .keyframeAnimator(initialValue: 1.0, trigger: flash) { view, level in
+                view.scaleEffect(reduce ? 1 : level).opacity(reduce ? 1 - (level - 1) * 4 : 1)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    CubicKeyframe(1.18, duration: 0.12)
+                    CubicKeyframe(1.0, duration: 0.48)
+                }
+            }
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : PK.Motion.spring, value: pressed)
+    }
+}
+
+/// ● and the time of a call being recorded, left of the capsule.
+private struct CallBadge: View {
+    let call: CallIndicatorModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            HStack(spacing: 3) {
+                Circle()
+                    .fill(call.paused ? Color.secondary : Color.red)
+                    .frame(width: 7, height: 7)
+                Text(verbatim: callClock(call.elapsed))
+                    .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+            }
+        }
+    }
+}
+
+/// «1:02:05» or «12:34».
+func callClock(_ seconds: Double) -> String {
+    let total = max(0, Int(seconds))
+    let (h, m, s) = (total / 3600, total / 60 % 60, total % 60)
+    return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
 }
 
 /// Reports its content size, so the item can follow it.
@@ -67,6 +141,27 @@ private final class CapsuleHost: NSHostingView<StatusCapsuleView> {
 private final class ClickView: NSView {
     var onDown: (() -> Void)?
     var onUp: (() -> Void)?
+    /// Files dropped on the item; false refuses them. Nil takes no drops.
+    var onDrop: (([URL]) -> Bool)? {
+        didSet {
+            if onDrop == nil { unregisterDraggedTypes() } else { registerForDraggedTypes([.fileURL]) }
+        }
+    }
+    /// Whether a file being dragged would be taken, before the drop.
+    var accepts: (URL) -> Bool = { _ in false }
+
+    private func files(_ sender: any NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                              options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        onDrop != nil && files(sender).contains(where: accepts) ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        onDrop?(files(sender)) ?? false
+    }
 
     override func mouseDown(with event: NSEvent) { onDown?() }
     override func mouseUp(with event: NSEvent) { onUp?() }
@@ -87,12 +182,18 @@ final class StatusItemController {
     private let sources: InputSources
     private let store: SettingsStore
     private let pause: PauseState
+    private let call: CallIndicatorModel
     private var shrink: DispatchWorkItem?
 
+    /// - Parameters:
+    ///   - drop: files dropped on the item (voice: to transcribe); false refuses them.
+    ///   - accepts: whether a dragged file would be taken.
     init(sources: InputSources, store: SettingsStore, pause: PauseState, recents: RecentCorrections,
-         menu: MenuPanelController)
+         menu: MenuPanelController, call: CallIndicatorModel, drop: (([URL]) -> Bool)? = nil,
+         accepts: @escaping (URL) -> Bool = { _ in false })
     {
         self.sources = sources
+        self.call = call
         self.store = store
         self.pause = pause
         self.menu = menu
@@ -107,7 +208,7 @@ final class StatusItemController {
         button.setAccessibilityHelp(String(localized: "Opens the Perekey menu"))
 
         let host = CapsuleHost(rootView: StatusCapsuleView(
-            sources: sources, store: store, pause: pause, recents: recents, state: state, menu: menu))
+            sources: sources, store: store, pause: pause, recents: recents, state: state, menu: menu, call: call))
         host.sizingOptions = [.intrinsicContentSize]
         host.translatesAutoresizingMaskIntoConstraints = false
         host.onSize = { [weak self] width in self?.fit(width: width) }
@@ -117,6 +218,8 @@ final class StatusItemController {
         click.translatesAutoresizingMaskIntoConstraints = false
         click.onDown = { [weak self] in self?.pressDown() }
         click.onUp = { [weak self] in self?.state.pressed = false }
+        click.accepts = accepts
+        click.onDrop = drop
         button.addSubview(click)
 
         NSLayoutConstraint.activate([
@@ -132,11 +235,29 @@ final class StatusItemController {
         fit(width: host.intrinsicContentSize.width)
 
         menu.statusWindow = button.window
-        menu.anchor = { [weak button] in
-            guard let button, let window = button.window else { return nil }
+        // A hidden item has no anchor. Its window may also be off screen while a
+        // full-screen app hides the menu bar, and the menu still opens then.
+        menu.anchor = { [weak self, weak button] in
+            guard let self, statusItem.isVisible, let button, let window = button.window else { return nil }
             return window.convertToScreen(button.convert(button.bounds, to: nil))
         }
         observeVoiceOverState()
+        observeVisibility()
+    }
+
+    /// Shows or hides the item as the setting and the situation say. A hidden
+    /// item has no anchor, so the menu does not open: Perekey opens its
+    /// Settings when it is launched again instead (`applicationShouldHandleReopen`).
+    private func observeVisibility() {
+        let visible = withObservationTracking {
+            MenuBarPolicy.isVisible(store.settings.menuBarVisibility, MenuBarSituation(
+                paused: pause.current != nil, autoswitchOff: !store.settings.autoswitch,
+                recordingCall: call.timeline != nil))
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeVisibility() }
+        }
+        if !visible { menu.close() }
+        statusItem.isVisible = visible
     }
 
     private func pressDown() {
@@ -174,6 +295,10 @@ final class StatusItemController {
     private func observeVoiceOverState() {
         let value = withObservationTracking {
             var parts = [sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout")]
+            if call.timeline != nil {
+                parts.append(call.paused ? String(localized: "Call recording paused", table: "Voice")
+                                         : String(localized: "Recording a call", table: "Voice"))
+            }
             if let reason = pause.current {
                 parts.append(reason.title(now: pause.now))
             } else {

@@ -16,6 +16,65 @@ struct VoiceNetworkPolicyTests {
         #expect(!VoiceNetworkPolicy.allowed(isEnabled: true, managed: ManagedSettings()).contains(.cloudSpeech))
     }
 
+    /// Cloud speech reaches a server agreed for a dictation's audio or for
+    /// recordings of conversations; neither, no server.
+    @Test func conversationConsentOpensCloudSpeech() throws {
+        var modes = VoiceModeSet.defaults()
+        let groq = try #require(modes.endpoint(VoiceEndpoint.Preset.groq.rawValue)?.endpointAddress?.origin)
+        func speech() -> Set<String> {
+            VoiceNetworkPolicy.origins(isEnabled: true, managed: ManagedSettings(), modes: modes)[.cloudSpeech] ?? []
+        }
+        #expect(!speech().contains(groq))
+        modes.consent(.conversationAudio, endpoint: VoiceEndpoint.Preset.groq.rawValue)
+        #expect(speech().contains(groq))
+        #expect(VoiceNetworkPolicy.origins(isEnabled: true, managed: ManagedSettings(voiceCloudDisabled: true),
+                                           modes: modes)[.cloudSpeech]?.contains(groq) != true)
+    }
+
+    /// A summary reaches a server agreed for transcripts of conversations,
+    /// and no other: consent to a dictation's text or to a recording is not it.
+    @Test func transcriptConsentAloneOpensSummaries() throws {
+        var modes = VoiceModeSet.defaults()
+        let openAI = VoiceEndpoint.Preset.openAI.rawValue
+        let origin = try #require(modes.endpoint(openAI)?.endpointAddress?.origin)
+        func summaries(_ managed: ManagedSettings = ManagedSettings()) -> Set<String> {
+            VoiceNetworkPolicy.origins(isEnabled: true, managed: managed, modes: modes)[.conversationLanguageModel] ?? []
+        }
+        #expect(summaries().contains("http://localhost:11434"), "this Mac needs no consent")
+        modes.consent([.text, .selection, .app, .site, .audio, .conversationAudio], endpoint: openAI)
+        #expect(!summaries().contains(origin))
+        modes.consent(.conversationText, endpoint: openAI)
+        #expect(summaries().contains(origin))
+        // A dictation's language model does not get the transcript's origins by it.
+        modes.revokeConsent(endpoint: openAI)
+        modes.consent(.conversationText, endpoint: openAI)
+        #expect(VoiceNetworkPolicy.origins(isEnabled: true, managed: ManagedSettings(),
+                                           modes: modes)[.cloudLanguageModel]?.contains(origin) != true)
+        #expect(!summaries(ManagedSettings(voiceCloudDisabled: true)).contains(origin))
+    }
+
+    /// Without the consent the gate stops a summary before any request.
+    @Test func aSummaryWithoutConsentMakesNoRequest() async throws {
+        let fake = try await FakeOpenAI()
+        let address = fake.address
+        // The fake server is on 127.0.0.1: an origin the policy would open; this one opens none for summaries.
+        fake.http.allowed = [.cloudLanguageModel, .conversationLanguageModel]
+        fake.http.allowedOrigins = [.cloudLanguageModel: [address.origin]]
+        let server = SummaryServer(model: "m", address: address, key: nil, http: fake.http)
+        let summarizer = TranscriptSummarizer(model: server, budget: server.budget)
+        await #expect(throws: SummaryFailure.blocked) {
+            try await summarizer.run(.summary, lines: ["[0:01] Аня: Привет"], language: "ru")
+        }
+        #expect(fake.http.requests.isEmpty)
+        #expect(fake.server.requests.isEmpty)
+        // With its origin open, the same request goes out as a conversation's.
+        fake.http.allowedOrigins[.conversationLanguageModel] = [address.origin]
+        let text = try await summarizer.run(.summary, lines: ["[0:01] Аня: Привет"], language: "ru")
+        #expect(text == "Привет, мир.")
+        #expect(Set(fake.http.requests.map(\.purpose)) == [.conversationLanguageModel])
+        #expect(fake.server.requests.contains { $0.path == "/v1/chat/completions" })
+    }
+
     @Test func aNewerFileAndAnUnsupportedMacKeepTheNetworkClosed() async throws {
         let managed = ManagedSettings()
         #expect(VoiceNetworkPolicy.allowed(isEnabled: true, newerSchemaVersion: 2, managed: managed).isEmpty)

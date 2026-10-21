@@ -45,8 +45,11 @@ enum DebugSnapshot {
         renderSettingsWindow(in: directory)
         #if PEREKEY_VOICE
         renderVoice(in: directory)
+        renderVoiceText(in: directory)
         renderVoiceHUD(in: directory)
         renderVoiceIntro(in: directory)
+        renderModes(in: directory)
+        renderTranscripts(in: directory)
         #endif
         renderApps(in: directory)
         renderSites(in: directory)
@@ -61,12 +64,33 @@ enum DebugSnapshot {
         exit(0)
     }
 
+    /// Settings → General → «Menu bar» in its notes: the language shown twice, and not at all.
+    private static func renderMenuBarSettings(into directory: URL, sources: InputSources) {
+        let cases: [(name: String, settings: AppSettings, systemMenu: Bool?)] = [
+            ("twice", AppSettings(), true),
+            ("not-shown", { var s = AppSettings(); s.menuBarIcon = .mark; return s }(), false),
+            ("never", { var s = AppSettings(); s.menuBarVisibility = .never; return s }(), true),
+        ]
+        for item in cases {
+            let file = SettingsFile(url: directory.appending(path: "menubar-\(item.name).json"))
+            try? file.save(item.settings)
+            let store = SettingsStore(file: file)
+            let size = CGSize(width: 560, height: 360)
+            for dark in [false, true] {
+                render(MenuBarGroup(store: store, sources: sources, systemMenu: SystemInputMenu(preview: item.systemMenu))
+                    .padding(20).frame(width: size.width, height: size.height, alignment: .top), dark: dark, size: size,
+                       to: directory.appending(path: "menubar-settings-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
     /// The capsule in every state, through the same `NSImage` path as the menu bar
     /// (on a strip tinted like the bar), and the menu content in a few states.
     private static func renderMenuBar(into directory: URL) {
         let now = Date()
         let sources = InputSources()
         let code = sources.currentLayout.map(sources.indicator(of:)) ?? "EN"
+        let preview = MenuBarPreview(sources: sources)
         func set(_ build: (inout PauseSet) -> Void) -> PauseSet {
             var value = PauseSet()
             build(&value)
@@ -80,6 +104,7 @@ enum DebugSnapshot {
             ("password", false, set { $0.setPasswordField(true) }),
             ("appoff", false, set { $0.setAppOff(app: "Terminal") }),
         ]
+        renderMenuBarSettings(into: directory, sources: sources)
         for dark in [false, true] {
             let suffix = dark ? "dark" : "light"
             let bar = dark ? Color(white: 0.16) : Color(white: 0.92)
@@ -88,6 +113,14 @@ enum DebugSnapshot {
                 let view = CapsuleView(model: model, dark: dark).padding(.horizontal, 16).frame(height: 28).background(bar)
                 render(view.fixedSize(), dark: dark, size: CGSize(width: 220, height: 28),
                        to: directory.appending(path: "capsule-\(state.name)-\(suffix).png"))
+                // The other looks, drawn in the bar's foreground.
+                for style in [MenuBarIconStyle.letters, .system, .mark] {
+                    let glyph = MenuBarGlyph(style: style, model: model, icon: preview.icon)
+                        .padding(.horizontal, 16).frame(height: 28).background(bar)
+                        .foregroundStyle(dark ? Color.white : Color.black)
+                    render(glyph.fixedSize(), dark: dark, size: CGSize(width: 220, height: 28),
+                           to: directory.appending(path: "menubar-\(style.rawValue)-\(state.name)-\(suffix).png"))
+                }
             }
             let menus: [(name: String, pause: PauseSet, launch: LaunchAtLogin, autoswitch: Bool)] = [
                 ("normal", PauseSet(), LaunchAtLogin(previewStatus: .notFound), true),
@@ -160,6 +193,7 @@ enum DebugSnapshot {
                                         languages: languages, initial: section)
                 #if PEREKEY_VOICE
                 view.voiceController = voicePreview(in: directory, name: "window")
+                view.voiceModes = modesPreview()
                 #endif
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
@@ -195,6 +229,16 @@ enum DebugSnapshot {
                 .background(Color(nsColor: .windowBackgroundColor)),
                    dark: dark, size: size, to: directory.appending(path: "apps-\(dark ? "dark" : "light").png"))
         }
+        #if PEREKEY_VOICE
+        // «Вставка диктовки»: VS Code types, Terminal is automatic.
+        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "apps-voice.json"))
+        try? FileManager.default.removeItem(at: voiceFile.url)
+        try? voiceFile.save(VoiceSettings(isEnabled: true, insertion: ["com.microsoft.VSCode": .typing]))
+        let voice = VoiceSettingsStore(file: voiceFile, managed: ManagedSettings())
+        render(AppsPane(store: store, sources: sources, languages: languages, voice: voice, model: model())
+            .background(Color(nsColor: .windowBackgroundColor)),
+               dark: false, size: size, to: directory.appending(path: "apps-voice.png"))
+        #endif
         let filtered = model()
         filtered.modeFilter = .manualOnly
         render(AppsPane(store: store, sources: sources, model: filtered).background(Color(nsColor: .windowBackgroundColor)),
@@ -593,6 +637,40 @@ extension DebugSnapshot {
                                      isSupported: supported)
     }
 
+    /// Modes as a person who set up OpenAI for mail would have them.
+    static func modesPreview(managed: ManagedSettings = ManagedSettings()) -> VoiceModesStore {
+        var modes = VoiceModeSet.defaults(VoiceModesStore.localized)
+        // "Message" on Ollama, "Email" on OpenAI, as picked in the tab; "Clean copy" not set up yet.
+        for (mode, preset) in [(BuiltInMode.message, VoiceEndpoint.Preset.ollama), (.mail, .openAI)] {
+            guard let index = modes.modes.firstIndex(where: { $0.id == mode.rawValue }),
+                  let prompt = VoiceModesStore.localized(mode).prompt
+            else { continue }
+            modes.modes[index].refine = RefineConfig(endpoint: preset.rawValue, model: preset.suggestedModel, prompt: prompt)
+        }
+        modes.consent([.text, .selection, .app], endpoint: VoiceEndpoint.Preset.openAI.rawValue)
+        return VoiceModesStore(preview: modes, keyed: [VoiceEndpoint.Preset.openAI.rawValue], managed: managed)
+    }
+
+    /// The Voice modes tab, tall enough to show it whole: a local LLM mode,
+    /// a cloud one, the terminal mode, and the cloud off by a profile.
+    static func renderModes(in directory: URL) {
+        let models = voicePreview(in: directory, name: "modes")
+        let cases: [(name: String, mode: String, managed: ManagedSettings)] = [
+            ("modes-message", BuiltInMode.message.rawValue, ManagedSettings()),
+            ("modes-mail", BuiltInMode.mail.rawValue, ManagedSettings()),
+            ("modes-terminal", BuiltInMode.terminal.rawValue, ManagedSettings()),
+            ("modes-cloud-disabled", BuiltInMode.clean.rawValue, ManagedSettings(voiceCloudDisabled: true)),
+        ]
+        for item in cases {
+            for dark in [false, true] {
+                let view = ModesPane(store: modesPreview(managed: item.managed), models: models, selected: item.mode)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: CGSize(width: 624, height: 1560),
+                       to: directory.appending(path: "\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
     /// The Voice tab on its own: on, off, a profile that forbids voice or downloads, an unsupported Mac.
     static func renderVoice(in directory: URL) {
         let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-hotkeys.json")))
@@ -616,6 +694,67 @@ extension DebugSnapshot {
         }
     }
 
+    /// A text controller with a made-up dictionary and a few dictations, in files of its own.
+    static func voiceTextPreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings()) -> VoiceTextController {
+        let folder = directory.appending(path: "\(name)-history", directoryHint: .isDirectory)
+        try? FileManager.default.removeItem(at: folder)
+        let textFile = VoiceTextSettingsFile(url: directory.appending(path: "\(name)-voice-text.json"))
+        try? FileManager.default.removeItem(at: textFile.url)
+        var settings = VoiceTextSettings()
+        settings.dictionary += [DictionaryEntry(from: "ай фон", to: "iPhone"), DictionaryEntry(from: "ка эн ка", to: "KNK")]
+        try? textFile.save(settings)
+        let controller = VoiceTextController(managed: managed, textFile: textFile, historyFile: DictationHistoryFile(directory: folder))
+        var clock = Date().addingTimeInterval(-3 * 3_600)
+        let samples: [(String, String, String)] = [
+            ("Перекей отлично работает в заметках, проверь пожалуйста ещё раз.", "com.apple.Notes", "Notes"),
+            ("Let's move the review to Thursday afternoon.", "com.apple.mail", "Mail"),
+            ("Купить молоко, хлеб и сыр, а ещё забрать посылку.", "com.apple.Notes", "Notes"),
+            ("The build is green, merging now.", "com.apple.Terminal", "Terminal"),
+        ]
+        let history = DictationHistory(file: DictationHistoryFile(directory: folder), managed: managed,
+                                       settings: { controller.text.settings }, now: { clock })
+        for sample in samples {
+            clock = clock.addingTimeInterval(40 * 60)
+            history.record(DictationRecord(text: sample.0, bundleID: sample.1, appName: sample.2, duration: 4,
+                                           model: "parakeet-tdt-v3", pasted: true))
+        }
+        return VoiceTextController(managed: managed, textFile: textFile, historyFile: DictationHistoryFile(directory: folder))
+    }
+
+    /// The Text and History groups, and the menu with the recent dictations.
+    static func renderVoiceText(in directory: URL) {
+        let cases: [(name: String, managed: ManagedSettings)] = [
+            ("text", ManagedSettings()),
+            ("text-limited", ManagedSettings(voiceHistoryMaxDays: 7)),
+        ]
+        for dark in [false, true] {
+            for item in cases {
+                let controller = voiceTextPreview(in: directory, name: item.name, managed: item.managed)
+                let view = VStack(alignment: .leading, spacing: 16) {
+                    VoiceTextGroup(controller: controller)
+                    VoiceHistoryGroup(controller: controller)
+                }
+                .padding(24)
+                .frame(width: 620, height: 660, alignment: .top)
+                .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: CGSize(width: 620, height: 660),
+                       to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+            let controller = voiceTextPreview(in: directory, name: "menu")
+            let sources = InputSources()
+            let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-menu.json")))
+            let pause = PauseState(frozen: PauseSet(), now: Date())
+            let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+            var actions = MenuActions()
+            actions.dictation = controller.menu(pasteAgain: { _ in })
+            let menu = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+                                   appModes: appModes, recents: RecentCorrections(), actions: actions)
+                .background(Color(nsColor: .windowBackgroundColor))
+            render(menu, dark: dark, size: CGSize(width: 318, height: 700),
+                   to: directory.appending(path: "voice-menu-\(dark ? "dark" : "light").png"))
+        }
+    }
+
     /// The dictation HUD in every state, over a soft backdrop.
     static func renderVoiceHUD(in directory: URL) {
         typealias Recording = DictationHUDState.Recording
@@ -636,6 +775,7 @@ extension DebugSnapshot {
             ("not-pasted", .notPasted(.targetChanged), false, false),
             ("not-pasted-contrast", .notPasted(.targetChanged), false, true),
             ("not-pasted-timeout", .notPasted(.timedOut), false, false),
+            ("not-pasted-interrupted", .notPasted(.interrupted), false, false),
             ("password-field", .notPasted(.secureField), false, false),
             ("secure-input", .notPasted(.secureInput(owner: "Terminal")), false, false),
             ("secure-input-unknown", .notPasted(.secureInput(owner: nil)), false, false),
@@ -647,6 +787,14 @@ extension DebugSnapshot {
             ("mic-error", .failed(.microphone("x")), false, false),
             ("model", .failed(.model("x")), false, false),
             ("recognition", .failed(.recognition("x")), false, false),
+            ("recording-mode-cloud", .recording(Recording(seconds: 4, level: 0.5, preparingModel: false,
+                                                          mode: "Письмо", cloudHost: "api.openai.com")), false, false),
+            ("refining", .refining(.init(mode: "Сообщение", endpoint: "Ollama", isCloud: false)), false, false),
+            ("refining-cloud", .refining(.init(mode: "Письмо", endpoint: "OpenAI", isCloud: true)), false, false),
+            ("pasted-as-said", .pastedFallback(.answered), false, false),
+            ("pasted-as-said-escape", .pastedFallback(.escape), false, false),
+            ("pasted-needs-consent", .pastedFallback(.needsConsent(host: "api.openai.com")), false, false),
+            ("copied", .copied, false, false),
         ]
         for dark in [false, true] {
             for item in states {
@@ -694,6 +842,196 @@ extension DebugSnapshot {
             onboarding.voiceIntro = step
             render(OnboardingView(model: onboarding, heroPhase: 4.5), dark: dark, size: size,
                    to: directory.appending(path: "voice-onboarding-step-\(tag).png"))
+        }
+    }
+}
+#endif
+
+#if PEREKEY_VOICE
+extension DebugSnapshot {
+    /// A file queue that says fixed phases and queues nothing.
+    private final class PreviewQueue: FileTranscribing {
+        let snapshot: [UUID: TranscriptionPhase]
+        init(_ snapshot: [UUID: TranscriptionPhase]) { self.snapshot = snapshot }
+        func enqueue(_ job: TranscriptionJob) async {}
+        func cancel(_ recording: UUID) async {}
+        func phases() -> AsyncStream<[UUID: TranscriptionPhase]> {
+            let snapshot = snapshot
+            return AsyncStream { continuation in
+                continuation.yield(snapshot)
+                continuation.finish()
+            }
+        }
+        var isBusy: Bool { false }
+    }
+
+    /// Ids of the made-up recordings by what they show.
+    struct TranscriptsFixture {
+        var controller: TranscriptsController
+        var interview: UUID
+        var zoom: UUID
+        var running: UUID
+        var failed: UUID
+        var interrupted: UUID
+        var expired: UUID
+    }
+
+    /// Recordings in every status of the list, in a folder of their own, with a queue that never runs.
+    static func transcriptsPreview(in directory: URL, name: String, empty: Bool = false,
+                                   managed: ManagedSettings = ManagedSettings()) -> TranscriptsFixture
+    {
+        let root = directory.appending(path: "\(name)-recordings", directoryHint: .isDirectory)
+        try? FileManager.default.removeItem(at: root)
+        let folder = RecordingsFolder(root: root)
+        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
+        try? FileManager.default.removeItem(at: voiceFile.url)
+        try? voiceFile.save(VoiceSettings(isEnabled: true))
+        let voice = VoiceSettingsStore(file: voiceFile, managed: managed)
+        let now = Date()
+        func ago(_ hours: Double) -> Date { now.addingTimeInterval(-hours * 3_600) }
+        func file(_ name: String, hours: Double, duration: Double) -> RecordingMeta {
+            var meta = RecordingMeta.file(FileReference(path: "/Users/anna/Movies/\(name)"), createdAt: ago(hours))
+            meta.duration = duration
+            return meta
+        }
+        func call(_ app: String, hours: Double, duration: Double, state: RecordingMeta.State = .done) -> RecordingMeta {
+            var meta = RecordingMeta.call(source: .app(bundleID: "us.zoom.xos", name: app), startHostTime: 1,
+                                          createdAt: ago(hours), audioRetention: .month)
+            meta.state = state
+            meta.duration = duration
+            meta.segments = [
+                RecordingMeta.Segment(track: .mic, file: "mic-0001.aac", startHostTime: 1, startOffset: 0,
+                                      frames: Int64(duration * 16_000), closed: state != .recording),
+                RecordingMeta.Segment(track: .sys, file: "sys-0001.aac", startHostTime: 1, startOffset: 0,
+                                      frames: Int64(duration * 16_000), closed: state != .recording),
+            ]
+            return meta
+        }
+        func phrase(_ start: Double, _ text: String, _ speaker: String?) -> TimedSegment {
+            TimedSegment(start: start, end: start + 5 + Double(text.count) / 25, text: text, speaker: speaker)
+        }
+        let interviewText = TranscriptDocument(model: "parakeet-tdt-v3", engine: "parakeet", language: "ru", segments: [
+            phrase(1, "Давайте начнём. Расскажите, как вы пришли в проект?", "speaker-1"),
+            phrase(9, "Я пришла полгода назад, когда команде нужен был человек на отчёты.", "speaker-2"),
+            phrase(21, "То есть сначала это были только отчёты, а потом стало больше?", "speaker-1"),
+            phrase(30, "Да. Сначала отчёт раз в неделю, потом ежедневный, потом ещё и разбор ошибок.", "speaker-2"),
+            phrase(44, "Звучит как много работы. Что помогало не выгореть?", "speaker-1"),
+            phrase(53, "Честно, договорённость, что отчёт не пишется после шести вечера.", "speaker-2"),
+            phrase(66, "Хорошее правило. А как команда к нему отнеслась?", "speaker-1"),
+            phrase(75, "Сначала удивились, потом сами стали так делать. Отчёт стал короче.", "speaker-2"),
+            phrase(88, "И последнее: что бы вы посоветовали новичку?", "speaker-1"),
+            phrase(96, "Спрашивать сразу. Никто не ждёт, что вы всё знаете в первую неделю.", "speaker-2"),
+        ])
+        var interviewDoc = interviewText
+        interviewDoc.rename(speaker: "speaker-2", to: "Аня")
+        let zoomDoc = TranscriptDocument(model: "whisper-large-v3-turbo", engine: "whisper", language: "ru", segments: [
+            phrase(2, "Всем привет, слышно меня?", "me"),
+            phrase(8, "Да, слышим хорошо. Начнём с итогов недели.", "others"),
+            phrase(17, "По релизу всё готово, ждём только подпись от юристов.", "me"),
+            phrase(27, "Хорошо. Тогда в четверг выкатываем, если нет возражений.", "others"),
+            phrase(38, "Возражений нет. Отчёт по тестам я отправлю до пятницы.", "me"),
+        ])
+        var items: [(UUID, RecordingMeta, TranscriptDocument?)] = []
+        let interview = UUID(), zoom = UUID(), running = UUID(), failed = UUID(), interrupted = UUID(), expired = UUID()
+        let queued = UUID(), preparing = UUID(), waiting = UUID(), diarizing = UUID()
+        var expiredMeta = call("Zoom", hours: 150, duration: 1_260)
+        expiredMeta.audioRemovedAt = ago(5)
+        if !empty {
+            items = [
+                (interview, file("Интервью с Аней.m4a", hours: 2, duration: 1_245), interviewDoc),
+                (zoom, call("Zoom", hours: 26, duration: 2_460), zoomDoc),
+                (running, file("Лекция по акустике.mp4", hours: 0.2, duration: 5_420), nil),
+                (queued, file("Подкаст, выпуск 14.mp3", hours: 0.3, duration: 3_100), nil),
+                (preparing, file("Планёрка.m4a", hours: 0.4, duration: 1_800), nil),
+                (waiting, file("Звонок маме.m4a", hours: 0.5, duration: 640), nil),
+                (diarizing, file("Круглый стол.wav", hours: 0.6, duration: 4_380), nil),
+                (failed, file("Запись с диктофона.amr", hours: 30, duration: 90), nil),
+                (interrupted, call("Telegram", hours: 52, duration: 780, state: .recording), nil),
+                (expired, expiredMeta, zoomDoc),
+            ]
+        }
+        for (id, meta, document) in items {
+            _ = try? folder.create(meta, id: id, excludedFromBackup: true)
+            if let document { try? folder.updateTranscript(id) { $0 = document } }
+        }
+        let queue = PreviewQueue([
+            running: .transcribing(0.34), queued: .queued, preparing: .preparingModel,
+            waiting: .waitingForDictation(0.58), diarizing: .diarizing(0.8), failed: .failed(.unreadable),
+        ])
+        let controller = TranscriptsController(folder: folder, queue: queue, voice: voice, models: {
+            ModelCatalog.recognizers.prefix(2).map { (id: $0.id, title: ModelNames.display($0)) }
+        })
+        // «Конспект» and «Протокол встречи» on a local model of the modes; the call has its minutes.
+        var modes = VoiceModeSet.defaults(VoiceModesStore.localized)
+        if let clean = modes.modes.firstIndex(where: { $0.id == BuiltInMode.clean.rawValue }) {
+            modes.modes[clean].refine = RefineConfig(endpoint: VoiceEndpoint.Preset.ollama.rawValue, model: "qwen2.5:7b",
+                                                     prompt: "")
+        }
+        controller.summaries = TranscriptSummaries(modes: VoiceModesStore(preview: modes, managed: managed), folder: folder)
+        if !empty {
+            try? folder.saveNote("""
+            # Планёрка: итоги недели
+
+            ## Участники
+            - Я
+            - Собеседники
+
+            ## Решения
+            - Релиз выкатываем в **четверг**, если юристы подпишут до среды.
+
+            ## Задачи
+            - Я — отчёт по тестам до пятницы.
+            - Собеседники — получить подпись юристов.
+
+            ## Открытые вопросы
+            - Кто дежурит в выходные после релиза?
+            """, .minutes, for: zoom, revision: folder.transcriptRevision(zoom))
+        }
+        return TranscriptsFixture(controller: controller, interview: interview, zoom: zoom, running: running,
+                                  failed: failed, interrupted: interrupted, expired: expired)
+    }
+
+    /// The «Расшифровки» window with a recording of each kind chosen, and the Recordings group of the Voice tab.
+    static func renderTranscripts(in directory: URL) {
+        let size = CGSize(width: 920, height: 620)
+        func shot(_ name: String, empty: Bool = false, query: String = "",
+                  pane: TranscriptsController.Pane = .transcript, pick: (TranscriptsFixture) -> UUID?)
+        {
+            for dark in [false, true] {
+                let fixture = transcriptsPreview(in: directory, name: "t-\(name)", empty: empty)
+                fixture.controller.reload()
+                fixture.controller.selection = pick(fixture)
+                fixture.controller.query = query
+                fixture.controller.pane = pane
+                let view = TranscriptsView(controller: fixture.controller)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: size, to: directory.appending(path: "transcripts-\(name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+        shot("interview", query: "отчёт") { $0.interview }
+        shot("call") { $0.zoom }
+        shot("running") { $0.running }
+        shot("interrupted") { $0.interrupted }
+        shot("failed") { $0.failed }
+        shot("audio-removed") { $0.expired }
+        shot("minutes", pane: .note(.minutes)) { $0.zoom }
+        shot("summary-offer", pane: .note(.summary)) { $0.interview }
+        shot("empty", empty: true) { _ in nil }
+        let cases: [(name: String, managed: ManagedSettings)] = [
+            ("records", ManagedSettings()),
+            ("records-managed", ManagedSettings(callAudioKeepDisabled: true, transcriptsBackupDisabled: true)),
+        ]
+        for dark in [false, true] {
+            for item in cases {
+                let fixture = transcriptsPreview(in: directory, name: "g-\(item.name)", managed: item.managed)
+                fixture.controller.reload()
+                let view = VStack(alignment: .leading, spacing: 16) { RecordingsGroup(controller: fixture.controller) }
+                    .padding(24)
+                    .frame(width: 620, height: 420, alignment: .top)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                render(view, dark: dark, size: CGSize(width: 620, height: 420),
+                       to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
         }
     }
 }

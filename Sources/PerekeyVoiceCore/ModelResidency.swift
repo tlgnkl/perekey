@@ -27,7 +27,7 @@ public actor ModelResidency {
 
     /// `unloadDelay` nil keeps the model until `unload`.
     public init(_ model: any VoiceModel, unloadDelay: Duration? = .seconds(3600),
-                sleep: @escaping Sleep = { try await Task.sleep(for: $0) })
+                sleep: @escaping Sleep = taskSleep)
     {
         self.model = model
         self.unloadDelay = unloadDelay

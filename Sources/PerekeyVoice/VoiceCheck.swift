@@ -14,7 +14,8 @@ import os
 /// `open` matters: a binary started from a shell gets the shell's permissions.
 /// Each check prints its lines and writes them to a report file
 /// (`--report <path>`, by default ~/Library/Logs/Perekey/voice-check-<name>.txt).
-/// Exit status: 0 passed, 1 failed, 2 bad arguments, 3 no microphone access.
+/// Exit status: 0 passed, 1 failed, 2 bad arguments, 3 no access (microphone,
+/// system audio or screen recording).
 public struct VoiceCheck: Sendable {
     /// A check: its name after `--voice-check`, the options it takes, and the run.
     public struct Command: Sendable {
@@ -33,7 +34,7 @@ public struct VoiceCheck: Sendable {
     }
 
     /// The checks. A new one adds itself here.
-    public static let commands: [Command] = [.devices, .mic]
+    public static let commands: [Command] = [.devices, .mic] + Command.systemAudio + Command.call
 
     public let command: Command?
     public let options: VoiceCheckOptions
@@ -153,7 +154,7 @@ extension VoiceCheck.Command {
     }
 }
 
-private struct MicCheck {
+struct MicCheck {
     let options: VoiceCheckOptions
     let report: VoiceCheckReport
 
@@ -178,7 +179,7 @@ private struct MicCheck {
         return passed ? 0 : 1
     }
 
-    private func access() async -> Bool {
+    func access() async -> Bool {
         let waitSeconds = options.int("wait-access", default: 30)
         switch MicrophoneAccess.status {
         case .authorized:
@@ -384,7 +385,7 @@ private struct MicCheck {
 }
 
 /// RMS and peak of what a check hears.
-private final class LevelMeter: AudioSink, @unchecked Sendable {
+final class LevelMeter: AudioSink, @unchecked Sendable {
     struct Window {
         var count = 0
         var sumSquares = 0.0

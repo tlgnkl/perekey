@@ -85,8 +85,9 @@ public final class TextProbe: Sendable {
     private static func checkBeforeCaret(expected: String) -> CaretCheck.Verdict {
         guard let element = focusedElement() else { return .unavailable }
         // Chromium and Electron update their AX text after the keystroke has
-        // already been typed, so a correct word can read as a mismatch there.
-        // A false cancel breaks the shortcut; skip the check in those apps.
+        // already been typed, so a correct word can read as a mismatch there;
+        // Telegram Desktop always reads as one. A false cancel breaks the
+        // shortcut; skip the check in those apps.
         var pid: pid_t = 0
         if AXUIElementGetPid(element, &pid) == .success, LaggingAXApps.contains(pid: pid) {
             return .unavailable
@@ -115,7 +116,7 @@ public final class TextProbe: Sendable {
 
     /// `kAXStringForRangeParameterizedAttribute`, so a long document is not
     /// copied whole; `kAXValueAttribute` where the app lacks it.
-    private static func string(of element: AXUIElement, in range: CFRange) -> String? {
+    static func string(of element: AXUIElement, in range: CFRange) -> String? {
         var range = range
         guard let parameter = AXValueCreate(.cfRange, &range) else { return nil }
         var value: CFTypeRef?
@@ -178,9 +179,10 @@ public enum CaretCheck {
     }
 }
 
-/// Apps whose AX text lags behind typing: Chromium-based browsers and
-/// Electron apps, found by the framework inside the app bundle. Cached per
-/// process, because the check runs before every retype.
+/// Apps whose AX text does not match what was typed: Chromium-based browsers
+/// and Electron apps, found by the framework inside the app bundle, and the
+/// apps in `bundleIDs`. Cached per process, because the check runs before
+/// every retype.
 enum LaggingAXApps {
     private static let cache = OSAllocatedUnfairLock<[pid_t: Bool]>(initialState: [:])
 
@@ -191,6 +193,12 @@ enum LaggingAXApps {
         "Opera Framework.framework", "Chromium Framework.framework",
     ]
 
+    /// Apps with Qt linked in statically, so no framework gives them away.
+    /// Telegram Desktop (Telegram Lite in the App Store, and the build from
+    /// telegram.org) answers every check with a mismatch: no retype there
+    /// ever went through.
+    private static let bundleIDs: Set<String> = ["org.telegram.desktop", "com.tdesktop.Telegram"]
+
     static func contains(pid: pid_t) -> Bool {
         if let known = cache.withLock({ $0[pid] }) { return known }
         let lagging = isLagging(bundleURL: NSRunningApplication(processIdentifier: pid)?.bundleURL)
@@ -200,9 +208,14 @@ enum LaggingAXApps {
 
     static func isLagging(bundleURL: URL?) -> Bool {
         guard let bundleURL else { return false }
+        if let bundleID = Bundle(url: bundleURL)?.bundleIdentifier, isLagging(bundleID: bundleID) { return true }
         let frameworksURL = bundleURL.appending(path: "Contents/Frameworks", directoryHint: .isDirectory)
         return frameworks.contains { name in
             FileManager.default.fileExists(atPath: frameworksURL.appending(path: name).path)
         }
+    }
+
+    static func isLagging(bundleID: String) -> Bool {
+        bundleIDs.contains(bundleID)
     }
 }

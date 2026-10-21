@@ -86,6 +86,7 @@ public final class UsageRecorder {
     public func recordCorrection(_ kind: Correction.Kind) { record { $0.recordCorrection(kind, at: $1) } }
     public func recordUndo() { record { $0.recordUndo(at: $1) } }
     public func recordManualRetype() { record { $0.recordManualRetype(at: $1) } }
+    public func recordDictation(words: Int) { record { $0.recordDictation(words: words, at: $1) } }
 
     /// Statistics were just switched on: bring the stored days in.
     public func enabled() {

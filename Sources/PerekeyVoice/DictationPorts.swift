@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import PerekeyVoiceCore
 
 /// Where a dictation's audio comes from: `AudioCapture` in the app, a fake
@@ -54,6 +55,13 @@ public enum DictationPasteResult: Hashable, Sendable {
     /// The app did not answer the paste in time: the text may still arrive,
     /// so it is not offered for pasting again, only for copying.
     case timedOut
+    /// Typing stopped part way: the focus moved, a key was pressed, or a new
+    /// dictation began. The start of the text may be in the old field, so it
+    /// is offered for copying only.
+    case interrupted
+    /// Typing stopped part way because another app turned Secure Input on:
+    /// as `interrupted`, and private, so it stays out of the history.
+    case interruptedBySecureInput
     /// Not pasted, for certain.
     case failed(String)
 }
@@ -68,10 +76,46 @@ public protocol DictationPaster: AnyObject {
     /// Where the caret is now: app, window, field. Taken when a dictation starts.
     func captureTarget() async -> (any Sendable)?
     func paste(_ text: String, into target: (any Sendable)?) async -> DictationPasteResult
+    /// The text on the pasteboard, for a mode that only copies.
+    func copy(_ text: String)
+    /// Return after a paste, for "Paste and Enter": only if `target` is still in front.
+    func pressReturn(in target: (any Sendable)?) async -> DictationPasteResult
+    /// The few characters before the caret in the target field: "" for an
+    /// empty field, nil when it cannot be read. For the text rules.
+    func caretContext(into target: (any Sendable)?) async -> String?
+    /// The program the target belongs to, for the history.
+    func application(of target: (any Sendable)?) -> DictationApplication?
+    /// Whether a text dictated into `target` is private: the field is a
+    /// password field, or Secure Input is on now. Asked whatever the paste
+    /// answered: the paste checks the field only after Accessibility, the
+    /// modifiers and the target, and a refusal on the way says nothing about it.
+    func privacy(of target: (any Sendable)?) -> DictationPrivacy
+}
+
+/// A program a dictation went into.
+public struct DictationApplication: Hashable, Sendable {
+    public var bundleID: String?
+    public var name: String?
+
+    public init(bundleID: String?, name: String?) {
+        self.bundleID = bundleID
+        self.name = name
+    }
 }
 
 extension DictationPaster {
     public var hasTarget: Bool { true }
+
+    public func copy(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    public func pressReturn(in _: (any Sendable)?) async -> DictationPasteResult { .pasted }
+    public func caretContext(into _: (any Sendable)?) async -> String? { nil }
+    public func application(of _: (any Sendable)?) -> DictationApplication? { nil }
+    public func privacy(of _: (any Sendable)?) -> DictationPrivacy { .normal }
 }
 
 /// The Secure Input rules of a session: no start while it is on; a stop

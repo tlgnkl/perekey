@@ -16,6 +16,8 @@ public enum EventOrigin: Hashable, Sendable {
         switch mark {
         case nil: self = .user
         case let .own(seq, last): self = .own(seq: seq, last: last)
+        // Perekey's own, of no retype: `seq` 0 is never a fence's.
+        case .typed: self = .own(seq: 0, last: false)
         case .replayed: self = .replayed
         }
     }
@@ -68,6 +70,18 @@ public struct Focus: Hashable, Sendable {
     }
 }
 
+/// How the focus `.focusChanged` reports came about.
+public enum FocusChange: Hashable, Sendable {
+    /// The caret is in another place: another app or another element, even
+    /// a field of the same kind. The word and the words before it are gone.
+    case moved
+    /// The same place, known better now: the first answer about the element
+    /// after an app switch, or the element reported already. Keys typed
+    /// meanwhile went there, so the word stays. Taken as `moved` when the app
+    /// differs from the last focus.
+    case resolved
+}
+
 /// Everything the input logic reacts to. Times are seconds of
 /// `CLOCK_UPTIME_RAW`, taken when the event reached the tap.
 ///
@@ -85,7 +99,7 @@ public enum InputEvent: Sendable {
     case click(time: Double, onHint: Bool = false)
     /// A scroll or trackpad gesture. Breaks a chord but keeps the word.
     case scroll(time: Double)
-    case focusChanged(Focus)
+    case focusChanged(Focus, FocusChange = .moved)
     /// The system switched the layout, by Perekey or by someone else.
     /// An ID that is not among the known layouts is an input method or a
     /// broken layout: Perekey does not retype then.
@@ -109,6 +123,11 @@ public enum InputEvent: Sendable {
     /// Events may have been lost: the tap was disabled, the Mac woke up, or the
     /// user session changed.
     case inputLost
+    /// Dictation started or stopped typing its text (`TypedText`). Meanwhile
+    /// the user's keys are not judged, and the first one stops the typing
+    /// (`Effect.typingInterrupted`) and is dropped, its key up too: it would
+    /// land in the middle of the text.
+    case dictationTyping(Bool)
     /// A deadline requested with `Effect.scheduleDeadline` has passed.
     case deadline(time: Double)
     /// The mode of the frontmost app. Only `.auto` switches by itself; the

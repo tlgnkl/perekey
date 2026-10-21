@@ -85,6 +85,13 @@ import Testing
         #expect(hud?.buttons == [.copy])
     }
 
+    @Test func aTypingThatStoppedOffersOnlyCopy() {
+        // The start of the text is in the old field: pasting it all again would double it.
+        let hud = present(.notPasted(.interrupted))
+        #expect(hud?.message == .interrupted)
+        #expect(hud?.buttons == [.copy])
+    }
+
     @Test func aPasswordFieldNamesItselfAndOffersNothingToDoWithTheText() {
         let hud = present(.notPasted(.secureField))
         #expect(hud?.message == .secureField)
@@ -110,7 +117,7 @@ import Testing
     }
 
     @Test func offeringPasteFollowsTheReason() {
-        let reasons: [NotPastedReason] = [.targetChanged, .noAccessibility, .timedOut, .failed("x")]
+        let reasons: [NotPastedReason] = [.targetChanged, .noAccessibility, .timedOut, .interrupted, .failed("x")]
         for reason in reasons {
             let offers = present(.notPasted(reason))?.buttons.contains(.paste)
             #expect(offers == reason.offersPaste, "\(reason)")
@@ -193,5 +200,29 @@ import Testing
     @Test func hidingAnnouncesNothing() {
         #expect(!DictationHUDPresentation.announces(nil, after: present(.pasted)))
         #expect(!DictationHUDPresentation.announces(nil, after: nil))
+    }
+
+    @Test func modesShowTheirNameAndTheCloud() throws {
+        let recording = try #require(present(.recording(.init(seconds: 2, level: 0.3, preparingModel: false,
+                                                              mode: "Письмо", cloudHost: "api.openai.com"))))
+        #expect(recording.modeName == "Письмо")
+        #expect(recording.cloud)
+        let refining = try #require(present(.refining(.init(mode: "Сообщение", endpoint: "Ollama", isCloud: false))))
+        #expect(refining.message == .refining)
+        #expect(refining.buttons == [.pasteAsSaid])
+        #expect(refining.modeName == "Сообщение")
+        #expect(refining.endpointName == "Ollama")
+        #expect(!refining.cloud)
+        #expect(refining.hidesAfter == nil)
+        #expect(present(.refining(.init(mode: "Письмо", endpoint: "OpenAI", isCloud: true)))?.cloud == true)
+    }
+
+    @Test func theRawTextSaysWhy() {
+        #expect(present(.pastedFallback(.escape))?.message == .pastedAsSaid(.escape))
+        #expect(present(.pastedFallback(.escape))?.hidesAfter == DictationHUDPresentation.Lifetime.confirmation)
+        #expect(present(.pastedFallback(.answered))?.hidesAfter == DictationHUDPresentation.Lifetime.notice)
+        #expect(present(.pastedFallback(.needsConsent(host: "api.openai.com")))?.message
+            == .pastedAsSaid(.needsConsent(host: "api.openai.com")))
+        #expect(present(.copied)?.message == .copied)
     }
 }

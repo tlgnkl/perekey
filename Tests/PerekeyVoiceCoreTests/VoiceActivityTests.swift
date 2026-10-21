@@ -95,9 +95,9 @@ struct VoiceActivityTests {
         }
     }
 
-    @Test func filesAreForLater() async {
+    @Test func engineWithoutTimingsCannotTranscribeFiles() async {
         await #expect(throws: SpeechEngineError.unsupported) {
-            try await FakeEngine().transcribe(source: .file(path: "/x.wav")) { _ in }
+            try await FakeEngine().transcribeTimed(AudioBuffer16k([0]), language: nil, prompt: nil)
         }
     }
 }

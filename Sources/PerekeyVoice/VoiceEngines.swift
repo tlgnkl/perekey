@@ -61,6 +61,22 @@ public actor FluidAudioEngine: SpeechEngine {
         return Transcript(text: result.text)
     }
 
+    /// Words from the token timings. Parakeet has no prompt and finds the
+    /// language itself, in every window.
+    public func transcribeTimed(_ audio: AudioBuffer16k, language _: String?, prompt _: String?) async throws
+        -> TimedTranscript
+    {
+        guard let manager else { throw SpeechEngineError.notPrepared }
+        var state = TdtDecoderState.make(decoderLayers: await manager.decoderLayerCount)
+        let result = try await manager.transcribe(audio.samples, decoderState: &state)
+        let words = buildWordTimings(from: result.tokenTimings ?? []).map {
+            TimedWord(start: $0.startTime, end: $0.endTime, text: " " + $0.word)
+        }
+        guard let first = words.first, let last = words.last else { return TimedTranscript(segments: []) }
+        let text = words.map(\.text).joined().trimmingCharacters(in: .whitespaces)
+        return TimedTranscript(segments: [TimedSegment(start: first.start, end: last.end, text: text, words: words)])
+    }
+
     public func unload() async {
         guard let manager else { return }
         self.manager = nil
@@ -77,6 +93,25 @@ public actor WhisperKitEngine: SpeechEngine {
     public nonisolated var addsSignOffs: Bool { true }
     private let store: VoiceModelStore
     private var kit: StoreWhisperKit?
+    /// The tokens of the prompt. WhisperKit's window (`Constants.maxTokenContext`,
+    /// 224) holds the prompt and the answer together and keeps only the last
+    /// `window / 2 - 1` prompt tokens, so a long prompt would be cut from the
+    /// front, in the middle of a term. A dictionary word list stays short:
+    /// whole terms up to this many tokens, and the rest of the window is for the text.
+    public static let promptTokenLimit = min(Constants.maxTokenContext / 2 - 1, 48)
+
+    /// Whole terms ("A, B, C") as token ids, at most `limit`; a term that does not fit ends the list.
+    public static func promptTokens(_ prompt: String, limit: Int = promptTokenLimit, specialTokenBegin: Int,
+                             encode: (String) -> [Int]) -> [Int]
+    {
+        var result: [Int] = []
+        for (index, term) in prompt.components(separatedBy: ", ").enumerated() where !term.isEmpty {
+            let tokens = encode((index == 0 ? " " : ", ") + term).filter { $0 < specialTokenBegin }
+            guard result.count + tokens.count <= limit else { break }
+            result += tokens
+        }
+        return result
+    }
 
     public init(id: String = "whisper-large-v3-turbo-632mb", store: VoiceModelStore) {
         self.id = id
@@ -106,12 +141,48 @@ public actor WhisperKitEngine: SpeechEngine {
     }
 
     public func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {
+        try await transcribe(audio, prompt: nil)
+    }
+
+    /// The prompt is the user's dictionary words, as Whisper reads text that
+    /// came before: it spells them so. Special tokens never go in.
+    public func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript {
         guard let kit else { throw SpeechEngineError.notPrepared }
         let options = DecodingOptions(
-            task: .transcribe, language: nil, detectLanguage: true, skipSpecialTokens: true, withoutTimestamps: true)
+            task: .transcribe, language: nil, detectLanguage: true, skipSpecialTokens: true, withoutTimestamps: true,
+            promptTokens: promptTokens(prompt, kit: kit))
         let results = try await kit.transcribe(audioArray: audio.samples, decodeOptions: options)
         let text = results.map(\.text).joined(separator: " ")
         return Transcript(text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Words with their timings. The language is given once the track's first
+    /// window found it: detected in every window, it switches (an English
+    /// meeting came out German in stage 0).
+    public func transcribeTimed(_ audio: AudioBuffer16k, language: String?, prompt: String?) async throws
+        -> TimedTranscript
+    {
+        guard let kit else { throw SpeechEngineError.notPrepared }
+        let options = DecodingOptions(
+            task: .transcribe, language: language, detectLanguage: language == nil, skipSpecialTokens: true,
+            withoutTimestamps: false, wordTimestamps: true, promptTokens: promptTokens(prompt, kit: kit))
+        let results = try await kit.transcribe(audioArray: audio.samples, decodeOptions: options)
+        var segments: [TimedSegment] = []
+        for segment in results.flatMap(\.segments) {
+            let words = (segment.words ?? []).map { TimedWord(start: Double($0.start), end: Double($0.end), text: $0.word) }
+            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            segments.append(TimedSegment(start: Double(segment.start), end: Double(segment.end), text: text,
+                                         words: words.isEmpty ? nil : words))
+        }
+        return TimedTranscript(segments: segments, language: language ?? results.first?.language)
+    }
+
+    private func promptTokens(_ prompt: String?, kit: StoreWhisperKit) -> [Int]? {
+        guard let prompt, !prompt.isEmpty, let tokenizer = kit.tokenizer else { return nil }
+        let tokens = Self.promptTokens(
+            prompt, specialTokenBegin: tokenizer.specialTokens.specialTokenBegin, encode: { tokenizer.encode(text: $0) })
+        return tokens.isEmpty ? nil : tokens
     }
 
     public func unload() async {

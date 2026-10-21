@@ -57,6 +57,18 @@ import Testing
         #expect(!UpdateFeed.isConfigured(feedURL: nil, publicKey: key))
     }
 
+    /// A local 0.2.0 has build 0, the 0.1.1 release build 3: Sparkle alone offers 0.1.1.
+    @Test func olderVersionIsNoUpdate() {
+        #expect(UpdateFeed.isOlder("0.1.1", than: "0.2.0"))
+        #expect(UpdateFeed.isOlder("0.9.0", than: "0.10.0"))
+        #expect(UpdateFeed.isOlder("0.2", than: "0.2.1"))
+        #expect(!UpdateFeed.isOlder("0.2.0", than: "0.2"))
+        #expect(!UpdateFeed.isOlder("0.2.0", than: "0.2.0"))
+        #expect(!UpdateFeed.isOlder("0.2.1", than: "0.2.0"))
+        #expect(!UpdateFeed.isOlder("0.1.1", than: "0.2.0-dev"))
+        #expect(!UpdateFeed.isOlder("", than: "0.2.0"))
+    }
+
     @Test func updatesAreOnByDefaultAndSurviveOldFiles() throws {
         #expect(AppSettings().checkForUpdates)
         let old = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"autoswitch":true}"#.utf8))

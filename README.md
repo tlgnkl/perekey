@@ -5,8 +5,8 @@
 <h1 align="center">Perekey</h1>
 
 <p align="center">
-  Free and open-source automatic keyboard layout switcher for macOS.<br>
-  Typed <code>ghbdtn</code> instead of <code>привет</code>? Perekey fixes it as you type, or when you press Option.
+  Free and open-source automatic keyboard layout switcher for macOS, with voice input.<br>
+  Typed <code>ghbdtn</code> instead of <code>привет</code>? Perekey fixes it as you type, or when you press Option. Or say it: the text lands at the cursor.
 </p>
 
 <p align="center">
@@ -44,7 +44,9 @@
 4. Allow Accessibility and Input Monitoring when Perekey asks. Without them it
    cannot see keystrokes or replace a word.
 
-Needs macOS 14 or later, on Apple Silicon or Intel.
+Needs macOS 14 or later, on Apple Silicon or Intel. Voice input, transcripts
+and call recording need Apple Silicon and macOS 15 or later; on any other Mac
+Perekey switches layouts as before and the Voice tab says why voice is off.
 
 Or with Homebrew:
 
@@ -83,9 +85,16 @@ comes with a `.sha256` file:
 - **Never in passwords.** Password fields, Secure Input, password-like strings
   and captcha-like random strings are left alone.
 - **Extras.** Change case, transliterate, paste without formatting, sounds.
-- **Private.** Typed text is never saved. Only your settings and word lists
-  are kept, on this Mac (see "What is stored"). The only network request is the
-  update check, and it can be turned off (see below).
+- **Voice input.** Tap the right Option key, say a phrase, tap again, and the
+  text lands at the cursor, in any app. Russian, English and Ukrainian work in
+  one phrase. See "Voice input" below.
+- **Transcripts and call recording.** Turn an audio or video file into text
+  with timestamps and speakers, or record a call (your microphone and the
+  sound of an app, as two tracks). See "Transcripts and calls" below.
+- **Private.** Typed text is never saved. Speech models run on your Mac. The
+  network is used to check for updates, and for what you start yourself:
+  downloading a speech model and sending text or sound to a server you set up.
+  Nothing is sent before that (see "Network").
 
 <p align="center">
   <picture>
@@ -100,6 +109,59 @@ comes with a `.sha256` file:
     <img src="docs/images/hint-learned-light.png" width="384" alt="Hint after an undo: Remembered “дедлайн”, with a Forget button">
   </picture>
 </p>
+
+## Voice input
+
+Needs Apple Silicon and macOS 15 or later. Turn it on in Settings → Voice; the
+first launch after the update asks first.
+
+- **How.** Tap the right Option key, speak, tap again. Retyping moves to the
+  left Option, or pick another key for voice and keep Option as it was. A
+  shortcut with a modifier, such as ⌥Space, also works as hold-to-talk.
+- **Models.** Parakeet (Russian, Ukrainian, English and 22 more European
+  languages) and Whisper (99 languages, Belarusian included). They are not in
+  the app: Settings → Voice has a Download button, and nothing is fetched
+  before you press it. They run on your Mac, so with a local model voice
+  makes no network requests.
+- **Text.** Filler words go, and a dictionary of your names and terms helps
+  the recognizer. Recent dictations are kept for 7 days (shorter, or off, in
+  Settings), and the audio is kept only if you tick “Keep the audio of
+  dictations”.
+- **Modes.** A mode decides what happens to the text after recognition: as
+  said, a clean draft, a short message, an email, a terminal mode that adds
+  nothing and never presses Enter, a translation into English, or your own.
+  Perekey picks the mode by the site, then by the app.
+- **Terminals.** In a terminal the text is typed instead of pasted, so a tool
+  such as Claude Code shows a long dictation in full; Settings → Apps sets
+  paste or typing per app.
+- **Cloud, only by your key.** A mode can send the text to an LLM (OpenAI,
+  Groq, Ollama, LM Studio, any OpenAI-compatible server), and speech
+  recognition can run on OpenAI or Groq. All of it is off until you add the
+  address and key. The key stays in the Keychain, and Perekey asks before the
+  first request to each server.
+- **Where it keeps quiet.** In password fields and while macOS hides the keys
+  (Secure Input), voice does not listen.
+
+## Transcripts and calls
+
+- **Transcripts window.** Drop an audio or video file in. Perekey transcribes
+  it on this Mac with timestamps and, if you ask, speakers. Click a phrase to
+  hear it, search inside the text, and export to TXT, Markdown, SRT, VTT or
+  JSON.
+- **Summary and meeting minutes.** A finished transcript becomes a summary or
+  meeting minutes. By default a language model on this Mac writes them (Ollama
+  or LM Studio). A cloud model is used only if you pick it, and Perekey first
+  asks to send the transcript: it holds the other people’s words too.
+- **Record a call.** From the menu. Your microphone is “Me”; the sound of one
+  app, or of the whole Mac, is “Others”. Each is a separate track, so the
+  transcript says who spoke. A crash, or a switch to headphones, does not stop
+  the recording. In many countries recording a conversation needs the consent
+  of the people in it: warn them that you are recording.
+- **Permissions.** Microphone, and “System Audio Recording” in System Settings →
+  Privacy & Security for the other side of a call. Perekey asks the first time.
+- **What stays.** Recordings and transcripts stay on this Mac until you delete
+  them. Call audio is kept always (the default), for 30 days, or deleted after
+  transcription. They are excluded from Time Machine unless you turn that on.
 
 ## What is stored
 
@@ -116,11 +178,23 @@ keeps three files in `~/Library/Application Support/Perekey/`:
 
 Settings → Privacy erases the counts.
 
+Voice adds its own files in the same folder: dictation history (7 days by
+default, can be off), your dictionary and modes, and, if you use them,
+recordings and transcripts. API keys for a cloud mode live in the Keychain,
+not in a file. The speech models are in the same folder too, and Settings →
+Voice deletes them.
+
 ## Network
 
-Perekey talks to one address, and only to check for updates:
+Perekey checks for updates at one address:
 
     https://tlgnkl.github.io/perekey/appcast.xml
+
+Voice adds two more reasons for the network, and both start with you: pressing
+Download on a speech model (`huggingface.co` and its download servers), and
+using a mode or recognition on a server you set up (the address you typed;
+`localhost` and your local network for Ollama and LM Studio). With voice off, or
+with local models only, nothing but the update check leaves your Mac.
 
 - **What is sent:** a plain HTTP GET of that file, at most once a day, with
   Sparkle's user agent (`Perekey/<version> Sparkle/<version>`). No query
@@ -134,10 +208,12 @@ Perekey talks to one address, and only to check for updates:
   automatically". Perekey then makes no network requests unless you click
   "Check Now".
 - **Organizations:** a configuration profile with `UpdatesDisabled = true`
-  forbids even manual checks, and Perekey makes no network requests at all. See
+  forbids even manual checks. Together with `VoiceDisabled`, or with
+  `VoiceCloudDisabled` and `VoiceModelDownloadsDisabled`, Perekey makes no
+  network requests at all. See
   [docs/managed-preferences.md](docs/managed-preferences.md) (in Russian).
 
-To verify, allow only this host in Little Snitch or LuLu.
+To verify, allow only these hosts in Little Snitch or LuLu and watch the rest.
 
 ## Automation
 
@@ -166,9 +242,40 @@ these does nothing.
 
   Starting Perekey this way launches it if it is not running.
 
+## Acknowledgements
+
+Voice input stands on open models and libraries. The models run on your Mac.
+
+- **Speech recognition.** NVIDIA Parakeet TDT 0.6B v3 (NVIDIA) and Parakeet Ultra (a
+  post-training of it by Moondream), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
+  converted to Core ML by Fluid Inference. The converted files are modified.
+- **Whisper.** OpenAI Whisper large-v3 turbo, MIT License, as Core ML files from
+  [argmaxinc/whisperkit-coreml](https://huggingface.co/argmaxinc/whisperkit-coreml);
+  the tokenizer files come from [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3)
+  (Apache License 2.0).
+- **Voice activity.** Silero VAD, MIT License, converted to Core ML by Fluid
+  Inference.
+- **Speakers.** Speaker diarization uses the offline pipeline of
+  [FluidAudio](https://github.com/FluidInference/FluidAudio) with models from
+  [FluidInference/speaker-diarization-coreml](https://huggingface.co/FluidInference/speaker-diarization-coreml)
+  ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)): pyannote
+  segmentation-community-1 (pyannote.audio), WeSpeaker ResNet34 embeddings
+  (WeSpeaker), VBx clustering and PLDA (BUT Speech@FIT), converted to Core ML
+  and changed by Fluid Inference.
+- **Libraries.** [FluidAudio](https://github.com/FluidInference/FluidAudio)
+  (Apache License 2.0), with fastcluster (BSD 2-Clause, Daniel Müllner and
+  Google) and a Japanese text frontend ported from Misaki (Apache License 2.0),
+  cutlet and Convert-Numbers-to-Japanese (MIT);
+  [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (MIT License),
+  with parts derived from swift-transformers by Hugging Face (Apache License 2.0).
+- **Updates.** [Sparkle](https://sparkle-project.org) (MIT License), with
+  bsdiff by Colin Percival, sais-lite by Yuta Mori, Ed25519 by Orson Peters and
+  SUSignatureVerifier by Mark Hamlin; their terms are in Sparkle's LICENSE file.
+  The same list is in Perekey → About.
+
 ## Build from source
 
-Runs on macOS 14+. Building needs the macOS 26 SDK and Swift 6.2+ (Xcode 26 or
+Runs on macOS 14+ (voice: Apple Silicon and macOS 15+). Building needs the macOS 26 SDK and Swift 6.2+ (Xcode 26 or
 its Command Line Tools): the app uses Liquid Glass where available.
 
 ```sh
@@ -180,6 +287,10 @@ scripts/bundle.sh     # build and sign .build/app/Perekey.app
 # Debug builds render the settings panes to PNG without a screen:
 PEREKEY_SNAPSHOT=/tmp/shots .build/debug/Perekey
 ```
+
+Releases are built with voice input: `PEREKEY_VOICE=1 scripts/bundle.sh`
+builds the same app in `.build/voice` (`Package.swift` explains the flag). A
+build without the flag has no voice, no FluidAudio and no WhisperKit.
 
 Without `dev-cert.sh` the app is signed ad hoc, and macOS forgets the
 Accessibility permission after every rebuild.

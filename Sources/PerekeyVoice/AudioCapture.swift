@@ -97,6 +97,8 @@ public actor AudioCapture {
     /// microphone profile give the first buffers only after 1–2 s.
     private let firstBlockTimeout: Duration
     private var watchdog: Task<Void, Never>?
+    /// The watchdog's wait. Tests move its time themselves.
+    private let sleep: @Sendable (Duration) async throws -> Void
     /// The block count when a stall last restarted the engine: no block since
     /// then means the new engine stalled too.
     private var blocksAtStall: Int?
@@ -111,11 +113,13 @@ public actor AudioCapture {
     }
 
     init(input: any AudioInput, preferredUID: String? = nil, stallTimeout: Duration = .milliseconds(1500),
-         firstBlockTimeout: Duration = .seconds(4)) {
+         firstBlockTimeout: Duration = .seconds(4),
+         sleep: @escaping @Sendable (Duration) async throws -> Void = taskSleep) {
         self.input = input
         self.preferredUID = preferredUID
         self.stallTimeout = stallTimeout
         self.firstBlockTimeout = firstBlockTimeout
+        self.sleep = sleep
     }
 
     /// Adds a subscriber and starts the microphone if it is the first. Throws,
@@ -151,10 +155,30 @@ public actor AudioCapture {
 
     public var subscriberCount: Int { sinks.count }
 
+    /// While a call is recorded, the microphone of the settings does not
+    /// switch: a choice made meanwhile applies once the last hold ends.
+    private var holds = 0
+    private var heldChoice: String??
+
+    public func holdMicrophone() {
+        holds += 1
+    }
+
+    public func releaseMicrophone() {
+        holds = max(0, holds - 1)
+        guard holds == 0, let choice = heldChoice else { return }
+        heldChoice = nil
+        selectMicrophone(uid: choice)
+    }
+
     /// Chooses the microphone by UID, nil for the system one. While capture
     /// runs, it switches at once and subscribers see `.deviceChanged`; callers
     /// that apply settings only after "Stop" call this then.
     public func selectMicrophone(uid: String?) {
+        if holds > 0 {
+            heldChoice = .some(uid)
+            return
+        }
         guard uid != preferredUID else { return }
         preferredUID = uid
         if isRunning {
@@ -209,11 +233,12 @@ public actor AudioCapture {
         let timeout = stallTimeout
         let firstTimeout = firstBlockTimeout
         let sinks = self.sinks
+        let sleep = self.sleep
         watchdog = Task { [weak self] in
             var seen = sinks.blockCount
             var heard = false
             while !Task.isCancelled {
-                try? await Task.sleep(for: heard ? timeout : firstTimeout)
+                try? await sleep(heard ? timeout : firstTimeout)
                 let blocks = sinks.blockCount
                 if blocks != seen {
                     seen = blocks

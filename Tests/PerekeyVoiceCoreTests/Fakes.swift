@@ -122,11 +122,56 @@ final class VirtualClock: Sendable {
     }
 }
 
-/// Waits until `condition` holds, up to two seconds.
+/// Waits until `condition` holds. It counts polls, not wall time: when other
+/// tests keep the pool busy, the polls slow down with the work they wait for.
+/// At least 20 s on an idle machine before it gives up.
 func eventually(_ condition: @Sendable () async -> Bool) async -> Bool {
-    for _ in 0..<400 {
+    for _ in 0..<2_000 {
         if await condition() { return true }
-        try? await Task.sleep(for: .milliseconds(5))
+        try? await Task.sleep(for: .milliseconds(10))
     }
     return await condition()
+}
+
+/// A file queue that only records what it is told, and says the phases it is given.
+final class FakeFileQueue: FileTranscribing {
+    private struct State {
+        var jobs: [TranscriptionJob] = []
+        var cancelled: [UUID] = []
+        var phases: [UUID: TranscriptionPhase] = [:]
+        var continuations: [AsyncStream<[UUID: TranscriptionPhase]>.Continuation] = []
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    var jobs: [TranscriptionJob] { state.withLock(\.jobs) }
+    var cancelled: [UUID] { state.withLock(\.cancelled) }
+    var isBusy: Bool { state.withLock { $0.phases.values.contains(where: \.isPending) } }
+
+    func enqueue(_ job: TranscriptionJob) async {
+        state.withLock { $0.jobs.append(job) }
+        publish(job.recording, .queued)
+    }
+
+    func cancel(_ recording: UUID) async {
+        state.withLock { $0.cancelled.append(recording) }
+        publish(recording, .cancelled)
+    }
+
+    func phases() -> AsyncStream<[UUID: TranscriptionPhase]> {
+        AsyncStream { continuation in
+            state.withLock { state in
+                state.continuations.append(continuation)
+                continuation.yield(state.phases)
+            }
+        }
+    }
+
+    /// Sets a recording's phase and tells everyone who listens.
+    func publish(_ recording: UUID, _ phase: TranscriptionPhase) {
+        state.withLock { state in
+            state.phases[recording] = phase
+            for continuation in state.continuations { continuation.yield(state.phases) }
+        }
+    }
 }

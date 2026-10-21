@@ -12,6 +12,9 @@ struct GeneralPane: View {
     let updates: Updates
     /// The enabled layouts: with more than two languages General says which pairs switch by itself.
     var layouts: [LayoutMap] = []
+    /// For the menu bar previews: the layout code and the system's icon.
+    var sources: InputSources?
+    var systemMenu: SystemInputMenu = .shared
 
     var body: some View {
         PKPane(title: Text("General")) {
@@ -20,6 +23,7 @@ struct GeneralPane: View {
             }
             correctionsSection
             hintSection
+            MenuBarGroup(store: store, sources: sources, systemMenu: systemMenu)
             soundsSection
             updatesSection
         }

@@ -88,6 +88,15 @@ public enum VoiceAutoStop: Int, Hashable, Sendable, CaseIterable, Codable {
     public var seconds: Int? { self == .off ? nil : rawValue }
 }
 
+/// How long the audio of a recorded call stays on disk: «Хранить звук созвонов».
+/// The raw values are those of `RecordingMeta.AudioRetention`.
+public enum CallAudioRetention: String, Hashable, Sendable, CaseIterable, Codable {
+    case always
+    case month
+    /// Removed once the transcript is written.
+    case untilTranscribed
+}
+
 /// How long the speech model stays loaded after the last dictation.
 public enum VoiceUnload: Int, Hashable, Sendable, CaseIterable, Codable {
     case never = 0
@@ -178,6 +187,13 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.model.stringValue) }
     }
 
+    /// «Модель для расшифровок»: the model files and calls are transcribed
+    /// with; nil for the dictation model when it runs on this Mac. A cloud
+    /// model only by this choice (`TranscriptionModel`).
+    public var transcriptionModel: String? {
+        didSet { unreadableKeys.remove(CodingKeys.transcriptionModel.stringValue) }
+    }
+
     /// Switch the layout to the language of the phrase after dictation.
     public var switchesLayout: Bool {
         didSet { unreadableKeys.remove(CodingKeys.switchesLayout.stringValue) }
@@ -196,10 +212,40 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.unload.stringValue) }
     }
 
+    /// How long the audio of a call stays on disk. The recorder reads it when
+    /// a call starts; a profile that forbids keeping audio overrides it
+    /// (`ManagedSettings.callAudioKeepDisabled`).
+    public var callAudioRetention: CallAudioRetention {
+        didSet { unreadableKeys.remove(CodingKeys.callAudioRetention.stringValue) }
+    }
+
+    /// «Включать в Time Machine»: off by default, because recordings hold
+    /// other people's voices. The recorder reads it for each new recording.
+    public var includesRecordingsInBackup: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.includesRecordingsInBackup.stringValue) }
+    }
+
     /// The «What's new: voice input» window was answered (turned on or put
     /// off): it does not come back.
     public var introAnswered: Bool {
         didSet { unreadableKeys.remove(CodingKeys.introAnswered.stringValue) }
+    }
+
+    /// Split «Собеседники» of a call by voice when it is transcribed.
+    public var callDiarize: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.callDiarize.stringValue) }
+    }
+
+    /// The note on the other side's consent was shown before the first call
+    /// recording: it does not come back.
+    public var callConsentShown: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.callConsentShown.stringValue) }
+    }
+
+    /// «Вставка диктовки» of the apps the user chose it for, by bundle ID.
+    /// An app that is not here is `.automatic`, and choosing that removes it.
+    public var insertion: [String: DictationInsertion] {
+        didSet { unreadableKeys.remove(CodingKeys.insertion.stringValue) }
     }
 
     /// Keys the file has that this version could not read and the user has
@@ -212,20 +258,34 @@ public struct VoiceSettings: Hashable, Sendable {
 
     public init(isEnabled: Bool = false, trigger: VoiceTrigger = .default, microphoneUID: String? = nil,
                 microphoneName: String? = nil,
-                model: String = VoiceSettings.defaultModel, switchesLayout: Bool = true, playsSounds: Bool = true,
+                model: String = VoiceSettings.defaultModel, transcriptionModel: String? = nil,
+                switchesLayout: Bool = true, playsSounds: Bool = true,
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
-                introAnswered: Bool = false)
+                introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .always,
+                includesRecordingsInBackup: Bool = false, callDiarize: Bool = true, callConsentShown: Bool = false,
+                insertion: [String: DictationInsertion] = [:])
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
         self.microphoneUID = microphoneUID
         self.microphoneName = microphoneName
         self.model = model
+        self.transcriptionModel = transcriptionModel
         self.switchesLayout = switchesLayout
         self.playsSounds = playsSounds
         self.autoStop = autoStop
         self.unload = unload
         self.introAnswered = introAnswered
+        self.callAudioRetention = callAudioRetention
+        self.callDiarize = callDiarize
+        self.callConsentShown = callConsentShown
+        self.includesRecordingsInBackup = includesRecordingsInBackup
+        self.insertion = insertion
+    }
+
+    /// How dictation goes into the app `bundleID`.
+    public func insertion(bundleID: String?) -> DictationInsertion {
+        bundleID.flatMap { insertion[$0] } ?? .automatic
     }
 
     /// The trigger the event tap reacts to: none while dictation is off, and
@@ -241,7 +301,9 @@ public struct VoiceSettings: Hashable, Sendable {
 
 extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, switchesLayout, playsSounds, autoStop, unload, introAnswered
+        case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, transcriptionModel, switchesLayout,
+             playsSounds, autoStop, unload, introAnswered, callAudioRetention, includesRecordingsInBackup,
+             callDiarize, callConsentShown, insertion
     }
 
     public init(from decoder: any Decoder) throws {
@@ -268,11 +330,21 @@ extension VoiceSettings: Codable {
             microphoneName = read(String.self, .microphoneName)
         }
         model = read(String.self, .model) ?? defaults.model
+        if container.contains(.transcriptionModel), (try? container.decodeNil(forKey: .transcriptionModel)) == true {
+            transcriptionModel = nil
+        } else {
+            transcriptionModel = read(String.self, .transcriptionModel)
+        }
         switchesLayout = read(Bool.self, .switchesLayout) ?? defaults.switchesLayout
         playsSounds = read(Bool.self, .playsSounds) ?? defaults.playsSounds
         autoStop = read(VoiceAutoStop.self, .autoStop) ?? defaults.autoStop
         unload = read(VoiceUnload.self, .unload) ?? defaults.unload
         introAnswered = read(Bool.self, .introAnswered) ?? defaults.introAnswered
+        callAudioRetention = read(CallAudioRetention.self, .callAudioRetention) ?? defaults.callAudioRetention
+        callDiarize = read(Bool.self, .callDiarize) ?? defaults.callDiarize
+        callConsentShown = read(Bool.self, .callConsentShown) ?? defaults.callConsentShown
+        includesRecordingsInBackup = read(Bool.self, .includesRecordingsInBackup) ?? defaults.includesRecordingsInBackup
+        insertion = read([String: DictationInsertion].self, .insertion) ?? defaults.insertion
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -299,6 +371,10 @@ extension VoiceSettings: Codable {
         if !unreadableKeys.contains(CodingKeys.model.stringValue) {
             try container.encode(model, forKey: .model)
         }
+        // An explicit null, as for the microphone: «as dictation» must replace a model on disk.
+        if !unreadableKeys.contains(CodingKeys.transcriptionModel.stringValue) {
+            try container.encode(transcriptionModel, forKey: .transcriptionModel)
+        }
         if !unreadableKeys.contains(CodingKeys.switchesLayout.stringValue) {
             try container.encode(switchesLayout, forKey: .switchesLayout)
         }
@@ -313,6 +389,21 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.introAnswered.stringValue) {
             try container.encode(introAnswered, forKey: .introAnswered)
+        }
+        if !unreadableKeys.contains(CodingKeys.callAudioRetention.stringValue) {
+            try container.encode(callAudioRetention, forKey: .callAudioRetention)
+        }
+        if !unreadableKeys.contains(CodingKeys.callDiarize.stringValue) {
+            try container.encode(callDiarize, forKey: .callDiarize)
+        }
+        if !unreadableKeys.contains(CodingKeys.callConsentShown.stringValue) {
+            try container.encode(callConsentShown, forKey: .callConsentShown)
+        }
+        if !unreadableKeys.contains(CodingKeys.includesRecordingsInBackup.stringValue) {
+            try container.encode(includesRecordingsInBackup, forKey: .includesRecordingsInBackup)
+        }
+        if !unreadableKeys.contains(CodingKeys.insertion.stringValue) {
+            try container.encode(insertion, forKey: .insertion)
         }
     }
 }

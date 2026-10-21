@@ -5,6 +5,7 @@ import PerekeyCore
 import PerekeyInput
 #if PEREKEY_VOICE
 import PerekeyVoice
+import PerekeyVoiceCore
 #endif
 import SwiftUI
 
@@ -53,14 +54,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let input: InputController
     private let shell: MenuBarShell
     private let usage: UsageRecorder
+    private let settingsWindow: SettingsWindow
     #if PEREKEY_VOICE
     /// The voice settings and speech models. Lives with the app, so the
     /// network gate and the downloads do not depend on the Settings window.
     private let voiceModels: VoiceModelsController
+    /// The text rules and the dictation history.
+    private let voiceText: VoiceTextController
+    /// The «Расшифровки» window and what it holds. The file queue and the call
+    /// recorder plug into `transcripts.controller` (`queue`, `live`).
+    private let transcripts: TranscriptsWindow
     /// Dictation: the hotkey, the microphone, the engines, the paste.
     private let voice: VoiceSetup
     /// "What's new: voice input", once, for someone who already uses Perekey.
     private let voiceIntro: VoiceIntroController
+    /// «Записать созвон»: the microphone and the system audio to disk.
+    private let callRecording: CallRecordingController
     #endif
 
     override init() {
@@ -86,13 +95,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if PEREKEY_VOICE
         let voiceModels = VoiceModelsController(settings: VoiceSettingsStore())
         self.voiceModels = voiceModels
-        voice = VoiceSetup(input: input, models: voiceModels)
+        let voiceModes = VoiceModesStore()
+        let voiceText = VoiceTextController()
+        self.voiceText = voiceText
+        voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes, text: voiceText, usage: usage)
+        let transcriptsController = TranscriptsController(voice: voiceModels.settings, models: { [voiceModels, voiceModes] in
+            let local = voiceModels.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
+                .map { (id: $0.id, title: ModelNames.display($0.entry)) }
+            // As in the Voice tab: a cloud model whose server the user set up.
+            let cloud = CloudSpeechModel.known.filter { model in
+                voiceModes.modes.endpoint(model.endpoint).map(voiceModes.isUsable) ?? false
+            }.map { (id: $0.id, title: $0.displayName + " ☁") }
+            return local + cloud
+        })
+        transcriptsController.transcriptionModel = { [voice] in voice.files.model }
+        transcriptsController.consent = { [voiceModes] in voiceModes.askConversationConsent(model: $0) }
+        transcriptsController.summaries = TranscriptSummaries(modes: voiceModes, folder: transcriptsController.folder)
+        voice.files.queueChanged = { [transcriptsController] in transcriptsController.queue = $0 }
+        transcriptsController.queue = voice.files.queue
+        let transcriptsWindow = TranscriptsWindow(controller: transcriptsController)
+        transcripts = transcriptsWindow
+        let callRecording = CallRecordingController(capture: voice.capture, settings: voiceModels.settings,
+                                                    isSupported: { voiceModels.isSupported })
+        self.callRecording = callRecording
+        // The queue is made anew each time voice turns on: read at each «Стоп».
+        callRecording.fileQueue = { [voice] in voice.files.queue }
+        callRecording.transcriptionModel = { [voice] in voice.files.model }
+        voice.files.observeQueue { [callRecording] _ in callRecording.queueChanged() }
+        // «Удалить» and resume leave the recording being written alone.
+        transcriptsController.live = { [callRecording] in callRecording.liveRecording.map { [$0] } ?? [] }
+        callRecording.recordingsChanged = { [transcriptsController] in transcriptsController.reload() }
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                     languages: input.languages, initial: section, scrollTarget: scrollTarget)
             view.voiceController = voiceModels
+            view.voiceModes = voiceModes
+            view.voiceTextController = voiceText
+            view.voiceTranscripts = transcriptsController
             return view
             #else
             return SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
@@ -117,10 +158,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onboarding.makeVoiceIntro = { VoiceIntro.offer(situation()) == .none ? nil : makeIntro() }
         voice.openVoiceSettings = { settings.show(section: .voice, scrollTarget: "models") }
         #endif
+        settingsWindow = settings
+        #if PEREKEY_VOICE
+        let voiceIsOn: @MainActor () -> Bool = { voiceModels.settings.isOn && voiceModels.isSupported }
+        shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
+                             input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
+                             settings: settings) { [voice] actions in
+            actions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceIsOn)
+            actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
+            actions.summaries = transcriptsController.summaries
+            actions.transcribeFile = { voice.files.chooseFiles() }
+            actions.canTranscribeFiles = { voice.files.queue != nil }
+            actions.callRecording = callRecording
+        }
+        #else
         shell = MenuBarShell(sources: inputSources, store: store, pause: pause, launch: launchAtLogin,
                              input: input, recents: recents, usage: usage, onboarding: onboarding, updates: updates,
                              settings: settings)
+        #endif
         super.init()
+        #if PEREKEY_VOICE
+        shell.dictation.menu = voiceText.menu(pasteAgain: { [voice] in voice.pasteAgain($0) })
+        shell.drop = { [voice] in voice.files.transcribe($0) }
+        shell.acceptsDrop = { [voice] in voice.files.acceptsDrop($0) }
+        callRecording.indicator = shell.call
+        // An update waits until the files in the queue are done, and for a call being recorded.
+        updates.busy.add("transcription") { [voice] in voice.files.isBusy }
+        updates.busy.add("recording") { [callRecording] in callRecording.isRecording }
+        #endif
         ExternalControl.shared = ExternalControl(store: store, pause: pause, appModes: input.appModes, sources: inputSources)
     }
 
@@ -138,11 +203,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         // After launch, so the status bar exists.
         shell.start()
+        #if PEREKEY_VOICE
+        // A call a crash cut off is offered for transcription; old audio goes.
+        callRecording.launched()
+        #endif
+    }
+
+    /// Opening Perekey again (Finder, Spotlight, Launchpad) opens Settings. It is
+    /// the way back to the menu bar item when the user hid it.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        settingsWindow.show()
+        return false
+    }
+
+    /// ⌘Q, logout and an update's relaunch wait while a call is recorded,
+    /// until its open segments are closed.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        #if PEREKEY_VOICE
+        return callRecording.shouldTerminate()
+        #else
+        return .terminateNow
+        #endif
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         // Counters reach the disk at most every few seconds, and here at quit.
         usage.flush()
+        #if PEREKEY_VOICE
+        // The history writes off the main thread: let the last one land.
+        voiceText.history.flush()
+        #endif
         // The Caps Lock remap would outlive the app until logout.
         CapsLockRemapper.apply(.untouched)
     }
@@ -204,10 +294,17 @@ final class MenuBarShell {
     private let reportWindow = ReportWordWindow()
     private let pause: PauseState
     private var statusItem: StatusItemController?
+    /// What the menu shows of the dictation history; filled once voice is set up.
+    let dictation = DictationMenuSource()
+    /// The capsule's ● and time while a call is recorded.
+    let call = CallIndicatorModel()
+    /// Files dropped on the menu bar item; set before `start` to take them.
+    var drop: (([URL]) -> Bool)?
+    var acceptsDrop: (URL) -> Bool = { _ in false }
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin, input: InputController,
          recents: RecentCorrections, usage: UsageRecorder, onboarding: OnboardingController, updates: Updates,
-         settings: SettingsWindow)
+         settings: SettingsWindow, extend: @escaping @MainActor (inout MenuActions) -> Void = { _ in })
     {
         self.sources = sources
         self.store = store
@@ -215,11 +312,12 @@ final class MenuBarShell {
         self.recents = recents
         self.onboarding = onboarding
         let reportWindow = reportWindow
+        let dictation = dictation
         menu = MenuPanelController(
             sources: sources, store: store, pause: pause, launch: launch, appModes: input.appModes,
             recents: recents, usage: usage, updates: updates
         ) { menu in
-            MenuActions(
+            var actions = MenuActions(
                 openSettings: { menu.close(); settings.show() },
                 showOnboarding: { menu.close(); onboarding.show() },
                 showAbout: {
@@ -233,13 +331,27 @@ final class MenuBarShell {
                     reportWindow.show(word: word, reason: reason, layouts: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
                 }
             )
+            extend(&actions)
+            #if PEREKEY_VOICE
+            actions.dictation = dictation.menu
+            #endif
+            return actions
         }
     }
 
     func start() {
         guard statusItem == nil else { return }
-        statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu)
+        statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu,
+                                          call: call, drop: drop, accepts: acceptsDrop)
     }
+}
+
+/// Hands the menu the recent dictations once they exist. Empty without voice.
+@MainActor
+final class DictationMenuSource {
+    #if PEREKEY_VOICE
+    var menu: DictationMenu?
+    #endif
 }
 
 /// "Report a word" from the menu: the form in its own small window.

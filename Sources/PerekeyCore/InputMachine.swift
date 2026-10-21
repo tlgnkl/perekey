@@ -39,6 +39,11 @@ public struct InputMachine: Sendable {
     private var focus: Focus?
     /// A dictation session is on: Esc cancels it.
     private var voiceSession = false
+    /// Dictation types its text (`InputEvent.dictationTyping`).
+    private var dictationTyping = false
+    /// Keys pressed while dictation typed: their key ups go too, even after
+    /// the typing ended and `.inputLost` reset the shortcuts.
+    private var typingKeyUps: Set<UInt16> = []
 
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil,
                 classifier: Classifier? = nil)
@@ -75,6 +80,12 @@ public struct InputMachine: Sendable {
             if fence.expire(at: time, effects: &effects), !origin.isOwn { return .hold }
             if case .own = origin { return .pass }
             if fence.isHolding { return .hold }
+            // ⌘ or ⌥ down would turn the typed keys into shortcuts.
+            if dictationTyping, origin == .user,
+               flags & (EventFlags.command | EventFlags.option | EventFlags.control | EventFlags.shift) != 0
+            {
+                effects.append(.typingInterrupted)
+            }
             // Modifier changes arrive under Secure Input too: a voice hold
             // still ends when its modifier comes up.
             if let signal = shortcuts.holdModifiersChanged(flags: flags) { effects.append(.voice(signal)) }
@@ -105,10 +116,15 @@ public struct InputMachine: Sendable {
         case let .scroll(time):
             shortcuts.otherInput(at: time)
 
-        case let .focusChanged(newFocus):
+        case let .focusChanged(newFocus, change):
+            // The same place known better keeps the word: one typed before
+            // the focus was known is judged once it is.
+            let samePlace = change == .resolved && focus?.bundleID == newFocus.bundleID
             focus = newFocus
-            forgetText()
-            judge.forgetContext(newField: true)
+            if !samePlace {
+                forgetText()
+                judge.forgetContext(newField: true)
+            }
 
         case let .layoutChanged(id):
             if !fence.confirmed(id, effects: &effects) {
@@ -174,6 +190,11 @@ public struct InputMachine: Sendable {
         case let .voiceSession(on):
             voiceSession = on
 
+        case let .dictationTyping(on):
+            dictationTyping = on
+            // A key up lost since the last typing must not take a later one.
+            if on { typingKeyUps.removeAll() }
+
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
             guard undo.isLast(seq: seq) else { break }
@@ -191,6 +212,20 @@ public struct InputMachine: Sendable {
             return .pass
         case .user, .replayed:
             if fence.isHolding { return .hold }
+        }
+        // A key of the user's while dictation types stops it, and goes
+        // nowhere: it would land in the middle of the text, and Esc would
+        // stop the agent in the terminal.
+        if key.origin == .user {
+            // Pressed again after the typing: its key up was lost, and the
+            // next one is the app's.
+            if key.phase == .down, !dictationTyping { typingKeyUps.remove(key.keyCode) }
+            if key.phase == .up, typingKeyUps.remove(key.keyCode) != nil { return .drop }
+            if dictationTyping, key.phase == .down {
+                effects.append(.typingInterrupted)
+                typingKeyUps.insert(key.keyCode)
+                return .drop
+            }
         }
         if fence.takeUndoKey(key) {
             shortcuts.swallow(key.keyCode)
@@ -246,6 +281,10 @@ public struct InputMachine: Sendable {
         let boundary = fence.takeBoundary(key)
         let isHeldBoundary = boundary?.isHeldKey == true
         var extendsCorrection = false
+        // The key ended a word the judge decided: a "/" there ends a part of
+        // the token (`WordJudge.endsPart`). A held one was decided before it
+        // was held.
+        var judgedHere = isHeldBoundary && boundary?.endsWord == true
         if !isHeldBoundary {
             switch undo.keyDown(key.keyCode, held: held) {
             case .undoes:
@@ -273,9 +312,10 @@ public struct InputMachine: Sendable {
                     return .hold
                 }
                 tallyIfFull(effects: &effects)
+                judgedHere = judge.gate.judged
             }
         }
-        updateBuffer(with: key, held: held)
+        updateBuffer(with: key, held: held, afterJudgedWord: judgedHere)
         if extendsCorrection {
             undo.extend(with: key, buffer: buffer, layouts: layouts, alwaysFix: settings.alwaysFix, effects: &effects)
         }
@@ -300,7 +340,8 @@ public struct InputMachine: Sendable {
         manual.endPhrase()
     }
 
-    private mutating func updateBuffer(with key: KeyEvent, held: UInt8) {
+    /// `afterJudgedWord`: the key ended a word the judge decided.
+    private mutating func updateBuffer(with key: KeyEvent, held: UInt8, afterJudgedWord: Bool = false) {
         if held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit) != 0
             || KeyCode.navigation.contains(key.keyCode)
             || focus?.isSecureField == true
@@ -326,9 +367,13 @@ public struct InputMachine: Sendable {
             buffer.abandonWord()
         } else if map.text(for: stroke) != nil {
             if stroke.keyCode != KeyCode.space {
-                judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isSpace == true)
+                judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isGap == true)
             }
-            buffer.type(stroke, in: current)
+            // The part stays whole when it is no word where it ended up:
+            // "github.com/" kept in ABC is code, and so is the rest of it.
+            let endsPart = afterJudgedWord && WordJudge.typesSlash(stroke, in: map)
+                && WordJudge.isWord(buffer.entries) { layouts[$0.layout] }
+            buffer.type(stroke, in: current, endsPart: endsPart)
         } else {
             buffer.clear()
         }

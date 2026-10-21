@@ -84,11 +84,32 @@ import Testing
         #expect(buffer.historyCount == 0)
     }
 
+    @Test func aSlashThatEndsAPartStartsAWord() {
+        var buffer = WordBuffer()
+        for (index, stroke) in Fixture.abc.strokes("ab/cd").enumerated() {
+            buffer.type(stroke, in: en, endsPart: index == 2)
+        }
+        #expect(text(buffer.entries) == "cd")
+        #expect(text(buffer.phrase(words: 2)) == "ab/cd")
+        #expect(buffer.historyCount == 1)
+
+        // Any other "/" stays in the word.
+        buffer = typed("ab/cd")
+        #expect(text(buffer.entries) == "ab/cd")
+    }
+
     @Test func relabelsAPhraseAndReplacesAWord() {
         var buffer = typed("ab cd ")
         let russian = buffer.phrase(words: 2)!.map { WordBuffer.Entry($0.stroke, in: Fixture.russian.id) }
         buffer.relabelPhrase(russian)
         #expect(buffer.phrase(words: 2) == russian)
+
+        // The end of the word: the keys before it keep their layout.
+        buffer = typed("ab/cd ")
+        let end = buffer.entries.suffix(3).map { WordBuffer.Entry($0.stroke, in: Fixture.russian.id) }
+        buffer.relabelPhrase(end)
+        #expect(buffer.entries.map(\.layout)
+            == Array(repeating: en, count: 3) + Array(repeating: Fixture.russian.id, count: 3))
 
         buffer = typed("ab")
         buffer.replaceWord(Fixture.abc.strokes("xyz"), in: Fixture.russian.id)

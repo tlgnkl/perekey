@@ -10,6 +10,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
     case general, shortcuts
     #if PEREKEY_VOICE
     case voice
+    case voiceModes
     #endif
     case apps, sites, words, privacy
 
@@ -21,6 +22,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .shortcuts: Text("Shortcuts")
         #if PEREKEY_VOICE
         case .voice: voiceText("Voice")
+        case .voiceModes: voiceText("Voice modes")
         #endif
         case .apps: Text("Apps")
         case .sites: Text("Sites")
@@ -35,6 +37,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .shortcuts: "keyboard.fill"
         #if PEREKEY_VOICE
         case .voice: "mic.fill"
+        case .voiceModes: "text.badge.plus"
         #endif
         case .apps: "square.grid.2x2.fill"
         case .sites: "globe"
@@ -50,6 +53,7 @@ enum SettingsSection: Int, CaseIterable, Identifiable {
         case .shortcuts: [Color(red: 0.55, green: 0.53, blue: 1), Color(red: 0.36, green: 0.34, blue: 0.9)]
         #if PEREKEY_VOICE
         case .voice: [Color(red: 1, green: 0.45, blue: 0.52), Color(red: 0.88, green: 0.27, blue: 0.42)]
+        case .voiceModes: [Color(red: 0.35, green: 0.78, blue: 0.98), Color(red: 0.37, green: 0.36, blue: 0.90)]
         #endif
         case .apps: [Color(red: 0.30, green: 0.62, blue: 1), Color(red: 0.12, green: 0.40, blue: 0.85)]
         case .sites: [Color(red: 0.25, green: 0.78, blue: 0.72), Color(red: 0.08, green: 0.58, blue: 0.55)]
@@ -71,6 +75,11 @@ struct SettingsView: View {
     #if PEREKEY_VOICE
     /// The speech models and the voice settings; the Voice tab is empty without it.
     var voiceController: VoiceModelsController?
+    /// The dictation modes; the Voice modes tab is empty without them.
+    var voiceModes: VoiceModesStore?
+    var voiceTextController: VoiceTextController?
+    /// The recordings: the Records group of the Voice tab.
+    var voiceTranscripts: TranscriptsController?
     #endif
     /// A view of the first pane to scroll to when it opens; gone once the person picks another pane.
     private let scrollTarget: State<String?>
@@ -141,13 +150,22 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch current {
-        case .general: GeneralPane(store: store, updates: updates, layouts: sources.layouts)
+        case .general: GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources)
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         #if PEREKEY_VOICE
         case .voice:
-            if let voiceController { VoicePane(controller: voiceController, store: store, recording: recording) }
+            if let voiceController {
+                VoicePane(controller: voiceController, textController: voiceTextController, transcripts: voiceTranscripts,
+                          store: store, recording: recording)
+            }
+        case .voiceModes:
+            if let voiceModes, let voiceController { ModesPane(store: voiceModes, models: voiceController) }
         #endif
+        #if PEREKEY_VOICE
+        case .apps: AppsPane(store: store, sources: sources, languages: languages, voice: voiceController?.settings)
+        #else
         case .apps: AppsPane(store: store, sources: sources, languages: languages)
+        #endif
         case .sites: SitesPane(store: store, sources: sources)
         case .words: WordsPane(store: store, layouts: sources.layouts)
         case .privacy: PrivacyPane(store: store, usage: usage, languages: languages, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
@@ -246,6 +264,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// behind the frontmost app.
     func show() {
         let window = window ?? make()
+        SystemInputMenu.shared.refresh()
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
     }

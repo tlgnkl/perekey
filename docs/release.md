@@ -163,6 +163,7 @@ security lock-keychain "$kc"
 
 ## Как выпустить версию
 
+0. Перед тегом пройти чек-лист ниже («Чек-лист выпуска с голосом»).
 1. В `CHANGELOG.md` перенести пункты из `[Unreleased]` в новый раздел
    `## [X.Y.Z] - ГГГГ-ММ-ДД`. Внизу файла добавить ссылку на тег и сдвинуть
    ссылку `[Unreleased]`.
@@ -185,6 +186,54 @@ Anyway». К выпуску прикладываются `Perekey-X.Y.Z.dmg`, е
 
 Выпуск не помечать как pre-release: тогда `releases/latest` на него не
 указывает, и ссылка «Скачать» ведёт на прежнюю версию или в 404.
+
+## Чек-лист выпуска с голосом
+
+С 0.2.0 выпуск собирается с `PEREKEY_VOICE=1`: `release.yml` задаёт флаг на
+всё задание, собирает `.build/voice-universal` и кладёт в DMG его
+`Perekey.app`. Флаг в `Package.swift` остаётся: сборки без голоса нужны тестам
+и `build-model.sh`, `bench.sh`, `eval.sh`. Оба среза (arm64 и x86_64) содержат
+FluidAudio и WhisperKit, потому что SwiftPM не подключает пакет под одну
+архитектуру; на Intel и на macOS 14 голос выключает `VoiceHost.isSupported`.
+
+1. Сухой прогон локально, ad hoc подписью (настоящий ключ — только в CI):
+
+   ```sh
+   export PEREKEY_VOICE=1 VERSION=X.Y.Z BUILD=1 SIGN_IDENTITY=-
+   scripts/build-model.sh --out .build/universal/model   # один раз, нужен scripts/fetch-data.sh lexicon wikifreq
+   scripts/build-universal.sh
+   scripts/check-release-app.sh
+   scripts/dmg.sh .build/voice-universal/app/Perekey.app
+   ```
+
+   `check-release-app.sh` проверяет то же, что CI-задание `release-build`:
+   оба среза с движками речи, `minos` срезов равен `LSMinimumSystemVersion`,
+   в `Info.plist` есть `NSMicrophoneUsageDescription` и
+   `NSAudioCaptureUsageDescription`, у подписи есть право
+   `com.apple.security.device.audio-input`, в приложении нет ресурсных бандлов,
+   подпись цела.
+2. Размер DMG записать в заметки. Порога нет, только замер (0.1.1 весил 25,7 МБ,
+   0.2.0 — около 38,7 МБ: добавились библиотеки речи, модели в образ не входят).
+3. Проверить голос в выпускной сборке, подписанной «Perekey Release» (не в
+   сборке из `swift build`): установить DMG, выдать «Мониторинг ввода»,
+   «Универсальный доступ», «Микрофон»; скачать модель, продиктовать фразу в
+   TextEdit; записать минуту с YouTube и своего голоса, проверить «Запись
+   системного звука» и две дорожки в окне «Расшифровки».
+4. Проверка A2: поставить предыдущую сборку «Perekey Release», выдать
+   разрешения, обновить поверх новой (через Sparkle или вручную): разрешения
+   («Универсальный доступ», «Мониторинг ввода», «Микрофон», «Запись
+   системного звука») остаются, окно разрешений не появляется.
+5. На Mac с Intel или macOS 14: приложение запускается, вкладка «Голос»
+   объясняет, что нужны Apple Silicon и macOS 15, пункта записи созвона нет,
+   перенабор работает как в 0.1.x.
+6. «Благодарности»: список в `README.md`, `README.ru.md` и
+   `Support/*.lproj/Credits.rtf` (окно «О Perekey») совпадает с моделями
+   каталога (`ModelCatalogData.swift`) и пакетами в
+   `Support/voice/Package.resolved`. Новая модель или пакет — новая строка со
+   своей лицензией; CC-BY требует указать автора, ссылку на лицензию и пометку,
+   что файлы изменены. Лицензию брать из карточки модели на Hugging Face и из
+   `LICENSE` пакета, а не из памяти.
+7. `scripts/test.sh` с `PEREKEY_VOICE=1` и без, `scripts/check-strings.sh`.
 
 ## Как CI подписывает appcast
 

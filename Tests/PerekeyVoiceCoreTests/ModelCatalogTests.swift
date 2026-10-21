@@ -34,7 +34,7 @@ struct ModelCatalogTests {
     @Test func selections() throws {
         #expect(ModelCatalog.vad?.id == "silero-vad")
         #expect(ModelCatalog.recognizers.map(\.id) == ["parakeet-tdt-v3", "parakeet-ultra", "whisper-large-v3-turbo-632mb"])
-        #expect(ModelCatalog.diarizers.count == 3)
+        #expect(ModelCatalog.diarizers.map(\.id) == ["diarizer-offline-vbx"])
         #expect(ModelCatalog.entry(id: "parakeet-tdt-v3")?.languages.contains("uk") == true)
         #expect(ModelCatalog.entry(id: "nope") == nil)
     }

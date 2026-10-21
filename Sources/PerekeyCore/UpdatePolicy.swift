@@ -124,4 +124,22 @@ public enum UpdateFeed {
               let key = Data(base64Encoded: publicKey) else { return false }
         return key.count == 32
     }
+
+    /// True when the offered version ("0.1.1") is lower than the installed one
+    /// ("0.2.0"). Sparkle compares build numbers only, and a local build has
+    /// build 0, so it would take any release for an update. A version that is
+    /// not dotted numbers is never older.
+    public static func isOlder(_ offered: String, than installed: String) -> Bool {
+        guard let offered = numbers(offered), let installed = numbers(installed) else { return false }
+        let count = max(offered.count, installed.count)
+        let a = offered + Array(repeating: 0, count: count - offered.count)
+        let b = installed + Array(repeating: 0, count: count - installed.count)
+        return a.lexicographicallyPrecedes(b)
+    }
+
+    private static func numbers(_ version: String) -> [Int]? {
+        let parts = version.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+        guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return nil }
+        return parts.compactMap { $0 }
+    }
 }

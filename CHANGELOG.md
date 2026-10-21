@@ -23,6 +23,13 @@ differently, what was fixed.
 
 ### Fixed
 
+- **Missing access is no longer silent.** Without Accessibility access, for
+  example after a reinstall, the setup window comes to the front, opening
+  Perekey again opens its access step, Settings shows a banner, and the menu
+  bar item stays on screen with a warning and a «grant access» row. Perekey
+  also notices a revoked access within seconds, not at the next app switch,
+  and the access step explains what to do when System Settings shows the old
+  copy switched on.
 - **The first word after switching apps is fixed too.** In Electron apps
   (Slack, Obsidian, Orca and others) a word in the wrong layout typed right
   after you switched to the app often stayed as typed, and only the next word

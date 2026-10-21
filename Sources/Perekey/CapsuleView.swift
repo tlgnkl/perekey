@@ -12,6 +12,8 @@ struct CapsuleModel: Equatable {
     var struck = false
     var reason: PauseReason?
     var now = Date()
+    /// Perekey has no Accessibility access: a warning glyph stands before the code.
+    var noAccess = false
 }
 
 /// The signature capsule: the layout code in Indigo Ink on a glass strip with a
@@ -62,6 +64,11 @@ struct CapsuleView: View {
                     .transition(reduceMotion ? .opacity : .modifier(active: ReasonSlide(active: true), identity: ReasonSlide(active: false)))
                 Rectangle().fill(ring).frame(width: 1, height: height * 0.45)
                     .transition(.opacity)
+            }
+            if model.noAccess {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: fontSize - 1.5, weight: .bold))
+                    .foregroundStyle(PK.warnPair.resolved(dark: dark))
             }
             codeLabel
         }

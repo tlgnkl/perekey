@@ -9,12 +9,14 @@ import SwiftUI
 
 /// What the capsule shows for the current layout, settings and pause state.
 @MainActor
-func capsuleModel(sources: InputSources, store: SettingsStore, pause: PauseState) -> CapsuleModel {
+func capsuleModel(sources: InputSources, store: SettingsStore, pause: PauseState,
+                  noAccess: Bool = false) -> CapsuleModel {
     CapsuleModel(
         code: sources.currentLayout.map(sources.indicator(of:)) ?? "⌨",
         struck: !store.settings.autoswitch,
         reason: pause.current,
-        now: pause.now
+        now: pause.now,
+        noAccess: noAccess
     )
 }
 
@@ -42,6 +44,7 @@ private struct StatusCapsuleView: View {
     let sources: InputSources
     let store: SettingsStore
     let pause: PauseState
+    let input: InputController
     let recents: RecentCorrections
     let state: StatusItemModel
     let menu: MenuPanelController
@@ -49,7 +52,7 @@ private struct StatusCapsuleView: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let model = capsuleModel(sources: sources, store: store, pause: pause)
+        let model = capsuleModel(sources: sources, store: store, pause: pause, noAccess: !input.hasAccess)
         let style = store.settings.menuBarIcon
         HStack(spacing: 4) {
             if call.timeline != nil {
@@ -182,13 +185,15 @@ final class StatusItemController {
     private let sources: InputSources
     private let store: SettingsStore
     private let pause: PauseState
+    private let input: InputController
     private let call: CallIndicatorModel
     private var shrink: DispatchWorkItem?
 
     /// - Parameters:
     ///   - drop: files dropped on the item (voice: to transcribe); false refuses them.
     ///   - accepts: whether a dragged file would be taken.
-    init(sources: InputSources, store: SettingsStore, pause: PauseState, recents: RecentCorrections,
+    init(sources: InputSources, store: SettingsStore, pause: PauseState, input: InputController,
+         recents: RecentCorrections,
          menu: MenuPanelController, call: CallIndicatorModel, drop: (([URL]) -> Bool)? = nil,
          accepts: @escaping (URL) -> Bool = { _ in false })
     {
@@ -196,6 +201,7 @@ final class StatusItemController {
         self.call = call
         self.store = store
         self.pause = pause
+        self.input = input
         self.menu = menu
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
@@ -208,7 +214,7 @@ final class StatusItemController {
         button.setAccessibilityHelp(String(localized: "Opens the Perekey menu"))
 
         let host = CapsuleHost(rootView: StatusCapsuleView(
-            sources: sources, store: store, pause: pause, recents: recents, state: state, menu: menu, call: call))
+            sources: sources, store: store, pause: pause, input: input, recents: recents, state: state, menu: menu, call: call))
         host.sizingOptions = [.intrinsicContentSize]
         host.translatesAutoresizingMaskIntoConstraints = false
         host.onSize = { [weak self] width in self?.fit(width: width) }
@@ -252,7 +258,7 @@ final class StatusItemController {
         let visible = withObservationTracking {
             MenuBarPolicy.isVisible(store.settings.menuBarVisibility, MenuBarSituation(
                 paused: pause.current != nil, autoswitchOff: !store.settings.autoswitch,
-                recordingCall: call.timeline != nil))
+                recordingCall: call.timeline != nil, accessMissing: !input.hasAccess))
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeVisibility() }
         }
@@ -295,6 +301,7 @@ final class StatusItemController {
     private func observeVoiceOverState() {
         let value = withObservationTracking {
             var parts = [sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout")]
+            if !input.hasAccess { parts.insert(String(localized: "No access to Accessibility; Perekey does not work"), at: 0) }
             if call.timeline != nil {
                 parts.append(call.paused ? String(localized: "Call recording paused", table: "Voice")
                                          : String(localized: "Recording a call", table: "Voice"))

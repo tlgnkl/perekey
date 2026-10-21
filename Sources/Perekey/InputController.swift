@@ -19,6 +19,12 @@ import PerekeyVoiceCore
 final class InputController {
     private(set) var tapState: TapState = .waitingForAccess
 
+    /// Whether Perekey has Accessibility access, as far as the taps say: the
+    /// one answer for Settings, the menu and the menu bar item. The engine
+    /// retries once per second, so it follows a grant at once; a revoke is
+    /// found by `checkAccess`.
+    var hasAccess: Bool { tapState != .waitingForAccess }
+
     /// Follows the frontmost app and its mode. The autoswitch decision reads
     /// `appModes.mode`: `.auto` fixes by itself, `.manualOnly` only on command,
     /// `.off` never (shortcuts are already off then, see `effectiveSettings`).
@@ -46,6 +52,9 @@ final class InputController {
     @ObservationIgnored private var modelLanguages: Set<String> = []
     @ObservationIgnored private var model: LanguageModel?
     @ObservationIgnored private var tokens: [(NotificationCenter, any NSObjectProtocol)] = []
+    /// The delayed checks after an access notification, and the periodic one.
+    @ObservationIgnored private var accessRechecks: Task<Void, Never>?
+    @ObservationIgnored private var accessPoll: Task<Void, Never>?
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "input")
     @ObservationIgnored private let hint = HintController()
     /// The correction the hint shows, so a late undo of an older one leaves it.
@@ -479,11 +488,42 @@ final class InputController {
         }
         // Leaving the session: let held keys go.
         on(workspace, NSWorkspace.sessionDidResignActiveNotification) { engine.send(.inputLost) }
-        // Access can be revoked at any time; there is no notification for it.
-        on(workspace, NSWorkspace.didActivateApplicationNotification) { [weak self] in
-            guard let self, tapState == .running, !AXIsProcessTrusted() else { return }
-            log.info("Accessibility revoked; waiting for it again")
-            engine.accessRevoked()
+        // Access can be revoked at any time. Three triggers, because none is sure:
+        // the system's own (undocumented) notification, an app switch, and a slow poll.
+        on(DistributedNotificationCenter.default(), Notification.Name("com.apple.accessibility.api")) { [weak self] in
+            self?.accessMayHaveChanged()
         }
+        on(workspace, NSWorkspace.didActivateApplicationNotification) { [weak self] in
+            self?.accessMayHaveChanged()
+        }
+        accessPoll = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(AccessPolicy.pollInterval))
+                self?.checkAccess()
+            }
+        }
+    }
+
+    /// `AXIsProcessTrusted` lags behind the switch in System Settings: check
+    /// at once, and again after each of `AccessPolicy.recheckDelays`.
+    private func accessMayHaveChanged() {
+        checkAccess()
+        accessRechecks?.cancel()
+        accessRechecks = Task { @MainActor [weak self] in
+            var waited = 0.0
+            for delay in AccessPolicy.recheckDelays {
+                try? await Task.sleep(for: .seconds(delay - waited))
+                waited = delay
+                guard !Task.isCancelled, let self else { return }
+                checkAccess()
+            }
+        }
+    }
+
+    /// Never called from the tap callback: the answer is read on the main actor.
+    private func checkAccess() {
+        guard AccessPolicy.isRevoked(tapRunning: tapState == .running, trusted: AXIsProcessTrusted()) else { return }
+        log.info("Accessibility revoked; waiting for it again")
+        engine.accessRevoked()
     }
 }

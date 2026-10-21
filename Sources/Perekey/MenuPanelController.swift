@@ -67,6 +67,7 @@ final class MenuPanelController {
     @ObservationIgnored private let recents: RecentCorrections
     @ObservationIgnored private let updates: Updates
     @ObservationIgnored private let usage: UsageRecorder?
+    @ObservationIgnored private let input: InputController?
     @ObservationIgnored private let actions: (MenuPanelController) -> MenuActions
 
     @ObservationIgnored private var panel: MenuPanel?
@@ -84,7 +85,7 @@ final class MenuPanelController {
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin,
          appModes: AppModeController, recents: RecentCorrections, usage: UsageRecorder? = nil, updates: Updates,
-         actions: @escaping (MenuPanelController) -> MenuActions)
+         input: InputController? = nil, actions: @escaping (MenuPanelController) -> MenuActions)
     {
         self.sources = sources
         self.store = store
@@ -94,6 +95,7 @@ final class MenuPanelController {
         self.recents = recents
         self.updates = updates
         self.usage = usage
+        self.input = input
         self.actions = actions
     }
 
@@ -111,7 +113,8 @@ final class MenuPanelController {
         menuActions.close = { [weak self] in self?.close() }
         let root = MenuRoot(
             content: MenuContent(sources: sources, store: store, pause: pause, launch: launch, appModes: appModes,
-                                 recents: recents, usage: usage, nav: nav, actions: menuActions, updates: updates),
+                                 recents: recents, usage: usage, nav: nav, actions: menuActions, updates: updates,
+                                 hasAccess: { [input] in input?.hasAccess ?? true }),
             presentation: presentation, inset: Self.inset)
         let host = SizingHost(rootView: AnyView(root))
         host.sizingOptions = [.intrinsicContentSize]

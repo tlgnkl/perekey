@@ -241,8 +241,12 @@ private struct AccessStep: View {
 
             Group {
                 if model.access == .denied {
-                    Text("Perekey is still off in the list. Switch it on; this window notices by itself.")
-                        .foregroundStyle(Color.pkWarn)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Perekey is still off in the list. Switch it on; this window notices by itself.")
+                        // After a reinstall the list can show the old copy switched on.
+                        Text("Perekey is on but still not allowed? Select it, press “−” to remove it, then add it again, or switch it off and on.")
+                    }
+                    .foregroundStyle(Color.pkWarn)
                 } else {
                     Text("This window notices the change by itself.")
                         .foregroundStyle(Color.pkInk2)

@@ -11,6 +11,8 @@ import SwiftUI
 struct MenuActions {
     var openSettings: () -> Void = {}
     var showOnboarding: () -> Void = {}
+    /// Opens the access step of onboarding.
+    var openAccess: () -> Void = {}
     var showAbout: () -> Void = {}
     var quit: () -> Void = {}
     /// Opens the report form with this word and the classifier's decision
@@ -140,6 +142,8 @@ struct MenuContent: View {
     var updates: Updates?
     /// The row whose «Why?» starts open (snapshots).
     var explainedEntry: Int?
+    /// Whether Perekey has access; read in `body`, so the row follows it.
+    var hasAccess: @MainActor () -> Bool = { true }
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -149,6 +153,9 @@ struct MenuContent: View {
     var body: some View {
         let heldReason = pause.current ?? lastReason.wrappedValue
         VStack(alignment: .leading, spacing: 0) {
+            if !hasAccess() {
+                accessRow
+            }
             header
             Reveal(open: pause.current != nil) {
                 if let reason = heldReason {
@@ -417,6 +424,15 @@ struct MenuContent: View {
         }
     }
 
+    /// The first row while Perekey has no access: the one thing that matters.
+    private var accessRow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MenuCommandRow(id: "access", title: "No access — grant access…", warn: true, nav: nav, run: actions.openAccess)
+            PKDivider(leading: 12, trailing: 12).padding(.top, 2)
+        }
+        .padding(.top, 6)
+    }
+
     private func action(for reason: PauseReason) {
         switch reason {
         case .timed: pause.resumeTimed()
@@ -566,6 +582,8 @@ struct MenuCommandRow: View {
     var shortcut: String?
     var checked = false
     var badge = false
+    /// Amber with a triangle: something does not work.
+    var warn = false
     var enabled = true
     let nav: MenuNav
     let run: () -> Void
@@ -574,6 +592,7 @@ struct MenuCommandRow: View {
         let hot = enabled && nav.highlighted == id
         Button(action: run) {
             HStack {
+                if warn { Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11, weight: .bold)) }
                 (label ?? Text(title, tableName: table)).font(PK.Font.body)
                 Spacer()
                 if checked { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
@@ -586,7 +605,7 @@ struct MenuCommandRow: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
-            .foregroundStyle(hot ? Color.white : Color.pkInk)
+            .foregroundStyle(hot ? Color.white : (warn ? Color.pkWarn : Color.pkInk))
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hot ? Color.pkIndigoFill : .clear))
             .padding(.horizontal, 6)
         }

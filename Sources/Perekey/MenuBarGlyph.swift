@@ -77,6 +77,9 @@ struct MenuBarGlyph: View {
 
     var body: some View {
         HStack(spacing: 3) {
+            if model.noAccess {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10.5, weight: .bold))
+            }
             if style != .mark, let reason = model.reason {
                 Image(systemName: reason.symbol).font(.system(size: 10.5, weight: .bold))
             }

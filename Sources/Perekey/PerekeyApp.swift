@@ -134,10 +134,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             view.voiceModes = voiceModes
             view.voiceTextController = voiceText
             view.voiceTranscripts = transcriptsController
+            view.hasAccess = { input.hasAccess }
+            view.openAccess = { onboarding.show(at: .access) }
             return view
             #else
-            return SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
-                                languages: input.languages, initial: section, scrollTarget: scrollTarget)
+            var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
+                                    languages: input.languages, initial: section, scrollTarget: scrollTarget)
+            view.hasAccess = { input.hasAccess }
+            view.openAccess = { onboarding.show(at: .access) }
+            return view
             #endif
         }
         #if PEREKEY_VOICE
@@ -210,9 +215,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Opening Perekey again (Finder, Spotlight, Launchpad) opens Settings. It is
-    /// the way back to the menu bar item when the user hid it.
+    /// the way back to the menu bar item when the user hid it. Without access it
+    /// opens the access step instead: Perekey does nothing until it is given.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        settingsWindow.show()
+        switch AccessPolicy.reopen(hasAccess: input.hasAccess) {
+        case .settings: settingsWindow.show()
+        case .onboardingAccess: onboarding.show(at: .access)
+        }
         return false
     }
 
@@ -293,6 +302,7 @@ final class MenuBarShell {
     private let menu: MenuPanelController
     private let reportWindow = ReportWordWindow()
     private let pause: PauseState
+    private let input: InputController
     private var statusItem: StatusItemController?
     /// What the menu shows of the dictation history; filled once voice is set up.
     let dictation = DictationMenuSource()
@@ -309,17 +319,19 @@ final class MenuBarShell {
         self.sources = sources
         self.store = store
         self.pause = pause
+        self.input = input
         self.recents = recents
         self.onboarding = onboarding
         let reportWindow = reportWindow
         let dictation = dictation
         menu = MenuPanelController(
             sources: sources, store: store, pause: pause, launch: launch, appModes: input.appModes,
-            recents: recents, usage: usage, updates: updates
+            recents: recents, usage: usage, updates: updates, input: input
         ) { menu in
             var actions = MenuActions(
                 openSettings: { menu.close(); settings.show() },
                 showOnboarding: { menu.close(); onboarding.show() },
+                openAccess: { menu.close(); onboarding.show(at: .access) },
                 showAbout: {
                     menu.close()
                     NSApp.activate()
@@ -341,8 +353,8 @@ final class MenuBarShell {
 
     func start() {
         guard statusItem == nil else { return }
-        statusItem = StatusItemController(sources: sources, store: store, pause: pause, recents: recents, menu: menu,
-                                          call: call, drop: drop, accepts: acceptsDrop)
+        statusItem = StatusItemController(sources: sources, store: store, pause: pause, input: input, recents: recents,
+                                          menu: menu, call: call, drop: drop, accepts: acceptsDrop)
     }
 }
 

@@ -43,6 +43,15 @@ import Testing
         }
     }
 
+    @Test func missingAccessKeepsTheItemOnScreen() {
+        let lost = MenuBarSituation(accessMissing: true)
+        #expect(lost.hasNews)
+        for visibility in MenuBarVisibility.allCases {
+            #expect(MenuBarPolicy.isVisible(visibility, lost))
+        }
+        #expect(!MenuBarPolicy.isVisible(.never, MenuBarSituation(paused: true)))
+    }
+
     @Test func onlyTheMarkAndHidingDropTheLanguage() {
         for style in [MenuBarIconStyle.capsule, .letters, .system] {
             #expect(MenuBarPolicy.showsLanguage(style: style, visibility: .always))

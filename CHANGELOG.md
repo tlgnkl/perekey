@@ -20,6 +20,11 @@ differently, what was fixed.
   again from Finder or Spotlight and Settings opens, so a hidden icon is
   never a dead end. Settings also tells you when the system's input menu and
   Perekey show the language twice, or when neither shows it.
+- **Hyphen.** Settings → General → Corrections: a Russian word typed without
+  its hyphen gets it back: «вопервых» → «во-первых», «чтото» → «что-то»,
+  «изза» → «из-за», «помоему» → «по-моему». Only words whose merged spelling
+  is no word, from a fixed list; «что то» with a space stays as typed. Off by
+  default; Backspace undoes it and Perekey leaves that word alone from then on.
 
 ### Fixed
 

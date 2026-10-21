@@ -67,6 +67,9 @@ public struct BoundaryWord: Hashable, Sendable {
     public var capsLockOff = false
     /// The first step that changed the word.
     public var kind: Correction.Kind?
+    /// The index of the one character a step inserted, which has no key of
+    /// its own ("-" of "что-то"); `nil` when the word keeps its length.
+    public var insertedAt: Int?
 
     public init(characters: [Character], modifiers: [LayoutModifiers], language: String?) {
         self.characters = characters
@@ -247,5 +250,6 @@ public struct HyphenStep: WordCorrectionStep {
         let core = word.core
         guard position > 0, Int(position) < core.count else { return }
         word.characters.insert("-", at: core.lowerBound + Int(position))
+        word.insertedAt = core.lowerBound + Int(position)
     }
 }

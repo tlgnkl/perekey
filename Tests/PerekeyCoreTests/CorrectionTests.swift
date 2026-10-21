@@ -365,6 +365,19 @@ extension Desk {
         #expect(desk.text == "ЧТО-ТО ")
     }
 
+    @Test(arguments: [("ЧТото ", "Что-то "), ("ИЗза ", "Из-за "), ("ВОпервых, ", "Во-первых, "),
+                      ("ПОмоему ", "По-моему ")])
+    func keysAfterTheCaseStepAndTheInsertion(typed: String, expected: String) {
+        // The case step changes letters before the hyphen goes in: the keys
+        // after it still belong to the letters they were pressed for.
+        let model = ModelFixture.model(withRussianForms: ["чтото", "изза", "вопервых", "помоему"])
+        var desk = Desk(only { $0.hyphen = true; $0.doubleCapitals = true }, current: ru,
+                        classifier: Classifier(model: model))
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == expected)
+        #expect(desk.corrections.count == 1)
+    }
+
     @Test func afterTheCaseSteps() throws {
         // wordfreq knows the merged spelling as a rare form, so the case
         // steps fix it first; they read the keys by position, the hyphen

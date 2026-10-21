@@ -22,7 +22,6 @@
     "abbreviations" : false,
     "capsLock" : true,
     "doubleCapitals" : true,
-    "hyphen" : false,
     "phraseRetype" : false,
     "yo" : false
   },

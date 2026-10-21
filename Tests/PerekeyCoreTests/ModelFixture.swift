@@ -63,7 +63,13 @@ enum ModelFixture {
         try! LanguageModel(bytes: build(rareEnglish: words))
     }
 
-    private static func build(rareEnglish: [String] = []) -> [UInt8] {
+    /// The fixture plus Russian forms wordfreq knows as rare typos ("чтото"):
+    /// the case steps see a known word, as they do with the real model.
+    static func model(withRussianForms words: [String]) -> LanguageModel {
+        try! LanguageModel(bytes: build(russianForms: words))
+    }
+
+    private static func build(rareEnglish: [String] = [], russianForms: [String] = []) -> [UInt8] {
         var builder = ModelBuilder()
         builder.meta = "fixture"
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
@@ -74,6 +80,7 @@ enum ModelFixture {
         for (word, rank) in english {
             builder.addForm(word, language: "en", rank: rank, weight: Double(rank))
         }
+        for word in russianForms { builder.addForm(word, language: "ru", rank: 104, weight: 0) }
         for word in rareEnglish {
             builder.addForm(word, language: "en", rank: 230, weight: 230, prefixes: false)
         }

@@ -55,6 +55,22 @@ public struct HyphenEvaluation {
         return word.characters == characters ? nil : word.characters
     }
 
+    /// The words of the list, typed merged, that the typo step would change
+    /// before the hyphen step sees them ("гдето" → a neighbour word): "word → typo".
+    public static func typoClashes(_ words: [String], model: LanguageModel, layout: LayoutMap) -> [String] {
+        let corrector = TypoCorrector(model: model)
+        var clashes: [String] = []
+        for entry in words {
+            let merged = entry.replacingOccurrences(of: "-", with: "")
+            let strokes = merged.compactMap { layout.stroke(for: $0) }
+            guard strokes.count == merged.count,
+                  let candidate = corrector.correct(strokes, in: layout, sentenceStart: false)
+            else { continue }
+            clashes.append("\(merged) → \(candidate.text)")
+        }
+        return clashes
+    }
+
     /// The counts, then the `list` most frequent missed words and every
     /// false correction.
     public func report(list: Int) -> String {

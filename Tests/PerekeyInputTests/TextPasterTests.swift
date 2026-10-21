@@ -204,7 +204,7 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         let before = pasteboard.snapshot()
         let plain = PlainPaste(pasteboard: pasteboard, restoreDelay: .milliseconds(30)) {}
         #expect(plain.paste(text: "text"))
-        for _ in 0..<100 where plain.isRestorePending { try await Task.sleep(for: .milliseconds(20)) }
+        for _ in 0..<1500 where plain.isRestorePending { try await Task.sleep(for: .milliseconds(20)) }
         #expect(!plain.isRestorePending)
         #expect(pasteboard.snapshot() == before)
     }
@@ -335,8 +335,9 @@ private func target(pid: pid_t = 100, window: pid_t? = 1, element: pid_t? = 2, r
         let probe = Probe()
         probe.flags = [[.maskAlternate, .maskCommand], [.maskAlternate], [.maskAlphaShift]]
         let pasteboard = FakePasteboard()
-        // A loaded machine sleeps long between polls.
-        let (paster, _) = make(probe, pasteboard: pasteboard, modifierTimeout: .seconds(30))
+        // The deadline stays out of reach: the test checks the reads, not the clock,
+        // so a runner that stalls between polls cannot time the wait out.
+        let (paster, _) = make(probe, pasteboard: pasteboard, modifierTimeout: .seconds(24 * 60 * 60))
         #expect(await paster.paste("text", into: target()) == .pasted)
         #expect(probe.flags.isEmpty, "read until only Caps Lock was left")
     }

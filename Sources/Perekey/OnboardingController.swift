@@ -45,9 +45,9 @@ final class OnboardingController: NSObject, NSWindowDelegate {
 
     func show(at step: OnboardingModel.Step = .welcome) {
         if let window {
-            if step != .welcome { model?.step = step }
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            // Never back: a reopen must not overwrite the step the user is on.
+            if let model, model.step.rawValue < step.rawValue { model.step = step }
+            bringToFront(window)
             return
         }
         let model = OnboardingModel(store: store, sources: sources, step: step)
@@ -69,7 +69,15 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         model.window = window
         self.model = model
         self.window = window
-        window.makeKeyAndOrderFront(nil)
+        bringToFront(window)
+    }
+
+    /// In front even when macOS declines to activate the app: a menu bar app
+    /// launched in the background gets no cooperative activation, and its window
+    /// would stay under the others while Perekey does nothing.
+    private func bringToFront(_ window: NSWindow) {
+        window.orderFrontRegardless()
+        window.makeKey()
         NSApp.activate()
     }
 

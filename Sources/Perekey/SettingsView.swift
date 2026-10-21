@@ -72,6 +72,10 @@ struct SettingsView: View {
     let updates: Updates
     let languages: LanguageStatsStore?
     let usage: UsageRecorder?
+    /// Whether Perekey has access; read in `body`, so the banner follows it.
+    var hasAccess: @MainActor () -> Bool = { true }
+    /// Opens the access step of onboarding: the banner's button.
+    var openAccess: () -> Void = {}
     #if PEREKEY_VOICE
     /// The speech models and the voice settings; the Voice tab is empty without it.
     var voiceController: VoiceModelsController?
@@ -127,16 +131,25 @@ struct SettingsView: View {
             .frame(width: 216)
             .padding(8)
 
-            ZStack {
-                pane
-                    .environment(\.pkScrollTarget, scrollTarget.wrappedValue)
-                    .id(current)
-                    .transition(.asymmetric(
-                        insertion: .offset(x: CGFloat(direction.wrappedValue) * 14).combined(with: .opacity),
-                        removal: .opacity))
+            VStack(spacing: 0) {
+                if AccessPolicy.showsBanner(hasAccess: hasAccess()) {
+                    PKCalloutButton(Text("Perekey is not working: no Accessibility access"),
+                                    actionLabel: Text("Grant Access…"), action: openAccess)
+                        .accessibilityHint(Text("Opens the setup step that gives access"))
+                        .transition(.opacity)
+                }
+                ZStack {
+                    pane
+                        .environment(\.pkScrollTarget, scrollTarget.wrappedValue)
+                        .id(current)
+                        .transition(.asymmetric(
+                            insertion: .offset(x: CGFloat(direction.wrappedValue) * 14).combined(with: .opacity),
+                            removal: .opacity))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
+            .animation(reduceMotionFree(PK.Motion.easeOut(0.2)), value: hasAccess())
         }
         .frame(width: 840, height: height)
         .onDisappear { recording.stop() }

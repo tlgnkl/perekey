@@ -150,10 +150,11 @@ enum DebugSnapshot {
                     log.record(Correction(seq: 4, original: "чтото", replacement: "что-то", source: ru, target: ru, kind: .hyphen), at: now)
                     log.markUndone(seq: 2)
                 }
-                func menuView(explained: Int? = nil) -> some View {
+                func menuView(explained: Int? = nil, hasAccess: Bool = true) -> some View {
                     var content = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch,
                                               appModes: appModes, recents: RecentCorrections(log), updates: updates)
                     content.explainedEntry = explained
+                    content.hasAccess = { hasAccess }
                     return content.background(Color(nsColor: .windowBackgroundColor))
                 }
                 render(menuView(), dark: dark, size: CGSize(width: 318, height: 640),
@@ -162,6 +163,8 @@ enum DebugSnapshot {
                     // The newest-but-two row is the switch; its «Why?» open.
                     render(menuView(explained: 0), dark: dark, size: CGSize(width: 318, height: 720),
                            to: directory.appending(path: "menu-explained-\(suffix).png"))
+                    render(menuView(hasAccess: false), dark: dark, size: CGSize(width: 318, height: 680),
+                           to: directory.appending(path: "menu-noaccess-\(suffix).png"))
                 }
             }
         }
@@ -199,6 +202,14 @@ enum DebugSnapshot {
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
             }
+            // No access: the banner above the panes.
+            let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
+                                  lastCheck: Date().addingTimeInterval(-3_600 * 5))
+            var banner = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
+                                      languages: languages, initial: .general)
+            banner.hasAccess = { false }
+            render(banner, dark: dark, size: CGSize(width: 840, height: 640),
+                   to: directory.appending(path: "settings-noaccess-\(dark ? "dark" : "light").png"))
         }
     }
 

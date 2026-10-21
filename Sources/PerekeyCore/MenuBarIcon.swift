@@ -19,7 +19,7 @@ public enum MenuBarIconStyle: String, CaseIterable, Hashable, Sendable, Codable 
 public enum MenuBarVisibility: String, CaseIterable, Hashable, Sendable, Codable {
     case always
     /// Only while Perekey has something to say: a pause, automatic switching
-    /// off, or a call being recorded.
+    /// off, a call being recorded, or no access.
     case whenNeeded
     case never
 }
@@ -29,14 +29,18 @@ public struct MenuBarSituation: Hashable, Sendable {
     public var paused: Bool
     public var autoswitchOff: Bool
     public var recordingCall: Bool
+    /// Perekey has no Accessibility access: it does nothing, and says so.
+    public var accessMissing: Bool
 
-    public init(paused: Bool = false, autoswitchOff: Bool = false, recordingCall: Bool = false) {
+    public init(paused: Bool = false, autoswitchOff: Bool = false, recordingCall: Bool = false,
+                accessMissing: Bool = false) {
         self.paused = paused
         self.autoswitchOff = autoswitchOff
         self.recordingCall = recordingCall
+        self.accessMissing = accessMissing
     }
 
-    public var hasNews: Bool { paused || autoswitchOff || recordingCall }
+    public var hasNews: Bool { paused || autoswitchOff || recordingCall || accessMissing }
 }
 
 /// A note under the menu bar settings about the system's input menu.
@@ -50,10 +54,12 @@ public enum MenuBarNotice: Hashable, Sendable {
 public enum MenuBarPolicy {
     /// Whether the item is on screen.
     public static func isVisible(_ visibility: MenuBarVisibility, _ situation: MenuBarSituation) -> Bool {
+        // Without access the item is the way to the fix: no setting hides it.
+        if situation.accessMissing { return true }
         switch visibility {
-        case .always: true
-        case .whenNeeded: situation.hasNews
-        case .never: false
+        case .always: return true
+        case .whenNeeded: return situation.hasNews
+        case .never: return false
         }
     }
 

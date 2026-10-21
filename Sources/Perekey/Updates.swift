@@ -124,6 +124,17 @@ extension Updates: SPUUpdaterDelegate {
     nonisolated func feedParameters(for updater: SPUUpdater, sendingSystemProfile sendingProfile: Bool)
         -> [[String: String]] { [] }
 
+    /// No update when every release in the feed is older than the installed
+    /// version; otherwise Sparkle picks, with its own filters. Sparkle compares
+    /// build numbers only, and a local build has build 0, so it would offer
+    /// 0.1.1 over 0.2.0. CI build numbers grow with each release, so when a
+    /// release is not older, Sparkle's pick is not older either.
+    func bestValidUpdate(in appcast: SUAppcast, for updater: SPUUpdater) -> SUAppcastItem? {
+        let installed = updater.hostBundle.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let allOlder = appcast.items.allSatisfy { UpdateFeed.isOlder($0.displayVersionString, than: installed) }
+        return allOlder ? .empty() : nil
+    }
+
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
         lastCheck = updater.lastUpdateCheckDate
     }

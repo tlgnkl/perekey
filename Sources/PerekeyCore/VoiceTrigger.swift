@@ -242,6 +242,12 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.callConsentShown.stringValue) }
     }
 
+    /// «Вставка диктовки» of the apps the user chose it for, by bundle ID.
+    /// An app that is not here is `.automatic`, and choosing that removes it.
+    public var insertion: [String: DictationInsertion] {
+        didSet { unreadableKeys.remove(CodingKeys.insertion.stringValue) }
+    }
+
     /// Keys the file has that this version could not read and the user has
     /// not set since. Encoding leaves them out, so the file keeps its values.
     public private(set) var unreadableKeys: Set<String> = []
@@ -256,7 +262,8 @@ public struct VoiceSettings: Hashable, Sendable {
                 switchesLayout: Bool = true, playsSounds: Bool = true,
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
                 introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .always,
-                includesRecordingsInBackup: Bool = false, callDiarize: Bool = true, callConsentShown: Bool = false)
+                includesRecordingsInBackup: Bool = false, callDiarize: Bool = true, callConsentShown: Bool = false,
+                insertion: [String: DictationInsertion] = [:])
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
@@ -273,6 +280,12 @@ public struct VoiceSettings: Hashable, Sendable {
         self.callDiarize = callDiarize
         self.callConsentShown = callConsentShown
         self.includesRecordingsInBackup = includesRecordingsInBackup
+        self.insertion = insertion
+    }
+
+    /// How dictation goes into the app `bundleID`.
+    public func insertion(bundleID: String?) -> DictationInsertion {
+        bundleID.flatMap { insertion[$0] } ?? .automatic
     }
 
     /// The trigger the event tap reacts to: none while dictation is off, and
@@ -290,7 +303,7 @@ extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, transcriptionModel, switchesLayout,
              playsSounds, autoStop, unload, introAnswered, callAudioRetention, includesRecordingsInBackup,
-             callDiarize, callConsentShown
+             callDiarize, callConsentShown, insertion
     }
 
     public init(from decoder: any Decoder) throws {
@@ -331,6 +344,7 @@ extension VoiceSettings: Codable {
         callDiarize = read(Bool.self, .callDiarize) ?? defaults.callDiarize
         callConsentShown = read(Bool.self, .callConsentShown) ?? defaults.callConsentShown
         includesRecordingsInBackup = read(Bool.self, .includesRecordingsInBackup) ?? defaults.includesRecordingsInBackup
+        insertion = read([String: DictationInsertion].self, .insertion) ?? defaults.insertion
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -387,6 +401,9 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.includesRecordingsInBackup.stringValue) {
             try container.encode(includesRecordingsInBackup, forKey: .includesRecordingsInBackup)
+        }
+        if !unreadableKeys.contains(CodingKeys.insertion.stringValue) {
+            try container.encode(insertion, forKey: .insertion)
         }
     }
 }

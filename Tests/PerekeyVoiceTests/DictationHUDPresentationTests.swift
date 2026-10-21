@@ -85,6 +85,13 @@ import Testing
         #expect(hud?.buttons == [.copy])
     }
 
+    @Test func aTypingThatStoppedOffersOnlyCopy() {
+        // The start of the text is in the old field: pasting it all again would double it.
+        let hud = present(.notPasted(.interrupted))
+        #expect(hud?.message == .interrupted)
+        #expect(hud?.buttons == [.copy])
+    }
+
     @Test func aPasswordFieldNamesItselfAndOffersNothingToDoWithTheText() {
         let hud = present(.notPasted(.secureField))
         #expect(hud?.message == .secureField)
@@ -110,7 +117,7 @@ import Testing
     }
 
     @Test func offeringPasteFollowsTheReason() {
-        let reasons: [NotPastedReason] = [.targetChanged, .noAccessibility, .timedOut, .failed("x")]
+        let reasons: [NotPastedReason] = [.targetChanged, .noAccessibility, .timedOut, .interrupted, .failed("x")]
         for reason in reasons {
             let offers = present(.notPasted(reason))?.buttons.contains(.paste)
             #expect(offers == reason.offersPaste, "\(reason)")

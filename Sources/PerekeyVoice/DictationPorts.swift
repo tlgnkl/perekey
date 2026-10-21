@@ -55,6 +55,13 @@ public enum DictationPasteResult: Hashable, Sendable {
     /// The app did not answer the paste in time: the text may still arrive,
     /// so it is not offered for pasting again, only for copying.
     case timedOut
+    /// Typing stopped part way: the focus moved, a key was pressed, or a new
+    /// dictation began. The start of the text may be in the old field, so it
+    /// is offered for copying only.
+    case interrupted
+    /// Typing stopped part way because another app turned Secure Input on:
+    /// as `interrupted`, and private, so it stays out of the history.
+    case interruptedBySecureInput
     /// Not pasted, for certain.
     case failed(String)
 }

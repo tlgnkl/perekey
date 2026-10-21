@@ -89,15 +89,17 @@ public enum NotPastedReason: Hashable, Sendable {
     case noAccessibility
     /// The app did not answer in time; the text may still arrive.
     case timedOut
+    /// Typing stopped part way (the focus moved, a key was pressed); its start went in.
+    case interrupted
     case failed(String)
 
     /// Whether the HUD offers "Вставить" again. Not after a timeout (the
-    /// first paste may still land: twice the text), nor into a password
-    /// field, nor without Accessibility.
+    /// first paste may still land: twice the text) or a typing that stopped
+    /// part way, nor into a password field, nor without Accessibility.
     public var offersPaste: Bool {
         switch self {
         case .targetChanged, .secureInput, .failed: true
-        case .secureField, .noAccessibility, .timedOut: false
+        case .secureField, .noAccessibility, .timedOut, .interrupted: false
         }
     }
 }
@@ -422,6 +424,8 @@ public final class VoiceController {
         isShutDown = true
         retrying?.cancel()
         retrying = nil
+        pastingAgain?.cancel()
+        pastingAgain = nil
         retained = nil
         holdWatch?.cancel()
         holdWatch = nil
@@ -579,6 +583,8 @@ public final class VoiceController {
         // A new dictation wins over "Повторить": its audio is let go.
         retrying?.cancel()
         retrying = nil
+        pastingAgain?.cancel()
+        pastingAgain = nil
         retained = nil
         let plan = modes?.plan()
         let work = Work(session: session, audio: audio, model: model(for: plan?.speechModel ?? preferences.modelID),
@@ -982,7 +988,7 @@ public final class VoiceController {
         // timeout) says nothing about the field.
         let privacy: DictationPrivacy = switch pasted {
         case .secureField: .secureField
-        case .secureInput: .secureInput
+        case .secureInput, .interruptedBySecureInput: .secureInput
         default: currentPrivacy(of: target)
         }
         finishPaste(text, result, wasPrivate: privacy.isPrivate, fallback: fallback)
@@ -1009,13 +1015,18 @@ public final class VoiceController {
         let paster = self.paster
         // Private stays private: the text was meant for a password field once.
         let wasPrivate = last?.isPrivate ?? false
-        Task {
+        pastingAgain?.cancel()
+        pastingAgain = Task {
             let result = await paster.paste(text, into: await paster.captureTarget())
             // A new dictation began meanwhile: its HUD and its text are the current ones.
-            guard !isShutDown, machine.state == .idle else { return }
+            guard !Task.isCancelled, !isShutDown, machine.state == .idle else { return }
             finishPaste(text, result, wasPrivate: wasPrivate)
         }
     }
+
+    /// "Вставить" of the HUD at work. A new dictation cancels it: a typing
+    /// (`.keystrokes`) stops, and the two texts never mix.
+    @ObservationIgnored private var pastingAgain: Task<Void, Never>?
 
     /// - Parameter fallback: a step of the mode the dictation skipped; the HUD names it.
     private func finishPaste(_ text: String, _ result: DictationPasteResult, wasPrivate: Bool,
@@ -1027,9 +1038,11 @@ public final class VoiceController {
         case .secureField: .secureField
         case let .secureInput(owner): .secureInput(owner: owner)
         case .timedOut: .timedOut
+        case .interrupted, .interruptedBySecureInput: .interrupted
         case let .failed(message): .failed(message)
         }
-        let isPrivate = wasPrivate || reason == .secureField || { if case .secureInput = reason { true } else { false } }()
+        let isPrivate = wasPrivate || reason == .secureField || result == .interruptedBySecureInput
+            || { if case .secureInput = reason { true } else { false } }()
         last = DictatedText(text: text, pasted: reason == nil, isPrivate: isPrivate)
         if let reason {
             hud = .notPasted(reason)

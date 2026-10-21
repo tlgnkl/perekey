@@ -237,6 +237,9 @@ public enum Effect: Hashable, Sendable {
     case languagesCounted(LanguageTally)
     /// The voice trigger fired (`Settings.voice`). Its key events are swallowed.
     case voice(VoiceSignal)
+    /// The user pressed a key or a modifier while dictation typed
+    /// (`InputEvent.dictationTyping`): stop typing.
+    case typingInterrupted
 }
 
 /// What to do with the event that was handled.

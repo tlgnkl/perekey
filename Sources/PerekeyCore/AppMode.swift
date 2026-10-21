@@ -39,10 +39,14 @@ public struct AppRule: Hashable, Sendable, Codable {
 
 /// The built-in defaults and the resolver of an app's mode.
 public enum AppModes {
-    /// Terminals and code editors: `.manualOnly`.
-    public static let manualOnlyBundleIDs: [String] = [
+    /// The terminals of `manualOnlyBundleIDs`.
+    public static let terminalBundleIDs: [String] = [
         "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "com.mitchellh.ghostty",
         "net.kovidgoyal.kitty", "org.alacritty", "com.github.wez.wezterm",
+    ]
+
+    /// Terminals and code editors: `.manualOnly`.
+    public static let manualOnlyBundleIDs: [String] = terminalBundleIDs + [
         "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.todesktop.230313mzl4w4u92", // Cursor
         "dev.zed.Zed", "dev.zed.Zed-Preview", "com.apple.dt.Xcode",
         "com.sublimetext.4", "com.sublimetext.3", "com.panic.Nova", "com.barebones.bbedit",

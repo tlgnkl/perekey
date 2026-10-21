@@ -78,7 +78,9 @@ private struct ButtonFrameKey: PreferenceKey {
 
 /// Room around the bubble for its shadow; the panel is this much larger.
 enum HintMetrics {
-    static let shadowInset: CGFloat = 18
+    /// The glow (radius 14, 8 down) fades out within 36pt; a smaller panel
+    /// cuts it off with a straight edge.
+    static let shadowInset: CGFloat = 36
     /// Longest word the hint prints; a retyped selection can be a paragraph.
     static let maxWord = 28
 

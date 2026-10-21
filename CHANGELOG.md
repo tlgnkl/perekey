@@ -33,6 +33,11 @@ differently, what was fixed.
   after you switched to the app often stayed as typed, and only the next word
   was fixed. Perekey now waits for the app to name the field you type in and
   judges that first word as well.
+- **The hint no longer stays under a pointer the caret covered.** The hint comes
+  up just under the cursor, often where the pointer was left, and it stayed
+  until you moved the mouse. Now the pointer holds the hint only after it
+  moves, and a finished word ends the hint either way. The hint's glow is no
+  longer cut off at the edge.
 
 ## [0.2.0] - 2026-10-14
 
@@ -60,6 +65,11 @@ differently, what was fixed.
   as said, a clean draft, a short message, an email, a terminal mode that adds
   nothing and never presses Enter, or a translation into English. Perekey
   picks the mode by the site, then by the app, and you can write your own.
+- **Dictation shows in full in terminals.** In Terminal, iTerm2, Ghostty, Orca
+  and other terminals the text is typed, not pasted, so Claude Code and
+  similar tools no longer fold a long dictation into “[Pasted text #1]”. Text
+  with a line break is still pasted, and typing leaves the pasteboard alone.
+  Settings → Apps lets you choose paste or typing for any app.
 - **Your own LLM or cloud, only on your terms.** Point a mode at OpenAI, Groq,
   Ollama, LM Studio or any server with an OpenAI-compatible API. The key stays
   in the Keychain, and Perekey asks before the first request to each server.

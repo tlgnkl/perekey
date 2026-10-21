@@ -91,7 +91,12 @@ final class InputController {
         #if PEREKEY_VOICE
         // The tap forgets the word it saw: autoswitching must not retype what
         // was just pasted.
-        textPaster = TextPaster(plainPaste: plainPaste) { [weak self] in self?.engine.send(.inputLost) }
+        // While dictation types, the tap judges no key and stops it at the user's first.
+        textPaster = TextPaster(plainPaste: plainPaste, tapRunning: { [weak self] in self?.tapState == .running },
+                                typingChanged: { [weak self] typing in
+            if typing { self?.engine.send(.inputLost) }
+            self?.engine.send(.dictationTyping(typing))
+        }, afterPaste: { [weak self] in self?.engine.send(.inputLost) })
         dictationSecureInput = DictationSecureInput(monitor: secureInput)
         #endif
 
@@ -277,6 +282,16 @@ final class InputController {
             secureInput.refresh()
         case .pastePlain:
             plainPaste.paste()
+        case let .typedSeen(seq):
+            #if PEREKEY_VOICE
+            textPaster.typedSeen(seq: seq)
+            #else
+            _ = seq
+            #endif
+        case .typingInterrupted:
+            #if PEREKEY_VOICE
+            textPaster.typingInterrupted()
+            #endif
         case let .voice(signal):
             #if PEREKEY_VOICE
             onVoice?(signal)

@@ -35,6 +35,8 @@ struct AppEntry: Identifiable {
     var rule: AppRule?
     /// The language most typed in the app, once there is enough to say.
     var language: String?
+    /// «Вставка диктовки»; `.automatic` without dictation.
+    var insertion: DictationInsertion = .automatic
     var id: String { bundleID }
 }
 
@@ -45,8 +47,23 @@ struct AppsPane: View {
     let sources: InputSources
     /// Language counts; nil hides the language labels.
     let languages: LanguageStatsStore?
+    #if PEREKEY_VOICE
+    /// «Вставка диктовки» per app; nil, or dictation off, hides it.
+    let voice: VoiceSettingsStore?
+    #endif
     private let model: State<AppsPaneModel>
 
+    #if PEREKEY_VOICE
+    init(store: SettingsStore, sources: InputSources, languages: LanguageStatsStore? = nil,
+         voice: VoiceSettingsStore? = nil, model: AppsPaneModel? = nil)
+    {
+        self.store = store
+        self.sources = sources
+        self.languages = languages
+        self.voice = voice
+        self.model = State(initialValue: model ?? AppsPaneModel())
+    }
+    #else
     init(store: SettingsStore, sources: InputSources, languages: LanguageStatsStore? = nil,
          model: AppsPaneModel? = nil)
     {
@@ -55,11 +72,18 @@ struct AppsPane: View {
         self.languages = languages
         self.model = State(initialValue: model ?? AppsPaneModel())
     }
+    #endif
+
+    /// The dictation store while dictation is on.
+    #if PEREKEY_VOICE
+    private var dictation: VoiceSettingsStore? { voice?.isOn == true ? voice : nil }
+    #endif
 
     private var pane: AppsPaneModel { model.wrappedValue }
 
-    /// Apps with a user rule, installed apps with a built-in default, and
-    /// apps whose language is known from what was typed there.
+    /// Apps with a user rule, installed apps with a built-in default, apps
+    /// whose language is known from what was typed there, and apps with a
+    /// «Вставка диктовки» of their own.
     private var entries: [AppEntry] {
         let apps = store.settings.apps
         var list: [AppEntry] = apps.map { id, rule in
@@ -79,6 +103,18 @@ struct AppsPane: View {
             }
             for index in list.indices { list[index].language = languages.dominantLanguage(app: list[index].bundleID) }
         }
+        #if PEREKEY_VOICE
+        if let dictation {
+            let chosen = dictation.settings.insertion
+            let listed = Set(list.map(\.bundleID))
+            for id in chosen.keys where !listed.contains(id) {
+                guard let url = AppInfo.url(bundleID: id) else { continue }
+                list.append(AppEntry(bundleID: id, name: AppInfo.name(at: url), url: url,
+                                     mode: AppModes.builtInMode(bundleID: id) ?? .auto, rule: nil))
+            }
+            for index in list.indices { list[index].insertion = chosen[list[index].bundleID] ?? .automatic }
+        }
+        #endif
         return list.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
@@ -115,7 +151,7 @@ struct AppsPane: View {
                                 ForEach(Array(shown.enumerated()), id: \.element.id) { index, entry in
                                     VStack(spacing: 0) {
                                         if index > 0 { PKDivider(leading: 54) }
-                                        AppRow(entry: entry, store: store, sources: sources, languages: languages)
+                                        row(entry)
                                             .pkFound(entry.bundleID, tracker: pane.found)
                                     }
                                     .pkRowTransition()
@@ -194,6 +230,14 @@ struct AppsPane: View {
         .accessibilityHidden(true)
     }
 
+    private func row(_ entry: AppEntry) -> AppRow {
+        #if PEREKEY_VOICE
+        AppRow(entry: entry, store: store, sources: sources, languages: languages, voice: dictation)
+        #else
+        AppRow(entry: entry, store: store, sources: sources, languages: languages)
+        #endif
+    }
+
     private func add(_ app: AppCandidate) {
         pane.found.mark(app.bundleID)
         store.updateRule(for: app.bundleID, base: app.defaultMode) { _ in }
@@ -218,6 +262,29 @@ private struct AppRow: View {
     let store: SettingsStore
     let sources: InputSources
     let languages: LanguageStatsStore?
+    #if PEREKEY_VOICE
+    /// Nil hides «Вставка диктовки».
+    var voice: VoiceSettingsStore?
+    #endif
+
+    /// Narrower by the dictation menu, so the app's name keeps its room.
+    private var layoutWidth: CGFloat {
+        #if PEREKEY_VOICE
+        if voice != nil { return Self.layoutWidth - Self.resetWidth }
+        #endif
+        return Self.layoutWidth
+    }
+
+    /// The reset removes «Вставка диктовки» too, where the row shows it.
+    private var resetHelp: String {
+        #if PEREKEY_VOICE
+        if voice != nil { return voiceString("Remove the rule and the dictation input") }
+        #endif
+        return String(localized: "Remove the rule")
+    }
+
+    /// The row has a rule to remove: its mode and layout, or its dictation input.
+    private var hasRule: Bool { entry.rule != nil || entry.insertion != .automatic }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -231,6 +298,9 @@ private struct AppRow: View {
                     if entry.rule != nil || AppModes.builtInMode(bundleID: entry.bundleID) != nil {
                         Text(entry.rule == nil ? String(localized: "Built-in default") : String(localized: "Your rule"))
                     }
+                    #if PEREKEY_VOICE
+                    if voice != nil, let caption = Self.insertionCaption(entry.insertion) { Text(caption) }
+                    #endif
                     if let language = entry.language {
                         // "Reset" goes under the language when the row is narrow.
                         ViewThatFits(in: .horizontal) {
@@ -253,26 +323,83 @@ private struct AppRow: View {
                 }
             }
             .labelsHidden()
-            .frame(width: Self.layoutWidth)
+            .frame(width: layoutWidth)
             Picker("Mode", selection: modeBinding) {
                 ForEach(AppMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }
             .labelsHidden()
             .frame(width: Self.modeWidth)
-            Button { store.resetRule(for: entry.bundleID) } label: {
+            #if PEREKEY_VOICE
+            if voice != nil { insertionMenu }
+            #endif
+            Button {
+                store.resetRule(for: entry.bundleID)
+                #if PEREKEY_VOICE
+                voice?.update { $0.insertion[entry.bundleID] = nil }
+                #endif
+            } label: {
                 Image(systemName: "arrow.uturn.backward")
                     .frame(width: Self.resetWidth)
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.pkIndigoInk)
-            .help("Remove the rule")
-            .accessibilityLabel("Remove the rule")
-            .opacity(entry.rule == nil ? 0 : 1)
-            .disabled(entry.rule == nil)
+            .help(resetHelp)
+            .accessibilityLabel(resetHelp)
+            .opacity(hasRule ? 1 : 0)
+            .disabled(!hasRule)
         }
         .padding(.horizontal, PK.Space.md)
         .padding(.vertical, 8)
     }
+
+    #if PEREKEY_VOICE
+    /// «Вставка диктовки»: a menu behind a microphone, as the row has no room for a third picker.
+    private var insertionMenu: some View {
+        Menu {
+            Picker(voiceString("Dictation input"), selection: insertionBinding) {
+                ForEach(DictationInsertion.allCases, id: \.self) { Text(Self.insertionTitle($0)).tag($0) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: entry.insertion == .automatic ? "mic" : "mic.fill")
+                .frame(width: Self.resetWidth)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .frame(width: Self.resetWidth)
+        .foregroundStyle(Color.pkIndigoInk)
+        .help(voiceString("Dictation input"))
+        .accessibilityLabel(voiceString("Dictation input"))
+        .accessibilityValue(Self.insertionTitle(entry.insertion))
+    }
+
+    static func insertionTitle(_ insertion: DictationInsertion) -> String {
+        switch insertion {
+        case .automatic: voiceString("Automatic")
+        case .paste: voiceString("Paste (⌘V)")
+        case .typing: voiceString("Type as keystrokes")
+        }
+    }
+
+    /// Under the app's name when the user chose how dictation goes in.
+    static func insertionCaption(_ insertion: DictationInsertion) -> String? {
+        switch insertion {
+        case .automatic: nil
+        case .paste: voiceString("Dictation: pasted")
+        case .typing: voiceString("Dictation: typed")
+        }
+    }
+
+    private var insertionBinding: Binding<DictationInsertion> {
+        Binding(
+            get: { entry.insertion },
+            set: { choice in
+                voice?.update { $0.insertion[entry.bundleID] = choice == .automatic ? nil : choice }
+            }
+        )
+    }
+    #endif
 
     @ViewBuilder private func languageCaption(_ language: String) -> some View {
         Text(Self.mostly(language))

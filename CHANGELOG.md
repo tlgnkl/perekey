@@ -33,6 +33,11 @@ differently, what was fixed.
   after you switched to the app often stayed as typed, and only the next word
   was fixed. Perekey now waits for the app to name the field you type in and
   judges that first word as well.
+- **A comma after a word in the wrong layout stays a comma.** If you type
+  “нет,” with English on and the comma on the English comma key, Perekey now
+  gives “нет,” instead of leaving “ytn,” or typing “нетб”, also when it has
+  switched the layout before you reached the comma. The same goes for a
+  period, a semicolon and a colon. Backspace right after gives “ytn,” back.
 - **The hint no longer stays under a pointer the caret covered.** The hint comes
   up just under the cursor, often where the pointer was left, and it stayed
   until you moved the mouse. Now the pointer holds the hint only after it

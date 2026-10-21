@@ -117,6 +117,8 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         /// Called after every stroke, with the strokes so far.
         var onStroke: ((Int) -> Void)?
         var task: Task<PasteResult, Never>?
+        /// A wait for a checkpoint ran its whole timeout: nothing ended it.
+        var waitRanOut = false
     }
 
     private func make(_ probe: Probe, pasteboard: CountingPasteboard = CountingPasteboard(),
@@ -192,10 +194,8 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
             probe.log.append("seen \(probe.checkpoint)")
             paster.typedSeen(seq: probe.checkpoint)
         }
-        let clock = ContinuousClock()
-        let start = clock.now
         #expect(await paster.paste(Self.long, into: field()) == .pasted)
-        #expect(clock.now - start < .seconds(10), "the answers ended the waits, not the timeout")
+        #expect(!probe.waitRanOut, "the answers ended the waits, not the timeout")
         #expect(probe.pauses.filter { $0 == TextPaster.seenTimeout }.count == 2, "both checkpoints were waited for")
         #expect(probe.log == ["typing on", "seen 1", "seen 2", "typing off", "after paste"])
     }
@@ -230,6 +230,7 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
             guard duration == TextPaster.seenTimeout else { return }
             Task { whileWaiting(paster) }
             try? await Task.sleep(for: .seconds(60))
+            if !Task.isCancelled { probe.waitRanOut = true }
         })
         return paster
     }
@@ -239,10 +240,8 @@ private func field(pid: pid_t = 100, element id: pid_t = 2) -> PasteTarget {
         let paster = waiting(probe) { _ in probe.task?.cancel() }
         let task = Task { await paster.paste(Self.long, into: field()) }
         probe.task = task
-        let clock = ContinuousClock()
-        let start = clock.now
         #expect(await task.value == .failed(.interrupted))
-        #expect(clock.now - start < .seconds(10), "not the minute of the wait")
+        #expect(!probe.waitRanOut, "not the minute of the wait")
         #expect(probe.strokes.count == TypedText.ackEvery)
         #expect(probe.afterPaste == 1)
     }

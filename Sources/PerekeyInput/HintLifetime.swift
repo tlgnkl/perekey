@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import CoreGraphics
+
 /// What a key press means to the caret hint. Only the kind is kept, never the
 /// character: the hint must not hold on to what the user types.
 public enum HintKey: Sendable {
@@ -30,7 +32,9 @@ public enum HintKey: Sendable {
 
 /// When the caret hint goes away: once the next word is typed in full, or
 /// `idle` seconds after the last key press. The pointer over the hint holds
-/// it. Pure state on a clock the caller passes in (seconds, any epoch).
+/// it against the idle clock, not against a finished word: whoever types on
+/// does not read the hint. Pure state on a clock the caller passes in
+/// (seconds, any epoch).
 public struct HintLifetime: Equatable, Sendable {
     public static let idle: Double = 3
 
@@ -89,7 +93,30 @@ public struct HintLifetime: Equatable, Sendable {
     }
 
     public func isExpired(at now: Double) -> Bool {
+        if wordDone { return true }
         if frozen != nil { return false }
-        return wordDone || now >= deadline
+        return now >= deadline
+    }
+}
+
+/// Whether the pointer is on the hint for the user. The pointer counts only
+/// after it moved since the hint appeared: macOS hides it while the user types,
+/// and a hint that comes up under a pointer left by the caret would otherwise
+/// stay until the mouse moves.
+public struct HintHover: Equatable, Sendable {
+    /// How far the pointer must move to show it went somewhere.
+    public static let threshold: CGFloat = 2
+
+    private let start: CGPoint
+    private var moved = false
+
+    public init(pointer: CGPoint) {
+        start = pointer
+    }
+
+    /// `pointer` and `bubble` in the same screen coordinates.
+    public mutating func isHovering(pointer: CGPoint, bubble: CGRect) -> Bool {
+        if !moved, hypot(pointer.x - start.x, pointer.y - start.y) > Self.threshold { moved = true }
+        return moved && bubble.contains(pointer)
     }
 }

@@ -33,6 +33,11 @@ differently, what was fixed.
   gives “нет,” instead of leaving “ytn,” or typing “нетб”, also when it has
   switched the layout before you reached the comma. The same goes for a
   period, a semicolon and a colon. Backspace right after gives “ytn,” back.
+- **The hint no longer stays under a pointer the caret covered.** The hint comes
+  up just under the cursor, often where the pointer was left, and it stayed
+  until you moved the mouse. Now the pointer holds the hint only after it
+  moves, and a finished word ends the hint either way. The hint's glow is no
+  longer cut off at the edge.
 
 ## [0.2.0] - 2026-10-14
 

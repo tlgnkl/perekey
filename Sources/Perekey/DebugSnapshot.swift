@@ -147,6 +147,7 @@ enum DebugSnapshot {
                     log.record(layout, at: now)
                     log.record(Correction(seq: 2, original: "мвд", replacement: "МВД", source: ru, target: ru, kind: .abbreviation), at: now)
                     log.record(Correction(seq: 3, original: "еще", replacement: "ещё", source: ru, target: ru, kind: .yo), at: now)
+                    log.record(Correction(seq: 4, original: "чтото", replacement: "что-то", source: ru, target: ru, kind: .hyphen), at: now)
                     log.markUndone(seq: 2)
                 }
                 func menuView(explained: Int? = nil) -> some View {
@@ -330,7 +331,7 @@ enum DebugSnapshot {
         let file = UsageStatsFile(url: directory.appending(path: "\(name).stats.json"))
         file.erase()
         let recorder = UsageRecorder(file: file, interval: 0, now: { clock }) { true }
-        let kinds: [Correction.Kind] = [.layout, .layout, .layout, .typo, .yo, .abbreviation, .capsLock]
+        let kinds: [Correction.Kind] = [.layout, .layout, .layout, .typo, .yo, .abbreviation, .capsLock, .hyphen]
         let perDay = [4, 11, 7, 0, 19, 9, 23]
         for (index, count) in perDay.enumerated() {
             clock = Calendar.current.date(byAdding: .day, value: index - 6, to: Date()) ?? Date()

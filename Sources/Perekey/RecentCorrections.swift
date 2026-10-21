@@ -40,6 +40,7 @@ extension Correction.Kind {
         case .doubleCapitals: "textformat.size"
         case .abbreviation: "textformat.abc"
         case .yo: "e.square"
+        case .hyphen: "minus.square"
         }
     }
 
@@ -51,6 +52,7 @@ extension Correction.Kind {
         case .doubleCapitals: String(localized: "Double capital")
         case .abbreviation: String(localized: "Abbreviation")
         case .yo: String(localized: "Letter ё")
+        case .hyphen: String(localized: "Hyphen")
         }
     }
 }

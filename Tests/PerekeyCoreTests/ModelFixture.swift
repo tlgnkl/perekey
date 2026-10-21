@@ -26,6 +26,12 @@ enum ModelFixture {
     /// Words that take "ё" unambiguously: what the builder derives from the dictionary.
     static let yo = ["ещё", "ёлка", "трёхзвёздный"]
 
+    /// Words people type without their hyphen: `data/ru/hyphen.txt`.
+    static let hyphen = [
+        "во-первых", "в-четвёртых", "что-то", "кто-то", "какого-нибудь", "кое-что", "по-моему", "по-русски",
+        "из-за", "всё-таки", "чуть-чуть",
+    ]
+
     /// Words with a fixed case, and whether Perekey corrects to them.
     static let cased: [(String, Bool)] = [
         ("МВД", true), ("ВрИО", true), ("MP3", true), ("NASA", true), ("iPhone", false), ("ГОСТ", false),
@@ -59,7 +65,13 @@ enum ModelFixture {
         try! LanguageModel(bytes: build(rareEnglish: words))
     }
 
-    private static func build(rareEnglish: [String] = []) -> [UInt8] {
+    /// The fixture plus Russian forms wordfreq knows as rare typos ("чтото"):
+    /// the case steps see a known word, as they do with the real model.
+    static func model(withRussianForms words: [String]) -> LanguageModel {
+        try! LanguageModel(bytes: build(russianForms: words))
+    }
+
+    private static func build(rareEnglish: [String] = [], russianForms: [String] = []) -> [UInt8] {
         var builder = ModelBuilder()
         builder.meta = "fixture"
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
@@ -70,6 +82,7 @@ enum ModelFixture {
         for (word, rank) in english {
             builder.addForm(word, language: "en", rank: rank, weight: Double(rank))
         }
+        for word in russianForms { builder.addForm(word, language: "ru", rank: 104, weight: 0) }
         for word in rareEnglish {
             builder.addForm(word, language: "en", rank: 230, weight: 230, prefixes: false)
         }
@@ -81,6 +94,7 @@ enum ModelFixture {
     /// The tables of the stage 4 corrections.
     static func addCorrections(to builder: inout ModelBuilder) {
         for word in yo { builder.addYo(word, language: "ru") }
+        for word in hyphen { builder.addHyphen(word, language: "ru") }
         for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
     }
 

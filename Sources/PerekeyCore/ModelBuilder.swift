@@ -14,6 +14,8 @@ public struct ModelBuilder: Sendable {
     public static let bucketBits = 16
     /// Buckets of the "ё" table: it holds tens of thousands of forms, not millions.
     public static let yoBucketBits = 12
+    /// Buckets of the hyphen table: a few hundred words.
+    public static let hyphenBucketBits = 8
 
     /// Free text stored in the model: sources, licences, input hashes.
     public var meta = ""
@@ -79,6 +81,19 @@ public struct ModelBuilder: Sendable {
         return languages[index].addYo(form)
     }
 
+    /// Adds a word with one hyphen ("что-то"): the model then knows the
+    /// merged spelling "чтото" takes it after three letters. A form with "ё"
+    /// also gives its "е" spelling ("всё-таки", "все-таки"). Returns false
+    /// when the form has no hyphen or more than one, one at an end, or other
+    /// letters than the alphabet.
+    @discardableResult
+    public mutating func addHyphen(_ form: String, language: String) -> Bool {
+        guard let index = languages.firstIndex(where: { $0.language == language }) else {
+            preconditionFailure("unknown language \(language)")
+        }
+        return languages[index].addHyphen(form)
+    }
+
     public func build() -> [UInt8] {
         var sections: [(tag: UInt32, language: UInt32, body: [UInt8])] = []
         sections.append((ModelFormat.metaTag, 0, Self.metaSection(meta)))
@@ -88,6 +103,7 @@ public struct ModelBuilder: Sendable {
             sections.append((ModelFormat.dictionaryTag, code, language.dictionarySection()))
             sections.append((ModelFormat.prefixTag, code, language.prefixSection()))
             if let yo = language.yoSection() { sections.append((ModelFormat.yoTag, code, yo)) }
+            if let hyphen = language.hyphenSection() { sections.append((ModelFormat.hyphenTag, code, hyphen)) }
         }
         sections.append((ModelFormat.keepTag, 0, Self.keepSection(keep)))
         if !cased.isEmpty { sections.append((ModelFormat.casedTag, 0, Self.casedSection(cased))) }
@@ -174,6 +190,8 @@ struct LanguageBuilder: Sendable {
     /// Folded fingerprint of the "е" spelling → which "е" become "ё", bit
     /// `i` for the `i`-th "е" of the word.
     private var yo: [UInt64: UInt8] = [:]
+    /// Folded fingerprint of the merged spelling → the letters before the hyphen.
+    private var hyphens: [UInt64: UInt8] = [:]
     private var prefixes3: [UInt64]
     private var prefixes4: [UInt64]
 
@@ -237,6 +255,24 @@ struct LanguageBuilder: Sendable {
         }
         guard mask != 0 else { return false }
         yo[plain.value] = mask
+        return true
+    }
+
+    mutating func addHyphen(_ form: String) -> Bool {
+        let scalars = Array(form.unicodeScalars).map { ModelFormat.fold($0.value) }
+        let hyphen: UInt32 = 0x2D
+        guard let position = scalars.firstIndex(of: hyphen), position > 0, position < scalars.count - 1,
+              position <= Int(UInt8.max), scalars.lastIndex(of: hyphen) == position,
+              scalars.allSatisfy({ $0 == hyphen || symbols[$0] != nil })
+        else { return false }
+        let merged = scalars.filter { $0 != hyphen }
+        var spellings = [merged]
+        if merged.contains(0x451) { spellings.append(merged.map { $0 == 0x451 ? 0x435 : $0 }) }
+        for spelling in spellings {
+            var fingerprint = ModelFormat.Fingerprint()
+            for scalar in spelling { fingerprint.add(scalar) }
+            hyphens[fingerprint.value] = UInt8(position)
+        }
         return true
     }
 
@@ -333,6 +369,11 @@ struct LanguageBuilder: Sendable {
     /// The "ё" table in the dictionary's layout, `nil` when the language has none.
     func yoSection() -> [UInt8]? {
         yo.isEmpty ? nil : Self.fingerprintTable(yo, bits: ModelBuilder.yoBucketBits)
+    }
+
+    /// The hyphen table in the dictionary's layout, `nil` when the language has none.
+    func hyphenSection() -> [UInt8]? {
+        hyphens.isEmpty ? nil : Self.fingerprintTable(hyphens, bits: ModelBuilder.hyphenBucketBits)
     }
 
     /// `u32 bucket bits, u32 count, u64 0`, the bucket offsets, the 32-bit

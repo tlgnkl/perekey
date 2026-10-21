@@ -97,9 +97,9 @@ public struct ModelBuild {
             // rules. Forms unknown to wordfreq get rank 0 and a small weight.
             // Ukrainian has none with a compatible licence (data/SOURCES.md):
             // wordfreq alone, the n-grams cover the rare forms.
+            var seen: Set<String> = []
             if let (dic, aff, name) = try spellingDictionary(language) {
                 let hunspell = Hunspell(affix: aff)
-                var seen: Set<String> = []
                 var expanded = 0
                 let entries = Hunspell.entries(dic: dic)
                 // Words with "ё" are derived from the dictionary as it is expanded.
@@ -160,6 +160,19 @@ public struct ModelBuild {
             }
             for word in lists.abbreviations { builder.addCasedForm(word, corrects: false) }
             for word in lists.keep { builder.addKeep(word) }
+            if !lists.hyphen.isEmpty {
+                // The merged spelling must be no word of the dictionary: "потому" stays.
+                let added = Set(lists.add)
+                let hyphen = try HyphenList.check(lists.hyphen, file: "data/\(language)/hyphen.txt",
+                                                  isWord: { seen.contains($0) || added.contains($0) },
+                                                  rank: { ranks[$0] })
+                var count = 0
+                for word in hyphen where builder.addHyphen(word, language: language) { count += 1 }
+                guard count == hyphen.count else {
+                    throw Failure(description: "data/\(language)/hyphen.txt: words outside the alphabet")
+                }
+                report.notes.append("\(language): \(count) words take a hyphen")
+            }
             report.notes.append("\(language): \(forms) forms, \(rejected) rejected (outside the alphabet)")
             for word in mixed.keep {
                 builder.addKeep(word)
@@ -239,6 +252,8 @@ public struct DataLists {
     /// `noyo.txt`: "е" spellings that are words of their own though the
     /// dictionary lists them as spellings of a form with "ё" ("все").
     public var noYo: [String] = []
+    /// `hyphen.txt`: words with a hyphen people type merged ("вопервых").
+    public var hyphen: [String] = []
     public var keep: [String] = []
 
     public init() {}
@@ -255,6 +270,7 @@ public struct DataLists {
         abbreviations = try Self.read("\(directory)/abbrev.txt").map(\.word)
         correctedAbbreviations = try Self.read("\(directory)/abbreviations.txt").map(\.word)
         noYo = try Self.read("\(directory)/noyo.txt").map(\.word)
+        hyphen = try Self.read("\(directory)/hyphen.txt").map(\.word)
         keep = try Self.read("\(directory)/keep.txt").map(\.word)
     }
 

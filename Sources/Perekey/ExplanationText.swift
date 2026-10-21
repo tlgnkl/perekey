@@ -47,6 +47,7 @@ enum ExplanationText {
             case .doubleCapitals: return String(localized: "Two capitals at the start: Shift was held a key too long")
             case .abbreviation: return String(localized: "A known abbreviation: it goes in capitals")
             case .yo: return String(localized: "The dictionary spells this word with «ё»")
+            case .hyphen: return String(localized: "This word is written with a hyphen")
             case .layout, .typo: return ""
             }
         }

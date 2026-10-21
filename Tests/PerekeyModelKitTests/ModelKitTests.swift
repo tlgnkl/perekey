@@ -92,6 +92,7 @@ import Testing
         #expect(lists.abbreviations == ["ГОСТ", "МФЦ"])
         #expect(lists.correctedAbbreviations == ["ВрИО", "МВД"])
         #expect(lists.noYo == ["все"])
+        #expect(lists.hyphen == ["что-то"])
         #expect(lists.keep == ["ок"])
     }
 
@@ -163,6 +164,62 @@ import Testing
         let ranks: [String: UInt8] = ["мёд": 100, "мед": 120, "мёда": 90, "мёду": 80, "ещё": 180, "еще": 200]
         #expect(Self.table("4\nмед/A\nеще\nмёд/A\nещё\n", ranks: ranks)
             == Self.table("4\nещё\nмёд/A\nеще\nмед/A\n", ranks: ranks))
+    }
+}
+
+@Suite struct HyphenListTests {
+    /// Forms of the spelling dictionary.
+    static let words: Set = ["что", "то", "из", "за", "по", "моему", "потому", "тоже", "кое"]
+    /// wordfreq ranks: "нибудь" and "либо" come from words it split at the hyphen.
+    static let ranks: [String: UInt8] = ["чтото": 104, "нибудь": 150, "изза": 102, "таки": 166, "всё": 183,
+                                         "все": 210, "всетаки": 125]
+
+    static func check(_ entries: [String]) throws -> [String] {
+        try HyphenList.check(entries, file: "hyphen.txt", isWord: { words.contains($0) }, rank: { ranks[$0] })
+    }
+
+    @Test func rightEntriesPass() throws {
+        #expect(try Self.check(["что-то", "из-за", "по-моему", "что-нибудь"]) == ["что-то", "из-за", "по-моему", "что-нибудь"])
+    }
+
+    @Test(arguments: [
+        ("по-тому", "потому is a word of the dictionary"),
+        ("то-же", "тоже is a word of the dictionary"),
+        ("всё-таки", "всетаки is frequent in wordfreq"),
+        ("что-тто", "тто is no word"),
+        ("точь-в-точь", "needs one hyphen"),
+        ("-то", "needs one hyphen"),
+        ("Что-то", "not lowercase"),
+    ])
+    func badEntriesFailTheBuild(entry: String, reason: String) throws {
+        let error = try #require(throws: ModelBuild.Failure.self) { try Self.check(["что-то", entry]) }
+        #expect(error.description.contains(reason), "\(error.description)")
+        #expect(!error.description.contains("что-то:"))
+    }
+
+    @Test func everyProblemIsNamed() throws {
+        let error = try #require(throws: ModelBuild.Failure.self) { try Self.check(["по-тому", "то-же"]) }
+        #expect(error.description.contains("потому") && error.description.contains("тоже"))
+    }
+
+    /// The list in the repository: one hyphen, sorted, and none of the words
+    /// that must stay is a merged spelling of it. The builder checks the
+    /// rest against the dictionaries.
+    @Test func theListOfTheRepository() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let lists = try DataLists(directory: root.appendingPathComponent("data/ru").path)
+        #expect(lists.hyphen.count > 200)
+        #expect(lists.hyphen == lists.hyphen.sorted { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) })
+        #expect(Set(lists.hyphen).count == lists.hyphen.count)
+        let merged = Set(lists.hyphen.flatMap { [$0.replacingOccurrences(of: "-", with: ""),
+                                                 YoTable.plain($0.replacingOccurrences(of: "-", with: ""))] })
+        for word in ["потому", "поэтому", "тоже", "также", "чтобы", "притом", "зато", "таки", "кое"] {
+            #expect(!merged.contains(word), "\(word)")
+        }
+        for entry in lists.hyphen {
+            #expect(entry.filter { $0 == "-" }.count == 1 && entry == entry.lowercased(), "\(entry)")
+        }
     }
 }
 

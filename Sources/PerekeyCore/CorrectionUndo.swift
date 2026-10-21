@@ -180,12 +180,13 @@ struct CorrectionUndo: Sendable {
         }
         // Undoing a Caps Lock or double-capitals fix is a typing accident, not
         // a word preference: "привет" on the exception list would also stop
-        // "ghbdtn" from ever switching. A typo undo learns the typed word only.
+        // "ghbdtn" from ever switching. A typo or hyphen undo learns the typed
+        // word only: "чтото" stays merged, "что-то" is no word to learn.
         // Abbreviations and «ё» are about the word itself, so they learn.
         let learn: String? = switch correction.kind {
         case _ where last.isOpen || !learnFromUndos || last.alwaysFix != nil: nil
         case .layout, .abbreviation, .yo: Self.learnable(correction.original, or: correction.replacement)
-        case .typo: Self.learnable(correction.original, or: nil)
+        case .typo, .hyphen: Self.learnable(correction.original, or: nil)
         case .capsLock, .doubleCapitals: nil
         }
         return Plan(keys: keys, expected: expected, deleteCount: deleteCount, source: source.id,

@@ -744,10 +744,16 @@ struct WordJudge: Sendable {
         guard WordCorrections.run(&word, settings: settings, model: model), let kind = word.kind else { return fix }
         var corrected: [KeyStroke] = []
         corrected.reserveCapacity(word.characters.count)
+        // A character a step inserted ("-" of "что-то") has no typed key: the
+        // characters after it map to the key one place earlier.
+        let inserted = word.insertedAt
+        guard word.characters.count == strokes.count + (inserted == nil ? 0 : 1) else { return fix }
         for (index, character) in word.characters.enumerated() {
             // Keep the key the user pressed where it still types the character.
-            if index < strokes.count, map.text(for: strokes[index]) == String(character) {
-                corrected.append(strokes[index])
+            var key: Int? = index
+            if let inserted { key = index == inserted ? nil : index - (index > inserted ? 1 : 0) }
+            if let key, map.text(for: strokes[key]) == String(character) {
+                corrected.append(strokes[key])
             } else if let stroke = map.stroke(for: character), !stroke.modifiers.contains(.option) {
                 corrected.append(stroke)
             } else {

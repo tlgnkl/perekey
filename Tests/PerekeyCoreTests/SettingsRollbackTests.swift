@@ -10,7 +10,9 @@ import Testing
 /// keeps its settings in `voice.json`. The one exception is the two scalar
 /// menu bar keys (`addedSince0_1_1`): 0.1.1 ignores keys it does not know and
 /// drops them when it saves, so the choice falls back to the capsule, and the
-/// rest of the file is read as before.
+/// rest of the file is read as before. A new switch inside `corrections`
+/// (`addedToCorrectionsSince0_1_1`) is the same: 0.1.1 reads the keys of that
+/// object one by one, ignores the new one and drops it on save.
 @Suite struct SettingsRollbackTests {
     /// Every field away from its default, the shortcuts included.
     static var filled: AppSettings {
@@ -36,10 +38,17 @@ import Testing
     /// Keys a later version added to `settings.json`; 0.1.1 does not write them back.
     static let addedSince0_1_1: Set<String> = ["menuBarIcon", "menuBarVisibility"]
 
+    /// Keys of `corrections` that a later version added.
+    static let addedToCorrectionsSince0_1_1: Set<String> = ["hyphen"]
+
     /// The JSON object without the keys 0.1.1 does not know.
     static func object(_ data: Data, as0_1_1: Bool) throws -> NSDictionary {
         let object = try Self.object(data).mutableCopy() as! NSMutableDictionary
         for key in addedSince0_1_1 { object.removeObject(forKey: key) }
+        if let corrections = (object["corrections"] as? NSDictionary)?.mutableCopy() as? NSMutableDictionary {
+            for key in addedToCorrectionsSince0_1_1 { corrections.removeObject(forKey: key) }
+            object["corrections"] = corrections
+        }
         return object
     }
 
@@ -78,7 +87,19 @@ import Testing
         // 0.1.1 opens it: a decoding error here would make it drop every setting.
         let legacy = try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: saved)
         let resaved = try Self.encode(legacy)
-        #expect(try Self.object(resaved) == Self.object(saved, as0_1_1: true), "0.1.1 writes back what it read")
+        #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true), "0.1.1 writes back what it read")
+        #expect(try JSONDecoder().decode(AppSettings.self, from: resaved) == settings)
+    }
+
+    @Test func hyphenSwitchSurvivesSavingIn0_1_1() throws {
+        var settings = Self.filled
+        settings.corrections.hyphen = true
+        let saved = try Self.encode(settings)
+        let legacy = try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: saved)
+        let resaved = try Self.encode(legacy)
+        // 0.1.1 reads the file without error and writes back everything it knows;
+        // the stand-in keeps the new switch because it shares `TextCorrections`.
+        #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true))
         #expect(try JSONDecoder().decode(AppSettings.self, from: resaved) == settings)
     }
 
@@ -94,7 +115,8 @@ import Testing
     @Test func fileOf0_1_1OpensAndSavesBack() throws {
         let data = try Self.fixture("settings-0.1.1")
         let legacy = try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: data)
-        #expect(try Self.object(Self.encode(legacy)) == Self.object(data), "the fixture is as 0.1.1 writes it")
+        #expect(try Self.object(Self.encode(legacy), as0_1_1: true) == Self.object(data),
+                "the fixture is as 0.1.1 writes it")
 
         let settings = try JSONDecoder().decode(AppSettings.self, from: data)
         #expect(settings == Self.filled)

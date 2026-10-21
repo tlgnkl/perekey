@@ -106,6 +106,7 @@
 "Tab" = "Tab";
 "The app modes say so. Perekey does not fix words or change the layout here." = "The app modes say so. Perekey does not fix words or change the layout here.";
 "The dictionary spells this word with «ё»" = "The dictionary spells this word with «ё»";
+"This word is written with a hyphen" = "This word is written with a hyphen";
 "The fn / 🌐 key also runs its own macOS action, which can switch the input source." = "The fn / 🌐 key also runs its own macOS action, which can switch the input source.";
 "The same shortcut brought ghbdtn back" = "The same shortcut brought ghbdtn back";
 "The shortcut turned ghbdtn into привет" = "The shortcut turned ghbdtn into привет";
@@ -273,6 +274,8 @@
 "Abbreviations" = "Abbreviations";
 "Letter ё" = "Letter ё";
 "Russian only, where the word with «е» is no other word" = "Russian only, where the word with «е» is no other word";
+"Hyphen" = "Hyphen";
+"Russian only, where the merged word is no word" = "Russian only, where the merged word is no word";
 "Layout on entry" = "Layout on entry";
 "Perekey does not touch" = "Perekey does not touch";
 "Password fields" = "Password fields";

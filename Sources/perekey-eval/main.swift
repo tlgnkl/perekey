@@ -14,6 +14,7 @@
 //   perekey-eval cyrillic --model <dir> --layouts <dir> [--cache <dir>] [--words N] [--margin M] [--languages ru,uk,be]
 //                         [--margin-sweep]
 //   perekey-eval slash --model <file> --layouts <dir> --tokens <file> [--lead] [--list N]
+//   perekey-eval hyphen --model <file> [--cache <dir>] [--list N] [--layouts <dir> --words <hyphen.txt>]
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -40,6 +41,14 @@
 // keys or with a capital past its first letter stops the cutting: it and the
 // parts after it are not judged. Context is the parts before; `--lead`
 // also puts the first part's language before the token, as a sentence would.
+// `hyphen` measures the hyphen step on the Russian Tatoeba sentences
+// (`HyphenEvaluation`): every word with a hyphen typed merged, how many come
+// back, and every change of the clean text; `--list` prints the N most
+// frequent hyphenated words not on the list (default 30). A change of the
+// clean text is reported, not an error: the corpus has typos of its own.
+// With `--layouts` and `--words` every word of the list, typed merged on the
+// Russian layout, must stay as it is for the typo step (`TypoCorrector`),
+// which runs before the hyphen step: exit status 1 for any that it changes.
 // `corpus` writes a TSV of words by category (about N words, default 50 000,
 // plus a tenth of typos).
 // `run` types every word in its own layout and in the other one and prints
@@ -68,9 +77,10 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash"].contains(command)
+guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen"]
+    .contains(command)
 else {
-    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash ... (see the source header)")
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
@@ -311,6 +321,23 @@ do {
         let model = try ModelFile.load(modelPath, languages: [code])
         guard let language = model.language(code) else { fail("no \(code) in \(modelPath)") }
         print(try Coverage.measure(language, cache: cache).report)
+
+    case "hyphen":
+        guard let modelPath = flags["--model"] else { fail("--model is required") }
+        let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
+        let model = try ModelFile.load(modelPath, languages: ["ru"])
+        let result = try HyphenEvaluation.measure(model, cache: cache)
+        print(result.report(list: Int(flags["--list"] ?? "30") ?? 30))
+        if let layouts = flags["--layouts"], let list = flags["--words"] {
+            let words = try String(contentsOfFile: list, encoding: .utf8).split(separator: "\n")
+                .map { $0.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+                    .trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let clashes = HyphenEvaluation.typoClashes(words, model: model, layout: layout("Russian", in: layouts))
+            print("typo step on the \(words.count) merged words of the list: \(clashes.count) changed")
+            for clash in clashes { print("  typo: \(clash)") }
+            if !clashes.isEmpty { exit(1) }
+        }
 
     case "word":
         guard let modelPath = flags["--model"], let layouts = flags["--layouts"], let text = flags["--text"],

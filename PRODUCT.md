@@ -72,7 +72,7 @@ after Perekey.
 - Typo correction for Russian and English (off by default until it meets the
   quality bar), with the same one-Backspace undo.
 - Later: ё-fication, double-caps and accidental Caps Lock fix, abbreviations,
-  switch and correction sounds, paste without formatting.
+  the hyphen dropped in fast typing («чтото» → «что-то»), switch and correction sounds, paste without formatting.
 - Russian and English UI. Layouts: Russian and English first.
 - No subscription, no telemetry, no sending typed words anywhere. The update
   check can be turned off; the language model ships inside app updates.

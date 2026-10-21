@@ -303,6 +303,121 @@ extension Desk {
     }
 }
 
+@Suite struct HyphenTests {
+    @Test(arguments: [("вопервых ", "во-первых "), ("вчетвёртых ", "в-четвёртых "), ("вчетвертых ", "в-четвертых "),
+                      ("чтото ", "что-то "), ("ктото ", "кто-то "), ("какогонибудь ", "какого-нибудь "),
+                      ("коечто ", "кое-что "), ("помоему ", "по-моему "), ("порусски ", "по-русски "),
+                      ("изза ", "из-за "), ("всётаки ", "всё-таки "), ("всетаки ", "все-таки "),
+                      ("чутьчуть ", "чуть-чуть ")])
+    func everyGroup(typed: String, expected: String) {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == expected)
+    }
+
+    @Test(arguments: [("Вопервых, ", "Во-первых, "), ("ЧТОТО ", "ЧТО-ТО "), ("(изза) ", "(из-за) "),
+                      ("чтото, ", "что-то, ")])
+    func caseAndPunctuationStay(typed: String, expected: String) {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == expected)
+    }
+
+    @Test(arguments: ["потому ", "поэтому ", "тоже ", "также ", "чтобы ", "притом ", "зато ", "таки ", "кое ",
+                      "что-то ", "что то ", "по моему ", "чтот ", "почему "])
+    func othersStay(typed: String) {
+        // Real words, the hyphen already there, the form with a space.
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == typed)
+        #expect(desk.corrections.isEmpty)
+    }
+
+    @Test func oneCorrectionOfItsKind() throws {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type("вопервых ", on: Fixture.russian)
+        #expect(desk.text == "во-первых ")
+        let correction = try #require(desk.corrections.first)
+        #expect(desk.corrections.count == 1)
+        #expect(correction.kind == .hyphen)
+        #expect(correction.original == "вопервых" && correction.replacement == "во-первых")
+        #expect(correction.source == ru && correction.target == ru)
+    }
+
+    @Test func undoLearnsTheTypedWord() {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type("чтото ", on: Fixture.russian)
+        #expect(desk.text == "что-то ")
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "чтото ")
+        #expect(desk.learned == ["чтото"])
+    }
+
+    @Test func notForExceptions() {
+        var desk = Desk(only({ $0.hyphen = true }, exceptions: ["чтото"]), current: ru)
+        desk.type("чтото изза ", on: Fixture.russian)
+        #expect(desk.text == "чтото из-за ")
+    }
+
+    @Test func withCapsLock() {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.typeWithCapsLock("чтото ", on: Fixture.russian)
+        #expect(desk.text == "ЧТО-ТО ")
+    }
+
+    @Test func afterTheCaseSteps() throws {
+        // wordfreq knows the merged spelling as a rare form, so the case
+        // steps fix it first; they read the keys by position, the hyphen
+        // comes after them.
+        var builder = ModelBuilder()
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        builder.addForm("чтото", language: "ru", rank: 104, weight: 0)
+        builder.addHyphen("что-то", language: "ru")
+        let model = try LanguageModel(bytes: builder.build())
+        var settings = Settings()
+        settings.corrections = TextCorrections(doubleCapitals: true, capsLock: true, hyphen: true)
+        let shift = LayoutModifiers.shift, capsLock = LayoutModifiers.capsLock
+        var word = BoundaryWord(characters: Array("ЧТото"), modifiers: [shift, shift, [], [], []], language: "ru")
+        #expect(WordCorrections.run(&word, settings: settings, model: model))
+        #expect(String(word.characters) == "Что-то" && word.kind == .doubleCapitals)
+        word = BoundaryWord(characters: Array("ЧТОТО"), modifiers: [[shift, capsLock]] + Array(repeating: capsLock, count: 4),
+                            language: "ru")
+        #expect(WordCorrections.run(&word, settings: settings, model: model))
+        #expect(String(word.characters) == "Что-то" && word.kind == .capsLock && word.capsLockOff)
+    }
+
+    @Test func russianPC() {
+        var desk = Desk(only { $0.hyphen = true }, layouts: [Fixture.abc, Fixture.russianPC], current: Fixture.russianPC.id)
+        desk.type("помоему ", on: Fixture.russianPC)
+        #expect(desk.text == "по-моему ")
+    }
+
+    @Test func russianOnly() {
+        var desk = Desk(only { $0.hyphen = true })
+        desk.type("xnjnj ")
+        #expect(desk.text == "xnjnj ")
+    }
+
+    @Test func offByDefault() {
+        #expect(TextCorrections().hyphen == false)
+        var desk = Desk(current: ru)
+        desk.type("чтото ", on: Fixture.russian)
+        #expect(desk.text == "чтото ")
+    }
+
+    @Test func modelWithoutTheTableCorrectsNothing() throws {
+        var builder = ModelBuilder()
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        builder.addForm("что", language: "ru", rank: 200, weight: 1)
+        let model = try LanguageModel(bytes: builder.build())
+        #expect(model.language("ru")?.hyphenPosition(of: ModelFormat.Fingerprint.of("чтото".unicodeScalars, folded: true)) == nil)
+        var word = BoundaryWord(characters: Array("чтото"), modifiers: Array(repeating: [], count: 5), language: "ru")
+        var settings = Settings()
+        settings.corrections = TextCorrections(hyphen: true)
+        #expect(!WordCorrections.run(&word, settings: settings, model: model))
+    }
+}
+
 @Suite struct PhraseRetypeTests {
     private static let settings = Settings(autoswitch: false, typoCorrection: false)
 
@@ -495,11 +610,39 @@ extension Desk {
         #expect(model.language("en")?.yoMask(of: 1) == nil)
     }
 
+    @Test func hyphenPositions() throws {
+        let russian = try #require(ModelFixture.model.language("ru"))
+        func position(_ word: String) -> UInt8? {
+            russian.hyphenPosition(of: ModelFormat.Fingerprint.of(word.unicodeScalars, folded: true))
+        }
+        #expect(position("вопервых") == 2)
+        #expect(position("ВОПЕРВЫХ") == 2, "the key is folded")
+        #expect(position("чтото") == 3)
+        #expect(position("какогонибудь") == 6)
+        #expect(position("всётаки") == 3 && position("всетаки") == 3, "a form with «ё» gives its «е» spelling")
+        #expect(position("что-то") == nil && position("что") == nil)
+        #expect(ModelFixture.model.language("en")?.hyphenPosition(of: 1) == nil)
+    }
+
+    @Test func hyphenRejectsWhatItCannotStore() {
+        var builder = ModelBuilder()
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        for form in ["чтото", "-то", "что-", "точь-в-точь", "что-q", ""] {
+            let added = builder.addHyphen(form, language: "ru")
+            #expect(!added, "\(form)")
+        }
+        let fine = builder.addHyphen("что-то", language: "ru")
+        #expect(fine)
+    }
+
     @Test func tablesDoNotDependOnTheOrderOfCalls() {
         func build(_ yo: [String], _ cased: [(String, Bool)]) -> [UInt8] {
             var builder = ModelBuilder()
             builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
             for word in yo { builder.addYo(word, language: "ru") }
+            for word in yo.first == "ещё" ? ["что-то", "из-за"] : ["из-за", "что-то"] {
+                builder.addHyphen(word, language: "ru")
+            }
             for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
             return builder.build()
         }
@@ -539,12 +682,14 @@ extension Desk {
     @Test func defaults() {
         let corrections = TextCorrections()
         #expect(corrections.phraseRetype && corrections.doubleCapitals)
-        #expect(!corrections.capsLock && !corrections.abbreviations && !corrections.yo)
+        #expect(!corrections.capsLock && !corrections.abbreviations && !corrections.yo && !corrections.hyphen)
     }
 
     @Test func missingKeysDecodeToDefaults() throws {
         let decoded = try JSONDecoder().decode(TextCorrections.self, from: Data(#"{"yo": true}"#.utf8))
         #expect(decoded == TextCorrections(yo: true))
+        let hyphen = try JSONDecoder().decode(TextCorrections.self, from: Data(#"{"hyphen": true}"#.utf8))
+        #expect(hyphen == TextCorrections(hyphen: true) && hyphen.correctsWords)
         let settings = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         #expect(settings.corrections == TextCorrections())
         #expect(settings.snapshot.corrections == TextCorrections())

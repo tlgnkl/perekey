@@ -40,6 +40,11 @@ public enum ModelFormat {
     /// other word: the "dict" layout, the value byte marks which "е" become
     /// "ё". Optional, Russian only.
     public static let yoTag = tag("yo")
+    /// Words of one language typed without their hyphen ("чтото"): the
+    /// "dict" layout by the folded fingerprint of the merged spelling, the
+    /// value byte the number of letters before the hyphen. Optional,
+    /// Russian only.
+    public static let hyphenTag = tag("hyph")
 
     /// Four ASCII bytes packed little-endian; shorter strings are zero-padded.
     public static func tag(_ text: String) -> UInt32 {

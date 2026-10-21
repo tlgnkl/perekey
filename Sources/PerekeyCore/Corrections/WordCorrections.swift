@@ -14,12 +14,15 @@
 /// punctuation around them stays as typed: "(ПРивет" → "(Привет".
 public enum WordCorrections {
     /// The steps in order: case first, so the lookups after it see a plain
-    /// word; then the fixed spellings. Typos come before all of them.
+    /// word; then the fixed spellings. Typos come before all of them. The
+    /// hyphen goes last: it changes the length, and the case steps read the
+    /// modifiers by position.
     public static let steps: [any WordCorrectionStep] = [
         CapsLockStep(),
         DoubleCapitalsStep(),
         AbbreviationStep(),
         YoStep(),
+        HyphenStep(),
     ]
 
     /// Whether some step is on: without one the boundary does not build the word.
@@ -223,5 +226,26 @@ public struct YoStep: WordCorrectionStep {
             if count < 8, mask & (1 << UInt8(count)) != 0 { word.characters[index] = character == "е" ? "ё" : "Ё" }
             count += 1
         }
+    }
+}
+
+/// "вопервых" → "во-первых": the hyphen dropped in fast typing, merged
+/// form only: the model's table of words whose merged spelling is no word
+/// (`data/ru/hyphen.txt`). Letters and their case stay as typed: "ЧТОТО" →
+/// "ЧТО-ТО", "всетаки" → "все-таки".
+public struct HyphenStep: WordCorrectionStep {
+    public init() {}
+
+    public var kind: Correction.Kind { .hyphen }
+
+    public func isOn(_ settings: Settings) -> Bool { settings.corrections.hyphen }
+
+    public func apply(to word: inout BoundaryWord, model: LanguageModel) {
+        guard word.language == "ru", word.coreIsLetters(minimum: 4), let table = model.language("ru"),
+              let position = table.hyphenPosition(of: word.coreFingerprint())
+        else { return }
+        let core = word.core
+        guard position > 0, Int(position) < core.count else { return }
+        word.characters.insert("-", at: core.lowerBound + Int(position))
     }
 }

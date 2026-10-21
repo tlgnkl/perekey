@@ -18,25 +18,28 @@ public struct TextCorrections: Hashable, Sendable {
     public var abbreviations: Bool
     /// "еще" → "ещё" where the word without "ё" is no other word. Russian only.
     public var yo: Bool
+    /// "чтото" → "что-то" where the merged word is no word. Russian only.
+    public var hyphen: Bool
 
     public init(phraseRetype: Bool = true, doubleCapitals: Bool = true, capsLock: Bool = false,
-                abbreviations: Bool = false, yo: Bool = false)
+                abbreviations: Bool = false, yo: Bool = false, hyphen: Bool = false)
     {
         self.phraseRetype = phraseRetype
         self.doubleCapitals = doubleCapitals
         self.capsLock = capsLock
         self.abbreviations = abbreviations
         self.yo = yo
+        self.hyphen = hyphen
     }
 
     /// Some correction of a finished word is on: the word boundary must look
     /// at the word even with automatic switching off.
-    public var correctsWords: Bool { doubleCapitals || capsLock || abbreviations || yo }
+    public var correctsWords: Bool { doubleCapitals || capsLock || abbreviations || yo || hyphen }
 }
 
 extension TextCorrections: Codable {
     private enum CodingKeys: String, CodingKey {
-        case phraseRetype, doubleCapitals, capsLock, abbreviations, yo
+        case phraseRetype, doubleCapitals, capsLock, abbreviations, yo, hyphen
     }
 
     public init(from decoder: any Decoder) throws {
@@ -50,5 +53,6 @@ extension TextCorrections: Codable {
         capsLock = value(.capsLock, defaults.capsLock)
         abbreviations = value(.abbreviations, defaults.abbreviations)
         yo = value(.yo, defaults.yo)
+        hyphen = value(.hyphen, defaults.hyphen)
     }
 }

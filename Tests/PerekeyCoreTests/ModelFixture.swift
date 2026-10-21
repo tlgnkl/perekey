@@ -24,6 +24,12 @@ enum ModelFixture {
     /// Words that take "ё" unambiguously: what the builder derives from the dictionary.
     static let yo = ["ещё", "ёлка", "трёхзвёздный"]
 
+    /// Words people type without their hyphen: `data/ru/hyphen.txt`.
+    static let hyphen = [
+        "во-первых", "в-четвёртых", "что-то", "кто-то", "какого-нибудь", "кое-что", "по-моему", "по-русски",
+        "из-за", "всё-таки", "чуть-чуть",
+    ]
+
     /// Words with a fixed case, and whether Perekey corrects to them.
     static let cased: [(String, Bool)] = [
         ("МВД", true), ("ВрИО", true), ("MP3", true), ("NASA", true), ("iPhone", false), ("ГОСТ", false),
@@ -79,6 +85,7 @@ enum ModelFixture {
     /// The tables of the stage 4 corrections.
     static func addCorrections(to builder: inout ModelBuilder) {
         for word in yo { builder.addYo(word, language: "ru") }
+        for word in hyphen { builder.addHyphen(word, language: "ru") }
         for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
     }
 

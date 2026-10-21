@@ -164,6 +164,7 @@ extension Correction.Kind {
         case .doubleCapitals: "doubleCapitals"
         case .abbreviation: "abbreviation"
         case .yo: "yo"
+        case .hyphen: "hyphen"
         }
     }
 }

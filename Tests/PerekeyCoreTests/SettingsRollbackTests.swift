@@ -10,7 +10,9 @@ import Testing
 /// keeps its settings in `voice.json`. The one exception is the two scalar
 /// menu bar keys (`addedSince0_1_1`): 0.1.1 ignores keys it does not know and
 /// drops them when it saves, so the choice falls back to the capsule, and the
-/// rest of the file is read as before.
+/// rest of the file is read as before. A new switch inside `corrections`
+/// (`hyphen`) is the same: 0.1.1 reads the keys of that object one by one,
+/// ignores the new one and drops it on save; the fixture carries it.
 @Suite struct SettingsRollbackTests {
     /// Every field away from its default, the shortcuts included.
     static var filled: AppSettings {

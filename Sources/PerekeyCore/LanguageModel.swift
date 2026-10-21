@@ -41,6 +41,8 @@ public struct LanguageModel: @unchecked Sendable {
         let prefixes4: UnsafePointer<UInt64>
         /// Which "е" of a word become "ё" (`ModelFormat.yoTag`); `nil` without the section.
         let yo: FingerprintTable?
+        /// Where the hyphen goes in a merged word (`ModelFormat.hyphenTag`); `nil` without the section.
+        let hyphen: FingerprintTable?
     }
 
     /// The parts of a `Language` that are not plain pointers, behind one
@@ -210,6 +212,7 @@ public struct LanguageModel: @unchecked Sendable {
         var keep: (UnsafePointer<UInt64>, Int)?
         var cased: CasedForms?
         var yo: [String: UnsafeRawBufferPointer] = [:]
+        var hyphen: [String: UnsafeRawBufferPointer] = [:]
         var partial: [String: (ngram: UnsafeRawBufferPointer?, dict: UnsafeRawBufferPointer?,
                                prefix: UnsafeRawBufferPointer?)] = [:]
         var order: [String] = []
@@ -239,6 +242,8 @@ public struct LanguageModel: @unchecked Sendable {
                 cased = try CasedForms(body)
             case ModelFormat.yoTag:
                 yo[language] = body
+            case ModelFormat.hyphenTag:
+                hyphen[language] = body
             case ModelFormat.ngramTag, ModelFormat.dictionaryTag, ModelFormat.prefixTag:
                 if partial[language] == nil {
                     partial[language] = (nil, nil, nil)
@@ -258,7 +263,8 @@ public struct LanguageModel: @unchecked Sendable {
                 throw Error.languageIncomplete(code)
             }
             return try Language(code: code, ngram: ngram, dictionary: dict, prefix: prefix,
-                                owner: owner, yo: yo[code].map { try FingerprintTable($0, name: "yo") })
+                                owner: owner, yo: yo[code].map { try FingerprintTable($0, name: "yo") },
+                                hyphen: hyphen[code].map { try FingerprintTable($0, name: "hyph") })
         }
         self.init(files: [File(bytes: bytes, owner: owner, meta: meta, languages: languages, keepHashes: keep.0,
                                keepCount: keep.1, cased: cased)])
@@ -325,10 +331,12 @@ public struct LanguageModel: @unchecked Sendable {
 
 extension LanguageModel.Language {
     init(code: String, ngram: UnsafeRawBufferPointer, dictionary: UnsafeRawBufferPointer,
-         prefix: UnsafeRawBufferPointer, owner: AnyObject, yo: LanguageModel.FingerprintTable? = nil) throws
+         prefix: UnsafeRawBufferPointer, owner: AnyObject, yo: LanguageModel.FingerprintTable? = nil,
+         hyphen: LanguageModel.FingerprintTable? = nil) throws
     {
         self.code = code
         self.yo = yo
+        self.hyphen = hyphen
         var reader = ByteReader(ngram)
         guard ngram.count >= 16 else { throw LanguageModel.Error.badSection("ngrm") }
         let order = Int(reader.u32())
@@ -432,6 +440,13 @@ extension LanguageModel.Language {
     /// spelling is a word of its own ("все").
     public func yoMask(of fingerprint: UInt64) -> UInt8? {
         yo?.value(of: fingerprint)
+    }
+
+    /// How many letters of a merged word come before its hyphen, by the
+    /// folded fingerprint of the merged spelling: 3 for "чтото". `nil` when
+    /// the word takes no hyphen.
+    public func hyphenPosition(of fingerprint: UInt64) -> UInt8? {
+        hyphen?.value(of: fingerprint)
     }
 
     /// Whether some word of the language starts with these 3 or 4 symbols.

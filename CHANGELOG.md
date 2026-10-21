@@ -11,47 +11,13 @@ differently, what was fixed.
 
 ## [Unreleased]
 
-### Added
+## [0.2.0] - 2026-10-21
 
-- **Menu bar icon.** Settings → General → Menu bar: keep the capsule, or show
-  the layout as plain letters, as the system's own icon, or as a single
-  Perekey mark. The icon can show always, only when there is news (a pause,
-  automatic switching off, a call being recorded), or never. Open Perekey
-  again from Finder or Spotlight and Settings opens, so a hidden icon is
-  never a dead end. Settings also tells you when the system's input menu and
-  Perekey show the language twice, or when neither shows it.
-- **Hyphen.** Settings → General → Corrections: a Russian word typed without
-  its hyphen gets it back: «вопервых» → «во-первых», «чтото» → «что-то»,
-  «изза» → «из-за», «помоему» → «по-моему». Only words whose merged spelling
-  is no word, from a fixed list; «что то» with a space stays as typed. Off by
-  default; Backspace undoes it and Perekey leaves that word alone from then on.
-
-### Fixed
-
-- **Missing access is no longer silent.** Without Accessibility access, for
-  example after a reinstall, the setup window comes to the front, opening
-  Perekey again opens its access step, Settings shows a banner, and the menu
-  bar item stays on screen with a warning and a «grant access» row. Perekey
-  also notices a revoked access within seconds, not at the next app switch,
-  and the access step explains what to do when System Settings shows the old
-  copy switched on.
-- **The first word after switching apps is fixed too.** In Electron apps
-  (Slack, Obsidian, Orca and others) a word in the wrong layout typed right
-  after you switched to the app often stayed as typed, and only the next word
-  was fixed. Perekey now waits for the app to name the field you type in and
-  judges that first word as well.
-- **A comma after a word in the wrong layout stays a comma.** If you type
-  “нет,” with English on and the comma on the English comma key, Perekey now
-  gives “нет,” instead of leaving “ytn,” or typing “нетб”, also when it has
-  switched the layout before you reached the comma. The same goes for a
-  period, a semicolon and a colon. Backspace right after gives “ytn,” back.
-- **The hint no longer stays under a pointer the caret covered.** The hint comes
-  up just under the cursor, often where the pointer was left, and it stayed
-  until you moved the mouse. Now the pointer holds the hint only after it
-  moves, and a finished word ends the hint either way. The hint's glow is no
-  longer cut off at the edge.
-
-## [0.2.0] - 2026-10-14
+Perekey is now signed with its own certificate, the same for every release.
+After this update macOS asks once more for the access Perekey had
+(Accessibility, Input Monitoring); later updates keep it. The DMG is still not
+signed by Apple, so a download from the browser asks you to confirm the first
+launch.
 
 ### Added
 
@@ -112,6 +78,18 @@ differently, what was fixed.
   services, model downloads, call recording, call audio and the Time Machine
   option off, and cap how long the history is kept. See
   `docs/managed-preferences.md`.
+- **Menu bar icon.** Settings → General → Menu bar: keep the capsule, or show
+  the layout as plain letters, as the system's own icon, or as a single
+  Perekey mark. The icon can show always, only when there is news (a pause,
+  automatic switching off, a call being recorded), or never. Open Perekey
+  again from Finder or Spotlight and Settings opens, so a hidden icon is
+  never a dead end. Settings also tells you when the system's input menu and
+  Perekey show the language twice, or when neither shows it.
+- **Hyphen.** Settings → General → Corrections: a Russian word typed without
+  its hyphen gets it back: «вопервых» → «во-первых», «чтото» → «что-то»,
+  «изза» → «из-за», «помоему» → «по-моему». Only words whose merged spelling
+  is no word, from a fixed list; «что то» with a space stays as typed. Off by
+  default; Backspace undoes it and Perekey leaves that word alone from then on.
 
 ### Changed
 
@@ -146,6 +124,33 @@ differently, what was fixed.
 
 ### Fixed
 
+- **Missing access is no longer silent.** Without Accessibility access, for
+  example after a reinstall, the setup window comes to the front, opening
+  Perekey again opens its access step, Settings shows a banner, and the menu
+  bar item stays on screen with a warning and a «grant access» row. Perekey
+  also notices a revoked access within seconds, not at the next app switch,
+  and the access step explains what to do when System Settings shows the old
+  copy switched on.
+- **The first word after switching apps is fixed too.** In Electron apps
+  (Slack, Obsidian, Orca and others) a word in the wrong layout typed right
+  after you switched to the app often stayed as typed, and only the next word
+  was fixed. Perekey now waits for the app to name the field you type in and
+  judges that first word as well.
+- **A comma after a word in the wrong layout stays a comma.** If you type
+  “нет,” with English on and the comma on the English comma key, Perekey now
+  gives “нет,” instead of leaving “ytn,” or typing “нетб”, also when it has
+  switched the layout before you reached the comma. The same goes for a
+  period, a semicolon and a colon. Backspace right after gives “ytn,” back.
+- **The hint no longer stays under a pointer the caret covered.** The hint comes
+  up just under the cursor, often where the pointer was left, and it stayed
+  until you moved the mouse. Now the pointer holds the hint only after it
+  moves, and a finished word ends the hint either way. The hint's glow is no
+  longer cut off at the edge.
+- **A short word after a word you retyped by hand is switched again.** After
+  you fixed an English word with Option inside a Russian sentence, the next
+  one- or two-letter word (“b”, “yt”) stayed as typed. It is switched now.
+- **The menu stays readable over a dark wallpaper.** The statistics line and
+  the hints at the bottom of the menu no longer fade into the glass.
 - **The hint stays by the cursor in terminals.** In terminals built on
   xterm.js (Orca, the VS Code terminal) the correction hint appeared in the
   top right corner of the screen. It now shows next to the line you type in.

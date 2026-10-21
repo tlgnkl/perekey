@@ -521,11 +521,15 @@ struct PKCallout: View {
 struct PKCalloutButton: View {
     let text: Text
     var symbol = "exclamationmark.triangle.fill"
+    /// A trailing label with a chevron, so the row reads as a button.
+    var actionLabel: Text?
     let action: () -> Void
 
-    init(_ text: Text, symbol: String = "exclamationmark.triangle.fill", action: @escaping () -> Void) {
+    init(_ text: Text, symbol: String = "exclamationmark.triangle.fill", actionLabel: Text? = nil,
+         action: @escaping () -> Void) {
         self.text = text
         self.symbol = symbol
+        self.actionLabel = actionLabel
         self.action = action
     }
 
@@ -535,6 +539,12 @@ struct PKCalloutButton: View {
                 Image(systemName: symbol).font(.system(size: 12, weight: .bold))
                 text.font(PK.Font.bodyStrong)
                 Spacer(minLength: 0)
+                if let actionLabel {
+                    HStack(spacing: 3) {
+                        actionLabel.font(PK.Font.bodyStrong)
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                    }
+                }
             }
             .foregroundStyle(Color.pkWarn)
             .padding(.horizontal, PK.Space.lg)

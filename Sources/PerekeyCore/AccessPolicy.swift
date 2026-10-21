@@ -6,20 +6,24 @@ public enum AccessPolicy {
     /// Where opening Perekey again (Finder, Spotlight) leads.
     public enum Reopen: Hashable, Sendable {
         case settings
+        /// Onboarding from its first step: the user has not finished it.
+        case onboarding
         /// The access step of onboarding: Settings would show a Perekey that does nothing.
         case onboardingAccess
     }
 
-    public static func reopen(hasAccess: Bool) -> Reopen {
-        hasAccess ? .settings : .onboardingAccess
+    public static func reopen(hasAccess: Bool, onboardingDone: Bool = true) -> Reopen {
+        if !onboardingDone { return .onboarding }
+        return hasAccess ? .settings : .onboardingAccess
     }
 
     /// Whether Settings shows the «no access» banner above its panes.
     public static func showsBanner(hasAccess: Bool) -> Bool { !hasAccess }
 
-    /// Whether the taps must be dropped: they run, and the system says no.
-    public static func isRevoked(tapRunning: Bool, trusted: Bool) -> Bool {
-        tapRunning && !trusted
+    /// Whether the taps must be dropped: they exist (running or suspended),
+    /// and the system says no.
+    public static func isRevoked(waitingForAccess: Bool, trusted: Bool) -> Bool {
+        !waitingForAccess && !trusted
     }
 
     /// Checks after the system's access notification, in seconds. `AXIsProcessTrusted`

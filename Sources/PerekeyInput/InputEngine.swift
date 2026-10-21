@@ -199,6 +199,10 @@ public final class InputEngine: @unchecked Sendable {
     /// Accessibility was revoked: drop the taps and wait for access again.
     public func accessRevoked() {
         perform { engine in
+            // A suspension must not later report .running without access.
+            if let timer = engine.resumeTimer { CFRunLoopTimerInvalidate(timer) }
+            engine.resumeTimer = nil
+            engine.disables.removeAll()
             engine.removeTaps()
             engine.inputLost()
             engine.createTapsOrRetry()

@@ -218,8 +218,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the way back to the menu bar item when the user hid it. Without access it
     /// opens the access step instead: Perekey does nothing until it is given.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        switch AccessPolicy.reopen(hasAccess: input.hasAccess) {
+        switch AccessPolicy.reopen(hasAccess: input.hasAccess, onboardingDone: store.settings.onboardingDone) {
         case .settings: settingsWindow.show()
+        case .onboarding: onboarding.show()
         case .onboardingAccess: onboarding.show(at: .access)
         }
         return false

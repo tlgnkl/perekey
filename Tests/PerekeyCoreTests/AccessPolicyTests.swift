@@ -9,17 +9,23 @@ import Testing
         #expect(AccessPolicy.reopen(hasAccess: true) == .settings)
     }
 
+    @Test func reopenBeforeOnboardingIsDoneStartsItFromTheWelcome() {
+        #expect(AccessPolicy.reopen(hasAccess: false, onboardingDone: false) == .onboarding)
+        #expect(AccessPolicy.reopen(hasAccess: true, onboardingDone: false) == .onboarding)
+    }
+
     @Test func bannerShowsOnlyWithoutAccess() {
         #expect(AccessPolicy.showsBanner(hasAccess: false))
         #expect(!AccessPolicy.showsBanner(hasAccess: true))
     }
 
-    @Test func revokedOnlyWhileTheTapsRunWithoutTrust() {
-        #expect(AccessPolicy.isRevoked(tapRunning: true, trusted: false))
-        #expect(!AccessPolicy.isRevoked(tapRunning: true, trusted: true))
+    @Test func revokedWhileTheTapsExistWithoutTrust() {
+        // Running or suspended: the taps exist, and the system says no.
+        #expect(AccessPolicy.isRevoked(waitingForAccess: false, trusted: false))
+        #expect(!AccessPolicy.isRevoked(waitingForAccess: false, trusted: true))
         // Already waiting for access: nothing to drop.
-        #expect(!AccessPolicy.isRevoked(tapRunning: false, trusted: false))
-        #expect(!AccessPolicy.isRevoked(tapRunning: false, trusted: true))
+        #expect(!AccessPolicy.isRevoked(waitingForAccess: true, trusted: false))
+        #expect(!AccessPolicy.isRevoked(waitingForAccess: true, trusted: true))
     }
 
     @Test func rechecksFollowTheLagInOrder() {

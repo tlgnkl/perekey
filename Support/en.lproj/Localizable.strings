@@ -61,7 +61,8 @@
 "One letter was missing, and the fixed word is a known one" = "One letter was missing, and the fixed word is a known one";
 "One letter was wrong, and the fixed word is a known one" = "One letter was wrong, and the fixed word is a known one";
 "Opens the setup step that gives access" = "Opens the setup step that gives access";
-"Perekey does not work: no Accessibility access" = "Perekey does not work: no Accessibility access";
+"Perekey is not working: no Accessibility access" = "Perekey is not working: no Accessibility access";
+"Grant Access…" = "Grant Access…";
 "Perekey is on but still not allowed? Select it, press “−” to remove it, then add it again, or switch it off and on." = "Perekey is on but still not allowed? Select it, press “−” to remove it, then add it again, or switch it off and on.";
 "Return" = "Return";
 "Shift alone, Option retypes" = "Shift alone, Option retypes";

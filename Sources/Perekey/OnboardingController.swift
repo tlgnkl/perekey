@@ -45,7 +45,8 @@ final class OnboardingController: NSObject, NSWindowDelegate {
 
     func show(at step: OnboardingModel.Step = .welcome) {
         if let window {
-            if step != .welcome { model?.step = step }
+            // Never back: a reopen must not overwrite the step the user is on.
+            if let model, model.step.rawValue < step.rawValue { model.step = step }
             bringToFront(window)
             return
         }

@@ -17,7 +17,8 @@ import PerekeyVoiceCore
 @MainActor
 @Observable
 final class InputController {
-    private(set) var tapState: TapState = .waitingForAccess
+    /// Until the engine reports, the system's own answer: no warning flashes at launch with access.
+    private(set) var tapState: TapState = AXIsProcessTrusted() ? .running : .waitingForAccess
 
     /// Whether Perekey has Accessibility access, as far as the taps say: the
     /// one answer for Settings, the menu and the menu bar item. The engine
@@ -499,7 +500,8 @@ final class InputController {
         accessPoll = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(AccessPolicy.pollInterval))
-                self?.checkAccess()
+                guard let self else { return }
+                checkAccess()
             }
         }
     }
@@ -522,7 +524,7 @@ final class InputController {
 
     /// Never called from the tap callback: the answer is read on the main actor.
     private func checkAccess() {
-        guard AccessPolicy.isRevoked(tapRunning: tapState == .running, trusted: AXIsProcessTrusted()) else { return }
+        guard AccessPolicy.isRevoked(waitingForAccess: tapState == .waitingForAccess, trusted: AXIsProcessTrusted()) else { return }
         log.info("Accessibility revoked; waiting for it again")
         engine.accessRevoked()
     }

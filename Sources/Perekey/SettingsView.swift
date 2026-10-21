@@ -133,7 +133,8 @@ struct SettingsView: View {
 
             VStack(spacing: 0) {
                 if AccessPolicy.showsBanner(hasAccess: hasAccess()) {
-                    PKCalloutButton(Text("Perekey does not work: no Accessibility access"), action: openAccess)
+                    PKCalloutButton(Text("Perekey is not working: no Accessibility access"),
+                                    actionLabel: Text("Grant Access…"), action: openAccess)
                         .accessibilityHint(Text("Opens the setup step that gives access"))
                         .transition(.opacity)
                 }

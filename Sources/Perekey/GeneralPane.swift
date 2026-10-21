@@ -57,6 +57,9 @@ struct GeneralPane: View {
             correctionRow(Text("Letter ё"), detail: Text("Russian only, where the word with «е» is no other word"),
                           example: ("еще", "ещё"), \.yo)
             PKDivider()
+            correctionRow(Text("Hyphen"), detail: Text("Russian only, where the merged word is no word"),
+                          example: ("чтото", "что-то"), \.hyphen)
+            PKDivider()
             correctionRow(Text("Retype a phrase"),
                           detail: Text("Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on."),
                           example: ("ghbdtn vbh", "привет мир"), \.phraseRetype)

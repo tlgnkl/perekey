@@ -124,22 +124,15 @@ extension Updates: SPUUpdaterDelegate {
     nonisolated func feedParameters(for updater: SPUUpdater, sendingSystemProfile sendingProfile: Bool)
         -> [[String: String]] { [] }
 
-    /// Sparkle's own choice, without releases older than the installed version.
-    /// Sparkle compares build numbers only; a local build has build 0 and would
-    /// offer 0.1.1 over 0.2.0. Releases from CI never hit this: their build
-    /// number grows with each run.
+    /// No update when every release in the feed is older than the installed
+    /// version; otherwise Sparkle picks, with its own filters. Sparkle compares
+    /// build numbers only, and a local build has build 0, so it would offer
+    /// 0.1.1 over 0.2.0. CI build numbers grow with each release, so when a
+    /// release is not older, Sparkle's pick is not older either.
     func bestValidUpdate(in appcast: SUAppcast, for updater: SPUUpdater) -> SUAppcastItem? {
-        let info = updater.hostBundle.infoDictionary ?? [:]
-        let installed = info["CFBundleShortVersionString"] as? String ?? ""
-        let candidates = appcast.items.filter { !UpdateFeed.isOlder($0.displayVersionString, than: installed) }
-        guard candidates.count < appcast.items.count else { return nil }
-        let comparator = SUStandardVersionComparator.default
-        let build = info["CFBundleVersion"] as? String ?? "0"
-        guard let best = candidates.max(by: {
-            comparator.compareVersion($0.versionString, toVersion: $1.versionString) == .orderedAscending
-        }), comparator.compareVersion(best.versionString, toVersion: build) == .orderedDescending
-        else { return .empty() }
-        return best
+        let installed = updater.hostBundle.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let allOlder = appcast.items.allSatisfy { UpdateFeed.isOlder($0.displayVersionString, than: installed) }
+        return allOlder ? .empty() : nil
     }
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {

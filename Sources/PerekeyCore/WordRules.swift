@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import Foundation
-
 /// A word the user's undos taught Perekey to leave alone, in one app or everywhere.
 public struct LearnedWord: Hashable, Sendable, Identifiable {
     /// The word and the app it is learned for: one entry per pair.
@@ -599,6 +597,12 @@ extension WordRules: Codable {
     /// candidates. Without the key a file migrates.
     public static let migratesLearningKey = CodingUserInfoKey(rawValue: "perekey.migratesLearning")!
 
+    /// `JSONDecoder.userInfo` key: a `Double`, the time of the migration in
+    /// seconds since 1970. The core has no clock (no `Foundation`), so the
+    /// caller passes it. Without it a migrated candidate counts from its own
+    /// last undo.
+    public static let migratedAtKey = CodingUserInfoKey(rawValue: "perekey.migratedAt")!
+
     /// Tolerant: missing keys take defaults, and one bad entry is skipped, not
     /// fatal. Settings from before "Всегда исправлять" have no `always`. A word
     /// on two lists stays on the first of `mine`, `learned`, `always`; a word
@@ -611,7 +615,7 @@ extension WordRules: Codable {
     /// more stays learned everywhere. Older versions read this file: they
     /// ignore `candidates`, `learning` and `app`, and take a word learned
     /// for an app as learned everywhere. A migrated candidate counts from the
-    /// moment of the migration, so it does not expire at once.
+    /// moment of the migration (`migratedAtKey`), so it does not expire at once.
     /// `migratesLearningKey` turns the migration off.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -639,7 +643,7 @@ extension WordRules: Codable {
         let mine = words(.mine)
         let migrates = decoder.userInfo[Self.migratesLearningKey] as? Bool ?? true
         let version = (try? container.decodeIfPresent(Int.self, forKey: .learning)) ?? (migrates ? 1 : Self.learningVersion)
-        let migratedAt = Date().timeIntervalSince1970
+        let migratedAt = decoder.userInfo[Self.migratedAtKey] as? Double
         var learned: [LearnedWord] = []
         var candidates: [LearningCandidate] = []
         let stored = list(.learned, of: LearnedWord.self)
@@ -658,7 +662,7 @@ extension WordRules: Codable {
                 candidates.append(LearningCandidate(
                     word: item.word, app: nil, evidence: migration.backspaceWeight,
                     threshold: migration.ordinaryThreshold, undoCount: 1, firstUndoneAt: item.learnedAt,
-                    lastCountedAt: migratedAt, lastCountedDay: day
+                    lastCountedAt: migratedAt ?? item.lastUndoneAt, lastCountedDay: day
                 ))
             } else {
                 learned.append(item)

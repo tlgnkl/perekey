@@ -163,10 +163,12 @@ struct UndoWatch: Sendable {
         }
         // Esc, F-keys, Help and the like type nothing: the caret or the text may be anywhere.
         guard let map, let scalar = Self.printable(stroke, in: map) else { return settle(.unknown) }
-        // Anything but a letter or digit of the layout's language: «-», «(», «/», «—», «'», «]» too.
+        // The space is still there: whatever is typed after it is the next word, «(пояснение)», «- пункт», «/путь» too.
+        if boundaryLeft { return settle(.continued) }
+        // The space is gone. Anything but a letter or digit: «-», «(», «/», «—», «'», «]» only wanted the space gone.
         if !scalar.properties.isAlphabetic, scalar.properties.numericType == nil { return settle(.punctuation) }
-        // A letter: the next word after the space, or more of this one without it.
-        return settle(boundaryLeft ? .continued : .edited)
+        // A letter without the space: more of this word.
+        return settle(.edited)
     }
 
     /// The one printable character the stroke types in `map`; nil for no text, several characters or a control.

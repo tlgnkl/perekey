@@ -10,6 +10,14 @@ import PerekeyVoiceCore
 #endif
 import SwiftUI
 
+/// Defaults of its own, so a debug run never sets the migration mark of the real settings.
+nonisolated func debugDefaults() -> UserDefaults {
+    let name = "app.perekey.debug-snapshot"
+    let defaults = UserDefaults(suiteName: name) ?? UserDefaults()
+    defaults.removePersistentDomain(forName: name)
+    return defaults
+}
+
 /// Renders the settings panes to PNG files and quits, for reviewing the UI
 /// without a screen: `PEREKEY_SNAPSHOT=<dir> .build/debug/Perekey`.
 ///
@@ -35,7 +43,7 @@ enum DebugSnapshot {
             }(), false),
         ]
         for item in cases {
-            let file = SettingsFile(url: directory.appending(path: "\(item.name).json"))
+            let file = SettingsFile(url: directory.appending(path: "\(item.name).json"), defaults: debugDefaults())
             try? file.save(item.settings)
             let store = SettingsStore(file: file)
             let view = ShortcutsPane(store: store, recording: ShortcutRecording(store: store))
@@ -72,7 +80,7 @@ enum DebugSnapshot {
             ("never", { var s = AppSettings(); s.menuBarVisibility = .never; return s }(), true),
         ]
         for item in cases {
-            let file = SettingsFile(url: directory.appending(path: "menubar-\(item.name).json"))
+            let file = SettingsFile(url: directory.appending(path: "menubar-\(item.name).json"), defaults: debugDefaults())
             try? file.save(item.settings)
             let store = SettingsStore(file: file)
             let size = CGSize(width: 560, height: 360)
@@ -129,7 +137,7 @@ enum DebugSnapshot {
                 ("appoff", states[5].pause, LaunchAtLogin(previewStatus: .notFound, error: "Operation not permitted"), true),
             ]
             for menu in menus {
-                let file = SettingsFile(url: directory.appending(path: "menu-\(menu.name).json"))
+                let file = SettingsFile(url: directory.appending(path: "menu-\(menu.name).json"), defaults: debugDefaults())
                 try? file.save(AppSettings(autoswitch: menu.autoswitch))
                 let store = SettingsStore(file: file)
                 let pause = PauseState(frozen: menu.pause, now: now)
@@ -183,7 +191,7 @@ enum DebugSnapshot {
         settings.apps["com.apple.Chess"] = AppRule(mode: .off)
         settings.statistics = true
         let usage = sampleUsage(in: directory, name: "window")
-        let file = SettingsFile(url: directory.appending(path: "window.json"))
+        let file = SettingsFile(url: directory.appending(path: "window.json"), defaults: debugDefaults())
         try? file.save(settings)
         let store = SettingsStore(file: file)
         let recording = ShortcutRecording(store: store)
@@ -216,7 +224,7 @@ enum DebugSnapshot {
     /// The Apps pane (light and dark, filtered) and the picker.
     private static func renderApps(in directory: URL) {
         let sources = InputSources()
-        let file = SettingsFile(url: directory.appending(path: "apps.json"))
+        let file = SettingsFile(url: directory.appending(path: "apps.json"), defaults: debugDefaults())
         var settings = AppSettings()
         settings.apps["com.apple.Notes"] = AppRule(mode: .auto, rememberLastLayout: true)
         settings.apps["com.apple.Safari"] = AppRule(mode: .auto, defaultLayout: sources.layouts.last?.id)
@@ -243,7 +251,7 @@ enum DebugSnapshot {
         }
         #if PEREKEY_VOICE
         // «Вставка диктовки»: VS Code types, Terminal is automatic.
-        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "apps-voice.json"))
+        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "apps-voice.json"), defaults: debugDefaults())
         try? FileManager.default.removeItem(at: voiceFile.url)
         try? voiceFile.save(VoiceSettings(isEnabled: true, insertion: ["com.microsoft.VSCode": .typing]))
         let voice = VoiceSettingsStore(file: voiceFile, managed: ManagedSettings())
@@ -268,7 +276,7 @@ enum DebugSnapshot {
     /// The Sites pane: filled (light and dark), empty, and with an invalid draft.
     private static func renderSites(in directory: URL) {
         let sources = InputSources()
-        let file = SettingsFile(url: directory.appending(path: "sites.json"))
+        let file = SettingsFile(url: directory.appending(path: "sites.json"), defaults: debugDefaults())
         var settings = AppSettings()
         settings.sites["github.com"] = SiteRule(defaultLayout: sources.layouts.first?.id)
         settings.sites["habr.com"] = SiteRule(defaultLayout: sources.layouts.last?.id)
@@ -280,7 +288,7 @@ enum DebugSnapshot {
             render(SitesPane(store: store, sources: sources).background(Color(nsColor: .windowBackgroundColor)),
                    dark: dark, size: size, to: directory.appending(path: "sites-\(dark ? "dark" : "light").png"))
         }
-        let emptyStore = SettingsStore(file: SettingsFile(url: directory.appending(path: "sites-empty.json")))
+        let emptyStore = SettingsStore(file: SettingsFile(url: directory.appending(path: "sites-empty.json"), defaults: debugDefaults()))
         render(SitesPane(store: emptyStore, sources: sources, initialDraft: "not a host!")
             .background(Color(nsColor: .windowBackgroundColor)),
             dark: false, size: size, to: directory.appending(path: "sites-empty.png"))
@@ -305,7 +313,7 @@ enum DebugSnapshot {
         let languages = LanguagePairs(layouts: sources.layouts).languages
         for (name, preset, dark) in [("shortcuts-three-light", HotkeyPreset.standard, false),
                                      ("shortcuts-three-separate-dark", .separateKeys, true)] {
-            let file = SettingsFile(url: directory.appending(path: "\(name).json"))
+            let file = SettingsFile(url: directory.appending(path: "\(name).json"), defaults: debugDefaults())
             try? file.save(AppSettings(hotkeys: preset.hotkeys))
             let store = SettingsStore(file: file)
             let size = CGSize(width: 560, height: 980)
@@ -313,7 +321,7 @@ enum DebugSnapshot {
                 .frame(width: size.width, height: size.height), dark: dark, size: size,
                 to: directory.appending(path: "\(name).png"))
         }
-        let file = SettingsFile(url: directory.appending(path: "three.json"))
+        let file = SettingsFile(url: directory.appending(path: "three.json"), defaults: debugDefaults())
         try? file.save(AppSettings())
         let store = SettingsStore(file: file)
         let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil)
@@ -358,7 +366,7 @@ enum DebugSnapshot {
     private static func renderStatistics(in directory: URL) {
         let size = CGSize(width: 560, height: 1500)
         for (name, on, dark) in [("statistics-off-light", false, false), ("statistics-on-light", true, false), ("statistics-on-dark", true, true)] {
-            let file = SettingsFile(url: directory.appending(path: "\(name).json"))
+            let file = SettingsFile(url: directory.appending(path: "\(name).json"), defaults: debugDefaults())
             var settings = AppSettings()
             settings.statistics = on
             try? file.save(settings)
@@ -369,7 +377,7 @@ enum DebugSnapshot {
                    dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
         let sources = InputSources()
-        let file = SettingsFile(url: directory.appending(path: "menu-statistics.json"))
+        let file = SettingsFile(url: directory.appending(path: "menu-statistics.json"), defaults: debugDefaults())
         var settings = AppSettings()
         settings.statistics = true
         try? file.save(settings)
@@ -392,12 +400,12 @@ enum DebugSnapshot {
         ]
         let size = CGSize(width: 560, height: 1100)
         for (name, sample, dark) in [("words-light", words, false), ("words-empty-dark", WordRules(), true)] {
-            let file = SettingsFile(url: directory.appending(path: "\(name).json"))
+            let file = SettingsFile(url: directory.appending(path: "\(name).json"), defaults: debugDefaults())
             try? file.save(AppSettings(words: sample))
             let view = WordsPane(store: SettingsStore(file: file)).frame(width: size.width, height: size.height)
             render(view, dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
-        let general = SettingsStore(file: SettingsFile(url: directory.appending(path: "general.json")))
+        let general = SettingsStore(file: SettingsFile(url: directory.appending(path: "general.json"), defaults: debugDefaults()))
         let generalSize = CGSize(width: size.width, height: 1000)
         let updateStates: [(name: String, managed: ManagedSettings, configured: Bool, lastCheck: Date?, dark: Bool)] = [
             ("general-light", ManagedSettings(), true, Date().addingTimeInterval(-3_600 * 5), false),
@@ -409,7 +417,7 @@ enum DebugSnapshot {
             render(GeneralPane(store: general, updates: updates).frame(width: generalSize.width, height: generalSize.height),
                    dark: state.dark, size: generalSize, to: directory.appending(path: "\(state.name).png"))
         }
-        let soundsFile = SettingsFile(url: directory.appending(path: "general-sounds.json"))
+        let soundsFile = SettingsFile(url: directory.appending(path: "general-sounds.json"), defaults: debugDefaults())
         try? soundsFile.save(AppSettings(layoutSound: SoundSetting(isOn: true, name: "Pop"),
                                          correctionSound: SoundSetting(isOn: false, name: "Glass")))
         let soundsStore = SettingsStore(file: soundsFile)
@@ -421,7 +429,7 @@ enum DebugSnapshot {
                                         version: "Perekey 0.1 (1), macOS 14.5", onOpen: { _ in }, onCancel: {})
             render(sheet, dark: dark, size: CGSize(width: 520, height: 640), to: directory.appending(path: "\(name).png"))
         }
-        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "words-warn.json")))
+        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "words-warn.json"), defaults: debugDefaults()))
         let warn = WordsPane(store: store, isFrequent: { _ in true }, initialDraft: "привет")
         render(warn.frame(width: size.width, height: size.height), dark: false, size: size,
                to: directory.appending(path: "words-warning-light.png"))
@@ -452,7 +460,7 @@ enum DebugSnapshot {
         inside.decision = Classifier.Decision(verdict: .keep, score: 0, reason: .compared, language: nil,
                                               typedLanguage: "en")
         for correction in [inside, typo, layout] { log.record(correction) }
-        let file = SettingsFile(url: directory.appending(path: "reasons.json"))
+        let file = SettingsFile(url: directory.appending(path: "reasons.json"), defaults: debugDefaults())
         try? file.save(AppSettings())
         let store = SettingsStore(file: file)
         let nav = MenuNav()
@@ -549,7 +557,7 @@ enum DebugSnapshot {
 
     /// Each onboarding step, plus the demo as solved in dark mode.
     private static func renderOnboarding(in directory: URL) {
-        let file = SettingsFile(url: directory.appending(path: "onboarding.json"))
+        let file = SettingsFile(url: directory.appending(path: "onboarding.json"), defaults: debugDefaults())
         try? file.save(AppSettings())
         let store = SettingsStore(file: file)
         let sources = InputSources()
@@ -611,7 +619,7 @@ extension DebugSnapshot {
                              enabled: Bool = true, supported: Bool = true,
                              states: PreviewStates = .running) -> VoiceModelsController
     {
-        let file = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
+        let file = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"), defaults: debugDefaults())
         try? FileManager.default.removeItem(at: file.url)
         try? file.save(VoiceSettings(isEnabled: enabled, microphoneUID: "gone-usb-mic", microphoneName: "Rode NT-USB"))
         let settings = VoiceSettingsStore(file: file, managed: managed)
@@ -685,7 +693,7 @@ extension DebugSnapshot {
 
     /// The Voice tab on its own: on, off, a profile that forbids voice or downloads, an unsupported Mac.
     static func renderVoice(in directory: URL) {
-        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-hotkeys.json")))
+        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-hotkeys.json"), defaults: debugDefaults()))
         let recording = ShortcutRecording(store: store)
         let cases: [(name: String, controller: VoiceModelsController)] = [
             ("on", voicePreview(in: directory, name: "on")),
@@ -710,7 +718,7 @@ extension DebugSnapshot {
     static func voiceTextPreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings()) -> VoiceTextController {
         let folder = directory.appending(path: "\(name)-history", directoryHint: .isDirectory)
         try? FileManager.default.removeItem(at: folder)
-        let textFile = VoiceTextSettingsFile(url: directory.appending(path: "\(name)-voice-text.json"))
+        let textFile = VoiceTextSettingsFile(url: directory.appending(path: "\(name)-voice-text.json"), defaults: debugDefaults())
         try? FileManager.default.removeItem(at: textFile.url)
         var settings = VoiceTextSettings()
         settings.dictionary += [DictionaryEntry(from: "ай фон", to: "iPhone"), DictionaryEntry(from: "ка эн ка", to: "KNK")]
@@ -754,7 +762,7 @@ extension DebugSnapshot {
             }
             let controller = voiceTextPreview(in: directory, name: "menu")
             let sources = InputSources()
-            let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-menu.json")))
+            let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-menu.json"), defaults: debugDefaults()))
             let pause = PauseState(frozen: PauseSet(), now: Date())
             let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
             var actions = MenuActions()
@@ -828,7 +836,7 @@ extension DebugSnapshot {
     static func renderVoiceIntro(in directory: URL) {
         let size = NSSize(width: 640, height: 580)
         func model(_ name: String, hotkeys: AppSettings? = nil) -> VoiceIntroModel {
-            let file = SettingsFile(url: directory.appending(path: "intro-\(name).json"))
+            let file = SettingsFile(url: directory.appending(path: "intro-\(name).json"), defaults: debugDefaults())
             try? file.save(hotkeys ?? AppSettings())
             let store = SettingsStore(file: file)
             let controller = voicePreview(in: directory, name: "intro-\(name)", enabled: false, states: .stopped)
@@ -848,7 +856,7 @@ extension DebugSnapshot {
             render(VoiceIntroView(model: taken), dark: dark, size: size,
                    to: directory.appending(path: "voice-intro-taken-\(tag).png"))
             let step = model("step")
-            let file = SettingsFile(url: directory.appending(path: "intro-step-onboarding.json"))
+            let file = SettingsFile(url: directory.appending(path: "intro-step-onboarding.json"), defaults: debugDefaults())
             try? file.save(AppSettings())
             let onboarding = OnboardingModel(store: SettingsStore(file: file), sources: InputSources(), step: .voice, live: false)
             onboarding.voiceIntro = step
@@ -895,7 +903,7 @@ extension DebugSnapshot {
         let root = directory.appending(path: "\(name)-recordings", directoryHint: .isDirectory)
         try? FileManager.default.removeItem(at: root)
         let folder = RecordingsFolder(root: root)
-        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
+        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"), defaults: debugDefaults())
         try? FileManager.default.removeItem(at: voiceFile.url)
         try? voiceFile.save(VoiceSettings(isEnabled: true))
         let voice = VoiceSettingsStore(file: voiceFile, managed: managed)

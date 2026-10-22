@@ -40,10 +40,17 @@ public struct LearningJournalFile: Sendable {
         guard FileManager.default.createFile(atPath: temporary.path, contents: try encoder.encode(journal),
                                              attributes: [.posixPermissions: 0o600])
         else { throw CocoaError(.fileWriteUnknown) }
-        if FileManager.default.fileExists(atPath: url.path) {
-            _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
-        } else {
-            try FileManager.default.moveItem(at: temporary, to: url)
+        do {
+            if FileManager.default.fileExists(atPath: url.path) {
+                _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: url)
+            }
+            // The replace may keep the old file's permissions: a journal left 0644 stays 0644 without this.
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
         }
     }
 

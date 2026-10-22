@@ -21,7 +21,7 @@ public struct SettingsFile: Sendable {
             .appending(path: "settings.json", directoryHint: .notDirectory)
     }
 
-    public init(url: URL = SettingsFile.defaultURL, defaults: UserDefaults = .standard) {
+    public init(url: URL = SettingsFile.defaultURL, defaults: UserDefaults) {
         self.url = url
         self.defaults = defaults
     }
@@ -37,17 +37,25 @@ public struct SettingsFile: Sendable {
         do {
             data = try Data(contentsOf: url)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
-            defaults.set(true, forKey: Self.migratedKey)
-            return AppSettings()
+            // Nothing to migrate: the mark is set once the first file is written.
+            let settings = AppSettings()
+            if (try? save(settings)) != nil { defaults.set(true, forKey: Self.migratedKey) }
+            return settings
         } catch {
             setAside()
             return AppSettings()
         }
         do {
             let decoder = JSONDecoder()
-            decoder.userInfo[WordRules.migratesLearningKey] = !defaults.bool(forKey: Self.migratedKey)
+            let migrates = !defaults.bool(forKey: Self.migratedKey)
+            decoder.userInfo[WordRules.migratesLearningKey] = migrates
+            decoder.userInfo[WordRules.migratedAtKey] = Date().timeIntervalSince1970
             let settings = try decoder.decode(AppSettings.self, from: data)
-            defaults.set(true, forKey: Self.migratedKey)
+            // The migrated settings live in memory until saved: a quit before the first change would
+            // lose them with the mark set. The mark goes on only after the write.
+            if migrates {
+                if (try? save(settings)) != nil { defaults.set(true, forKey: Self.migratedKey) }
+            }
             return settings
         } catch {
             setAside()

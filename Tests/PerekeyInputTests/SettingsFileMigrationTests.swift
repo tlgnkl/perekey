@@ -58,6 +58,32 @@ struct SettingsFileMigrationTests {
         #expect(file.load().words.learned.map(\.word) == ["jrtq"])
     }
 
+    @Test func migratedSettingsAreOnDiskBeforeTheMarkIsSet() throws {
+        let (file, defaults, directory) = try Self.fileAndDefaults()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"words":{"learned":[{"word":"jrtq","learnedAt":5,"lastUndoneAt":5}]}}"#.utf8).write(to: file.url)
+        _ = file.load()
+        #expect(defaults.bool(forKey: "learningMigrated"))
+        // Quit before any change: the next launch reads the migrated file, with `learning`.
+        let saved = try String(contentsOf: file.url, encoding: .utf8)
+        #expect(saved.contains("\"learning\""))
+        #expect(file.load().words.candidates.map(\.word) == ["jrtq"])
+    }
+
+    @Test func markStaysOffWhenTheMigratedFileCannotBeWritten() throws {
+        let (file, defaults, directory) = try Self.fileAndDefaults()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"words":{"learned":[{"word":"jrtq","learnedAt":5}]}}"#.utf8).write(to: file.url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        _ = file.load()
+        #expect(!defaults.bool(forKey: "learningMigrated"))
+    }
+
     @Test func importKeepsLearnedWordsOfAnOlderFile() throws {
         let old = #"{"words":{"learned":[{"word":"jrtq","learnedAt":5}]}}"#
         let words = try SettingsTransfer.importSettings(from: Data(old.utf8)).words

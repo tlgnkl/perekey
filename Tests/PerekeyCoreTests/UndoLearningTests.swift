@@ -269,11 +269,13 @@ import Testing
 
     @Test func olderFilesMigrate() throws {
         let json = #"{"words":{"learned":[{"word":"jrtq","learnedAt":5},{"word":"ghbdtn","learnedAt":6,"undoCount":2}]}}"#
-        let words = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8)).words
+        let decoder = JSONDecoder()
+        decoder.userInfo[WordRules.migratedAtKey] = Self.day
+        let words = try decoder.decode(AppSettings.self, from: Data(json.utf8)).words
         #expect(words.learned == [LearnedWord(word: "ghbdtn", learnedAt: 6, undoCount: 2)])
         let migrated = try #require(words.candidates.first)
         #expect(words.candidates.count == 1 && migrated.word == "jrtq" && migrated.app == nil && migrated.evidence == 1)
-        #expect(migrated.firstUndoneAt == 5 && migrated.lastCountedAt > Self.day, "counted from the migration")
+        #expect(migrated.firstUndoneAt == 5 && migrated.lastCountedAt == Self.day, "counted from the migration")
         // Saved again, nothing migrates twice: a word learned after one undo stays learned.
         var learnedOnce = words
         learnedOnce.learned.append(LearnedWord(word: "ytn", learnedAt: 7, app: Self.textEdit))
@@ -414,6 +416,16 @@ import Testing
             desk.press(KeyCode.delete)
             desk.type(mark)
             #expect(desk.undoReports.map(\.followUp) == [.punctuation], "\(mark)")
+        }
+    }
+
+    @Test func aMarkAfterTheSpaceIsTheNextWord() {
+        for mark in ["(", "-", "/"] {
+            var desk = Desk()
+            desk.type("[jhjij ")
+            desk.press(KeyCode.delete)
+            desk.type(mark)
+            #expect(desk.undoReports.map(\.followUp) == [.continued], "\(mark)")
         }
     }
 

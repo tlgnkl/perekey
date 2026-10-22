@@ -20,4 +20,18 @@ struct LearningJournalFileTests {
         }
         #expect(file.load().entries.count == 2)
     }
+
+    @Test func anOpenFileIsClosedToTheOwner() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "perekey-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = LearningJournalFile(url: directory.appending(path: "learning-journal.json"))
+        try Data("{}".utf8).write(to: file.url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.url.path)
+        try file.save(LearningJournal())
+        let mode = try FileManager.default.attributesOfItem(atPath: file.url.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(leftovers == ["learning-journal.json"])
+    }
 }

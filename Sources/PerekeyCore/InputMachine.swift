@@ -290,6 +290,8 @@ public struct InputMachine: Sendable {
         }
         // Typing ends a phrase retype: the next press starts over.
         manual.endPhrase()
+        // A Backspace inside the word an undo opened: the user edits it, so the word is not "kept as typed".
+        if key.keyCode == KeyCode.delete, openUndo?.channel == .backspace { openUndo?.followUp = .unknown }
         if var watch = undoWatch {
             undoWatch = nil
             if let report = watch.keyDown(key, held: held, in: layouts.currentMap) {
@@ -649,7 +651,8 @@ public struct InputMachine: Sendable {
             let layoutBefore = target == layouts.current ? nil : layouts.current
             select(target, effects: &effects)
             effects.append(.retype(Retype(deleteCount: 0, keys: keys, target: target, expected: text, seq: seq,
-                                          viaAccessibility: viaAccessibility, origin: .manualSelection(action.hotkeyAction))))
+                                          viaAccessibility: viaAccessibility, origin: .manualSelection(action.hotkeyAction),
+                                          app: focusApp)))
             fence.retypesSelection(into: target, layoutBefore: layoutBefore, viaAccessibility: viaAccessibility)
         }
     }
@@ -678,7 +681,8 @@ public struct InputMachine: Sendable {
         }
         select(target, byUser: byUser, effects: &effects)
         effects.append(.retype(Retype(deleteCount: deleteCount ?? word.keys.count, keys: word.keys, target: target,
-                                      expected: word.expected, seq: seq, origin: origin, decision: decision)))
+                                      expected: word.expected, seq: seq, origin: origin, decision: decision,
+                                      app: focusApp)))
         // Long until the retype is posted; `.retypePosted` shortens it.
         fence.raise(seq: seq, awaiting: awaitsLayout ? target : nil, layoutBefore: layoutBefore,
                     deadline: time + settings.postTimeout, purpose: purpose, effects: &effects)

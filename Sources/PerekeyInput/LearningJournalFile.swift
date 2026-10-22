@@ -35,7 +35,16 @@ public struct LearningJournalFile: Sendable {
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(journal).write(to: url, options: .atomic)
+        // Owner only, from the first byte: the journal tells which apps the user undoes words in.
+        let temporary = url.deletingLastPathComponent().appending(path: ".\(UUID().uuidString).tmp")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: try encoder.encode(journal),
+                                             attributes: [.posixPermissions: 0o600])
+        else { throw CocoaError(.fileWriteUnknown) }
+        if FileManager.default.fileExists(atPath: url.path) {
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+        } else {
+            try FileManager.default.moveItem(at: temporary, to: url)
+        }
     }
 
     /// Adds one entry to the file.

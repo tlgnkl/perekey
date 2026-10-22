@@ -161,10 +161,23 @@ struct UndoWatch: Sendable {
             boundaryLeft = false
             return nil
         }
-        guard let map else { return settle(.unknown) }
-        if WordJudge.isPunctuation(stroke, in: map) { return settle(.punctuation) }
+        // Esc, F-keys, Help and the like type nothing: the caret or the text may be anywhere.
+        guard let map, let scalar = Self.printable(stroke, in: map) else { return settle(.unknown) }
+        // Anything but a letter or digit of the layout's language: «-», «(», «/», «—», «'», «]» too.
+        if !scalar.properties.isAlphabetic, scalar.properties.numericType == nil { return settle(.punctuation) }
         // A letter: the next word after the space, or more of this one without it.
         return settle(boundaryLeft ? .continued : .edited)
+    }
+
+    /// The one printable character the stroke types in `map`; nil for no text, several characters or a control.
+    private static func printable(_ stroke: KeyStroke, in map: LayoutMap) -> Unicode.Scalar? {
+        guard let text = map.text(for: stroke) else { return nil }
+        var scalars = text.unicodeScalars.makeIterator()
+        guard let scalar = scalars.next(), scalars.next() == nil else { return nil }
+        switch scalar.properties.generalCategory {
+        case .control, .format, .unassigned, .privateUse, .surrogate: return nil
+        default: return scalar
+        }
     }
 
     func settle(_ followUp: UndoFollowUp) -> UndoReport {

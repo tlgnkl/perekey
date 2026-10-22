@@ -55,14 +55,13 @@ struct SettingsTransferTests {
         }
         """#
         let settings = try SettingsTransfer.importSettings(from: Data(file.utf8))
-        // Learned from one undo: a candidate now, counted in every app.
+        // Learned from one undo: stays learned. Only the settings file migrates, once (`SettingsFile`).
         #expect(settings.words == WordRules(
             mine: ["kubectl"],
-            candidates: [LearningCandidate(word: "ghbdtn", app: nil, evidence: 1, threshold: 2, undoCount: 1,
-                                           firstUndoneAt: 1_790_000_000, lastCountedDay: 20_717)],
+            learned: [LearnedWord(word: "ghbdtn", learnedAt: 1_790_000_000)],
             learnFromUndos: false
         ))
-        #expect(SettingsTransfer.Summary(settings).words == 1)
+        #expect(SettingsTransfer.Summary(settings).words == 2)
     }
 
     @Test func summaryCountsAlwaysFixWords() {

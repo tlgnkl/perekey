@@ -396,6 +396,42 @@ import Testing
         #expect(desk.undoReports.map(\.followUp) == [.edited])
     }
 
+    @Test func keysThatTypeNothingCountNothing() {
+        for keyCode in [KeyCode.escape, KeyCode.f18, 114] { // Esc, F18, Help
+            var desk = Desk()
+            desk.type("[jhjij ")
+            desk.press(KeyCode.delete)
+            desk.press(keyCode)
+            #expect(desk.undoReports.map(\.followUp) == [.unknown], "key \(keyCode)")
+        }
+    }
+
+    @Test func anyKeyThatIsNoLetterIsPunctuationAfterTheSpaceIsGone() {
+        for mark in ["-", "(", "/", "'", "]"] {
+            var desk = Desk()
+            desk.type("[jhjij ")
+            desk.press(KeyCode.delete)
+            desk.press(KeyCode.delete)
+            desk.type(mark)
+            #expect(desk.undoReports.map(\.followUp) == [.punctuation], "\(mark)")
+        }
+    }
+
+    @Test func backspaceInsideAnOpenWordCountsNothing() {
+        var kept = Desk()
+        kept.type("ghb")
+        kept.press(KeyCode.delete)
+        kept.type("dtn ")
+        #expect(kept.undoReports.map(\.followUp) == [.continued])
+        var edited = Desk()
+        edited.type("ghb")
+        edited.press(KeyCode.delete)
+        edited.press(KeyCode.delete)
+        edited.type("b")
+        edited.type("dtn ")
+        #expect(edited.undoReports.map(\.followUp) == [.unknown])
+    }
+
     @Test func retypeShortcutCountsNothing() {
         var desk = Desk()
         desk.type("[jhjij ")

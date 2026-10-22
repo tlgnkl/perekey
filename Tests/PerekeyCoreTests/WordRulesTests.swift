@@ -34,7 +34,8 @@ import Testing
     static func learn(_ word: String, in words: inout WordRules, at seconds: Double, app: String? = nil,
                       readings: [String] = []) -> LearnedWord?
     {
-        let report = UndoReport(word: word, app: app, channel: .button, threshold: 1,
+        // An undo without an app counts nothing: «Везде» is asked in some app.
+        let report = UndoReport(word: word, app: app ?? "com.test.App", channel: .button, threshold: 1,
                                 facts: UndoFacts(kind: .layout, decision: nil))
         let step = words.count(report, at: seconds, day: 1, readings: readings)
         guard let question = step.question else { return nil }

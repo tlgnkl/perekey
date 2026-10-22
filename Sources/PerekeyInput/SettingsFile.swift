@@ -12,7 +12,7 @@ public struct SettingsFile: Sendable {
     public let url: URL
     /// Holds the mark that the learning migration ran (`WordRules.migratesLearningKey`).
     /// Outside `settings.json`: an older build rewrites that file without the mark.
-    private let defaults: UserDefaults
+    private nonisolated(unsafe) let defaults: UserDefaults
     private static let migratedKey = "learningMigrated"
 
     public static var defaultURL: URL {

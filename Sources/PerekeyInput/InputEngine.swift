@@ -508,7 +508,7 @@ public final class InputEngine: @unchecked Sendable {
 
     private func toMainRetyped(_ retype: Retype) {
         toMain(.retyped(original: retype.expected, text: retype.text, origin: retype.origin,
-                        decision: retype.decision, app: machine.focusApp))
+                        decision: retype.decision, app: retype.app))
     }
 
     private func replacedViaAccessibility(_ retype: Retype, done: Bool) {

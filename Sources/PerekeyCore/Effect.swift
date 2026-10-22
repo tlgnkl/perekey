@@ -53,6 +53,9 @@ public struct Retype: Hashable, Sendable {
     public var viaAccessibility: Bool
     /// Who asked for it. The system layer passes it on untouched, for the hint.
     public var origin: Origin
+    /// The bundle ID of the focus the retype was made in; nil when unknown.
+    /// Kept apart from the focus at delivery: the user may have moved on by then.
+    public var app: String?
     /// What automatic switching decided about the word, for «Why?». Set for a
     /// word retyped by hand while automatic switching was on, and for an
     /// automatic switch; nil when it did not judge the word.
@@ -83,9 +86,11 @@ public struct Retype: Hashable, Sendable {
     }
 
     public init(deleteCount: Int, keys: [Key], target: LayoutID, expected: String, seq: UInt32,
-                viaAccessibility: Bool = false, origin: Origin, decision: Classifier.Decision? = nil)
+                viaAccessibility: Bool = false, origin: Origin, decision: Classifier.Decision? = nil,
+                app: String? = nil)
     {
         self.origin = origin
+        self.app = app
         decisionBox = decision.map(DecisionBox.init)
         self.deleteCount = deleteCount
         self.keys = keys

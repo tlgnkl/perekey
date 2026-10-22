@@ -3,7 +3,9 @@
 import Foundation
 
 /// A word the user's undos taught Perekey to leave alone, in one app or everywhere.
-public struct LearnedWord: Hashable, Sendable {
+public struct LearnedWord: Hashable, Sendable, Identifiable {
+    /// The word and the app it is learned for: one entry per pair.
+    public var id: String { word + "\u{0}" + (app ?? "") }
     /// The normalized word (see `WordRules.normalize`).
     public var word: String
     /// When it was learned, in seconds since 1970. A plain number keeps the core free of `Foundation`.
@@ -339,12 +341,16 @@ public struct WordRules: Hashable, Sendable {
             learned[index].lastUndoneAt = seconds
             return LearningStep(outcome: .alreadyLearned, oldRule: oldRule)
         }
-        guard isLearnable(normalized, readings: readings, app: report.app) else {
+        // An undo whose app is unknown is no evidence for any scope.
+        guard let app = report.app else {
+            return LearningStep(outcome: .noEvidence, threshold: report.threshold, oldRule: oldRule)
+        }
+        guard isLearnable(normalized, readings: readings, app: app) else {
             return LearningStep(outcome: .notLearnable, oldRule: oldRule)
         }
         expireCandidates(at: seconds, options: options)
 
-        let index = candidates.firstIndex { $0.word == normalized && $0.app == report.app }
+        let index = candidates.firstIndex { $0.word == normalized && $0.app == app }
             ?? candidates.firstIndex { $0.word == normalized && $0.app == nil }
         let weight = options.weight(report.channel, report.followUp)
         guard weight > 0 else {
@@ -353,8 +359,10 @@ public struct WordRules: Hashable, Sendable {
                                 threshold: candidate?.threshold ?? report.threshold, oldRule: oldRule)
         }
         var candidate = index.map { candidates[$0] }
-            ?? LearningCandidate(word: normalized, app: report.app, evidence: 0, threshold: report.threshold,
+            ?? LearningCandidate(word: normalized, app: app, evidence: 0, threshold: report.threshold,
                                  undoCount: 0, firstUndoneAt: seconds, lastCountedDay: day)
+        // A migrated candidate is seed evidence: it moves to the app of the first counted undo.
+        candidate.app = app
         let newDay = candidate.undoCount > 0 && candidate.lastCountedDay != day
         candidate.evidence += weight + (newDay ? options.newDayBonus : 0)
         candidate.threshold = report.threshold
@@ -366,8 +374,8 @@ public struct WordRules: Hashable, Sendable {
             return LearningStep(outcome: .counted, evidence: candidate.evidence, threshold: candidate.threshold,
                                 oldRule: oldRule)
         }
-        let question = LearningQuestion(word: normalized, app: report.app,
-                                        reachedElsewhere: !otherApps(normalized, than: report.app).isEmpty)
+        let question = LearningQuestion(word: normalized, app: app,
+                                        reachedElsewhere: !otherApps(normalized, than: app).isEmpty)
         return LearningStep(outcome: .ask, evidence: candidate.evidence, threshold: candidate.threshold,
                             oldRule: oldRule, question: question)
     }
@@ -377,13 +385,18 @@ public struct WordRules: Hashable, Sendable {
     /// app too (`LearningOptions.appsForEverywhere`) or the app is unknown;
     /// "Везде" learns it everywhere; "Нет" starts its evidence over. Returns
     /// the entry learned, if any. Does nothing for a word put on another
-    /// list in the meantime.
+    /// list in the meantime, for a candidate that `unlearn` or `forget` took
+    /// away since the question, and for a word learned everywhere already.
     @discardableResult
     public mutating func answer(_ question: LearningQuestion, _ answer: LearningAnswer, at seconds: Double,
                                 readings: [String] = [], options: LearningOptions = LearningOptions()) -> LearnedWord?
     {
         let word = Self.normalize(question.word)
         let asked = candidates.indices.filter { candidates[$0].word == word && candidates[$0].covers(question.app) }
+        // A stale answer: the candidate is gone or no longer ripe, or the word is learned everywhere already.
+        guard asked.contains(where: { candidates[$0].isRipe }),
+              !learned.contains(where: { $0.word == word && $0.app == nil })
+        else { return nil }
         if answer == .no {
             for index in asked { candidates[index].evidence = 0 }
             return nil
@@ -456,6 +469,8 @@ public struct WordRules: Hashable, Sendable {
         }
         let forms = [word] + readings.map(Self.normalize)
         if forms.contains(where: mine.contains) { return false }
+        let keys = Set(forms.map(Self.matchKey))
+        if always.contains(where: { keys.contains(Self.matchKey($0)) }) { return false }
         return !learned.contains { $0.word != word && forms.contains($0.word) && $0.covers(app) }
     }
 

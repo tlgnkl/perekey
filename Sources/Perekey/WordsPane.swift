@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import PerekeyCore
+import AppKit
 import SwiftUI
 
 /// Settings → Words: the user's word rules. "Don't touch: mine" are typed in
@@ -101,11 +102,16 @@ struct WordsPane: View {
                 PKNote(Text("Words you undo after a correction appear here."))
             }
             VStack(spacing: 0) {
-                ForEach(words.learned, id: \.word) { item in
+                ForEach(words.learned, id: \.id) { item in
                     VStack(spacing: 0) {
                         PKDivider()
                         PKRow(Text(item.word)) {
                             HStack(spacing: 12) {
+                                if let app = item.app {
+                                    Text(Self.appName(app))
+                                        .font(PK.Font.caption)
+                                        .foregroundStyle(Color.pkInk2)
+                                }
                                 if item.undoCount > 1 {
                                     Text("undone \(item.undoCount) times")
                                         .font(PK.Font.caption)
@@ -114,17 +120,17 @@ struct WordsPane: View {
                                 Text(Date(timeIntervalSince1970: item.lastUndoneAt).formatted(date: .abbreviated, time: .omitted))
                                     .font(PK.Font.caption)
                                     .foregroundStyle(Color.pkInk2)
-                                Button("Forget") { store.update { $0.words.forget(item.word) } }
+                                Button("Forget") { store.update { $0.words.forget(item.word, app: item.app) } }
                                     .buttonStyle(.pkLink)
                             }
                         }
-                        .pkFound("learned:" + item.word, tracker: found.wrappedValue)
+                        .pkFound("learned:" + item.id, tracker: found.wrappedValue)
                     }
                     .pkRowTransition()
                 }
             }
-            .pkListChanges(words.learned.map(\.word))
-            .onChange(of: words.learned.map(\.word)) { old, new in
+            .pkListChanges(words.learned.map(\.id))
+            .onChange(of: words.learned.map(\.id)) { old, new in
                 for word in new where !old.contains(word) { found.wrappedValue.mark("learned:" + word) }
             }
             if !words.learned.isEmpty {
@@ -174,6 +180,12 @@ struct WordsPane: View {
                 for word in new where !old.contains(word) { found.wrappedValue.mark("always:" + word) }
             }
         }
+    }
+
+    /// The app's name, or its bundle ID when it is not installed.
+    private static func appName(_ bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
+        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
     }
 
     private func count(_ number: Int) -> String { number == 0 ? "" : "  \(number)" }

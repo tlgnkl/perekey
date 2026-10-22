@@ -203,10 +203,33 @@ import Testing
         #expect(words.learned.first?.undoCount == 2)
     }
 
-    @Test func unknownAppLearnsEverywhere() throws {
+    @Test func undoWithoutAnAppCountsNothing() {
         var words = WordRules()
-        let question = try #require(Self.count(Self.report(app: nil), in: &words).question)
-        #expect(words.answer(question, .here, at: Self.day)?.app == nil)
+        let step = Self.count(Self.report(app: nil), in: &words)
+        #expect(step.outcome == .noEvidence && step.question == nil)
+        #expect(words.candidates.isEmpty && words.learned.isEmpty)
+    }
+
+    @Test func staleAnswerLearnsNothing() throws {
+        var words = WordRules()
+        let question = try #require(Self.count(Self.report(), in: &words).question)
+        words.forget("jrtq")
+        #expect(words.answer(question, .here, at: Self.day) == nil)
+        #expect(words.answer(question, .everywhere, at: Self.day) == nil)
+        #expect(words.learned.isEmpty)
+        var other = WordRules()
+        let asked = try #require(Self.count(Self.report(), in: &other).question)
+        other.learned = [LearnedWord(word: "jrtq", learnedAt: 1)]
+        #expect(other.answer(asked, .here, at: Self.day) == nil)
+        #expect(other.learned == [LearnedWord(word: "jrtq", learnedAt: 1)], "no app entry next to the global one")
+    }
+
+    @Test func wordOnAlwaysFixIsNotLearnable() throws {
+        var words = WordRules()
+        let question = try #require(Self.count(Self.report(), in: &words).question)
+        words.always = ["Jrtq"]
+        #expect(words.answer(question, .here, at: Self.day) == nil)
+        #expect(words.learned.isEmpty)
     }
 
     @Test func answerForAWordListedMeanwhileDoesNothing() throws {
@@ -264,6 +287,7 @@ import Testing
                                                              lastCountedDay: 20_000)])
         let step = Self.count(Self.report(.backspace, .continued, app: Self.notes), in: &words)
         #expect(step.outcome == .ask && step.question?.app == Self.notes)
+        #expect(words.candidates.map(\.app) == [Self.notes], "nothing stays global")
         let learned = words.answer(try #require(step.question), .here, at: Self.day)
         #expect(learned?.app == Self.notes && learned?.undoCount == 2)
         #expect(words.candidates.isEmpty)

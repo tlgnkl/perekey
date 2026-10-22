@@ -143,12 +143,13 @@ public struct AppSettings: Hashable, Sendable {
         let voiceTrigger = voice.activeTrigger
         if let voiceTrigger { hotkeys = voiceTrigger.narrowing(hotkeys) }
         var exceptions = Set(words.mine)
-        for learned in words.learned { exceptions.insert(learned.word) }
+        for learned in words.learned where learned.app == nil { exceptions.insert(learned.word) }
         // Never-touch wins: an imported file may have a word on both kinds of list.
         let alwaysFix = words.alwaysFixTable.filter { key, spelling in
             !exceptions.contains(key) && !exceptions.contains(spelling)
         }
-        return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions, alwaysFix: alwaysFix,
+        return Settings(hotkeys: hotkeys, autoswitch: autoswitch, exceptions: exceptions,
+                        appExceptions: words.learnedByApp, alwaysFix: alwaysFix,
                         learnFromUndos: words.learnFromUndos, corrections: corrections,
                         typoCorrection: typoCorrection, voice: voiceTrigger)
     }

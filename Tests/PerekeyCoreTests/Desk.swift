@@ -42,8 +42,15 @@ struct Desk {
         log.compactMap { if case let .corrected(correction) = $0 { correction } else { nil } }
     }
 
+    /// The undos reported for learning (`Effect.undoSettled`).
+    var undoReports: [UndoReport] {
+        log.compactMap { if case let .undoSettled(report) = $0 { report } else { nil } }
+    }
+
+    /// The words of the undos that give evidence: the button and the
+    /// shortcuts, and a Backspace the next key showed was meant.
     var learned: [String] {
-        log.compactMap { if case let .learned(word) = $0 { word } else { nil } }
+        undoReports.filter { LearningOptions().weight($0.channel, $0.followUp) > 0 }.map(\.word)
     }
 
     var withdrawn: [String] {

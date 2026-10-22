@@ -14,6 +14,10 @@ public enum SettingsTransfer {
     /// words. Version 1 files load with both empty: one undo per learned word.
     /// The other way is lossy: a Perekey from before version 2 reads a newer
     /// settings file, but silently drops `always` and `undoCount` on its first save.
+    /// Learning by evidence (`words.learning`, `words.candidates`, the `app`
+    /// of a learned word) needs no new version: older builds read the file
+    /// and drop those keys, and a file without `words.learning` migrates on
+    /// import (`WordRules.init(from:)`).
     public static let currentVersion = 2
 
     private static let knownKeys: Set<String> = ["hotkeys", "capsLock", "autoswitch", "onboardingDone", "words"]

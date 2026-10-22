@@ -12,7 +12,10 @@ import Testing
 /// drops them when it saves, so the choice falls back to the capsule, and the
 /// rest of the file is read as before. A new switch inside `corrections`
 /// (`addedToCorrectionsSince0_1_1`) is the same: 0.1.1 reads the keys of that
-/// object one by one, ignores the new one and drops it on save.
+/// object one by one, ignores the new one and drops it on save. Learning by
+/// evidence (`addedToWordsSince0_1_1`, and `app` on a learned word) is the
+/// same inside `words`: 0.1.1 takes a word learned for one app as learned
+/// everywhere, and drops the candidates.
 @Suite struct SettingsRollbackTests {
     /// Every field away from its default, the shortcuts included.
     static var filled: AppSettings {
@@ -41,6 +44,10 @@ import Testing
     /// Keys of `corrections` that a later version added.
     static let addedToCorrectionsSince0_1_1: Set<String> = ["hyphen"]
 
+    /// Keys of `words` that a later version added, and of its learned words.
+    static let addedToWordsSince0_1_1: Set<String> = ["candidates", "learning"]
+    static let addedToLearnedWordsSince0_1_1: Set<String> = ["app"]
+
     /// The JSON object without the keys 0.1.1 does not know.
     static func object(_ data: Data, as0_1_1: Bool) throws -> NSDictionary {
         let object = try Self.object(data).mutableCopy() as! NSMutableDictionary
@@ -48,6 +55,17 @@ import Testing
         if let corrections = (object["corrections"] as? NSDictionary)?.mutableCopy() as? NSMutableDictionary {
             for key in addedToCorrectionsSince0_1_1 { corrections.removeObject(forKey: key) }
             object["corrections"] = corrections
+        }
+        if let words = (object["words"] as? NSDictionary)?.mutableCopy() as? NSMutableDictionary {
+            for key in addedToWordsSince0_1_1 { words.removeObject(forKey: key) }
+            if let learned = words["learned"] as? [NSDictionary] {
+                words["learned"] = learned.map { word in
+                    let word = word.mutableCopy() as! NSMutableDictionary
+                    for key in addedToLearnedWordsSince0_1_1 { word.removeObject(forKey: key) }
+                    return word
+                }
+            }
+            object["words"] = words
         }
         return object
     }
@@ -101,6 +119,24 @@ import Testing
         // the stand-in keeps the new switch because it shares `TextCorrections`.
         #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true))
         #expect(try JSONDecoder().decode(AppSettings.self, from: resaved) == settings)
+    }
+
+    @Test func learningByEvidenceSurvivesSavingIn0_1_1() throws {
+        var settings = Self.filled
+        settings.words.learned.append(LearnedWord(word: "jrtq", learnedAt: 1_790_000_100, app: "com.apple.Notes"))
+        settings.words.candidates = [LearningCandidate(word: "ytn", app: "com.apple.Notes", evidence: 1, threshold: 2,
+                                                       undoCount: 1, firstUndoneAt: 1_790_000_200,
+                                                       lastCountedDay: 20_717)]
+        let saved = try Self.encode(settings)
+        // 0.1.1 opens it without error and keeps every word it knows.
+        let legacy = try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: saved)
+        #expect(legacy.words.learned.map(\.word) == ["ghbdtn", "jrtq"], "a word learned for an app: everywhere")
+        let resaved = try Self.encode(legacy)
+        #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true))
+        // Forward again: no `learning` key, so a word learned from one undo is a candidate again.
+        let back = try JSONDecoder().decode(AppSettings.self, from: resaved)
+        #expect(back.words.learned == Self.filled.words.learned)
+        #expect(back.words.candidates.map(\.word) == ["jrtq"])
     }
 
     @Test func dictationWritesNothingNewToSettings() throws {

@@ -318,11 +318,13 @@ private let ru = Fixture.russian.id
         #expect(desk.text == "[jhjij ")
         #expect(desk.appLayout == en)
         #expect(desk.undone == [seq])
-        #expect(desk.learned == ["jhjij"], "the bracket is no part of a word")
         // The next Backspace is an ordinary one.
         desk.press(KeyCode.delete)
         #expect(desk.text == "[jhjij")
         #expect(desk.undone.count == 1)
+        // The space typed again says the word was meant as typed.
+        desk.type(" ")
+        #expect(desk.learned == ["jhjij"], "the bracket is no part of a word")
     }
 
     @Test func undoneWordIsNotSwitchedAgain() {
@@ -343,6 +345,7 @@ private let ru = Fixture.russian.id
         #expect(desk.text == "привет ")
         desk.press(KeyCode.delete)
         #expect(desk.text == "ghbdtn ")
+        desk.type("vbh")
         #expect(desk.learned == ["ghbdtn"])
         #expect(desk.undone.count == 1)
     }
@@ -469,10 +472,11 @@ private let ru = Fixture.russian.id
         desk.type("ds,jh ")
         #expect(desk.text == "выбор ")
         desk.press(KeyCode.delete)
+        desk.type(" ")
         let word = desk.learned.first ?? ""
         desk.send(.settingsChanged(Settings(exceptions: [word])))
         desk.type("ds,jh ")
-        #expect(desk.text == "ds,jh ds,jh ")
+        #expect(desk.text == "ds,jh  ds,jh ")
     }
 }
 
@@ -480,8 +484,10 @@ private let ru = Fixture.russian.id
     @Test func exceptionsAndLearningGoToTheTap() {
         var settings = AppSettings()
         settings.words.add("Ghbdtn")
-        settings.words.learn("vbh", at: 1)
+        WordRulesTests.learn("vbh", in: &settings.words, at: 1)
+        WordRulesTests.learn("ytn", in: &settings.words, at: 1, app: "com.apple.Notes")
         #expect(settings.snapshot.exceptions == ["ghbdtn", "vbh"])
+        #expect(settings.snapshot.appExceptions == ["com.apple.Notes": ["ytn"]])
         #expect(settings.snapshot.learnFromUndos)
         settings.words.learnFromUndos = false
         #expect(!settings.snapshot.learnFromUndos)
@@ -596,6 +602,7 @@ private let ru = Fixture.russian.id
         desk.settle()
         #expect(desk.text == "[jhjij ")
         #expect(desk.undone == [seq])
+        desk.type(" ")
         #expect(desk.learned == ["jhjij"])
     }
 

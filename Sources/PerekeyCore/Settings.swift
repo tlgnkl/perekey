@@ -19,14 +19,17 @@ public struct Settings: Hashable, Sendable, Codable {
     /// ones, normalized like `WordRules.normalize` (trimmed, lowercased).
     /// A word matches in either layout reading.
     public var exceptions: Set<String>
+    /// Words learned for one app (`LearnedWord.app`), by bundle ID: never
+    /// touched while that app is in focus, like `exceptions`.
+    public var appExceptions: [String: Set<String>]
     /// Words automatic switching switches to whatever the classifier's score,
     /// unless a guard keeps the word (`Classifier.Reason.isGuard`): the
     /// spelling to type, keyed by `WordRules.matchKey` ("артем" → "артём").
     /// None of them is in `exceptions`. A word typed in the other layout
     /// reads as a key: switch; typed as one: keep.
     public var alwaysFix: [String: String]
-    /// Whether undoing an automatic switch asks the app to learn the word
-    /// (`Effect.learned`).
+    /// Whether undoing an automatic switch counts towards learning the word
+    /// (`Effect.undoSettled`).
     public var learnFromUndos: Bool
     /// The stage 4 corrections: phrase retype, case, Caps Lock, abbreviations, "ё".
     public var corrections: TextCorrections
@@ -43,6 +46,7 @@ public struct Settings: Hashable, Sendable, Codable {
         fenceTimeout: Double = 0.3,
         postTimeout: Double = 2,
         exceptions: Set<String> = [],
+        appExceptions: [String: Set<String>] = [:],
         alwaysFix: [String: String] = [:],
         learnFromUndos: Bool = true,
         corrections: TextCorrections = TextCorrections(),
@@ -54,10 +58,18 @@ public struct Settings: Hashable, Sendable, Codable {
         self.fenceTimeout = fenceTimeout
         self.postTimeout = postTimeout
         self.exceptions = exceptions
+        self.appExceptions = appExceptions
         self.alwaysFix = alwaysFix
         self.learnFromUndos = learnFromUndos
         self.corrections = corrections
         self.typoCorrection = typoCorrection
         self.voice = voice
+    }
+
+    /// Whether the word, keyed like `exceptions`, is never touched in this app.
+    func isException(_ key: String, app: String?) -> Bool {
+        if exceptions.contains(key) { return true }
+        guard let app, !appExceptions.isEmpty, let words = appExceptions[app] else { return false }
+        return words.contains(key)
     }
 }

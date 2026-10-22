@@ -217,13 +217,16 @@ public enum Effect: Hashable, Sendable {
     /// for the undo is let through as an ordinary Backspace. The correction
     /// can no longer be undone: hide its hint.
     case correctionUndoFailed(seq: UInt32)
-    /// The user undid an automatic switch and `Settings.learnFromUndos` is on
-    /// (with the undo's `.retypePosted`, never for a cancelled undo):
-    /// add the word to the learned list (`WordRules.learn`). It is
-    /// normalized, and it is the typed reading where the list takes it
-    /// ("ghbdtn"), else the other one (`CorrectionUndo.learnable`). The next
-    /// settings snapshot carries it in `Settings.exceptions`.
-    case learned(String)
+    /// The user undid an automatic correction, `Settings.learnFromUndos` is
+    /// on, and it is known what the undo says (never for a cancelled undo):
+    /// count it towards learning the word (`WordRules.count`), which may ask
+    /// the user. The button and the shortcuts report with the undo's
+    /// `.retypePosted`; a Backspace when the next key, click or focus change
+    /// says what it was for (`UndoWatch`); an undo inside a word when the
+    /// word ends. The word is normalized, and it is the typed reading where
+    /// the list takes it ("ghbdtn"), else the other one
+    /// (`CorrectionUndo.learnable`).
+    indirect case undoSettled(UndoReport)
     /// The user undid a switch the "Всегда исправлять" list forced (with the
     /// undo's `.retypePosted`): take this word off the list
     /// (`WordRules.stopFixing`). The latest explicit signal wins, so nothing

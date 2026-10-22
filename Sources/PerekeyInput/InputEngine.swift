@@ -34,8 +34,9 @@ public enum EngineMessage: Sendable {
     /// The undo of the correction with this `seq` was cancelled by the caret
     /// check: the text stays corrected and cannot be undone. Hide its hint.
     case correctionUndoFailed(seq: UInt32)
-    /// The user undid an automatic switch: learn the word, as typed.
-    case learned(String)
+    /// An undone correction, once it is known what it says
+    /// (`Effect.undoSettled`): count it towards learning the word.
+    case undoSettled(UndoReport)
     /// The user undid a switch the "Всегда исправлять" list forced: take the
     /// word off the list.
     case alwaysFixWithdrawn(String)
@@ -596,8 +597,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.correctionUndone(seq: seq))
             case let .correctionUndoFailed(seq):
                 toMain(.correctionUndoFailed(seq: seq))
-            case let .learned(word):
-                toMain(.learned(word))
+            case let .undoSettled(report):
+                toMain(.undoSettled(report))
             case let .alwaysFixWithdrawn(word):
                 toMain(.alwaysFixWithdrawn(word))
             case .capsLockOff:

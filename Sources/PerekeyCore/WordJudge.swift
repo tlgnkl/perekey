@@ -453,7 +453,8 @@ struct WordJudge: Sendable {
             let forced = !switches && listed != nil && WordRules.overrides(listedDecision)
                 && !isMixedCase(buffer, auto)
             if forced || switches {
-                if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
+                if isException(buffer, in: auto.typed, settings, focus)
+                    || isException(buffer, in: auto.other, settings, focus)
                     || alwaysFixSpelling(buffer, in: auto.typed, settings) != nil
                 {
                     record(auto.typed.language)
@@ -494,7 +495,8 @@ struct WordJudge: Sendable {
             record(typed.language)
         }
         // The word stays in its layout: fix it there.
-        guard let typo, !isException(buffer, in: typo, settings), alwaysFixSpelling(buffer, in: typo, settings) == nil,
+        guard let typo, !isException(buffer, in: typo, settings, focus),
+              alwaysFixSpelling(buffer, in: typo, settings) == nil,
               var retype = typoRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary, undoable: !endsLine,
                                       layouts: layouts, settings: settings)
         else { return .keep }
@@ -525,7 +527,8 @@ struct WordJudge: Sendable {
             explaining: true
         )
         if decision.verdict == .switch(to: auto.other.id),
-           isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
+           isException(buffer, in: auto.typed, settings, focus)
+           || isException(buffer, in: auto.other, settings, focus)
         {
             // The user's list kept it.
             decision.verdict = .keep
@@ -547,7 +550,8 @@ struct WordJudge: Sendable {
               let other = Self.onlyPossibleStart(buffer, context)
         else { return nil }
         context.other = other
-        guard !isExceptionPrefix(buffer, context, settings), !isAlwaysFixPrefix(buffer, in: context.typed, settings)
+        guard !isExceptionPrefix(buffer, context, settings, focus),
+              !isAlwaysFixPrefix(buffer, in: context.typed, settings)
         else { return nil }
         let trigger = buffer.entries[count - 1].stroke
         guard var retype = autoRetype(context, buffer.entries.dropLast(), held: trigger, heldKeyCode: trigger.keyCode,
@@ -766,20 +770,27 @@ struct WordJudge: Sendable {
 
     // MARK: - The user's list
 
-    /// The word is on the user's list as this layout reads it.
-    private func isException(_ buffer: WordBuffer, in map: LayoutMap, _ settings: Settings) -> Bool {
-        guard !settings.exceptions.isEmpty, let word = Self.text(of: buffer.entries, in: map) else { return false }
-        return settings.exceptions.contains(Self.exceptionKey(word))
+    /// The word is on the user's list as this layout reads it: everywhere,
+    /// or for the app in focus.
+    private func isException(_ buffer: WordBuffer, in map: LayoutMap, _ settings: Settings, _ focus: Focus?) -> Bool {
+        guard !settings.exceptions.isEmpty || !settings.appExceptions.isEmpty,
+              let word = Self.text(of: buffer.entries, in: map)
+        else { return false }
+        return settings.isException(Self.exceptionKey(word), app: focus?.bundleID)
     }
 
     /// Some word on the user's list starts with the word so far, in either
     /// reading: do not switch it early.
-    private func isExceptionPrefix(_ buffer: WordBuffer, _ context: AutoContext, _ settings: Settings) -> Bool {
-        guard !settings.exceptions.isEmpty else { return false }
+    private func isExceptionPrefix(_ buffer: WordBuffer, _ context: AutoContext, _ settings: Settings,
+                                   _ focus: Focus?) -> Bool
+    {
+        guard !settings.exceptions.isEmpty || !settings.appExceptions.isEmpty else { return false }
+        let own = settings.appExceptions.isEmpty ? nil : focus?.bundleID.flatMap { settings.appExceptions[$0] }
         for map in [context.typed, context.other] {
             guard let word = Self.text(of: buffer.entries, in: map) else { continue }
             let prefix = Self.exceptionKey(word)
             if settings.exceptions.contains(where: { $0.hasPrefix(prefix) }) { return true }
+            if let own, own.contains(where: { $0.hasPrefix(prefix) }) { return true }
         }
         return false
     }

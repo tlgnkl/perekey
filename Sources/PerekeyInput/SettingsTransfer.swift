@@ -16,8 +16,8 @@ public enum SettingsTransfer {
     /// settings file, but silently drops `always` and `undoCount` on its first save.
     /// Learning by evidence (`words.learning`, `words.candidates`, the `app`
     /// of a learned word) needs no new version: older builds read the file
-    /// and drop those keys, and a file without `words.learning` migrates on
-    /// import (`WordRules.init(from:)`).
+    /// and drop those keys, and a file without `words.learning` migrates once,
+    /// on load (`SettingsFile`), not on import.
     public static let currentVersion = 2
 
     private static let knownKeys: Set<String> = ["hotkeys", "capsLock", "autoswitch", "onboardingDone", "words"]
@@ -75,7 +75,10 @@ public enum SettingsTransfer {
             guard let version = raw as? Int, version >= 1 else { throw ImportError.notSettings }
             if version > currentVersion { throw ImportError.newerVersion(version) }
         }
-        guard let settings = try? JSONDecoder().decode(AppSettings.self, from: data) else {
+        // A file from an older build keeps its learned words as learned: the migration is for the settings file.
+        let decoder = JSONDecoder()
+        decoder.userInfo[WordRules.migratesLearningKey] = false
+        guard let settings = try? decoder.decode(AppSettings.self, from: data) else {
             throw ImportError.notSettings
         }
         return settings

@@ -10,6 +10,10 @@ import PerekeyCore
 /// cost them every shortcut they recorded.
 public struct SettingsFile: Sendable {
     public let url: URL
+    /// Holds the mark that the learning migration ran (`WordRules.migratesLearningKey`).
+    /// Outside `settings.json`: an older build rewrites that file without the mark.
+    private let defaults: UserDefaults
+    private static let migratedKey = "learningMigrated"
 
     public static var defaultURL: URL {
         URL.applicationSupportDirectory
@@ -17,8 +21,9 @@ public struct SettingsFile: Sendable {
             .appending(path: "settings.json", directoryHint: .notDirectory)
     }
 
-    public init(url: URL = SettingsFile.defaultURL) {
+    public init(url: URL = SettingsFile.defaultURL, defaults: UserDefaults = .standard) {
         self.url = url
+        self.defaults = defaults
     }
 
     /// Where an unreadable file goes.
@@ -32,13 +37,18 @@ public struct SettingsFile: Sendable {
         do {
             data = try Data(contentsOf: url)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            defaults.set(true, forKey: Self.migratedKey)
             return AppSettings()
         } catch {
             setAside()
             return AppSettings()
         }
         do {
-            return try JSONDecoder().decode(AppSettings.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.userInfo[WordRules.migratesLearningKey] = !defaults.bool(forKey: Self.migratedKey)
+            let settings = try decoder.decode(AppSettings.self, from: data)
+            defaults.set(true, forKey: Self.migratedKey)
+            return settings
         } catch {
             setAside()
             return AppSettings()

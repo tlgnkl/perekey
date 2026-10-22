@@ -133,10 +133,24 @@ import Testing
         #expect(legacy.words.learned.map(\.word) == ["ghbdtn", "jrtq"], "a word learned for an app: everywhere")
         let resaved = try Self.encode(legacy)
         #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true))
-        // Forward again: no `learning` key, so a word learned from one undo is a candidate again.
+        // Forward again: no `learning` key. The first forward trip migrates a word learned from one undo ...
         let back = try JSONDecoder().decode(AppSettings.self, from: resaved)
         #expect(back.words.learned == Self.filled.words.learned)
         #expect(back.words.candidates.map(\.word) == ["jrtq"])
+    }
+
+    @Test func roundTripThrough0_1_1KeepsWordsLearnedByEvidence() throws {
+        var settings = Self.filled
+        // One button undo at threshold 1: learned by evidence, undoCount 1.
+        settings.words.learned.append(LearnedWord(word: "jrtq", learnedAt: 1_790_000_100, undoCount: 1))
+        let legacy = try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: Self.encode(settings))
+        let resaved = try Self.encode(legacy)
+        // ... and the migration mark outside the file turns it off (`SettingsFile`).
+        let decoder = JSONDecoder()
+        decoder.userInfo[WordRules.migratesLearningKey] = false
+        let back = try decoder.decode(AppSettings.self, from: resaved)
+        #expect(back.words.learned.map(\.word) == ["ghbdtn", "jrtq"])
+        #expect(back.words.candidates.isEmpty)
     }
 
     @Test func dictationWritesNothingNewToSettings() throws {

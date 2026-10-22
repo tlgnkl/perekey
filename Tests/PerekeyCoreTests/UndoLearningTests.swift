@@ -248,8 +248,9 @@ import Testing
         let json = #"{"words":{"learned":[{"word":"jrtq","learnedAt":5},{"word":"ghbdtn","learnedAt":6,"undoCount":2}]}}"#
         let words = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8)).words
         #expect(words.learned == [LearnedWord(word: "ghbdtn", learnedAt: 6, undoCount: 2)])
-        #expect(words.candidates == [LearningCandidate(word: "jrtq", app: nil, evidence: 1, threshold: 2,
-                                                       undoCount: 1, firstUndoneAt: 5, lastCountedDay: 0)])
+        let migrated = try #require(words.candidates.first)
+        #expect(words.candidates.count == 1 && migrated.word == "jrtq" && migrated.app == nil && migrated.evidence == 1)
+        #expect(migrated.firstUndoneAt == 5 && migrated.lastCountedAt > Self.day, "counted from the migration")
         // Saved again, nothing migrates twice: a word learned after one undo stays learned.
         var learnedOnce = words
         learnedOnce.learned.append(LearnedWord(word: "ytn", learnedAt: 7, app: Self.textEdit))

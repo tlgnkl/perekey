@@ -28,6 +28,15 @@ differently, what was fixed.
 
 ### Fixed
 
+- **One Backspace no longer stops a word from being fixed for good.** A
+  Backspace meant for the space after a fixed word ("jrtq " came out "окей ",
+  and you wanted a comma) used to put the word on "Learned" everywhere, and
+  Perekey never fixed it again. Now an undo counts only when you go on typing
+  with the word as you typed it; Undo in the hint counts more. When a word is
+  undone often enough, Perekey asks whether to leave it alone in this app,
+  everywhere, or not at all. Retyping a learned word by hand makes Perekey fix
+  it again. Words learned from a single undo go back to being fixed until you
+  undo them again.
 - **Missing access is no longer silent.** Without Accessibility access, for
   example after a reinstall, the setup window comes to the front, opening
   Perekey again opens its access step, Settings shows a banner, and the menu

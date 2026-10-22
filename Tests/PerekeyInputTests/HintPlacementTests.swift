@@ -74,4 +74,72 @@ import Testing
         let other = HintPlacement.bottomCenterOrigin(size: size, visible: second)
         #expect(other.x == 1700 && other.y == -152)
     }
+
+    // MARK: - Caret against the field
+
+    private func overlaps(_ origin: CGPoint, _ rect: CGRect) -> Bool {
+        CGRect(origin: origin, size: size).intersects(rect)
+    }
+
+    @Test func caretInsideTheFieldChangesNothing() {
+        let caret = CGRect(x: 300, y: 400, width: 0, height: 16)
+        let field = CGRect(x: 100, y: 390, width: 600, height: 40)
+        let placement = HintPlacement.place(size: size, anchor: CaretAnchor(caret: caret, field: field), visible: visible)
+        #expect(placement.origin == HintPlacement.origin(size: size, caret: caret, visible: visible))
+        #expect(placement.rule == .caret)
+    }
+
+    @Test func caretShiftedAboveTheFieldAnchorsToTheField() {
+        // The app reports the caret a line too high.
+        let field = CGRect(x: 100, y: 120, width: 600, height: 40)
+        let caret = CGRect(x: 300, y: 170, width: 0, height: 16)
+        let placement = HintPlacement.place(size: size, anchor: CaretAnchor(caret: caret, field: field), visible: visible)
+        #expect(placement.rule == .field)
+        #expect(placement.origin.y == field.minY - HintPlacement.gap - size.height)
+        #expect(!overlaps(placement.origin, field))
+        #expect(placement.origin.x == 290)
+    }
+
+    @Test func fieldAtTheBottomPutsTheHintAbove() {
+        let field = CGRect(x: 100, y: 10, width: 600, height: 40)
+        let caret = CGRect(x: 300, y: 60, width: 0, height: 16)
+        let placement = HintPlacement.place(size: size, anchor: CaretAnchor(caret: caret, field: field), visible: visible)
+        #expect(placement.rule == .flipped)
+        #expect(placement.origin.y == field.maxY + HintPlacement.gap)
+        #expect(!overlaps(placement.origin, field))
+    }
+
+    @Test func caretOutsideTheFieldSpanTakesTheFieldEdge() {
+        let field = CGRect(x: 100, y: 400, width: 200, height: 40)
+        let caret = CGRect(x: 900, y: 600, width: 0, height: 16)
+        let placement = HintPlacement.place(size: size, anchor: CaretAnchor(caret: caret, field: field), visible: visible)
+        #expect(placement.origin.x == field.minX)
+    }
+
+    @Test func caretWithinTheToleranceIsTrusted() {
+        let field = CGRect(x: 100, y: 400, width: 600, height: 40)
+        let caret = CGRect(x: 300, y: 399, width: 0, height: 16)
+        let placement = HintPlacement.place(size: size, anchor: CaretAnchor(caret: caret, field: field), visible: visible)
+        #expect(placement.rule == .caret)
+    }
+
+    @Test func caretBelowTheVisibleFrameNeverEndsOnItsLine() {
+        // Case B: the caret is under the visible frame; the clamp used to push the hint onto it.
+        let visible = CGRect(x: 0, y: 100, width: 1000, height: 700)
+        let caret = CGRect(x: 300, y: 90, width: 0, height: 16)
+        let placement = HintPlacement.place(size: size, anchor: CaretAnchor(caret: caret, field: nil), visible: visible)
+        #expect(!overlaps(placement.origin, caret))
+        #expect(placement.rule == .flipped)
+    }
+
+    @Test func tightSpaceGoesPastTheMarginNotOverTheLine() {
+        // Above the line the hint fits the frame but not the margin; below it nothing fits.
+        let visible = CGRect(x: 0, y: 0, width: 1000, height: 80)
+        let caret = CGRect(x: 300, y: 8, width: 0, height: 20)
+        let small = CGSize(width: 200, height: 40)
+        let placement = HintPlacement.place(size: small, anchor: CaretAnchor(caret: caret, field: nil), visible: visible)
+        #expect(!CGRect(origin: placement.origin, size: small).intersects(caret))
+        #expect(placement.rule == .fallback)
+        #expect(placement.origin.y == caret.maxY + HintPlacement.gap)
+    }
 }

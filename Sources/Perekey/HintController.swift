@@ -93,10 +93,10 @@ final class HintController {
         generation += 1
         let mine = generation
         currentAction = action
-        locator.caretRect { [weak self] rect in
+        locator.anchor { [weak self] anchor in
             Task { @MainActor in
                 guard let self, self.generation == mine else { return }
-                self.place(content, caret: rect, expanded: false)
+                self.place(content, anchor: anchor, expanded: false)
             }
         }
     }
@@ -106,16 +106,16 @@ final class HintController {
     private func explain() {
         guard model.visible, !model.expanded, case let .retyped(_, _, _, why, _) = model.content, why != nil else { return }
         lifetime.hold(for: Self.explanationSeconds, at: Self.now)
-        place(model.content, caret: lastCaret, expanded: true)
+        place(model.content, anchor: lastCaret, expanded: true)
     }
 
-    private func place(_ content: HintContent, caret: CGRect?, expanded: Bool) {
+    private func place(_ content: HintContent, anchor: CaretAnchor?, expanded: Bool) {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         let wasVisible = panel.isVisible && model.visible
         // The same hint, grown: no new strip, no new clock.
         let opens = expanded && wasVisible
-        lastCaret = caret
+        lastCaret = anchor
         buttonActive = true
 
         // The size the new content needs, from a copy laid out off screen.
@@ -124,8 +124,11 @@ final class HintController {
         let size = NSHostingView(rootView: HintBubbleContent(model: measured, action: {})).fittingSize
 
         let target: CGPoint
-        if let caret, let screen = screen(containing: CGPoint(x: caret.midX, y: caret.midY)) {
-            target = HintPlacement.origin(size: size, caret: caret, visible: screen.visibleFrame)
+        if let anchor, let screen = screen(containing: CGPoint(x: anchor.caret.midX, y: anchor.caret.midY)) {
+            let placement = HintPlacement.place(size: size, anchor: anchor, visible: screen.visibleFrame)
+            HintPlacement.log(bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                              anchor: anchor, visible: screen.visibleFrame, placement: placement)
+            target = placement.origin
         } else {
             let screen = screen(containing: NSEvent.mouseLocation) ?? NSScreen.main ?? NSScreen.screens.first
             guard let screen else { return }
@@ -191,7 +194,7 @@ final class HintController {
     }
 
     private var remainingGlide = 0
-    private var lastCaret: CGRect?
+    private var lastCaret: CaretAnchor?
     private var alwaysFixAction: (() -> Void)?
     /// The hint is showing and its buttons take clicks.
     private var buttonActive = false

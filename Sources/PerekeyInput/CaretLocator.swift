@@ -4,6 +4,19 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
+/// The caret and the frame of the focused element, both in AppKit screen
+/// coordinates. The field frame lets the placement tell a caret an app reports
+/// wrongly from a good one.
+public struct CaretAnchor: Equatable, Sendable {
+    public var caret: CGRect
+    public var field: CGRect?
+
+    public init(caret: CGRect, field: CGRect?) {
+        self.caret = caret
+        self.field = field
+    }
+}
+
 /// Finds the caret of the focused element on screen, for the hint.
 ///
 /// Runs on a thread of its own with the same AX timeout as `TextProbe`: an
@@ -22,6 +35,13 @@ public final class CaretLocator: Sendable {
     /// or nil without the permission, a focused element, or an answer.
     public func caretRect(_ completion: @escaping @Sendable (CGRect?) -> Void) {
         thread.perform {
+            completion(Self.locate()?.caret)
+        }
+    }
+
+    /// The caret and the field frame, or nil as `caretRect`.
+    public func anchor(_ completion: @escaping @Sendable (CaretAnchor?) -> Void) {
+        thread.perform {
             completion(Self.locate())
         }
     }
@@ -32,7 +52,7 @@ public final class CaretLocator: Sendable {
         CGRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
     }
 
-    private static func locate() -> CGRect? {
+    private static func locate() -> CaretAnchor? {
         guard let element = TextProbe.focusedElement() else { return nil }
         var rangeValue: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue)
@@ -59,9 +79,13 @@ public final class CaretLocator: Sendable {
         }
         // A text element that answers no bounds: its own frame, when it is
         // one line high.
-        guard let caret = rangeCaret ?? frame(of: element).flatMap(Self.caret(fromLineFrame:)) else { return nil }
+        let field = frame(of: element)
+        guard let caret = rangeCaret ?? field.flatMap(Self.caret(fromLineFrame:)) else { return nil }
         let primaryHeight = CGDisplayBounds(CGMainDisplayID()).height
-        return appKitRect(fromAX: caret, primaryHeight: primaryHeight)
+        return CaretAnchor(
+            caret: appKitRect(fromAX: caret, primaryHeight: primaryHeight),
+            field: field.map { appKitRect(fromAX: $0, primaryHeight: primaryHeight) }
+        )
     }
 
     /// Tallest frame still read as one line of text.

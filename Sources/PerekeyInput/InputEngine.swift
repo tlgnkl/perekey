@@ -25,8 +25,9 @@ public enum EngineMessage: Sendable {
     /// it replaced and `text` the new one, for the hint. `origin` says who
     /// asked: an automatic switch has its own hint (`corrected`), a manual
     /// retype names the shortcut that ran. `decision` is what automatic
-    /// switching made of the word, for «why?». Never stored or logged.
-    case retyped(original: String, text: String, origin: Retype.Origin, decision: Classifier.Decision?)
+    /// switching made of the word, for «why?». `app` is the bundle ID of the
+    /// focus it was typed in, as the machine knows it. Never stored or logged.
+    case retyped(original: String, text: String, origin: Retype.Origin, decision: Classifier.Decision?, app: String?)
     /// An automatic switch was posted (`Effect.corrected`): show the hint.
     case corrected(Correction)
     /// The correction with this `seq` was undone: hide its hint.
@@ -507,7 +508,7 @@ public final class InputEngine: @unchecked Sendable {
 
     private func toMainRetyped(_ retype: Retype) {
         toMain(.retyped(original: retype.expected, text: retype.text, origin: retype.origin,
-                        decision: retype.decision))
+                        decision: retype.decision, app: machine.focusApp))
     }
 
     private func replacedViaAccessibility(_ retype: Retype, done: Bool) {

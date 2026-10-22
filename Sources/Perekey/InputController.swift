@@ -322,12 +322,12 @@ final class InputController {
             // the tap never sends this.
             _ = signal
             #endif
-        case let .retyped(original, text, origin, decision):
+        case let .retyped(original, text, origin, decision, app):
             SystemSounds.play(store.settings.correctionSound)
             // An automatic switch has its own hint, from `corrected`; an undo hides it.
             if manualAction(of: origin) != nil, !isDemo(original, text) {
                 onManualRetype?()
-                if manualAction(of: origin)?.action == .convertLastWord { unlearn(original, text) }
+                if manualAction(of: origin)?.action == .convertLastWord { unlearn(original, text, app: app) }
             }
             if let manual = manualAction(of: origin), store.settings.caretHint.shows(automatic: false),
                original != text
@@ -436,10 +436,9 @@ final class InputController {
 
     /// A retype by hand of a learned word into the other layout: the
     /// correction was right after all, so the word is forgotten where it was
-    /// learned for this app.
-    private func unlearn(_ original: String, _ text: String) {
+    /// learned for this app. `app` is the focus the machine saw, as for the undos.
+    private func unlearn(_ original: String, _ text: String, app: String?) {
         guard !isDemo(original, text) else { return }
-        let app = appModes.frontmost?.bundleID
         var unlearned: Unlearned?
         store.update { unlearned = $0.words.unlearn(typed: original, retyped: text, app: app) }
         guard let unlearned else { return }

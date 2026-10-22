@@ -193,6 +193,16 @@ import Testing
         #expect(next.outcome == .counted && next.evidence == 1)
     }
 
+    @Test func answeringTwiceKeepsOneEntry() throws {
+        var words = WordRules()
+        let first = try #require(Self.count(Self.report(), in: &words).question)
+        let second = try #require(Self.count(Self.report(), in: &words, at: Self.day + 1).question)
+        words.answer(first, .here, at: Self.day + 2)
+        words.answer(second, .here, at: Self.day + 3)
+        #expect(words.learned.count == 1)
+        #expect(words.learned.first?.undoCount == 2)
+    }
+
     @Test func unknownAppLearnsEverywhere() throws {
         var words = WordRules()
         let question = try #require(Self.count(Self.report(app: nil), in: &words).question)
@@ -332,6 +342,24 @@ import Testing
         desk.press(KeyCode.delete)
         #expect(desk.undoReports.map(\.followUp) == [.edited])
         #expect(desk.learned.isEmpty)
+    }
+
+    @Test func returnAfterTheWordCounts() {
+        var desk = Desk()
+        desk.type("[jhjij ")
+        desk.press(KeyCode.delete)
+        desk.press(KeyCode.delete)
+        desk.press(KeyCode.return)
+        #expect(desk.undoReports.map(\.followUp) == [.continued])
+    }
+
+    @Test func optionBackspaceDeletesTheWordAndCountsNothing() {
+        var desk = Desk()
+        desk.type("[jhjij ")
+        desk.press(KeyCode.delete)
+        desk.press(KeyCode.delete, flags: Keyboard.leftOption)
+        desk.type(" ")
+        #expect(desk.undoReports.map(\.followUp) == [.edited])
     }
 
     @Test func lettersOntoTheWordCountNothing() {

@@ -151,17 +151,16 @@ struct UndoWatch: Sendable {
     /// Returns the report once settled; nil while it still waits.
     mutating func keyDown(_ key: KeyEvent, held: UInt8, in map: LayoutMap?) -> UndoReport? {
         let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
-        if held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit) != 0
-            || KeyCode.navigation.contains(key.keyCode)
-        {
-            return settle(.unknown)
-        }
+        let shortcut = held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit) != 0
+        // Return and Tab are navigation keys too, but they end the line after the word kept as typed.
+        if !shortcut, key.keyCode == KeyCode.space || WordJudge.endsLine(key) { return settle(.continued) }
+        if shortcut || KeyCode.navigation.contains(key.keyCode) { return settle(.unknown) }
         if key.keyCode == KeyCode.delete {
-            guard boundaryLeft else { return settle(.edited) }
+            // ⌥⌫ deletes a whole word, not the space.
+            guard boundaryLeft, held & ModifierKind.option.maskBit == 0 else { return settle(.edited) }
             boundaryLeft = false
             return nil
         }
-        if key.keyCode == KeyCode.space || WordJudge.endsLine(key) { return settle(.continued) }
         guard let map else { return settle(.unknown) }
         if WordJudge.isPunctuation(stroke, in: map) { return settle(.punctuation) }
         // A letter: the next word after the space, or more of this one without it.

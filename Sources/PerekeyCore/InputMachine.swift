@@ -61,6 +61,9 @@ public struct InputMachine: Sendable {
         self.layouts.typoLanguages = judge.typoLanguages
     }
 
+    /// The bundle ID of the focus, as the undos and the per-app exceptions see it.
+    public var focusApp: String? { focus?.bundleID }
+
     /// Whether user input is being held back right now.
     public var isHolding: Bool { fence.isHolding }
 
@@ -361,6 +364,8 @@ public struct InputMachine: Sendable {
     /// Ends the wait of a Backspace undo, if one waits: what came next says
     /// nothing for the word, or that the correction was right.
     private mutating func settleUndo(_ followUp: UndoFollowUp, effects: inout [Effect]) {
+        // An undo inside the word the caret left, or the user retyped, reports nothing.
+        openUndo = nil
         guard let watch = undoWatch else { return }
         undoWatch = nil
         effects.append(.undoSettled(watch.settle(followUp)))

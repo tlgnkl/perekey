@@ -401,8 +401,12 @@ public struct WordRules: Hashable, Sendable {
                                 lastUndoneAt: seconds)
         } else {
             candidates.removeAll { $0.word == word && $0.covers(question.app) }
-            entry = LearnedWord(word: word, learnedAt: firstUndo, undoCount: max(1, undos), lastUndoneAt: seconds,
-                                app: question.app)
+            // Asked twice and answered twice: one entry still.
+            let before = learned.filter { $0.word == word && $0.app == question.app }
+            learned.removeAll { $0.word == word && $0.app == question.app }
+            entry = LearnedWord(word: word, learnedAt: before.map(\.learnedAt).min() ?? firstUndo,
+                                undoCount: max(1, undos + before.reduce(0) { $0 + $1.undoCount }),
+                                lastUndoneAt: seconds, app: question.app)
         }
         learned.append(entry)
         return entry

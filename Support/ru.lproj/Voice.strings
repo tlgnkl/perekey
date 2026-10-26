@@ -491,4 +491,5 @@
 "Voice input is not available on this Mac, or your administrator turned it off." = "Голосовой ввод недоступен на этом Mac или выключен администратором.";
 "Voice input did not start in time. Try again in a moment." = "Голосовой ввод не успел запуститься. Попробуйте ещё раз через минуту.";
 "Open Settings → Voice" = "Открыть Настройки → Голос";
-"Transcribe File… is unavailable: voice input is off." = "«Расшифровать файл…» недоступна: голосовой ввод выключен.";
+"Transcribing files needs voice input to be on and running." = "Расшифровка файлов работает, когда голосовой ввод включён и запущен.";
+"Voice input has no shortcut. Set one in Settings → Voice to transcribe files." = "У голосового ввода нет клавиши. Задайте её в Настройках → Голос, чтобы расшифровывать файлы.";

@@ -4,17 +4,52 @@ import AppKit
 import PerekeyCore
 
 /// An alert for what Finder's «Open With» could not do: a refusal says why, and
-/// offers Settings → Voice when turning voice on would help.
+/// offers Settings → Voice when a change there would help. It never shows during
+/// launch (`runModal` would hold `applicationDidFinishLaunching`) and never over
+/// onboarding or the voice intro: then it is skipped, since both lead to voice setup.
+/// One alert at a time: events that come while it is open are dropped.
 @MainActor
 enum OpenAlert {
+    private struct Request {
+        var title: String
+        var reason: String
+        var openSettings: (() -> Void)?
+        var settingsTitle: String
+    }
+
+    static var onScreen: () -> Bool = { false }
+    private static var hasLaunched = false
+    private static var waiting: Request?
+    private static var isShowing = false
+
     static func show(title: String, reason: String, openSettings: (() -> Void)?, settingsTitle: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = reason
-        alert.addButton(withTitle: openSettings == nil ? String(localized: "OK") : settingsTitle)
-        if openSettings != nil { alert.addButton(withTitle: String(localized: "Cancel")) }
-        NSApp.activate()
-        if alert.runModal() == .alertFirstButtonReturn { openSettings?() }
+        guard !isShowing else { return }
+        waiting = Request(title: title, reason: reason, openSettings: openSettings, settingsTitle: settingsTitle)
+        if hasLaunched { schedule() }
+    }
+
+    /// Called at the end of `applicationDidFinishLaunching`.
+    static func launched() {
+        hasLaunched = true
+        if waiting != nil { schedule() }
+    }
+
+    private static func schedule() {
+        // Next turn of the run loop: the launch, and the windows it opens, are done.
+        Task { @MainActor in
+            guard let request = waiting, !isShowing else { return }
+            waiting = nil
+            guard !onScreen() else { return }
+            isShowing = true
+            defer { isShowing = false }
+            let alert = NSAlert()
+            alert.messageText = request.title
+            alert.informativeText = request.reason
+            alert.addButton(withTitle: request.openSettings == nil ? String(localized: "OK") : request.settingsTitle)
+            if request.openSettings != nil { alert.addButton(withTitle: String(localized: "Cancel")) }
+            NSApp.activate()
+            if alert.runModal() == .alertFirstButtonReturn { request.openSettings?() }
+        }
     }
 }
 
@@ -37,8 +72,10 @@ final class OpenedFiles {
     }
 
     func open(_ urls: [URL]) {
-        pending += urls.filter(FileTranscription.accepts)
-        if pending.isEmpty { return refuse(.notMedia) }
+        let media = urls.filter(FileTranscription.accepts)
+        // A file that is no media is refused even while others wait.
+        if media.isEmpty { return refuse(.notMedia) }
+        pending += media
         resolve()
     }
 
@@ -78,6 +115,7 @@ final class OpenedFiles {
         let text: String
         switch reason {
         case .notMedia: text = voiceString("Perekey transcribes audio and video files. This one is neither.")
+        case .noShortcut: text = voiceString("Voice input has no shortcut. Set one in Settings → Voice to transcribe files.")
         case .voiceOff: text = voiceString("Voice input is off. Turn it on in Settings → Voice to transcribe files.")
         case .voiceUnavailable: text = voiceString("Voice input is not available on this Mac, or your administrator turned it off.")
         case .notReady: text = voiceString("Voice input did not start in time. Try again in a moment.")

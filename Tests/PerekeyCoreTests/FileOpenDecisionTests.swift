@@ -25,6 +25,11 @@ import Testing
         #expect(FileOpenDecision.Refusal.voiceOff.settingsCanHelp)
     }
 
+    @Test func voiceWithoutAShortcutRefusesAtOnceAndSettingsCanHelp() {
+        #expect(decide(.noShortcut, ready: false) == .refuse(.noShortcut))
+        #expect(FileOpenDecision.Refusal.noShortcut.settingsCanHelp)
+    }
+
     @Test func unavailableVoiceRefusesAndSettingsCannotHelp() {
         #expect(decide(.unavailable, ready: false) == .refuse(.voiceUnavailable))
         #expect(!FileOpenDecision.Refusal.voiceUnavailable.settingsCanHelp)

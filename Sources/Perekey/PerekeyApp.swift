@@ -171,11 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voice.openVoiceSettings = { settings.show(section: .voice, scrollTarget: "models") }
         let openedFiles = OpenedFiles(
             files: voice.files,
-            availability: { [voiceModels] in
-                let voiceSettings = voiceModels.settings
-                if !voiceModels.isSupported || voiceSettings.managed.voiceDisabled || voiceSettings.isLocked { return .unavailable }
-                return voiceSettings.settings.isEnabled ? .on : .off
-            },
+            availability: { [voice] in voice.availability },
             openVoiceSettings: { settings.show(section: .voice) })
         self.openedFiles = openedFiles
         // The queue appears after launch, and goes when voice turns off.
@@ -217,6 +213,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        OpenAlert.onScreen = { [onboarding] in
+            #if PEREKEY_VOICE
+            onboarding.isOnScreen || self.voiceIntro.isOnScreen
+            #else
+            onboarding.isOnScreen
+            #endif
+        }
         #if PEREKEY_VOICE
         voiceModels.start()
         #endif
@@ -230,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A call a crash cut off is offered for transcription; old audio goes.
         callRecording.launched()
         #endif
+        OpenAlert.launched()
     }
 
     /// Opening Perekey again (Finder, Spotlight, Launchpad) opens Settings. It is

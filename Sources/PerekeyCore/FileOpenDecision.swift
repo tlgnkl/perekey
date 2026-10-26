@@ -7,6 +7,8 @@ public enum VoiceAvailability: Equatable, Sendable {
     case on
     /// The user's switch is off: Settings → Voice turns it on.
     case off
+    /// Switched on, but dictation has no shortcut, so the queue does not run: Settings → Voice sets one.
+    case noShortcut
     /// This Mac, a profile or a newer settings file rules voice out: no switch helps.
     case unavailable
 }
@@ -22,12 +24,13 @@ public enum FileOpenDecision: Equatable, Sendable {
     public enum Refusal: Equatable, Sendable {
         case notMedia
         case voiceOff
+        case noShortcut
         case voiceUnavailable
         /// Voice is on, but the queue did not come up in time.
         case notReady
 
-        /// Whether turning voice on in Settings can change the outcome.
-        public var settingsCanHelp: Bool { self == .voiceOff }
+        /// Whether a change in Settings → Voice can change the outcome.
+        public var settingsCanHelp: Bool { self == .voiceOff || self == .noShortcut }
     }
 
     /// How long a file waits for the queue.
@@ -37,6 +40,7 @@ public enum FileOpenDecision: Equatable, Sendable {
         guard hasMedia else { return .refuse(.notMedia) }
         switch voice {
         case .off: return .refuse(.voiceOff)
+        case .noShortcut: return .refuse(.noShortcut)
         case .unavailable: return .refuse(.voiceUnavailable)
         case .on: break
         }

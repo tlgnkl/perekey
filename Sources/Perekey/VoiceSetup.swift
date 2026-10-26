@@ -72,7 +72,15 @@ final class VoiceSetup {
 
     private var settings: VoiceSettings { models.settings.settings }
 
-    private var isOn: Bool { models.settings.isOn && models.isSupported && settings.activeTrigger != nil }
+    /// Why voice runs or not: the one place that says it. The queue and dictation exist exactly when `.on`.
+    var availability: VoiceAvailability {
+        let voice = models.settings
+        if !models.isSupported || voice.managed.voiceDisabled || voice.isLocked { return .unavailable }
+        if !voice.settings.isEnabled { return .off }
+        return settings.activeTrigger == nil ? .noShortcut : .on
+    }
+
+    private var isOn: Bool { availability == .on }
 
     private func apply() {
         // The tap's snapshot: the trigger, and the retype narrowed to the left ⌥.

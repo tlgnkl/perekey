@@ -262,6 +262,8 @@ final class VoiceIntroController: NSObject, NSWindowDelegate {
         self.makeModel = makeModel
     }
 
+    var isOnScreen: Bool { window?.isVisible == true }
+
     /// Shows the window when the person is offered voice and has not answered.
     func showIfNeeded() {
         guard window == nil, VoiceIntro.offer(situation()) == .window else { return }

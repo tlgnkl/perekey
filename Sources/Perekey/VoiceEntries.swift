@@ -45,7 +45,7 @@ struct VoiceEntryButtons: View {
                 }
                 styled(Button { entries.transcribeFile() } label: { voiceText("Transcribe File…") })
                     .disabled(controller.queue == nil)
-                    .help(controller.queue == nil ? voiceString("Transcribe File… is unavailable: voice input is off.") : "")
+                    .help(controller.queue == nil ? voiceString("Transcribing files needs voice input to be on and running.") : "")
             }
             .fixedSize(horizontal: !small, vertical: false)
         }

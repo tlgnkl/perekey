@@ -491,4 +491,5 @@
 "Voice input is not available on this Mac, or your administrator turned it off." = "Voice input is not available on this Mac, or your administrator turned it off.";
 "Voice input did not start in time. Try again in a moment." = "Voice input did not start in time. Try again in a moment.";
 "Open Settings → Voice" = "Open Settings → Voice";
-"Transcribe File… is unavailable: voice input is off." = "Transcribe File… is unavailable: voice input is off.";
+"Transcribing files needs voice input to be on and running." = "Transcribing files needs voice input to be on and running.";
+"Voice input has no shortcut. Set one in Settings → Voice to transcribe files." = "Voice input has no shortcut. Set one in Settings → Voice to transcribe files.";

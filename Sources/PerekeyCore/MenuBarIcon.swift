@@ -68,6 +68,12 @@ public enum MenuBarPolicy {
         style.showsLanguage && visibility == .always
     }
 
+    /// Whether to say where call recording and file transcription are with the item
+    /// not always on screen: voice is on and the item may be hidden.
+    public static func showsVoiceEntriesNote(voiceIsOn: Bool, visibility: MenuBarVisibility) -> Bool {
+        voiceIsOn && visibility != .always
+    }
+
     /// The note to show, given whether the system's input menu is visible
     /// (`nil`: unknown, then no note).
     public static func notice(style: MenuBarIconStyle, visibility: MenuBarVisibility,

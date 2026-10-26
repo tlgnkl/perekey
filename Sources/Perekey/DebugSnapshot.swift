@@ -70,6 +70,7 @@ enum DebugSnapshot {
             ("twice", AppSettings(), true),
             ("not-shown", { var s = AppSettings(); s.menuBarIcon = .mark; return s }(), false),
             ("never", { var s = AppSettings(); s.menuBarVisibility = .never; return s }(), true),
+            ("never-voice", { var s = AppSettings(); s.menuBarVisibility = .never; return s }(), true),
         ]
         for item in cases {
             let file = SettingsFile(url: directory.appending(path: "menubar-\(item.name).json"))
@@ -77,7 +78,8 @@ enum DebugSnapshot {
             let store = SettingsStore(file: file)
             let size = CGSize(width: 560, height: 360)
             for dark in [false, true] {
-                render(MenuBarGroup(store: store, sources: sources, systemMenu: SystemInputMenu(preview: item.systemMenu))
+                render(MenuBarGroup(store: store, sources: sources, systemMenu: SystemInputMenu(preview: item.systemMenu),
+                                 voiceIsOn: item.name.hasSuffix("voice"))
                     .padding(20).frame(width: size.width, height: size.height, alignment: .top), dark: dark, size: size,
                        to: directory.appending(path: "menubar-settings-\(item.name)-\(dark ? "dark" : "light").png"))
             }
@@ -1003,6 +1005,12 @@ extension DebugSnapshot {
                                   failed: failed, interrupted: interrupted, expired: expired)
     }
 
+    /// The commands the menu also has, for the window and the Recordings group: they do nothing here.
+    private static func previewEntries(_ controller: TranscriptsController) -> VoiceEntries {
+        VoiceEntries(call: CallRecordingController(capture: AudioCapture(), settings: controller.voice, isSupported: { true }),
+                     chooseFiles: {}, openTranscripts: {})
+    }
+
     /// The «Расшифровки» window with a recording of each kind chosen, and the Recordings group of the Voice tab.
     static func renderTranscripts(in directory: URL) {
         let size = CGSize(width: 920, height: 620)
@@ -1012,6 +1020,7 @@ extension DebugSnapshot {
             for dark in [false, true] {
                 let fixture = transcriptsPreview(in: directory, name: "t-\(name)", empty: empty)
                 fixture.controller.reload()
+                fixture.controller.entries = previewEntries(fixture.controller)
                 fixture.controller.selection = pick(fixture)
                 fixture.controller.query = query
                 fixture.controller.pane = pane
@@ -1037,11 +1046,12 @@ extension DebugSnapshot {
             for item in cases {
                 let fixture = transcriptsPreview(in: directory, name: "g-\(item.name)", managed: item.managed)
                 fixture.controller.reload()
+                fixture.controller.entries = previewEntries(fixture.controller)
                 let view = VStack(alignment: .leading, spacing: 16) { RecordingsGroup(controller: fixture.controller) }
                     .padding(24)
-                    .frame(width: 620, height: 420, alignment: .top)
+                    .frame(width: 620, height: 520, alignment: .top)
                     .background(Color(nsColor: .windowBackgroundColor))
-                render(view, dark: dark, size: CGSize(width: 620, height: 420),
+                render(view, dark: dark, size: CGSize(width: 620, height: 520),
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
         }

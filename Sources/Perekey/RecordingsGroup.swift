@@ -28,6 +28,17 @@ struct RecordingsGroup: View {
                 }
             }
             PKDivider()
+            PKRow(voiceText("Record and transcribe"), detail: voiceText("The same as in the menu bar item, for when it is hidden.")) {
+                VoiceEntryButtons(controller: controller)
+            }
+            if let entries = controller.entries {
+                PKDivider()
+                PKRow(voiceText("Transcripts")) {
+                    Button { entries.openTranscripts() } label: { voiceText("Open Transcripts") }
+                        .buttonStyle(.pkSecondary)
+                }
+            }
+            PKDivider()
             PKRow(voiceText("Keep the audio of calls"), detail: retentionDetail) {
                 Picker(selection: Binding(get: { controller.callAudioRetention },
                                           set: { controller.setCallAudioRetention($0) })) {

@@ -15,6 +15,7 @@ struct GeneralPane: View {
     /// For the menu bar previews: the layout code and the system's icon.
     var sources: InputSources?
     var systemMenu: SystemInputMenu = .shared
+    var voiceIsOn = false
 
     var body: some View {
         PKPane(title: Text("General")) {
@@ -23,7 +24,7 @@ struct GeneralPane: View {
             }
             correctionsSection
             hintSection
-            MenuBarGroup(store: store, sources: sources, systemMenu: systemMenu)
+            MenuBarGroup(store: store, sources: sources, systemMenu: systemMenu, voiceIsOn: voiceIsOn)
             soundsSection
             updatesSection
         }

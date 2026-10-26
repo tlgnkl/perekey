@@ -57,6 +57,8 @@ final class TranscriptsController {
     private(set) var staleNotes: Set<TranscriptAction> = []
     var pane: Pane = .transcript
     var isDropTargeted = false
+    /// The commands the menu also has; set by whoever owns the call recorder and the queue.
+    var entries: VoiceEntries?
     let player = TranscriptPlayer()
 
     var selection: UUID? {

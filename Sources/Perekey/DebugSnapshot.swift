@@ -204,6 +204,15 @@ enum DebugSnapshot {
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
             }
+            // The search: sections without a match dim, the others count their matches.
+            for (name, query) in [("match", "correct"), ("none", "qqzx")] {
+                let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
+                                      lastCheck: Date().addingTimeInterval(-3_600 * 5))
+                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
+                                        languages: languages, initial: .general, searchQuery: query)
+                render(view, dark: dark, size: CGSize(width: 840, height: 640),
+                       to: directory.appending(path: "settings-search-\(name)-\(dark ? "dark" : "light").png"))
+            }
             // No access: the banner above the panes.
             let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
                                   lastCheck: Date().addingTimeInterval(-3_600 * 5))

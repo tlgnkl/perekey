@@ -387,3 +387,9 @@
 "The file was not transcribed" = "The file was not transcribed";
 "This build of Perekey has no voice input, so it cannot transcribe files." = "This build of Perekey has no voice input, so it cannot transcribe files.";
 "OK" = "OK";
+
+/* Settings search */
+"Search" = "Search";
+"Search settings" = "Search settings";
+"Nothing found" = "Nothing found";
+"No matches" = "No matches";

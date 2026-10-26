@@ -30,7 +30,7 @@ struct LanguagePairsGroup: View {
     var retypeKeys: String?
 
     var body: some View {
-        PKGroup(header: Text("Your languages")) {
+        PKGroup(header: Text("Your languages"), anchor: "general.languages") {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 if index > 0 { PKDivider() }
                 PairRow(pair: row.pair, automatic: row.automatic)

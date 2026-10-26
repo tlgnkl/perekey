@@ -387,3 +387,9 @@
 "The file was not transcribed" = "Файл не расшифрован";
 "This build of Perekey has no voice input, so it cannot transcribe files." = "В этой сборке Perekey нет голосового ввода, поэтому файлы она не расшифровывает.";
 "OK" = "OK";
+
+/* Settings search */
+"Search" = "Поиск";
+"Search settings" = "Поиск по настройкам";
+"Nothing found" = "Ничего не найдено";
+"No matches" = "Нет совпадений";

@@ -16,7 +16,7 @@ struct RecordingsGroup: View {
     private var voice: VoiceSettingsStore { controller.voice }
 
     var body: some View {
-        PKGroup(header: voiceText("Recordings")) {
+        PKGroup(header: voiceText("Recordings"), anchor: "voice.recordings") {
             PKRow(voiceText("Recordings: \(controller.items.count)"),
                   detail: voiceText("Taking \(ModelSize.text(controller.diskUsage)) on disk")) {
                 HStack(spacing: 8) {
@@ -28,18 +28,19 @@ struct RecordingsGroup: View {
                 }
             }
             PKDivider()
-            PKRow(voiceText("Record and transcribe"), detail: voiceText("The same as in the menu bar item, for when it is hidden.")) {
+            PKRow(voiceText("Record and transcribe"), detail: voiceText("The same as in the menu bar item, for when it is hidden."),
+                  anchor: "voice.record-transcribe") {
                 VoiceEntryButtons(controller: controller)
             }
             if let entries = controller.entries {
                 PKDivider()
-                PKRow(voiceText("Transcripts")) {
+                PKRow(voiceText("Transcripts"), anchor: "voice.transcripts") {
                     Button { entries.openTranscripts() } label: { voiceText("Open Transcripts") }
                         .buttonStyle(.pkSecondary)
                 }
             }
             PKDivider()
-            PKRow(voiceText("Keep the audio of calls"), detail: retentionDetail) {
+            PKRow(voiceText("Keep the audio of calls"), detail: retentionDetail, anchor: "voice.call-audio") {
                 Picker(selection: Binding(get: { controller.callAudioRetention },
                                           set: { controller.setCallAudioRetention($0) })) {
                     ForEach(CallAudioRetention.allCases, id: \.self) { term in
@@ -53,7 +54,7 @@ struct RecordingsGroup: View {
                 .disabled(voice.managed.callAudioKeepDisabled)
             }
             PKDivider()
-            PKRow(voiceText("Include in Time Machine"), detail: backupDetail) {
+            PKRow(voiceText("Include in Time Machine"), detail: backupDetail, anchor: "voice.time-machine") {
                 Toggle(isOn: Binding(get: { controller.includesInBackup }, set: { controller.setIncludesInBackup($0) })) {
                     voiceText("Include in Time Machine")
                 }
@@ -101,7 +102,7 @@ private struct SummaryModelPicker: View {
         let set = modes.modes
         let options = set.summaryModelOptions
         let local = set.localLanguageModel
-        PKRow(voiceText("Model for summaries"), detail: detail(local: local)) {
+        PKRow(voiceText("Model for summaries"), detail: detail(local: local), anchor: "voice.summary-model") {
             Picker(selection: Binding(get: { set.summaryModel }, set: { choice in
                 modes.setSummaryModel(choice)
                 if modes.modes.summaryModel != choice { refusals.wrappedValue += 1 }

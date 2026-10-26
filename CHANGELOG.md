@@ -13,6 +13,14 @@ differently, what was fixed.
 
 ### Added
 
+- **Search in Settings.** A field above the sections: type a word and the
+  sections without it dim, and the others show how many rows match. Return
+  goes through the matches and opens each row with a highlight; clicking a
+  section shows its first match; Escape clears the field. It finds «ё» as
+  «е», ignores case, and from five letters it forgives an ending («пароль»
+  finds «паролей»). It searches the names of rows and groups in your language
+  and in English, not the apps, sites and words you added: those lists have
+  their own filters.
 - **Menu bar icon.** Settings → General → Menu bar: keep the capsule, or show
   the layout as plain letters, as the system's own icon, or as a single
   Perekey mark. The icon can show always, only when there is news (a pause,

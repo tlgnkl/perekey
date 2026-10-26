@@ -383,10 +383,11 @@ struct PKPane<Content: View>: View {
             scroll
                 .onAppear {
                     // The pane was opened at a place of it: after its first layout.
-                    if let found = search?.target {
-                        DispatchQueue.main.async { reveal(found.anchor, in: proxy, animated: false) }
-                    } else if let scrollTarget {
+                    // An explicit place wins over a search that has not been cleared.
+                    if let scrollTarget {
                         DispatchQueue.main.async { proxy.scrollTo(scrollTarget, anchor: .top) }
+                    } else if let found = search?.target {
+                        DispatchQueue.main.async { reveal(found.anchor, in: proxy, animated: false) }
                     }
                 }
                 // The search lands on another place of the open pane.
@@ -460,7 +461,7 @@ struct PKGroup<Content: View>: View {
                 .pkFlash(anchor)
                 .pkCard()
         }
-        .id(anchor)
+        .pkID(anchor)
     }
 }
 

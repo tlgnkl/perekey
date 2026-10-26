@@ -82,13 +82,13 @@ struct ShortcutsPane: View {
     /// The entry in the Settings search; the rows that select a language are not in it.
     private func anchor(of action: HotkeyAction) -> String? {
         switch action {
-        case .switchLayout: "shortcuts.switch-layout"
-        case .convertLastWord: "shortcuts.retype"
-        case .toggleAutoswitch: "shortcuts.autoswitch"
-        case .undoLastCorrection: "shortcuts.undo"
-        case .changeCase: "shortcuts.change-case"
-        case .transliterate: "shortcuts.transliterate"
-        case .pastePlain: "shortcuts.paste-plain"
+        case .switchLayout: "shortcuts.switch-layout" // search: title in TriggerText.swift
+        case .convertLastWord: "shortcuts.retype" // search: title in TriggerText.swift
+        case .toggleAutoswitch: "shortcuts.autoswitch" // search: title in TriggerText.swift
+        case .undoLastCorrection: "shortcuts.undo" // search: title in TriggerText.swift
+        case .changeCase: "shortcuts.change-case" // search: title in TriggerText.swift
+        case .transliterate: "shortcuts.transliterate" // search: title in TriggerText.swift
+        case .pastePlain: "shortcuts.paste-plain" // search: title in TriggerText.swift
         case .selectLanguage: nil
         }
     }

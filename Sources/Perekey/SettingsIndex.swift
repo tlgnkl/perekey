@@ -15,7 +15,8 @@ enum SettingsIndex {
         let localized = entry.voice
             ? String(localized: String.LocalizationValue(entry.key), table: "Voice")
             : String(localized: String.LocalizationValue(entry.key))
-        return SearchEntry(section: entry.section, anchor: entry.anchor, texts: [localized, entry.key])
+        return SearchEntry(section: entry.section, anchor: entry.anchor, texts: [localized, entry.key],
+                           requires: Set(entry.requires.map(\.rawValue)))
     })
 
     private struct Entry {
@@ -23,22 +24,26 @@ enum SettingsIndex {
         let key: String
         let anchor: String
         var voice = false
+        let requires: [SettingsFlag]
     }
 
-    private static func item(_ section: SettingsSection, _ key: String, _ anchor: String) -> Entry {
-        Entry(section: section, key: key, anchor: anchor)
+    /// `requires`: what the window must show for the row to be there (`SettingsFlag`).
+    private static func item(_ section: SettingsSection, _ key: String, _ anchor: String,
+                             _ requires: SettingsFlag...) -> Entry {
+        Entry(section: section, key: key, anchor: anchor, requires: requires)
     }
 
     /// A string of Voice.strings.
-    private static func voiceItem(_ section: SettingsSection, _ key: String, _ anchor: String) -> Entry {
-        Entry(section: section, key: key, anchor: anchor, voice: true)
+    private static func voiceItem(_ section: SettingsSection, _ key: String, _ anchor: String,
+                                  _ requires: SettingsFlag...) -> Entry {
+        Entry(section: section, key: key, anchor: anchor, voice: true, requires: requires)
     }
 
     /// In the order of the sidebar and of each pane.
     private static var entries: [Entry] {
         var list: [Entry] = [
             item(.general, "General", "title"),
-            item(.general, "Your languages", "general.languages"),
+            item(.general, "Your languages", "general.languages", .languageChoice),
             item(.general, "Corrections", "general.corrections"),
             item(.general, "Correct typos", "general.typos"),
             item(.general, "Double capitals", "general.double-capitals"),
@@ -73,30 +78,30 @@ enum SettingsIndex {
         ]
         #if PEREKEY_VOICE
         list += [
-            voiceItem(.voice, "Voice", "title"),
-            voiceItem(.voice, "Voice input", "voice.input"),
-            voiceItem(.voice, "Shortcut", "voice.shortcut"),
-            voiceItem(.voice, "Microphone", "voice.microphone"),
-            voiceItem(.voice, "Model", "voice.model"),
-            voiceItem(.voice, "Model for transcriptions", "voice.transcription-model"),
-            voiceItem(.voice, "Switch the layout to the language of the phrase", "voice.switch-layout"),
-            voiceItem(.voice, "Sounds", "voice.sounds"),
-            voiceItem(.voice, "Stop by itself after", "voice.auto-stop"),
-            voiceItem(.voice, "Unload the model after", "voice.unload"),
-            voiceItem(.voice, "Models", "voice.models"),
-            voiceItem(.voice, "Text", "voice.text"),
-            voiceItem(.voice, "Remove filler words", "voice.fillers"),
-            voiceItem(.voice, "History", "voice.history"),
-            voiceItem(.voice, "Keep dictations for", "voice.history-retention"),
-            voiceItem(.voice, "Keep the audio of dictations", "voice.history-audio"),
-            voiceItem(.voice, "Recordings", "voice.recordings"),
-            voiceItem(.voice, "Keep the audio of calls", "voice.call-audio"),
-            voiceItem(.voice, "Include in Time Machine", "voice.time-machine"),
-            voiceItem(.voice, "Model for summaries", "voice.summary-model"),
+            voiceItem(.voice, "Voice", "title", .voice),
+            voiceItem(.voice, "Voice input", "voice.input", .voiceSupported),
+            voiceItem(.voice, "Shortcut", "voice.shortcut", .voiceActive),
+            voiceItem(.voice, "Microphone", "voice.microphone", .voiceActive),
+            voiceItem(.voice, "Model", "voice.model", .voiceActive),
+            voiceItem(.voice, "Model for transcriptions", "voice.transcription-model", .voiceActive),
+            voiceItem(.voice, "Switch the layout to the language of the phrase", "voice.switch-layout", .voiceActive),
+            voiceItem(.voice, "Sounds", "voice.sounds", .voiceActive),
+            voiceItem(.voice, "Stop by itself after", "voice.auto-stop", .voiceActive),
+            voiceItem(.voice, "Unload the model after", "voice.unload", .voiceActive),
+            voiceItem(.voice, "Models", "voice.models", .voiceActive),
+            voiceItem(.voice, "Text", "voice.text", .voiceText),
+            voiceItem(.voice, "Remove filler words", "voice.fillers", .voiceText),
+            voiceItem(.voice, "History", "voice.history", .voiceText),
+            voiceItem(.voice, "Keep dictations for", "voice.history-retention", .voiceText),
+            voiceItem(.voice, "Keep the audio of dictations", "voice.history-audio", .voiceText),
+            voiceItem(.voice, "Recordings", "voice.recordings", .voiceRecordings),
+            voiceItem(.voice, "Keep the audio of calls", "voice.call-audio", .voiceRecordings),
+            voiceItem(.voice, "Include in Time Machine", "voice.time-machine", .voiceRecordings),
+            voiceItem(.voice, "Model for summaries", "voice.summary-model", .voiceSummaries),
 
-            voiceItem(.voiceModes, "Voice modes", "title"),
-            voiceItem(.voiceModes, "Where the LLM works", "modes.llm"),
-            voiceItem(.voiceModes, "Your address", "modes.address"),
+            voiceItem(.voiceModes, "Voice modes", "title", .voiceModes),
+            voiceItem(.voiceModes, "Where the LLM works", "modes.llm", .voiceModesSupported),
+            voiceItem(.voiceModes, "Your address", "modes.address", .voiceModesSupported),
         ]
         #endif
         list += [
@@ -116,10 +121,11 @@ enum SettingsIndex {
             item(.privacy, "Strings that look like passwords", "privacy.password-like"),
             item(.privacy, "Random letters, as in a captcha", "privacy.captcha"),
             item(.privacy, "Code in terminals and editors", "privacy.code"),
-            item(.privacy, "Statistics", "privacy.statistics"),
-            item(.privacy, "Count corrections", "privacy.count"),
-            item(.privacy, "Languages of apps", "privacy.languages"),
-            item(.privacy, "Forget the languages of apps", "privacy.forget-languages"),
+            item(.privacy, "Statistics", "privacy.statistics", .usage),
+            item(.privacy, "Count corrections", "privacy.count", .usage),
+            item(.privacy, "Erase the counts", "privacy.erase-counts", .statisticsOn),
+            item(.privacy, "Languages of apps", "privacy.languages", .languageStats),
+            item(.privacy, "Forget the languages of apps", "privacy.forget-languages", .languageStats),
             item(.privacy, "Settings file", "privacy.file"),
             item(.privacy, "Back up or move settings", "privacy.backup"),
             item(.privacy, "Feedback", "privacy.feedback"),

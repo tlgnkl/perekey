@@ -88,8 +88,8 @@ struct PrivacyPane: View {
                 PKDivider()
                 UsageWeekView(stats: usage.stats)
                 PKDivider()
-                // search: skip (shown only in some states)
-                PKRow(Text("Erase the counts"), detail: Text("Deletes the file with the counts.")) {
+                PKRow(Text("Erase the counts"), detail: Text("Deletes the file with the counts."),
+                      anchor: "privacy.erase-counts") {
                     Button("Erase") { usage.erase() }
                         .buttonStyle(.pkSecondary)
                         .disabled(usage.stats.isEmpty)

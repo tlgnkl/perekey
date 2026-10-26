@@ -3,9 +3,29 @@
 import Observation
 import PerekeyCore
 
-/// The state of the Settings search: the query, the matches, where Return is in
-/// them and where the panes should scroll and flash. The matching itself is
-/// `SettingsSearch` in PerekeyCore.
+/// What the Settings window shows now, for the search: a row whose flag is not set is not in the window.
+enum SettingsFlag: String, Hashable {
+    /// The Voice tab has its controller.
+    case voice
+    /// … and this Mac can run voice input.
+    case voiceSupported
+    /// … and an administrator has not turned it off: the whole tab.
+    case voiceActive
+    case voiceText
+    case voiceRecordings
+    case voiceSummaries
+    /// The Voice modes tab has its store, and this Mac can run voice input.
+    case voiceModes
+    case voiceModesSupported
+    /// More than two languages: General says which pairs switch by itself.
+    case languageChoice
+    case usage
+    case statisticsOn
+    case languageStats
+}
+
+/// The state of the Settings search for SwiftUI: `SearchSession` in PerekeyCore
+/// (query, matches, the walk) plus where the panes should scroll and flash.
 @MainActor
 @Observable
 final class SettingsSearchModel {
@@ -18,58 +38,44 @@ final class SettingsSearchModel {
         let serial: Int
     }
 
-    private(set) var query = ""
-    private(set) var matches: [SearchEntry<SettingsSection>] = []
+    private var session: SearchSession<SettingsSection>
     private(set) var target: Target?
-    /// What flashes: the pane's rows read it through `pkAnchor`.
+    /// What flashes: a row marks itself when the search lands on it (`pkAnchor`),
+    /// so a row that is not in the window is never marked.
     let found = FoundTracker()
-
-    @ObservationIgnored private var walk = SearchWalk()
     @ObservationIgnored private var serial = 0
-    @ObservationIgnored private let search: SettingsSearch<SettingsSection>
 
     init(search: SettingsSearch<SettingsSection> = SettingsIndex.search) {
-        self.search = search
+        session = SearchSession(search: search)
     }
 
-    /// Whether a query is typed: the sidebar then dims and counts.
-    var isActive: Bool { !SearchText.needle(for: query).isEmpty }
+    var query: String { session.query }
+    var isActive: Bool { session.isActive }
+    var hasNoMatches: Bool { session.isActive && session.matches.isEmpty }
 
-    var hasNoMatches: Bool { isActive && matches.isEmpty }
+    func count(in section: SettingsSection) -> Int { session.count(in: section) }
 
-    func count(in section: SettingsSection) -> Int {
-        matches.count { $0.section == section }
-    }
-
-    /// A new query starts the walk over.
     func setQuery(_ text: String) {
-        guard text != query else { return }
-        query = text
-        matches = search.matches(for: text)
-        walk.reset()
+        session.setQuery(text)
         target = nil
     }
 
-    /// Return: the next match, around.
-    func next() -> SearchEntry<SettingsSection>? {
-        walk.advance(count: matches.count).map { matches[$0] }
+    func setAvailable(_ flags: Set<SettingsFlag>) {
+        session.setAvailable(Set(flags.map(\.rawValue)))
     }
+
+    /// Return: the next match, around.
+    func next() -> SearchEntry<SettingsSection>? { session.next() }
 
     /// A click on a section: its first match, and Return goes on from there.
-    func first(in section: SettingsSection) -> SearchEntry<SettingsSection>? {
-        guard let index = matches.firstIndex(where: { $0.section == section }) else { return nil }
-        walk.jump(to: index)
-        return matches[index]
-    }
+    func first(in section: SettingsSection) -> SearchEntry<SettingsSection>? { session.first(in: section) }
 
-    /// Scrolls the open pane to `entry` and flashes it. The pane must show `entry.section` by then.
+    /// Scrolls the open pane to `entry`; the row flashes. The pane must show `entry.section` by then.
     func reveal(_ entry: SearchEntry<SettingsSection>) {
-        found.mark(entry.anchor)
         serial += 1
         target = Target(anchor: entry.anchor, serial: serial)
     }
 
-    /// The person picked a pane: it opens at its top, not at the last match. A highlight
-    /// that plays is not cut: `FoundTracker` takes its mark back when it ends.
+    /// The person picked a pane: it opens at its top, not at the last match.
     func forget() { target = nil }
 }

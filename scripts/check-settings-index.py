@@ -10,8 +10,10 @@ SKIP = {"SettingsIndex.swift", "DebugSnapshot.swift", "DebugVoiceScenario.swift"
 # A row or a group title written as a literal. `Text(verbatim:)` and interpolations are dynamic: no entry.
 TITLES = re.compile(
     r'(?:\bPKRow\(\s*|\bPKGroup\(\s*header:\s*|\b(?:correctionRow|soundRow)\(\s*)(?:Text|voiceText)\("((?:[^"\\]|\\.)*)"')
-ENTRY = re.compile(r'\b(?:item|voiceItem)\(\.(\w+),\s*"((?:[^"\\]|\\.)*)",\s*"([^"]+)"\)')
+ENTRY = re.compile(r'\b(?:item|voiceItem)\(\.(\w+),\s*"((?:[^"\\]|\\.)*)",\s*"([^"]+)"(?:,\s*\.\w+)*\)')
 SKIP_MARK = "search: skip"
+# On an anchor's line: the title is a string of another file (TriggerText.swift names the shortcut rows).
+ELSEWHERE_MARK = "search: title in"
 
 
 def index_entries():
@@ -39,6 +41,8 @@ def main():
             print(f"{INDEX}: anchor {a!r} is used by {n} entries")
 
     used = {}
+    on_row = {}
+    files = {}
     titles = 0
     text = ""
     for path in sorted(glob.glob("Sources/Perekey/**/*.swift", recursive=True)):
@@ -46,6 +50,7 @@ def main():
             continue
         src = open(path, encoding="utf-8").read()
         text += src
+        files[path] = src
         lines = src.split("\n")
         for m in TITLES.finditer(src):
             title = m.group(1)
@@ -58,6 +63,8 @@ def main():
                 print(f"{path}:{line + 1}: \"{title}\" is not in {INDEX}; add it, or write `// {SKIP_MARK}` above")
         for m in anchor_use.finditer(src):
             used.setdefault(m.group(1), f"{path}:{src.count(chr(10), 0, m.start()) + 1}")
+            line = lines[src.count("\n", 0, m.start())]
+            on_row.setdefault(m.group(1), []).append((path, ELSEWHERE_MARK in line))
 
     for a in sorted(set(anchors) - used.keys()):
         bad += 1
@@ -66,6 +73,14 @@ def main():
         if a not in counts:
             bad += 1
             print(f"{where}: anchor {a!r} is not in {INDEX}")
+    # The anchor sits in the file that has the row's title, not just anywhere.
+    for _, key, anchor in entries:
+        if anchor == "title":
+            continue
+        for path, elsewhere in on_row.get(anchor, []):
+            if not elsewhere and f'"{key}"' not in files[path]:
+                bad += 1
+                print(f"{path}: anchor {anchor!r} is on a row, but \"{key}\" is not in this file")
     for key in sorted(keys):
         if f'"{key}"' not in text:
             bad += 1

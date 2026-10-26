@@ -28,22 +28,39 @@ struct VoicePane: View {
     private var voice: VoiceSettingsStore { controller.settings }
     private var settings: VoiceSettings { voice.settings }
 
+    /// What the tab shows, as the Settings search needs it: a group that is not here is not found.
+    static func shown(controller: VoiceModelsController, textController: VoiceTextController?,
+                      transcripts: TranscriptsController?) -> Set<SettingsFlag> {
+        var shown: Set<SettingsFlag> = [.voice]
+        guard controller.isSupported else { return shown }
+        shown.insert(.voiceSupported)
+        guard !controller.settings.managed.voiceDisabled else { return shown }
+        shown.insert(.voiceActive)
+        if textController != nil { shown.insert(.voiceText) }
+        if let transcripts {
+            shown.insert(.voiceRecordings)
+            if transcripts.summaries != nil { shown.insert(.voiceSummaries) }
+        }
+        return shown
+    }
+
     var body: some View {
+        let shown = Self.shown(controller: controller, textController: textController, transcripts: transcripts)
         PKPane(title: voiceText("Voice")) {
-            if !controller.isSupported {
+            if !shown.contains(.voiceSupported) {
                 PKGroup {
                     PKNote(voiceText("Voice input needs a Mac with Apple Silicon and macOS 15 or newer."))
                 }
-            } else if voice.managed.voiceDisabled {
+            } else if !shown.contains(.voiceActive) {
                 dictationGroup
             } else {
                 dictationGroup
                 ModelsList(controller: controller).id("models")
-                if let textController {
+                if shown.contains(.voiceText), let textController {
                     VoiceTextGroup(controller: textController)
                     VoiceHistoryGroup(controller: textController)
                 }
-                if let transcripts {
+                if shown.contains(.voiceRecordings), let transcripts {
                     RecordingsGroup(controller: transcripts)
                 }
             }

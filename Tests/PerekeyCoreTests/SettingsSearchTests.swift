@@ -78,4 +78,72 @@ import Testing
         var walk = SearchWalk()
         #expect(walk.advance(count: 0) == nil)
     }
+
+    // MARK: Session
+
+    private let rows = SettingsSearch(entries: [
+        SearchEntry(section: Pane.general, anchor: "a1", texts: ["Alpha one"]),
+        SearchEntry(section: .general, anchor: "a2", texts: ["Alpha two"], requires: ["extra"]),
+        SearchEntry(section: .words, anchor: "b1", texts: ["Alpha three"]),
+        SearchEntry(section: .words, anchor: "b2", texts: ["Beta"]),
+    ])
+
+    @Test func hiddenRowsAreNotCounted() {
+        var session = SearchSession(search: rows)
+        session.setQuery("alpha")
+        #expect(session.matches.map(\.anchor) == ["a1", "b1"])
+        #expect(session.count(in: .general) == 1)
+        session.setAvailable(["extra"])
+        #expect(session.matches.map(\.anchor) == ["a1", "a2", "b1"])
+        #expect(session.count(in: .general) == 2)
+    }
+
+    @Test func aRowThatNeedsTwoFlagsNeedsBoth() {
+        let two = SettingsSearch(entries: [SearchEntry(section: Pane.general, anchor: "x", texts: ["x"], requires: ["a", "b"])])
+        #expect(two.matches(for: "x", available: ["a"]).isEmpty)
+        #expect(two.matches(for: "x", available: ["a", "b"]).count == 1)
+    }
+
+    @Test func returnWalksTheVisibleMatchesAround() {
+        var session = SearchSession(search: rows)
+        session.setQuery("alpha")
+        #expect([session.next()?.anchor, session.next()?.anchor, session.next()?.anchor] == ["a1", "b1", "a1"])
+    }
+
+    @Test func aNewQueryStartsTheWalkOver() {
+        var session = SearchSession(search: rows)
+        session.setQuery("alpha")
+        _ = session.next()
+        _ = session.next()
+        session.setQuery("alph")
+        #expect(session.next()?.anchor == "a1")
+    }
+
+    @Test func theFirstMatchOfASectionContinuesTheWalk() {
+        var session = SearchSession(search: rows)
+        session.setQuery("alpha")
+        #expect(session.first(in: .words)?.anchor == "b1")
+        #expect(session.next()?.anchor == "a1")
+        session.setQuery("beta")
+        #expect(session.first(in: .general) == nil)
+    }
+
+    @Test func rowsThatAppearOrVanishRestartTheWalk() {
+        var session = SearchSession(search: rows)
+        session.setQuery("alpha")
+        _ = session.next()
+        session.setAvailable(["extra"])
+        #expect(session.next()?.anchor == "a1")
+        session.setAvailable(["extra"])
+        #expect(session.next()?.anchor == "a2")
+    }
+
+    @Test func aBlankQueryIsNotActive() {
+        var session = SearchSession(search: rows)
+        #expect(!session.isActive)
+        session.setQuery("alpha")
+        #expect(session.isActive)
+        session.setQuery(" ")
+        #expect(!session.isActive && session.matches.isEmpty)
+    }
 }

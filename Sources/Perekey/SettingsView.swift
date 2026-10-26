@@ -145,7 +145,31 @@ struct SettingsView: View {
             .animation(reduceMotionFree(PK.Motion.easeOut(0.2)), value: hasAccess())
         }
         .frame(width: 840, height: height)
+        .onChange(of: shownInWindow, initial: true) { _, shown in search.wrappedValue.setAvailable(shown) }
         .onDisappear { recording.stop() }
+    }
+
+    /// The rows the window has now: the search counts only those. Each flag is the
+    /// condition its pane shows the group by (`VoicePane.shown`, `PrivacyPane`, `GeneralPane`).
+    private var shownInWindow: Set<SettingsFlag> {
+        var shown: Set<SettingsFlag> = []
+        if LanguagePairs(layouts: sources.layouts).hasChoice { shown.insert(.languageChoice) }
+        if usage != nil {
+            shown.insert(.usage)
+            if store.settings.statistics { shown.insert(.statisticsOn) }
+        }
+        if languages != nil { shown.insert(.languageStats) }
+        #if PEREKEY_VOICE
+        if let voiceController {
+            shown.formUnion(VoicePane.shown(controller: voiceController, textController: voiceTextController,
+                                            transcripts: voiceTranscripts))
+            if voiceModes != nil {
+                shown.insert(.voiceModes)
+                if voiceController.isSupported { shown.insert(.voiceModesSupported) }
+            }
+        }
+        #endif
+        return shown
     }
 
     /// Opens `new` at its top.
@@ -313,7 +337,12 @@ private struct SidebarSearch: View {
                 .focused($focused)
                 .autocorrectionDisabled()
                 .onSubmit(walk)
-                .onExitCommand { search.setQuery("") }
+                // An empty field leaves Escape to the window.
+                .onKeyPress(.escape) {
+                    guard !search.query.isEmpty else { return .ignored }
+                    search.setQuery("")
+                    return .handled
+                }
                 .accessibilityLabel(Text("Search settings"))
             if search.hasNoMatches {
                 Text("Nothing found")

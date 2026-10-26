@@ -61,7 +61,7 @@ struct VoicePane: View {
 
     private var dictationGroup: some View {
         PKGroup {
-            PKRow(voiceText("Voice input"), detail: switchDetail) {
+            PKRow(voiceText("Voice input"), detail: switchDetail, anchor: "voice.input") {
                 Toggle(isOn: Binding(get: { settings.isEnabled && !voice.managed.voiceDisabled },
                                      set: { on in voice.update { $0.isEnabled = on } })) {
                     voiceText("Voice input")
@@ -84,11 +84,11 @@ struct VoicePane: View {
                     PKDivider()
                     TranscriptionModelPicker(controller: controller)
                     PKDivider()
-                    PKRow(voiceText("Switch the layout to the language of the phrase")) {
+                    PKRow(voiceText("Switch the layout to the language of the phrase"), anchor: "voice.switch-layout") {
                         flag(\.switchesLayout, label: voiceText("Switch the layout to the language of the phrase"))
                     }
                     PKDivider()
-                    PKRow(voiceText("Sounds")) { flag(\.playsSounds, label: voiceText("Sounds")) }
+                    PKRow(voiceText("Sounds"), anchor: "voice.sounds") { flag(\.playsSounds, label: voiceText("Sounds")) }
                     PKDivider()
                     autoStopRow
                     PKDivider()
@@ -118,7 +118,7 @@ struct VoicePane: View {
 
     @ViewBuilder private var triggerRows: some View {
         PKDivider()
-        PKRow(voiceText("Shortcut"), detail: triggerDetail) {
+        PKRow(voiceText("Shortcut"), detail: triggerDetail, anchor: "voice.shortcut") {
             HStack(spacing: 8) {
                 if settings.trigger != .default {
                     Button { voice.update { $0.trigger = .default } } label: {
@@ -161,7 +161,7 @@ struct VoicePane: View {
     // MARK: Microphone, model, limits
 
     private var microphoneRow: some View {
-        PKRow(voiceText("Microphone"), detail: microphoneDetail) {
+        PKRow(voiceText("Microphone"), detail: microphoneDetail, anchor: "voice.microphone") {
             Picker(selection: Binding(get: { settings.microphoneUID ?? "" },
                                       set: { uid in
                                           let name = microphones.first { $0.uid == uid }?.name
@@ -192,7 +192,8 @@ struct VoicePane: View {
     }
 
     private var autoStopRow: some View {
-        PKRow(voiceText("Stop by itself after"), detail: voiceText("A long recording stops and is typed at this limit.")) {
+        PKRow(voiceText("Stop by itself after"), detail: voiceText("A long recording stops and is typed at this limit."),
+              anchor: "voice.auto-stop") {
             Picker(selection: Binding(get: { settings.autoStop }, set: { value in voice.update { $0.autoStop = value } })) {
                 ForEach(VoiceAutoStop.allCases, id: \.self) { value in
                     Text(verbatim: value.title).tag(value)
@@ -207,7 +208,8 @@ struct VoicePane: View {
 
     private var unloadRow: some View {
         PKRow(voiceText("Unload the model after"),
-              detail: voiceText("An idle model is dropped from memory. The next dictation loads it again.")) {
+              detail: voiceText("An idle model is dropped from memory. The next dictation loads it again."),
+              anchor: "voice.unload") {
             Picker(selection: Binding(get: { settings.unload }, set: { value in voice.update { $0.unload = value } })) {
                 ForEach(VoiceUnload.allCases, id: \.self) { value in
                     Text(verbatim: value.title).tag(value)
@@ -229,7 +231,8 @@ private struct VoiceModelPicker: View {
     var body: some View {
         let settings = controller.settings.settings
         let ready = controller.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
-        PKRow(voiceText("Model"), detail: ready.isEmpty ? voiceText("Download a model below first.") : nil) {
+        PKRow(voiceText("Model"), detail: ready.isEmpty ? voiceText("Download a model below first.") : nil,
+              anchor: "voice.model") {
             Picker(selection: Binding(get: { settings.model },
                                       set: { id in controller.settings.update { $0.model = id } })) {
                 ForEach(ready) { Text(verbatim: ModelNames.display($0.entry)).tag($0.id) }
@@ -262,7 +265,8 @@ private struct TranscriptionModelPicker: View {
         }
         let chosen = settings.transcriptionModel ?? ""
         PKRow(voiceText("Model for transcriptions"),
-              detail: voiceText("Files and calls. A cloud model gets recordings with other people’s voices.")) {
+              detail: voiceText("Files and calls. A cloud model gets recordings with other people’s voices."),
+              anchor: "voice.transcription-model") {
             Picker(selection: Binding(get: { chosen }, set: { id in choose(id) })) {
                 Text("As dictation", tableName: "Voice").tag("")
                 ForEach(ready) { Text(verbatim: ModelNames.display($0.entry)).tag($0.id) }

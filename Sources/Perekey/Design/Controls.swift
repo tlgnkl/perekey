@@ -375,15 +375,34 @@ struct PKPane<Content: View>: View {
     let title: Text
     @ViewBuilder var content: Content
     @Environment(\.pkScrollTarget) private var scrollTarget
+    @Environment(\.pkSearch) private var search
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollViewReader { proxy in
             scroll
                 .onAppear {
                     // The pane was opened at a place of it: after its first layout.
-                    guard let scrollTarget else { return }
-                    DispatchQueue.main.async { proxy.scrollTo(scrollTarget, anchor: .top) }
+                    if let found = search?.target {
+                        DispatchQueue.main.async { reveal(found.anchor, in: proxy, animated: false) }
+                    } else if let scrollTarget {
+                        DispatchQueue.main.async { proxy.scrollTo(scrollTarget, anchor: .top) }
+                    }
                 }
+                // The search lands on another place of the open pane.
+                .onChange(of: search?.target) { _, found in
+                    if let found { reveal(found.anchor, in: proxy, animated: true) }
+                }
+        }
+    }
+
+    /// A match sits a third from the top, where the eye looks; the title shows the whole pane.
+    private func reveal(_ anchor: String, in proxy: ScrollViewProxy, animated: Bool) {
+        let point = anchor == SettingsSearchModel.titleAnchor ? UnitPoint.top : UnitPoint(x: 0.5, y: 0.3)
+        if animated, !reduceMotion {
+            withAnimation(PK.Motion.easeOut(0.32)) { proxy.scrollTo(anchor, anchor: point) }
+        } else {
+            proxy.scrollTo(anchor, anchor: point)
         }
     }
 
@@ -396,6 +415,7 @@ struct PKPane<Content: View>: View {
                     .foregroundStyle(Color.pkInk)
                     .accessibilityAddTraits(.isHeader)
                     .padding(.bottom, 2)
+                    .pkAnchor(SettingsSearchModel.titleAnchor)
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -419,9 +439,10 @@ extension EnvironmentValues {
     }
 }
 
-/// A heading and a card of rows.
+/// A heading and a card of rows. `anchor` is its entry in the Settings search.
 struct PKGroup<Content: View>: View {
     var header: Text?
+    var anchor: String?
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -433,10 +454,13 @@ struct PKGroup<Content: View>: View {
                     .padding(.leading, 4)
                     .accessibilityAddTraits(.isHeader)
             }
+            // The highlight is inside the card, or the card's fill would hide it.
             VStack(spacing: 0) { content }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .pkFlash(anchor)
                 .pkCard()
         }
+        .id(anchor)
     }
 }
 
@@ -444,11 +468,14 @@ struct PKGroup<Content: View>: View {
 struct PKRow<Trailing: View>: View {
     let title: Text
     var detail: Text?
+    /// The row's entry in the Settings search.
+    var anchor: String?
     let trailing: Trailing
 
-    init(_ title: Text, detail: Text? = nil, @ViewBuilder trailing: () -> Trailing) {
+    init(_ title: Text, detail: Text? = nil, anchor: String? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
         self.detail = detail
+        self.anchor = anchor
         self.trailing = trailing()
     }
 
@@ -467,6 +494,7 @@ struct PKRow<Trailing: View>: View {
         .padding(.horizontal, PK.Space.lg)
         .padding(.vertical, 11)
         .frame(minHeight: 44)
+        .pkAnchor(anchor)
     }
 }
 

@@ -384,3 +384,9 @@
 "The layout is not shown in the menu bar now." = "Раскладку сейчас не видно в строке меню.";
 "Show the layout in Perekey" = "Показывать раскладку в Perekey";
 "Show the capsule" = "Показать капсулу";
+
+/* Settings search */
+"Search" = "Поиск";
+"Search settings" = "Поиск по настройкам";
+"Nothing found" = "Ничего не найдено";
+"No matches" = "Нет совпадений";

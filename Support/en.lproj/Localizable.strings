@@ -384,3 +384,9 @@
 "The layout is not shown in the menu bar now." = "The layout is not shown in the menu bar now.";
 "Show the layout in Perekey" = "Show the layout in Perekey";
 "Show the capsule" = "Show the capsule";
+
+/* Settings search */
+"Search" = "Search";
+"Search settings" = "Search settings";
+"Nothing found" = "Nothing found";
+"No matches" = "No matches";

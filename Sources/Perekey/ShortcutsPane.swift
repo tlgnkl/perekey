@@ -50,7 +50,7 @@ struct ShortcutsPane: View {
     }
 
     private var presetSection: some View {
-        PKGroup(header: Text("Preset")) {
+        PKGroup(header: Text("Preset"), anchor: "shortcuts.preset") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], alignment: .leading, spacing: 10) {
                 let system = SystemShortcuts.current()
                 ForEach(HotkeyPreset.offered(system: system, selected: store.settings.preset), id: \.self) { preset in
@@ -69,13 +69,27 @@ struct ShortcutsPane: View {
         PKGroup {
             ForEach(Array(actions.enumerated()), id: \.element) { index, action in
                 if index > 0 { PKDivider() }
-                PKRow(Text(verbatim: TriggerText.name(of: action)), detail: detail(of: action)) {
+                PKRow(Text(verbatim: TriggerText.name(of: action)), detail: detail(of: action), anchor: anchor(of: action)) {
                     ShortcutRecorderButton(action: action, store: store, recording: recording)
                 }
             }
             ForEach(recording.conflictTexts, id: \.self) { text in
                 PKCallout(Text(text))
             }
+        }
+    }
+
+    /// The entry in the Settings search; the rows that select a language are not in it.
+    private func anchor(of action: HotkeyAction) -> String? {
+        switch action {
+        case .switchLayout: "shortcuts.switch-layout"
+        case .convertLastWord: "shortcuts.retype"
+        case .toggleAutoswitch: "shortcuts.autoswitch"
+        case .undoLastCorrection: "shortcuts.undo"
+        case .changeCase: "shortcuts.change-case"
+        case .transliterate: "shortcuts.transliterate"
+        case .pastePlain: "shortcuts.paste-plain"
+        case .selectLanguage: nil
         }
     }
 
@@ -98,8 +112,8 @@ struct ShortcutsPane: View {
     }
 
     private var capsLockSection: some View {
-        PKGroup(header: Text("Caps Lock")) {
-            PKRow(Text("How to use Caps Lock")) {
+        PKGroup(header: Text("Caps Lock"), anchor: "shortcuts.caps-lock") {
+            PKRow(Text("How to use Caps Lock"), anchor: "shortcuts.caps-lock-mode") {
                 PKSegmented(items: [
                     .init(value: .untouched, label: Text("Don't touch")),
                     .init(value: .system, label: Text("Like macOS")),
@@ -113,6 +127,7 @@ struct ShortcutsPane: View {
                 EmptyView()
             case .system:
                 PKDivider()
+                // search: skip (shown only in some states)
                 PKRow(Text("Uses the macOS setting “Use Caps Lock to switch to and from ABC”. macOS adds a short delay.")) {
                     Button("Open Keyboard Settings") {
                         if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {

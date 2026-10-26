@@ -658,7 +658,7 @@ private struct EndpointsGroup: View {
     }
 
     var body: some View {
-        PKGroup(header: voiceText("Where the LLM works")) {
+        PKGroup(header: voiceText("Where the LLM works"), anchor: "modes.llm") {
             PKNote(store.cloudDisabled
                 ? voiceText("Your administrator turned the cloud off: only servers on this Mac.")
                 : voiceText("Keys are kept in the Keychain. Before the first request to the cloud Perekey asks and names what will go there."))
@@ -668,7 +668,8 @@ private struct EndpointsGroup: View {
             }
             PKDivider()
             PKRow(voiceText("Your address"),
-                  detail: voiceText("Any OpenAI-compatible server: LM Studio, OpenRouter, Mistral, your own")) {
+                  detail: voiceText("Any OpenAI-compatible server: LM Studio, OpenRouter, Mistral, your own"),
+                  anchor: "modes.address") {
                 Button { adding = true } label: { voiceText("Add") }
                     .buttonStyle(.pkSmall)
                     .popover(isPresented: addingState.projectedValue, arrowEdge: .bottom) { addPopover }

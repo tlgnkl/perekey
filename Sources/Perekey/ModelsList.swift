@@ -20,7 +20,7 @@ struct ModelsList: View {
     private var downloadsForbidden: Bool { controller.settings.managed.voiceModelDownloadsDisabled }
 
     var body: some View {
-        PKGroup(header: voiceText("Models")) {
+        PKGroup(header: voiceText("Models"), anchor: "voice.models") {
             if downloadsForbidden {
                 PKNote(voiceText("Your administrator turned off model downloads. Perekey reads models from the folder /Library/Application Support/Perekey/VoiceModels."))
                 PKDivider()

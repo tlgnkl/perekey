@@ -233,7 +233,7 @@ FluidAudio и WhisperKit, потому что SwiftPM не подключает 
    своей лицензией; CC-BY требует указать автора, ссылку на лицензию и пометку,
    что файлы изменены. Лицензию брать из карточки модели на Hugging Face и из
    `LICENSE` пакета, а не из памяти.
-7. `scripts/test.sh` с `PEREKEY_VOICE=1` и без, `scripts/check-strings.sh`.
+7. `scripts/test.sh` с `PEREKEY_VOICE=1` и без, `scripts/check-strings.sh`, `scripts/check-settings-index.sh`.
 
 ## Как CI подписывает appcast
 

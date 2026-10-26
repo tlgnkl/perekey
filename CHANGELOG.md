@@ -53,6 +53,12 @@ differently, what was fixed.
   until you moved the mouse. Now the pointer holds the hint only after it
   moves, and a finished word ends the hint either way. The hint's glow is no
   longer cut off at the edge.
+- **A call recorded in the browser can be transcribed.** «Расшифровать
+  файл…» and a drop on the menu bar item now read WebM and Matroska files
+  (.webm, .mkv, .mka) with Opus or AAC audio, such as a call recorded in the
+  browser or by OBS. A file in a format Perekey cannot decode (Vorbis in WebM,
+  WMA, WMV, FLV, AVI) now says which format it is and to convert it to m4a or
+  mp3, instead of «the file has no audio».
 
 ## [0.2.0] - 2026-10-14
 

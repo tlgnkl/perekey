@@ -320,6 +320,7 @@
 "Not transcribed" = "Not transcribed";
 "The file is gone, or Perekey cannot open it." = "The file is gone, or Perekey cannot open it.";
 "The file has no audio, or it cannot be read." = "The file has no audio, or it cannot be read.";
+"Perekey cannot read %@ audio. Convert the file to m4a or mp3 and transcribe it again." = "Perekey cannot read %@ audio. Convert the file to m4a or mp3 and transcribe it again.";
 "The model is not downloaded, or the cloud is off. Pick another model." = "The model is not downloaded, or the cloud is off. Pick another model.";
 "The model failed on this audio." = "The model failed on this audio.";
 "Perekey could not read or write the files of this recording." = "Perekey could not read or write the files of this recording.";

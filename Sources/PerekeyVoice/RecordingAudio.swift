@@ -166,7 +166,49 @@ public final class DecodedFileAudio: LongAudio, AudioSampleSource, @unchecked Se
 
     /// Decodes everything AVFoundation reads (mp3, m4a, wav, mp4, mov): all
     /// audio tracks mixed, resampled to 16 kHz mono by the reader itself.
+    /// What it cannot read goes to the Matroska reader (webm, mkv, mka), or
+    /// is named, if Perekey knows the format and cannot decode it.
     static func decode(_ source: URL, into scratch: URL) async throws -> DecodedFileAudio {
+        do {
+            return try await decodeWithAVFoundation(source, into: scratch)
+        } catch LongAudioError.unreadable {
+            let head = (try? FileHandle(forReadingFrom: source)).flatMap { handle in
+                defer { try? handle.close() }
+                return try? handle.read(upToCount: 16)
+            } ?? Data()
+            if MatroskaFile.hasMagic(head) || MatroskaFile.hasExtension(source) {
+                return try decodeMatroska(source, into: scratch)
+            }
+            if let format = UnreadableFormat.name(of: source, head: head) { throw LongAudioError.unsupported(format) }
+            throw LongAudioError.unreadable
+        }
+    }
+
+    /// WebM and Matroska: the first audio track, Opus or AAC.
+    private static func decodeMatroska(_ source: URL, into scratch: URL) throws -> DecodedFileAudio {
+        // A file that is not Matroska after all is not audio.
+        let file = try MatroskaFile(Data(contentsOf: source, options: .alwaysMapped))
+        let decoder = try MatroskaDecoder(file)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let target = scratch.appending(path: UUID().uuidString + ".f32", directoryHint: .notDirectory)
+        FileManager.default.createFile(atPath: target.path, contents: nil)
+        do {
+            let handle = try FileHandle(forWritingTo: target)
+            defer { try? handle.close() }
+            try decoder.run { samples in
+                try samples.withUnsafeBytes { try handle.write(contentsOf: $0) }
+            }
+            try handle.close()
+            let audio = try DecodedFileAudio(url: target)
+            guard audio.sampleCount > 0 else { throw LongAudioError.unreadable }
+            return audio
+        } catch {
+            try? FileManager.default.removeItem(at: target)
+            throw error
+        }
+    }
+
+    private static func decodeWithAVFoundation(_ source: URL, into scratch: URL) async throws -> DecodedFileAudio {
         let asset = AVURLAsset(url: source)
         guard let tracks = try? await asset.loadTracks(withMediaType: .audio), !tracks.isEmpty else {
             throw LongAudioError.unreadable
@@ -243,5 +285,20 @@ public final class DecodedFileAudio: LongAudio, AudioSampleSource, @unchecked Se
 
     public func close() {
         try? FileManager.default.removeItem(at: url)
+    }
+}
+
+/// Formats the file filters let in that AVFoundation cannot read and Perekey
+/// does not decode: named, so the error can say what to convert from.
+enum UnreadableFormat {
+    static func name(of url: URL, head: Data) -> String? {
+        let ext = url.pathExtension.lowercased()
+        // ASF holds WMA and WMV; the extension tells them apart.
+        if head.starts(with: [0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11]) {
+            return ["wma", "wmv"].contains(ext) ? ext.uppercased() : "Windows Media"
+        }
+        if head.starts(with: Array("FLV".utf8)) { return "FLV" }
+        if head.starts(with: Array("RIFF".utf8)), head.dropFirst(8).starts(with: Array("AVI ".utf8)) { return "AVI" }
+        return ["wma", "wmv", "flv", "avi"].contains(ext) ? ext.uppercased() : nil
     }
 }

@@ -320,6 +320,7 @@
 "Not transcribed" = "Не расшифровано";
 "The file is gone, or Perekey cannot open it." = "Файла больше нет, или Perekey не может его открыть.";
 "The file has no audio, or it cannot be read." = "В файле нет звука, или его не получается прочитать.";
+"Perekey cannot read %@ audio. Convert the file to m4a or mp3 and transcribe it again." = "Perekey не читает звук в формате %@. Сохраните файл как m4a или mp3 и расшифруйте его снова.";
 "The model is not downloaded, or the cloud is off. Pick another model." = "Модель не скачана, или облако выключено. Выберите другую модель.";
 "The model failed on this audio." = "Модель не справилась с этим звуком.";
 "Perekey could not read or write the files of this recording." = "Perekey не смог прочитать или записать файлы этой записи.";

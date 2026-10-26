@@ -345,6 +345,20 @@ struct MatroskaTests {
         jumped.close()
     }
 
+    @Test func aJumpToTheEndOfTimeGetsNoSilence() async throws {
+        let packets = try Self.opusPackets()
+        // The last millisecond whose nanoseconds still fit in Int64.
+        let times = packets.indices.map { $0 >= 50 ? Int(Int64.max / 1_000_000) - (packets.count - $0) * 20 : $0 * 20 }
+        let directory = try Directory()
+        let whole = try await directory.decode(directory.write("whole.webm", Self.file(
+            tracks: [Track(codecPrivate: Self.opusHead(preSkip: 312))], frames: packets)))
+        let jumped = try await directory.decode(directory.write("end.webm", Self.file(
+            tracks: [Track(codecPrivate: Self.opusHead(preSkip: 312))], frames: packets, times: times)))
+        #expect(abs(jumped.sampleCount - whole.sampleCount) <= 2)
+        whole.close()
+        jumped.close()
+    }
+
     @Test func packetsOfVeryDifferentSizesInOneBatchDecode() async throws {
         var packets = try Self.opusPackets()
         // A one-byte packet (table of contents only) next to the full ones, as a silence-suppressing encoder sends.

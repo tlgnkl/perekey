@@ -27,6 +27,8 @@ struct MatroskaDecoder {
     private static let gapSeconds = 0.04
     /// A longer hole gets no silence, so one wild timestamp cannot ask for gigabytes.
     private static let maxHoleSeconds = 600.0
+    /// Nor does any hole once this much silence is in, so many of them cannot either.
+    private static let maxPaddingSeconds = 12.0 * 3600
 
     /// Samples at 48 kHz that Core Audio's Opus decoder leaves out of the start of its output.
     private static let opusDecoderDelay = 120
@@ -162,12 +164,12 @@ struct MatroskaDecoder {
                     let hole = Double(start - zero) / 1e9 - decodedSeconds - paddedSeconds
                     if hole > Self.gapSeconds {
                         if end > next { break }
-                        if hole <= Self.maxHoleSeconds {
+                        if hole <= Self.maxHoleSeconds, paddedSeconds + hole <= Self.maxPaddingSeconds {
                             try Self.silence(seconds: hole, emit)
                             paddedSeconds += hole
                         } else {
                             // Not padded: move the origin so the later holes are counted from here.
-                            origin = zero + Int64(hole * 1e9)
+                            origin = start - Int64((decodedSeconds + paddedSeconds) * 1e9)
                         }
                     }
                 }

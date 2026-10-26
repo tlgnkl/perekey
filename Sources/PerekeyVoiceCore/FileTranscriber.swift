@@ -298,7 +298,11 @@ public actor FileTranscriber: FileTranscribing {
             do {
                 audios.append((key, try await environment.opener.open(source)))
             } catch let error as LongAudioError {
-                throw Stop.failed(error == .missing ? .sourceMissing : .unreadable)
+                switch error {
+                case .missing: throw Stop.failed(.sourceMissing)
+                case .unreadable: throw Stop.failed(.unreadable)
+                case let .unsupported(format): throw Stop.failed(.unsupportedFormat(format))
+                }
             } catch {
                 throw Stop.failed(.unreadable)
             }
@@ -508,8 +512,11 @@ public actor FileTranscriber: FileTranscribing {
 public enum LongAudioError: Error, Equatable, Sendable {
     /// The file is gone, or its bookmark no longer opens it.
     case missing
-    /// It is not audio AVFoundation reads, or holds no audio.
+    /// It is not audio Perekey reads, or holds no audio.
     case unreadable
+    /// It holds audio in a format Perekey cannot decode; the name is what the
+    /// person is told, like "Vorbis" or "WMV".
+    case unsupported(String)
 }
 
 /// The file queue while voice is on: `start` makes one, `stop` shuts it

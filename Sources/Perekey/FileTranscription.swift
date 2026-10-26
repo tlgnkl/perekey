@@ -94,6 +94,8 @@ final class FileTranscription {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.allowedContentTypes = [.audio, .movie, .audiovisualContent]
+            // Matroska has no type of its own on macOS: by extension.
+            + ["mkv", "mka"].compactMap { UTType(filenameExtension: $0) }
         panel.message = voiceString("Choose audio or video to transcribe. Perekey reads the file and does not copy it.")
         panel.prompt = voiceString("Transcribe")
         NSApp.activate()
@@ -131,8 +133,11 @@ final class FileTranscription {
         queue != nil && Self.accepts(url)
     }
 
-    /// Audio or video by its type: what AVFoundation reads.
+    /// Audio or video by its type, and Matroska by its extension (mkv and mka
+    /// are no type to macOS). Perekey reads most of it; the rest fails with the
+    /// name of its format.
     nonisolated static func accepts(_ url: URL) -> Bool {
+        if url.isFileURL, MatroskaFile.hasExtension(url) { return true }
         guard url.isFileURL, let type = UTType(filenameExtension: url.pathExtension) else { return false }
         return type.conforms(to: .audio) || type.conforms(to: .movie) || type.conforms(to: .audiovisualContent)
     }

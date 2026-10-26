@@ -47,6 +47,8 @@ extension TranscriptionFailure {
         switch self {
         case .sourceMissing: voiceString("The file is gone, or Perekey cannot open it.")
         case .unreadable: voiceString("The file has no audio, or it cannot be read.")
+        case let .unsupportedFormat(format):
+            voiceString("Perekey cannot read \(format) audio. Convert the file to m4a or mp3 and transcribe it again.")
         case .modelUnavailable: voiceString("The model is not downloaded, or the cloud is off. Pick another model.")
         case .needsConsent: voiceString("A cloud model needs your consent to get the recording of a conversation. Transcribe again to be asked.")
         case .engineFailed: voiceString("The model failed on this audio.")

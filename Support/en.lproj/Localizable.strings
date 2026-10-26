@@ -384,3 +384,6 @@
 "The layout is not shown in the menu bar now." = "The layout is not shown in the menu bar now.";
 "Show the layout in Perekey" = "Show the layout in Perekey";
 "Show the capsule" = "Show the capsule";
+"The file was not transcribed" = "The file was not transcribed";
+"This build of Perekey has no voice input, so it cannot transcribe files." = "This build of Perekey has no voice input, so it cannot transcribe files.";
+"OK" = "OK";

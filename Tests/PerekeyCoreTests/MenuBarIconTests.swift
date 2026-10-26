@@ -71,4 +71,13 @@ import Testing
         #expect(MenuBarPolicy.notice(style: .capsule, visibility: .whenNeeded, systemMenuVisible: true) == nil)
         #expect(MenuBarPolicy.notice(style: .capsule, visibility: .always, systemMenuVisible: nil) == nil)
     }
+
+    @Test func voiceEntriesNoteOnlyWithVoiceAndAnItemThatMayBeHidden() {
+        for visibility in MenuBarVisibility.allCases {
+            #expect(!MenuBarPolicy.showsVoiceEntriesNote(voiceIsOn: false, visibility: visibility))
+        }
+        #expect(!MenuBarPolicy.showsVoiceEntriesNote(voiceIsOn: true, visibility: .always))
+        #expect(MenuBarPolicy.showsVoiceEntriesNote(voiceIsOn: true, visibility: .whenNeeded))
+        #expect(MenuBarPolicy.showsVoiceEntriesNote(voiceIsOn: true, visibility: .never))
+    }
 }

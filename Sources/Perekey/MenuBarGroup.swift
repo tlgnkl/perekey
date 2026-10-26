@@ -80,6 +80,8 @@ struct MenuBarGroup: View {
     let store: SettingsStore
     var sources: InputSources?
     var systemMenu: SystemInputMenu = .shared
+    /// Voice is on: the commands of its menu items live elsewhere too.
+    var voiceIsOn = false
 
     private var style: MenuBarIconStyle { store.settings.menuBarIcon }
     private var visibility: MenuBarVisibility { store.settings.menuBarVisibility }
@@ -113,6 +115,7 @@ struct MenuBarGroup: View {
                 }), mini: true)
             }
             notice
+            voiceEntriesNote
         }
         .onAppear { systemMenu.refresh() }
     }
@@ -121,6 +124,16 @@ struct MenuBarGroup: View {
         MenuBarStyleTile(style: value, title: title, preview: MenuBarPreview(sources: sources), selected: style == value) {
             store.update { $0.menuBarIcon = value }
         }
+    }
+
+    /// Hidden or hideable, the item is not the only door to calls and files.
+    @ViewBuilder private var voiceEntriesNote: some View {
+        #if PEREKEY_VOICE
+        if MenuBarPolicy.showsVoiceEntriesNote(voiceIsOn: voiceIsOn, visibility: visibility) {
+            PKDivider()
+            PKNote(voiceText("With the icon hidden, record a call or transcribe a file in Settings → Voice, in the Transcripts window, or with “Open With” in Finder."))
+        }
+        #endif
     }
 
     @ViewBuilder private var notice: some View {

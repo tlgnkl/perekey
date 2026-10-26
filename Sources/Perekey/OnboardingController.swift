@@ -35,6 +35,8 @@ final class OnboardingController: NSObject, NSWindowDelegate {
 
     /// Opens the window on first launch, and at the access step whenever
     /// Perekey starts without access: the engine no longer makes macOS ask.
+    var isOnScreen: Bool { window?.isVisible == true }
+
     func showIfNeeded() {
         if !store.settings.onboardingDone {
             show()

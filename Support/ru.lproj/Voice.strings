@@ -298,6 +298,11 @@
 "Keep the audio of calls" = "Хранить звук созвонов";
 "Include in Time Machine" = "Включать в Time Machine";
 "Recordings stay on this Mac. The text of a call stays when its audio is gone." = "Записи остаются на этом Mac. Текст созвона остаётся, когда звук уже удалён.";
+"Record and transcribe" = "Записать и расшифровать";
+"The same as in the menu bar item, for when it is hidden." = "То же, что в меню Perekey, на случай, когда значок скрыт.";
+"Open Transcripts" = "Открыть расшифровки";
+"With the icon hidden, record a call or transcribe a file in Settings → Voice, in the Transcripts window, or with “Open With” in Finder." = "Пока значок скрыт, записать созвон или расшифровать файл можно в Настройках → Голос, в окне «Расшифровки» и через «Открыть с помощью» в Finder.";
+"Drop an audio or video file here, or use the buttons above, and its text appears." = "Бросьте сюда звуковой или видеофайл либо нажмите кнопку выше, и появится его текст.";
 "Delete all recordings?" = "Удалить все записи?";
 "The texts and the saved audio of all calls and files are deleted. Files you chose stay where they are." = "Тексты и сохранённый звук всех созвонов и файлов будут удалены. Файлы, которые вы выбрали, останутся на месте.";
 "Set by your administrator" = "Задано администратором";
@@ -337,7 +342,6 @@
 "Its transcript and saved audio are deleted. A file you chose stays where it is." = "Её текст и сохранённый звук будут удалены. Файл, который вы выбрали, останется на месте.";
 "Drop an audio or video file to transcribe it" = "Бросьте сюда звуковой или видеофайл, чтобы расшифровать его";
 "No transcripts yet" = "Расшифровок пока нет";
-"Drop an audio or video file here, and its text appears." = "Бросьте сюда звуковой или видеофайл, и появится его текст.";
 "Delete…" = "Удалить…";
 "Dismiss" = "Закрыть";
 "Pick a transcript on the left." = "Выберите расшифровку слева.";
@@ -481,3 +485,11 @@
 "Dictation: pasted" = "Диктовка: вставкой";
 "Dictation: typed" = "Диктовка: набором";
 "Remove the rule and the dictation input" = "Удалить правило и вставку диктовки";
+"The file was not transcribed" = "Файл не расшифрован";
+"Perekey transcribes audio and video files. This one is neither." = "Perekey расшифровывает аудио и видео. Этот файл — ни то, ни другое.";
+"Voice input is off. Turn it on in Settings → Voice to transcribe files." = "Голосовой ввод выключен. Включите его в Настройках → Голос, чтобы расшифровывать файлы.";
+"Voice input is not available on this Mac, or your administrator turned it off." = "Голосовой ввод недоступен на этом Mac или выключен администратором.";
+"Voice input did not start in time. Try again in a moment." = "Голосовой ввод не успел запуститься. Попробуйте ещё раз через минуту.";
+"Open Settings → Voice" = "Открыть Настройки → Голос";
+"Transcribing files needs voice input to be on and running." = "Расшифровка файлов работает, когда голосовой ввод включён и запущен.";
+"Voice input has no shortcut. Set one in Settings → Voice to transcribe files." = "У голосового ввода нет клавиши. Задайте её в Настройках → Голос, чтобы расшифровывать файлы.";

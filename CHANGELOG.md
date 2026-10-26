@@ -19,7 +19,10 @@ differently, what was fixed.
   automatic switching off, a call being recorded), or never. Open Perekey
   again from Finder or Spotlight and Settings opens, so a hidden icon is
   never a dead end. Settings also tells you when the system's input menu and
-  Perekey show the language twice, or when neither shows it.
+  Perekey show the language twice, or when neither shows it. With voice on
+  and the icon hidden, you can still record a call and transcribe a file:
+  Settings → Voice → Recordings and the Transcripts window have the same
+  buttons, and Finder's “Open With” offers Perekey for audio and video files.
 - **Hyphen.** Settings → General → Corrections: a Russian word typed without
   its hyphen gets it back: «вопервых» → «во-первых», «чтото» → «что-то»,
   «изза» → «из-за», «помоему» → «по-моему». Only words whose merged spelling

@@ -298,6 +298,11 @@
 "Keep the audio of calls" = "Keep the audio of calls";
 "Include in Time Machine" = "Include in Time Machine";
 "Recordings stay on this Mac. The text of a call stays when its audio is gone." = "Recordings stay on this Mac. The text of a call stays when its audio is gone.";
+"Record and transcribe" = "Record and transcribe";
+"The same as in the menu bar item, for when it is hidden." = "The same as in the menu bar item, for when it is hidden.";
+"Open Transcripts" = "Open Transcripts";
+"With the icon hidden, record a call or transcribe a file in Settings → Voice, in the Transcripts window, or with “Open With” in Finder." = "With the icon hidden, record a call or transcribe a file in Settings → Voice, in the Transcripts window, or with “Open With” in Finder.";
+"Drop an audio or video file here, or use the buttons above, and its text appears." = "Drop an audio or video file here, or use the buttons above, and its text appears.";
 "Delete all recordings?" = "Delete all recordings?";
 "The texts and the saved audio of all calls and files are deleted. Files you chose stay where they are." = "The texts and the saved audio of all calls and files are deleted. Files you chose stay where they are.";
 "Set by your administrator" = "Set by your administrator";
@@ -337,7 +342,6 @@
 "Its transcript and saved audio are deleted. A file you chose stays where it is." = "Its transcript and saved audio are deleted. A file you chose stays where it is.";
 "Drop an audio or video file to transcribe it" = "Drop an audio or video file to transcribe it";
 "No transcripts yet" = "No transcripts yet";
-"Drop an audio or video file here, and its text appears." = "Drop an audio or video file here, and its text appears.";
 "Delete…" = "Delete…";
 "Dismiss" = "Dismiss";
 "Pick a transcript on the left." = "Pick a transcript on the left.";
@@ -481,3 +485,11 @@
 "Dictation: pasted" = "Dictation: pasted";
 "Dictation: typed" = "Dictation: typed";
 "Remove the rule and the dictation input" = "Remove the rule and the dictation input";
+"The file was not transcribed" = "The file was not transcribed";
+"Perekey transcribes audio and video files. This one is neither." = "Perekey transcribes audio and video files. This one is neither.";
+"Voice input is off. Turn it on in Settings → Voice to transcribe files." = "Voice input is off. Turn it on in Settings → Voice to transcribe files.";
+"Voice input is not available on this Mac, or your administrator turned it off." = "Voice input is not available on this Mac, or your administrator turned it off.";
+"Voice input did not start in time. Try again in a moment." = "Voice input did not start in time. Try again in a moment.";
+"Open Settings → Voice" = "Open Settings → Voice";
+"Transcribing files needs voice input to be on and running." = "Transcribing files needs voice input to be on and running.";
+"Voice input has no shortcut. Set one in Settings → Voice to transcribe files." = "Voice input has no shortcut. Set one in Settings → Voice to transcribe files.";

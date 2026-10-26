@@ -163,7 +163,13 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch current {
-        case .general: GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources)
+        case .general:
+            #if PEREKEY_VOICE
+            GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources,
+                        voiceIsOn: (voiceController?.settings.isOn ?? false) && (voiceController?.isSupported ?? false))
+            #else
+            GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources)
+            #endif
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         #if PEREKEY_VOICE
         case .voice:

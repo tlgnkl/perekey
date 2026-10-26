@@ -89,12 +89,15 @@ struct SettingsView: View {
     private let scrollTarget: State<String?>
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
-    private let search = State(initialValue: SettingsSearchModel())
+    private let search: State<SettingsSearchModel>
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
          usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general,
-         scrollTarget: String? = nil) {
+         scrollTarget: String? = nil, searchQuery: String = "") {
         self.scrollTarget = State(initialValue: scrollTarget)
+        let search = SettingsSearchModel()
+        if !searchQuery.isEmpty { search.setQuery(searchQuery) }
+        self.search = State(initialValue: search)
         self.usage = usage
         self.languages = languages
         self.updates = updates

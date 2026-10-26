@@ -72,6 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let voiceIntro: VoiceIntroController
     /// «Записать созвон»: the microphone and the system audio to disk.
     private let callRecording: CallRecordingController
+    /// Files from Finder's «Open With»; made once Settings exists.
+    private var openedFiles: OpenedFiles?
     #endif
 
     override init() {
@@ -167,6 +169,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceIntro = VoiceIntroController(situation: situation, makeModel: makeIntro)
         onboarding.makeVoiceIntro = { VoiceIntro.offer(situation()) == .none ? nil : makeIntro() }
         voice.openVoiceSettings = { settings.show(section: .voice, scrollTarget: "models") }
+        let openedFiles = OpenedFiles(
+            files: voice.files,
+            availability: { [voiceModels] in
+                let voiceSettings = voiceModels.settings
+                if !voiceModels.isSupported || voiceSettings.managed.voiceDisabled || voiceSettings.isLocked { return .unavailable }
+                return voiceSettings.settings.isEnabled ? .on : .off
+            },
+            openVoiceSettings: { settings.show(section: .voice) })
+        self.openedFiles = openedFiles
+        // The queue appears after launch, and goes when voice turns off.
+        voice.files.observeQueue { _ in openedFiles.queueChanged() }
         #endif
         settingsWindow = settings
         #if PEREKEY_VOICE
@@ -260,12 +273,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if routing.ignored > 0 { openLog.info("Ignored \(routing.ignored) URLs that are neither a link nor a file") }
         guard !routing.files.isEmpty else { return }
         #if PEREKEY_VOICE
-        // The queue exists only while voice is on and runs on this Mac; it also keeps audio and video only.
-        if !voice.files.transcribe(routing.files) {
-            openLog.info("Ignored \(routing.files.count) files: voice is off or unavailable, or they are not audio or video")
-        }
+        // On a cold launch this runs before the queue exists: the files wait for it.
+        openedFiles?.open(routing.files)
         #else
         openLog.info("Ignored \(routing.files.count) files: this build has no voice")
+        OpenAlert.show(title: String(localized: "The file was not transcribed"),
+                       reason: String(localized: "This build of Perekey has no voice input, so it cannot transcribe files."),
+                       openSettings: nil, settingsTitle: "")
         #endif
     }
 

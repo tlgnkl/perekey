@@ -34,5 +34,6 @@ import Testing
         let routing = OpenRouting([link])
         #expect(routing.files.isEmpty)
         #expect(routing.links == [link])
+        #expect(ControlCommand.parse(link) == nil)
     }
 }

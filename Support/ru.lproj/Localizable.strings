@@ -384,3 +384,6 @@
 "The layout is not shown in the menu bar now." = "Раскладку сейчас не видно в строке меню.";
 "Show the layout in Perekey" = "Показывать раскладку в Perekey";
 "Show the capsule" = "Показать капсулу";
+"The file was not transcribed" = "Файл не расшифрован";
+"This build of Perekey has no voice input, so it cannot transcribe files." = "В этой сборке Perekey нет голосового ввода, поэтому файлы она не расшифровывает.";
+"OK" = "OK";

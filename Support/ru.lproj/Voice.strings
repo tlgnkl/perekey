@@ -485,3 +485,10 @@
 "Dictation: pasted" = "Диктовка: вставкой";
 "Dictation: typed" = "Диктовка: набором";
 "Remove the rule and the dictation input" = "Удалить правило и вставку диктовки";
+"The file was not transcribed" = "Файл не расшифрован";
+"Perekey transcribes audio and video files. This one is neither." = "Perekey расшифровывает аудио и видео. Этот файл — ни то, ни другое.";
+"Voice input is off. Turn it on in Settings → Voice to transcribe files." = "Голосовой ввод выключен. Включите его в Настройках → Голос, чтобы расшифровывать файлы.";
+"Voice input is not available on this Mac, or your administrator turned it off." = "Голосовой ввод недоступен на этом Mac или выключен администратором.";
+"Voice input did not start in time. Try again in a moment." = "Голосовой ввод не успел запуститься. Попробуйте ещё раз через минуту.";
+"Open Settings → Voice" = "Открыть Настройки → Голос";
+"Transcribe File… is unavailable: voice input is off." = "«Расшифровать файл…» недоступна: голосовой ввод выключен.";

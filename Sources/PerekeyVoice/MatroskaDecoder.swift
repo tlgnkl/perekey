@@ -25,8 +25,8 @@ struct MatroskaDecoder {
     private static let maxFrameBytes = 65536
     /// A hole in the timestamps longer than this is filled with silence.
     private static let gapSeconds = 0.04
-    /// Silence put in for holes stops at this much, so a wild timestamp cannot ask for gigabytes.
-    private static let maxPaddingSeconds = 12.0 * 3600
+    /// A longer hole gets no silence, so one wild timestamp cannot ask for gigabytes.
+    private static let maxHoleSeconds = 600.0
 
     /// Samples at 48 kHz that Core Audio's Opus decoder leaves out of the start of its output.
     private static let opusDecoderDelay = 120
@@ -148,7 +148,7 @@ struct MatroskaDecoder {
 
         // Frames that can be a packet, with the time the container gives them.
         let usable = file.frames.indices.filter { !file.frames[$0].isEmpty && file.frames[$0].count <= Self.maxFrameBytes }
-        let origin = usable.lazy.compactMap { file.starts[$0] }.first
+        var origin = usable.lazy.compactMap { file.starts[$0] }.first
         // Seconds of audio in the packets handed over, and of silence put in for holes.
         var decodedSeconds = 0.0
         var paddedSeconds = 0.0
@@ -158,12 +158,17 @@ struct MatroskaDecoder {
             var end = next
             while end < usable.count, end - next < 64 {
                 // How far the frame starts after the audio so far ends; a hole splits the batch.
-                if let origin, let start = file.starts[usable[end]] {
-                    let hole = Double(start - origin) / 1e9 - decodedSeconds - paddedSeconds
-                    if hole > Self.gapSeconds, paddedSeconds + hole <= Self.maxPaddingSeconds {
+                if let zero = origin, let start = file.starts[usable[end]] {
+                    let hole = Double(start - zero) / 1e9 - decodedSeconds - paddedSeconds
+                    if hole > Self.gapSeconds {
                         if end > next { break }
-                        try Self.silence(seconds: hole, emit)
-                        paddedSeconds += hole
+                        if hole <= Self.maxHoleSeconds {
+                            try Self.silence(seconds: hole, emit)
+                            paddedSeconds += hole
+                        } else {
+                            // Not padded: move the origin so the later holes are counted from here.
+                            origin = zero + Int64(hole * 1e9)
+                        }
                     }
                 }
                 decodedSeconds += seconds(of: file.data[file.frames[usable[end]]])
@@ -248,10 +253,9 @@ struct MatroskaDecoder {
 
     /// The frames of `batch` as one buffer of packets; each is not longer than `maxFrameBytes`.
     private func packetBuffer(_ batch: [Range<Int>]) throws -> AVAudioCompressedBuffer {
-        let total = batch.reduce(0) { $0 + $1.count }
-        // Room for the sum of the sizes, not for the longest frame in every place.
+        // Core Audio may cap each packet at the declared size, so it is the longest one (at most 64 KB).
         let packets = AVAudioCompressedBuffer(format: compressed, packetCapacity: AVAudioPacketCount(batch.count),
-                                              maximumPacketSize: max(1, (total + batch.count - 1) / max(1, batch.count)))
+                                              maximumPacketSize: max(1, batch.map(\.count).max() ?? 1))
         guard let descriptions = packets.packetDescriptions else { throw LongAudioError.unreadable }
         var offset = 0
         for (index, range) in batch.enumerated() {

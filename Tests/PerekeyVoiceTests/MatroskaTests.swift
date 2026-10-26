@@ -327,6 +327,37 @@ struct MatroskaTests {
         holed.close()
     }
 
+    @Test func oneWildTimestampJumpGetsNoSilence() async throws {
+        let packets = try Self.opusPackets()
+        // A jump of three hours after the 50th packet, as a bad splice would leave.
+        let times = packets.indices.map { $0 * 20 + ($0 >= 50 ? 3 * 3600 * 1000 : 0) }
+        let directory = try Directory()
+        let whole = try await directory.decode(directory.write("whole.webm", Self.file(
+            tracks: [Track(codecPrivate: Self.opusHead(preSkip: 312))], frames: packets)))
+        let jumped = try await directory.decode(directory.write("jump.webm", Self.file(
+            tracks: [Track(codecPrivate: Self.opusHead(preSkip: 312))], frames: packets, times: times)))
+        #expect(abs(jumped.sampleCount - whole.sampleCount) <= 2)
+        let samples = try jumped.read(0..<jumped.sampleCount)
+        // The tone at 1 s comes after the jump and is decoded where it was.
+        let first = try #require(onset(samples))
+        #expect(abs(first - 16_000) < 400, "onset \(first)")
+        whole.close()
+        jumped.close()
+    }
+
+    @Test func packetsOfVeryDifferentSizesInOneBatchDecode() async throws {
+        var packets = try Self.opusPackets()
+        // A one-byte packet (table of contents only) next to the full ones, as a silence-suppressing encoder sends.
+        for index in stride(from: 2, to: 40, by: 3) { packets[index] = [packets[index][0] & 0xFC] }
+        let directory = try Directory()
+        let audio = try await directory.decode(directory.write("mixed.webm", Self.file(
+            tracks: [Track(codecPrivate: Self.opusHead(preSkip: 312))], frames: packets)))
+        #expect(audio.sampleCount > 30_000)
+        let samples = try audio.read(0..<audio.sampleCount)
+        #expect(onset(samples) != nil)
+        audio.close()
+    }
+
     @Test func opusPreSkipIsCutFromTheStart() async throws {
         let packets = try Self.opusPackets()
         let directory = try Directory()

@@ -56,12 +56,14 @@ struct MatroskaTests {
         var codecPrivate: [UInt8] = []
         var rate = 48000.0
         var channels = 1
+        /// The Channels field as written, if it is not a number of channels.
+        var channelsField: UInt64?
 
         var bytes: [UInt8] {
             var fields = EBML.uint(0xD7, UInt64(number)) + EBML.uint(0x83, UInt64(type)) + EBML.text(0x86, codec)
             if !codecPrivate.isEmpty { fields += EBML.element(0x63A2, codecPrivate) }
             if type == 2 {
-                fields += EBML.element(0xE1, EBML.float(0xB5, rate) + EBML.uint(0x9F, UInt64(channels)))
+                fields += EBML.element(0xE1, EBML.float(0xB5, rate) + EBML.uint(0x9F, channelsField ?? UInt64(channels)))
             }
             return EBML.element(0xAE, fields)
         }
@@ -74,18 +76,21 @@ struct MatroskaTests {
     /// A WebM file: the EBML header, a Segment holding the tracks and one
     /// Cluster per `perCluster` frames of track 1, each as a SimpleBlock or,
     /// with `groups`, a BlockGroup. `unknownSizes` writes the Segment and the
-    /// Clusters as a browser does.
+    /// Clusters as a browser does. A frame is 20 ms after the one before it,
+    /// or at `times` (milliseconds) if they are given.
     static func file(tracks: [Track], frames: [[UInt8]], perCluster: Int = 50, unknownSizes: Bool = false,
-                     groups: Bool = false, blockTrack: UInt8 = 1, docType: String = "webm") -> [UInt8]
+                     groups: Bool = false, blockTrack: UInt8 = 1, docType: String = "webm", times: [Int]? = nil) -> [UInt8]
     {
+        func time(_ index: Int) -> Int { times?[index] ?? index * 20 }
         let header = EBML.element(0x1A45_DFA3, EBML.uint(0x4286, 1) + EBML.text(0x4282, docType))
         var body = EBML.element(0x1549_A966, EBML.uint(0x2AD7B1, 1_000_000))
         body += EBML.element(0x1654_AE6B, tracks.flatMap(\.bytes))
         var clusters: [UInt8] = []
         for start in stride(from: 0, to: frames.count, by: perCluster) {
-            var cluster = EBML.uint(0xE7, UInt64(start * 20))
+            var cluster = EBML.uint(0xE7, UInt64(time(start)))
             for (index, frame) in frames[start..<min(start + perCluster, frames.count)].enumerated() {
-                let block: [UInt8] = [0x80 | blockTrack, UInt8(index >> 8 & 0xFF), UInt8(index & 0xFF), groups ? 0 : 0x80] + frame
+                let relative = time(start + index) - time(start)
+                let block: [UInt8] = [0x80 | blockTrack, UInt8(relative >> 8 & 0xFF), UInt8(relative & 0xFF), groups ? 0 : 0x80] + frame
                 cluster += groups ? EBML.element(0xA0, EBML.element(0xA1, block)) : EBML.element(0xA3, block)
             }
             clusters += EBML.element(0x1F43_B675, cluster, unknownSize: unknownSizes)
@@ -229,6 +234,60 @@ struct MatroskaTests {
         #expect(throws: LongAudioError.unreadable) { try MatroskaFile(Data("RIFF....WAVE".utf8)) }
     }
 
+    // MARK: Hostile files
+
+    /// A file with one SimpleBlock for track 1 and the given flags and body, repeated `blocks` times in one Cluster.
+    private static func hostile(flags: UInt8 = 0, body: [UInt8], tracks: [UInt8] = Track().bytes,
+                                blocks: Int = 1) -> [UInt8]
+    {
+        let header = EBML.element(0x1A45_DFA3, EBML.uint(0x4286, 1))
+        let block = EBML.element(0xA3, [0x81, 0, 0, flags] + body)
+        let cluster = EBML.element(0x1F43_B675, Array([[UInt8]](repeating: block, count: blocks).joined()))
+        return header + EBML.element(0x1853_8067, EBML.element(0x1654_AE6B, tracks) + cluster)
+    }
+
+    @Test func tracksCutOffInsideATrackEntryHeader() {
+        // Tracks of one byte, the ID of a TrackEntry; its size is read past the end of Tracks.
+        let header = EBML.element(0x1A45_DFA3, EBML.uint(0x4286, 1))
+        let bytes = header + EBML.id(0x1853_8067) + EBML.unknownSize + EBML.id(0x1654_AE6B) + [0x81, 0xAE, 0x85, 1, 2, 3, 4, 5]
+        #expect(throws: LongAudioError.unreadable) { try MatroskaFile(Data(bytes)) }
+    }
+
+    @Test func channelsAboveIntMax() throws {
+        let track = Track(channelsField: UInt64.max)
+        let file = try MatroskaFile(Data(Self.hostile(body: [1, 2, 3], tracks: track.bytes)))
+        #expect(file.track.channels == Int.max && file.frames.count == 1)
+    }
+
+    @Test func lacingSizesThatOverflow() {
+        func lace(_ first: [UInt8], _ difference: [UInt8]) -> [UInt8] {
+            [255] + first + Array([[UInt8]](repeating: difference, count: 254).joined())
+        }
+        // EBML: 256 frames, the first of about 2^55 bytes, 254 differences of the same size up or down.
+        let ebml = lace([0x01, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE], [0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE])
+        let positive = lace([0x01, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE], [0x01, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        // Xiph: 255 sizes of a thousand 255s each, far more than the body holds.
+        let xiph = [255] + [UInt8](repeating: 255, count: 255 * 1000) + [1]
+        for (kind, body) in [(UInt8(3), ebml), (3, positive), (1, xiph), (2, [255, 1, 2, 3])] {
+            #expect(throws: LongAudioError.unreadable) { try MatroskaFile(Data(Self.hostile(flags: kind << 1, body: body))) }
+        }
+    }
+
+    @Test func emptyFramesAreLeftOutAndTheirNumberIsCapped() throws {
+        // 256 empty frames laced in one byte: no frame. A block with an empty body is no frame either.
+        let empty = Self.hostile(flags: 2 << 1, body: [255])
+        #expect(throws: LongAudioError.unreadable) { try MatroskaFile(Data(empty)) }
+        let kept = Self.hostile(flags: 0, body: [])
+        #expect(throws: LongAudioError.unreadable) { try MatroskaFile(Data(kept)) }
+        // Blocks of 256 one-byte frames: past two million frames the file is refused by name.
+        let many = Self.hostile(flags: 2 << 1, body: [255] + [UInt8](repeating: 7, count: 256), blocks: 8_000)
+        #expect(throws: LongAudioError.unsupported("Matroska with more than two million audio frames")) {
+            try MatroskaFile(Data(many))
+        }
+        let fewer = try MatroskaFile(Data(Self.hostile(flags: 2 << 1, body: [255] + [UInt8](repeating: 7, count: 256), blocks: 3)))
+        #expect(fewer.frames.count == 768 && fewer.starts.count == 768)
+    }
+
     // MARK: Decoding
 
     @Test func opusInBrowserFileDecodesToSixteenKilohertz() async throws {
@@ -246,6 +305,26 @@ struct MatroskaTests {
         #expect(samples.map(abs).max()! > 0.3 && samples.map(abs).max()! < 0.7)
         audio.close()
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.scratch.path).isEmpty)
+    }
+
+    @Test func holeInTheTimestampsIsFilledWithSilence() async throws {
+        let packets = try Self.opusPackets()
+        // Two seconds missing after the 50th packet: spliced, dropped by OBS, or silence the encoder did not send.
+        let times = packets.indices.map { $0 * 20 + ($0 >= 50 ? 2000 : 0) }
+        let directory = try Directory()
+        let whole = try await directory.decode(directory.write("whole.webm", Self.file(
+            tracks: [Track(codecPrivate: Self.opusHead(preSkip: 312))], frames: packets)))
+        let holed = try await directory.decode(directory.write("hole.webm", Self.file(
+            tracks: [Track(codecPrivate: Self.opusHead(preSkip: 312))], frames: packets, times: times)))
+        #expect(abs(holed.sampleCount - whole.sampleCount - 32_000) <= 2)
+        let samples = try holed.read(0..<holed.sampleCount)
+        // The tone was at 1 s, which is the 50th packet: it now starts 2 s later.
+        let first = try #require(onset(samples))
+        #expect(abs(first - 48_000) < 400, "onset \(first)")
+        // The hole itself is silence.
+        #expect(samples[17_000..<47_000].allSatisfy { abs($0) < 0.01 })
+        whole.close()
+        holed.close()
     }
 
     @Test func opusPreSkipIsCutFromTheStart() async throws {

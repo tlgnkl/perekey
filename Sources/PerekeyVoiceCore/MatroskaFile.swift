@@ -30,6 +30,14 @@ public struct MatroskaFile: Sendable {
     /// The file, mapped: `frames` are ranges in it.
     public let data: Data
     public let frames: [Range<Int>]
+    /// Where each frame starts in the recording, in nanoseconds. A block says
+    /// when it starts; the frames laced after its first, and the frames of a
+    /// block that says nothing usable, are nil.
+    public let starts: [Int64?]
+
+    /// More frames than this (11 hours at 20 ms) are not read: a few bytes of
+    /// lacing can promise hundreds.
+    static let maxFrames = 2_000_000
 
     /// Whether the file starts with the EBML magic of Matroska and WebM.
     public static func hasMagic(_ head: Data) -> Bool {
@@ -44,6 +52,9 @@ public struct MatroskaFile: Sendable {
     private enum ID {
         static let ebml: UInt32 = 0x1A45_DFA3
         static let segment: UInt32 = 0x1853_8067
+        static let info: UInt32 = 0x1549_A966
+        static let timecodeScale: UInt32 = 0x2AD7B1
+        static let clusterTimestamp: UInt32 = 0xE7
         static let tracks: UInt32 = 0x1654_AE6B
         static let trackEntry: UInt32 = 0xAE
         static let trackNumber: UInt32 = 0xD7
@@ -64,26 +75,55 @@ public struct MatroskaFile: Sendable {
 
     /// Reads the track and the frame positions; nothing is decoded.
     /// Throws `unreadable` for a file that is not Matroska or has no audio
-    /// track, and for one cut off before its first audio frame.
+    /// track, and for one cut off before its first audio frame, and
+    /// `unsupported` for one with more frames than `maxFrames`.
     public init(_ data: Data) throws {
         self.data = data
         let reader = Reader(data: data)
         guard reader.id(at: 0) == ID.ebml else { throw LongAudioError.unreadable }
         var track: Track?
         var frames: [Range<Int>] = []
+        // Block times in timecode ticks, turned into nanoseconds once the scale is known.
+        var ticks: [Int64?] = []
+        var scale: UInt64 = 1_000_000
+        var cluster: Int64?
         var position = 0
         scan: while let element = reader.element(at: position) {
             switch element.id {
-            case ID.segment, ID.cluster, ID.blockGroup:
+            case ID.segment, ID.info, ID.blockGroup:
                 position = element.payload
+            case ID.cluster:
+                cluster = nil
+                position = element.payload
+            case ID.timecodeScale, ID.clusterTimestamp:
+                guard let end = element.end, end <= data.count else { break scan }
+                let value = reader.uint(element.payload..<end)
+                if element.id == ID.timecodeScale {
+                    if value > 0 { scale = value }
+                } else {
+                    cluster = Int64(exactly: value)
+                }
+                position = end
             case ID.tracks:
                 guard let end = element.end else { break scan }
-                if track == nil { track = Self.firstAudio(in: element.payload..<min(end, data.count), reader) }
+                let upper = min(end, data.count)
+                if track == nil, element.payload <= upper {
+                    track = Self.firstAudio(in: element.payload..<upper, reader)
+                }
                 position = end
             case ID.simpleBlock, ID.block:
                 guard let end = element.end, end <= data.count else { break scan }
-                if let track, let found = Self.frames(in: element.payload..<end, of: track.number, reader) {
-                    frames += found
+                if let track, let found = Self.frames(in: element.payload..<end, of: track.number, reader),
+                   !found.frames.isEmpty
+                {
+                    guard frames.count + found.frames.count <= Self.maxFrames else {
+                        throw LongAudioError.unsupported("Matroska with more than two million audio frames")
+                    }
+                    frames += found.frames
+                    // Only the first frame of a block has a time of its own.
+                    let (time, overflow) = (cluster ?? 0).addingReportingOverflow(found.relative)
+                    ticks.append(cluster == nil || overflow ? nil : time)
+                    ticks += [Int64?](repeating: nil, count: found.frames.count - 1)
                 }
                 position = end
             default:
@@ -95,13 +135,20 @@ public struct MatroskaFile: Sendable {
         guard let track, !frames.isEmpty else { throw LongAudioError.unreadable }
         self.track = track
         self.frames = frames
+        let nanoseconds = Int64(clamping: scale)
+        starts = ticks.map { tick in
+            guard let tick, tick >= 0 else { return nil }
+            let (product, overflow) = tick.multipliedReportingOverflow(by: nanoseconds)
+            return overflow ? nil : product
+        }
     }
 
     /// The first track of type audio in a Tracks element.
     private static func firstAudio(in range: Range<Int>, _ reader: Reader) -> Track? {
         var position = range.lowerBound
         while position < range.upperBound, let entry = reader.element(at: position) {
-            guard let end = entry.end else { return nil }
+            // A header read past the end of Tracks has no payload inside it.
+            guard let end = entry.end, entry.payload <= range.upperBound else { return nil }
             if entry.id == ID.trackEntry, let track = entryTrack(in: entry.payload..<min(end, range.upperBound), reader) {
                 return track
             }
@@ -131,7 +178,7 @@ public struct MatroskaFile: Sendable {
                     if value.id == ID.samplingFrequency {
                         track.sampleRate = reader.float(value.payload..<valueEnd) ?? track.sampleRate
                     } else if value.id == ID.channels {
-                        track.channels = Int(reader.uint(value.payload..<valueEnd))
+                        track.channels = Int(clamping: reader.uint(value.payload..<valueEnd))
                     }
                     inner = valueEnd
                 }
@@ -143,16 +190,20 @@ public struct MatroskaFile: Sendable {
     }
 
     /// The frames of a Block or SimpleBlock if it belongs to `number`: one,
-    /// or several if the block is laced.
-    private static func frames(in range: Range<Int>, of number: UInt64, _ reader: Reader) -> [Range<Int>]? {
+    /// or several if the block is laced, and the block's time relative to its
+    /// cluster in ticks. Frames with nothing in them are left out.
+    private static func frames(in range: Range<Int>, of number: UInt64, _ reader: Reader)
+        -> (frames: [Range<Int>], relative: Int64)?
+    {
         guard let (block, length) = reader.size(at: range.lowerBound), block == number else { return nil }
         // Track number, timecode (2 bytes), flags.
         let flagsAt = range.lowerBound + length + 2
         guard flagsAt < range.upperBound else { return nil }
         let lacing = (reader.data[flagsAt] >> 1) & 3
         let body = (flagsAt + 1)..<range.upperBound
-        if lacing == 0 { return [body] }
-        return reader.laced(body, kind: lacing)
+        let relative = Int64(Int16(bitPattern: UInt16(reader.data[flagsAt - 2]) << 8 | UInt16(reader.data[flagsAt - 1])))
+        let frames = lacing == 0 ? [body] : reader.laced(body, kind: lacing)
+        return frames.map { ($0.filter { !$0.isEmpty }, relative) }
     }
 
     /// Reads EBML numbers and element headers from the mapped file.
@@ -217,43 +268,55 @@ public struct MatroskaFile: Sendable {
         }
 
         /// The frames of a laced block body: Xiph (1), fixed-size (2) or EBML (3) lacing.
+        /// Every size is checked as it is read, against what the body can hold.
         func laced(_ body: Range<Int>, kind: UInt8) -> [Range<Int>]? {
             guard let count = byte(body.lowerBound).map({ Int($0) + 1 }) else { return nil }
             var position = body.lowerBound + 1
             var sizes: [Int] = []
+            var total = 0
+            func add(_ size: Int) -> Bool {
+                guard size >= 0, size <= body.count - total else { return false }
+                sizes.append(size)
+                total += size
+                return true
+            }
             switch kind {
             case 2:
                 let each = (body.upperBound - position) / count
                 guard each * count == body.upperBound - position else { return nil }
-                sizes = Array(repeating: each, count: count)
+                for _ in 0..<count { _ = add(each) }
             case 1:
                 for _ in 0..<(count - 1) {
                     var value = 0
-                    while let next = byte(position), position < body.upperBound {
+                    while true {
+                        guard position < body.upperBound, let next = byte(position) else { return nil }
                         position += 1
                         value += Int(next)
                         if next != 255 { break }
+                        // Past what the body holds: the size is wrong, and the sum must not grow.
+                        guard value <= body.count else { return nil }
                     }
-                    sizes.append(value)
+                    guard add(value) else { return nil }
                 }
             default:
                 if count > 1 {
-                    guard let (first, length) = size(at: position), let start = first else { return nil }
+                    guard let (first, length) = size(at: position), let start = first, position + length <= body.upperBound,
+                          add(Int(clamping: start)) else { return nil }
                     position += length
-                    sizes.append(Int(start))
                 }
                 for _ in 2..<max(2, count) {
                     // A signed difference from the previous size, in the bias of its length.
-                    guard let (delta, deltaLength) = size(at: position) else { return nil }
+                    guard let (raw, deltaLength) = size(at: position), let delta = raw, position + deltaLength <= body.upperBound
+                    else { return nil }
                     position += deltaLength
                     let bias = (1 << (7 * deltaLength - 1)) - 1
-                    sizes.append(sizes.last! + Int(delta ?? 0) - bias)
+                    let (next, overflow) = sizes[sizes.count - 1].addingReportingOverflow(Int(clamping: delta) - bias)
+                    guard !overflow, add(next) else { return nil }
                 }
             }
-            let used = sizes.reduce(0, +)
             // The last frame is the rest; fixed-size lacing has it in `sizes` already.
-            if kind != 2 { sizes.append(body.upperBound - position - used) }
-            guard sizes.allSatisfy({ $0 >= 0 }), position + sizes.reduce(0, +) <= body.upperBound else { return nil }
+            if kind != 2, !add(body.upperBound - position - total) { return nil }
+            guard position + total <= body.upperBound else { return nil }
             var frames: [Range<Int>] = []
             for size in sizes {
                 frames.append(position..<(position + size))

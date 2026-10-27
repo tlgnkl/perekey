@@ -228,11 +228,14 @@ struct MenuContent: View {
             .onPreferenceChange(MenuOrderKey.self) { nav.topOrder = $0 }
             MenuScroll(nav: nav, limit: max(presentation.budget - topHeight.wrappedValue, Self.minScroll),
                        onOverflow: onOverflow) {
-                Reveal(open: open) {
-                    LayoutsList(sources: sources, nav: nav, active: open, onSelected: actions.close)
-                        .padding(.bottom, 8)
-                        .accessibilityHidden(!open)
-                        .allowsHitTesting(open)
+                // The header's list is not built while the block below shows the same list.
+                if !hasList {
+                    Reveal(open: open) {
+                        LayoutsList(sources: sources, nav: nav, active: open, onSelected: actions.close)
+                            .padding(.bottom, 8)
+                            .accessibilityHidden(!open)
+                            .allowsHitTesting(open)
+                    }
                 }
                 Reveal(open: pause.current != nil) {
                     if let reason = heldReason {
@@ -308,8 +311,11 @@ struct MenuContent: View {
             }
             #if PEREKEY_VOICE
             // Expired dictations go when the menu opens, at most once a day.
-            actions.dictation?.history.purgeIfDue()
-            actions.callRecording?.purgeIfDue()
+            // Only the live menu cleans: the preview in Settings has no side effects.
+            if editable {
+                actions.dictation?.history.purgeIfDue()
+                actions.callRecording?.purgeIfDue()
+            }
             #endif
         }
         .onChange(of: pause.current) { _, new in
@@ -327,7 +333,31 @@ struct MenuContent: View {
     /// A right click on a block: hide it, or open the settings of the menu.
     private func menu(_ block: MenuBlock) -> BlockMenu? {
         guard editable else { return nil }
-        return BlockMenu(hide: { store.update { $0.menu.set(block, shown: false) } }, customize: actions.customizeMenu)
+        return BlockMenu(hide: {
+            store.update { $0.menu.set(block, shown: false) }
+            // The lit row may be in the block that goes: the keyboard would be left on nothing.
+            if let lit = nav.highlighted, Self.owns(block, row: lit) { nav.highlighted = nil }
+        }, customize: actions.customizeMenu)
+    }
+
+    /// Whether a row id belongs to a block of the menu.
+    static func owns(_ block: MenuBlock, row id: String) -> Bool {
+        switch block {
+        case .modeCard: id == "mode"
+        case .recentCorrections: id.hasPrefix("fix-")
+        case .recentDictations: id.hasPrefix("dictation-")
+        case .pause: id == "pause"
+        case .voiceMode: id == "voice-mode"
+        case .transcripts: id == "transcripts" || id.hasPrefix("summary-")
+        case .transcribeFile: id == "transcribe-file"
+        case .callRecording: id == "call"
+        case .updates: id == "updates"
+        case .about: id == "about"
+        case .statistics: false
+        case .launchAtLogin: id == "launch"
+        case .howTo: id == "onboarding"
+        case .layoutsList: id.hasPrefix("layout-")
+        }
     }
 
     /// The card, the lists and the dictations: what stands above the switches.
@@ -572,6 +602,7 @@ struct MenuContent: View {
             }
             if let transcribeFile = actions.transcribeFile, shows(.transcribeFile), actions.canTranscribeFiles() {
                 MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {
+                    guard editable else { return }
                     actions.close()
                     transcribeFile()
                 }
@@ -581,11 +612,13 @@ struct MenuContent: View {
             if let call = actions.callRecording, call.isAvailable, call.isRecording || shows(.callRecording) {
                 if call.isRecording {
                     MenuCommandRow(id: "call", title: "Stop Recording", table: "Voice", nav: nav) {
+                        guard editable else { return }
                         actions.close()
                         call.menuAction()
                     }
                 } else {
                     MenuCommandRow(id: "call", title: "Record a Call…", table: "Voice", nav: nav) {
+                        guard editable else { return }
                         actions.close()
                         call.menuAction()
                     }

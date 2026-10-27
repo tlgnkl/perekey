@@ -66,7 +66,7 @@ enum SettingsIndex {
         #endif
         list += [
             item(.general, "Pause for 1 hour", "general.menu-pause"),
-            item(.general, "Launch at login", "general.menu-launch"),
+            item(.general, "Launch at login in the menu", "general.menu-launch"),
         ]
         #if PEREKEY_VOICE
         list += [voiceItem(.general, "Voice mode", "general.menu-voice-mode", .voiceOn)]
@@ -76,13 +76,13 @@ enum SettingsIndex {
         ]
         #if PEREKEY_VOICE
         list += [
-            voiceItem(.general, "Transcripts…", "general.menu-transcripts", .voiceOn),
-            voiceItem(.general, "Transcribe File…", "general.menu-transcribe", .voiceOn),
-            voiceItem(.general, "Record a Call…", "general.menu-call", .voiceOn),
+            voiceItem(.general, "Transcripts", "general.menu-transcripts", .voiceOn),
+            voiceItem(.general, "Transcribe File", "general.menu-transcribe", .voiceOn),
+            voiceItem(.general, "Record a Call", "general.menu-call", .voiceOn),
         ]
         #endif
         list += [
-            item(.general, "Check for Updates…", "general.menu-updates"),
+            item(.general, "Check for Updates", "general.menu-updates"),
             item(.general, "How to Use Perekey", "general.menu-how-to"),
             item(.general, "About Perekey", "general.menu-about"),
             item(.general, "Count for today", "general.menu-statistics", .usage),

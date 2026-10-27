@@ -49,6 +49,7 @@
 "It looks like a password, so Perekey leaves it alone" = "It looks like a password, so Perekey leaves it alone";
 "Karabiner-Elements is running. Its rules may override this." = "Karabiner-Elements is running. Its rules may override this.";
 "Key %lld" = "Key %lld";
+"Launch at login in the menu" = "Launch at login in the menu";
 "Launch at login" = "Launch at login";
 "Let Perekey see the keys" = "Let Perekey see the keys";
 "Like Alt+Shift on Windows" = "Like Alt+Shift on Windows";
@@ -263,6 +264,7 @@
 "This build has no update key and cannot update itself." = "This build has no update key and cannot update itself.";
 "Never" = "Never";
 "Install Update %@…" = "Install Update %@…";
+"Check for Updates" = "Check for Updates";
 "Check for Updates…" = "Check for Updates…";
 /* Stage 2: automatic switching */
 "Undo last correction" = "Undo last correction";

@@ -116,7 +116,7 @@ struct MenuGroup: View {
             blockRow(Text("Pause for 1 hour"), anchor: "general.menu-pause", .pause)
             if launch != nil {
                 PKDivider()
-                blockRow(Text("Launch at login"), anchor: "general.menu-launch", .launchAtLogin)
+                blockRow(Text("Launch at login in the menu"), anchor: "general.menu-launch", .launchAtLogin)
             }
             #if PEREKEY_VOICE
             if voiceIsOn {
@@ -130,15 +130,15 @@ struct MenuGroup: View {
             #if PEREKEY_VOICE
             if voiceIsOn {
                 PKDivider()
-                blockRow(voiceText("Transcripts…"), anchor: "general.menu-transcripts", .transcripts)
+                blockRow(voiceText("Transcripts"), anchor: "general.menu-transcripts", .transcripts)
                 PKDivider()
-                blockRow(voiceText("Transcribe File…"), anchor: "general.menu-transcribe", .transcribeFile)
+                blockRow(voiceText("Transcribe File"), anchor: "general.menu-transcribe", .transcribeFile)
                 PKDivider()
-                blockRow(voiceText("Record a Call…"), anchor: "general.menu-call", .callRecording)
+                blockRow(voiceText("Record a Call"), anchor: "general.menu-call", .callRecording)
             }
             #endif
             PKDivider()
-            blockRow(Text("Check for Updates…"), anchor: "general.menu-updates", .updates)
+            blockRow(Text("Check for Updates"), anchor: "general.menu-updates", .updates)
             PKDivider()
             blockRow(Text("How to Use Perekey"), anchor: "general.menu-how-to", .howTo)
             PKDivider()

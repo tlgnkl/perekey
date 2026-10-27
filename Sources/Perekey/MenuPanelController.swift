@@ -83,7 +83,10 @@ final class MenuPanelController {
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var teardown: DispatchWorkItem?
     /// A context menu (a right click on a block) is open: the panel may lose the key to it, and stays.
+    /// A right click in the panel is about to open a menu, or one is open: the panel stays until it ends.
     @ObservationIgnored private var contextMenuOpen = false
+    /// The menu opened from the panel; only its end lowers `contextMenuOpen`.
+    @ObservationIgnored private var panelMenu: ObjectIdentifier?
 
     /// Room around the menu for its shadow; the panel is this much larger on each side.
     private static let inset: CGFloat = 28
@@ -265,6 +268,23 @@ final class MenuPanelController {
         }) {
             monitors.append(local)
         }
+        // A right click (or control-click) in the panel raises the flag before the menu opens, so the
+        // panel losing key never beats it.
+        if let menuClick = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown], handler: { [weak self] event in
+            if let self, event.window === panel,
+               event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
+                contextMenuOpen = true
+                panelMenu = nil
+                // No menu came out of the click (nothing to offer there): lower the flag again.
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(600))
+                    if let self, self.panelMenu == nil { self.contextMenuOpen = false }
+                }
+            }
+            return event
+        }) {
+            monitors.append(menuClick)
+        }
         let workspace = NSWorkspace.shared.notificationCenter
         observers.append((workspace, workspace.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
@@ -287,15 +307,22 @@ final class MenuPanelController {
         }))
         observers.append((center, center.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.contextMenuOpen = true }
+        ) { [weak self] note in
+            let opened = (note.object as? NSMenu).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated {
+                // Only the menu a click in the panel opened; any other menu of the app is not ours.
+                guard let self, self.contextMenuOpen, self.panelMenu == nil else { return }
+                self.panelMenu = opened
+            }
         }))
         observers.append((center, center.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            let ended = (note.object as? NSMenu).map(ObjectIdentifier.init)
             MainActor.assumeIsolated {
-                guard let self, self.contextMenuOpen else { return }
+                guard let self, self.contextMenuOpen, let menu = self.panelMenu, ended == menu else { return }
                 self.contextMenuOpen = false
+                self.panelMenu = nil
                 // The menu is done: the keyboard works in the panel again.
                 if self.isOpen { self.panel?.makeKey() }
             }

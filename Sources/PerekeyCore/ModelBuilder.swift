@@ -15,7 +15,7 @@ public struct ModelBuilder: Sendable {
     /// Buckets of the "ё" table: it holds tens of thousands of forms, not millions.
     public static let yoBucketBits = 12
     /// Buckets of the hyphen table: the hand list and the words derived by
-    /// rule, hundreds of thousands.
+    /// rule, tens of thousands.
     public static let hyphenBucketBits = 12
 
     /// Free text stored in the model: sources, licences, input hashes.

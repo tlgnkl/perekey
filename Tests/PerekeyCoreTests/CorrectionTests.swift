@@ -462,6 +462,7 @@ extension Desk {
         desk.type("поновому ", on: Fixture.russian)
         desk.press(KeyCode.delete)
         #expect(desk.text == "поновому ")
+        desk.type(" ")
         #expect(desk.learned == ["поновому"])
     }
 

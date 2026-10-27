@@ -10,6 +10,8 @@ import SwiftUI
 /// What the menu asks its owner to do. Every action closes the menu first.
 struct MenuActions {
     var openSettings: () -> Void = {}
+    /// Opens Settings → General at the «Menu» group.
+    var customizeMenu: () -> Void = {}
     var showOnboarding: () -> Void = {}
     /// Opens the access step of onboarding.
     var openAccess: () -> Void = {}
@@ -48,8 +50,20 @@ final class MenuNav {
         var step: (@MainActor (Int) -> Void)?
     }
 
-    var order: [String] = []
+    /// The keyboard moved to this row: the scroll area brings it into view.
+    /// `token` makes a second move to the same row a new request.
+    struct ScrollRequest: Equatable {
+        let id: String
+        let token: Int
+    }
+
+    /// The rows above the scroll area and the rows in it: a preference does not
+    /// leave a `ScrollView`, so each part reports its own.
+    var topOrder: [String] = []
+    var bodyOrder: [String] = []
+    var order: [String] { topOrder + bodyOrder }
     var highlighted: String?
+    var scrollRequest: ScrollRequest?
     @ObservationIgnored var actions: [String: Action] = [:]
 
     func move(_ delta: Int) {
@@ -61,6 +75,7 @@ final class MenuNav {
             next = delta > 0 ? 0 : order.count - 1
         }
         highlighted = order[next]
+        scrollRequest = ScrollRequest(id: order[next], token: (scrollRequest?.token ?? 0) + 1)
     }
 
     func activate() {
@@ -90,22 +105,25 @@ private struct MenuOrderKey: PreferenceKey {
 private struct MenuItemModifier: ViewModifier {
     let id: String
     let nav: MenuNav
+    let active: Bool
     let step: (@MainActor (Int) -> Void)?
     let run: @MainActor () -> Void
 
     func body(content: Content) -> some View {
         content
-            .preference(key: MenuOrderKey.self, value: [id])
-            .onHover { nav.hover(id, $0) }
+            .id(id)
+            .preference(key: MenuOrderKey.self, value: active ? [id] : [])
+            .onHover { if active { nav.hover(id, $0) } }
             .onAppear { nav.actions[id] = MenuNav.Action(run: run, step: step) }
             .onDisappear { nav.actions[id] = nil }
     }
 }
 
-private extension View {
-    func menuItem(_ id: String, nav: MenuNav, step: (@MainActor (Int) -> Void)? = nil,
+extension View {
+    /// `active: false` keeps the row out of the keyboard's reach (a folded list).
+    func menuItem(_ id: String, nav: MenuNav, active: Bool = true, step: (@MainActor (Int) -> Void)? = nil,
                   run: @escaping @MainActor () -> Void) -> some View {
-        modifier(MenuItemModifier(id: id, nav: nav, step: step, run: run))
+        modifier(MenuItemModifier(id: id, nav: nav, active: active, step: step, run: run))
     }
 }
 
@@ -123,6 +141,35 @@ private struct LitRing: ViewModifier {
     }
 }
 
+/// What a right click on a block of the menu offers.
+struct BlockMenu {
+    let hide: () -> Void
+    let customize: () -> Void
+}
+
+private struct BlockContextMenu: ViewModifier {
+    let menu: BlockMenu?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let menu {
+            content.contextMenu {
+                Button("Hide from Menu", action: menu.hide)
+                Divider()
+                Button("Customize Menu…", action: menu.customize)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// A right click (or Control-click) offers «Hide from Menu»; `nil` leaves the row without a menu.
+    func blockMenu(_ menu: BlockMenu?) -> some View {
+        modifier(BlockContextMenu(menu: menu))
+    }
+}
+
 // MARK: - Menu
 
 /// The menu panel's content: header, held-state card, mode, recent corrections,
@@ -131,11 +178,12 @@ struct MenuContent: View {
     let sources: InputSources
     let store: SettingsStore
     let pause: PauseState
-    let launch: LaunchAtLogin
     let appModes: AppModeController
     let recents: RecentCorrections
     /// `nil` hides the statistics line (snapshots, tests).
     var usage: UsageRecorder?
+    /// `nil` hides «Launch at login» (snapshots, tests).
+    var launch: LaunchAtLogin?
     var nav = MenuNav()
     var actions = MenuActions()
     /// `nil` hides "Check for Updates…" (snapshots).
@@ -144,70 +192,130 @@ struct MenuContent: View {
     var explainedEntry: Int?
     /// Whether Perekey has access; read in `body`, so the row follows it.
     var hasAccess: @MainActor () -> Bool = { true }
+    /// Carries the height the menu may take.
+    var presentation = MenuPresentation()
+    /// The layouts list starts open (snapshots).
+    var layoutsOpenAtStart = false
+    /// Told whether what is under the header is taller than the room, so it scrolls.
+    var onOverflow: ((Bool) -> Void)?
+    /// A right click offers «Hide from Menu»; false in the preview of Settings.
+    var editable = true
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The last reason, so the card keeps its text while it folds away.
     private let lastReason = State<PauseReason?>(initialValue: nil)
+    /// The list of layouts under the header is open.
+    private let layoutsOpen = State(initialValue: false)
+    /// The height of the part that stays in place, for the scroll area's share.
+    private let topHeight = State(initialValue: CGFloat(0))
+    /// The scroll area never gets less than this, so Quit stays within reach.
+    private static var minScroll: CGFloat { 120 }
 
     var body: some View {
         let heldReason = pause.current ?? lastReason.wrappedValue
+        let open = layoutsOpen.wrappedValue && canExpandLayouts
         VStack(alignment: .leading, spacing: 0) {
-            if !hasAccess() {
-                accessRow
-            }
-            header
-            Reveal(open: pause.current != nil) {
-                if let reason = heldReason {
-                    PauseCard(reason: reason, now: pause.now, nav: nav, onAction: { action(for: reason) })
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 8)
+            // Stays in place; what is under it scrolls when the screen is too low.
+            VStack(alignment: .leading, spacing: 0) {
+                if !hasAccess() {
+                    accessRow
                 }
+                header
             }
-            modeCard
-                .padding(.horizontal, 12)
-            recentSection
-            #if PEREKEY_VOICE
-            if let dictation = actions.dictation, !dictation.history.entries.isEmpty {
-                DictationMenuSection(menu: dictation, close: actions.close)
-            }
-            #endif
-            PKDivider(leading: 12, trailing: 12).padding(.top, 10)
-            VStack(alignment: .leading, spacing: 2) {
-                switchRow(
-                    id: "pause", title: "Pause for 1 hour", subtitle: nil,
-                    isOn: Binding(
-                        get: { pause.isTimedPauseActive },
-                        set: { $0 ? pause.pauseForOneHour() : pause.resumeTimed() }
-                    )
-                )
-                LaunchAtLoginRow(launch: launch, nav: nav)
+            .background(GeometryReader { Color.clear.preference(key: TopHeightKey.self, value: $0.size.height) })
+            .onPreferenceChange(TopHeightKey.self) { topHeight.wrappedValue = $0 }
+            .onPreferenceChange(MenuOrderKey.self) { nav.topOrder = $0 }
+            MenuScroll(nav: nav, limit: max(presentation.budget - topHeight.wrappedValue, Self.minScroll),
+                       onOverflow: onOverflow) {
+                // The header's list is not built while the block below shows the same list.
+                if !hasList {
+                    Reveal(open: open) {
+                        LayoutsList(sources: sources, nav: nav, active: open, onSelected: actions.close)
+                            .padding(.bottom, 8)
+                            .accessibilityHidden(!open)
+                            .allowsHitTesting(open)
+                    }
+                }
+                Reveal(open: pause.current != nil) {
+                    if let reason = heldReason {
+                        PauseCard(reason: reason, now: pause.now, nav: nav, onAction: { action(for: reason) })
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 8)
+                    }
+                }
+                if shows(.modeCard) {
+                    modeCard
+                        .padding(.horizontal, 12)
+                        .blockMenu(menu(.modeCard))
+                }
+                if rows(.recentCorrections) > 0 {
+                    recentSection
+                        .blockMenu(menu(.recentCorrections))
+                }
                 #if PEREKEY_VOICE
-                if let voiceModes = actions.voiceModes, voiceModes.isOn() {
-                    VoiceModeMenuRow(menu: voiceModes, appModes: appModes, lit: nav.highlighted == "voice-mode")
-                        .menuItem("voice-mode", nav: nav, step: { voiceModes.step($0) }, run: { voiceModes.step(1) })
+                if let dictation = actions.dictation, showsDictations(dictation) {
+                    DictationMenuSection(menu: dictation, nav: nav, rows: rows(.recentDictations), close: actions.close)
+                        .blockMenu(rows(.recentDictations) > 0 ? menu(.recentDictations) : nil)
                 }
                 #endif
-            }
-            .padding(.vertical, 6)
-            PKDivider(leading: 12, trailing: 12)
-            LayoutsList(sources: sources, nav: nav, onSelected: actions.close)
-                .padding(.vertical, 6)
-            PKDivider(leading: 12, trailing: 12)
-            commands
-                .padding(.vertical, 6)
-            if let usage, store.settings.statistics {
-                usageLine(usage)
+                if hasTop && hasSwitches { PKDivider(leading: 12, trailing: 12).padding(.top, 10) }
+                if hasSwitches {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if shows(.pause) {
+                            switchRow(
+                                id: "pause", title: "Pause for 1 hour", subtitle: nil,
+                                isOn: Binding(
+                                    get: { pause.isTimedPauseActive },
+                                    set: { $0 ? pause.pauseForOneHour() : pause.resumeTimed() }
+                                )
+                            )
+                            .blockMenu(menu(.pause))
+                        }
+                        if let launch, shows(.launchAtLogin) {
+                            LaunchAtLoginRow(launch: launch, nav: nav)
+                                .blockMenu(menu(.launchAtLogin))
+                        }
+                        #if PEREKEY_VOICE
+                        if let voiceModes = actions.voiceModes, shows(.voiceMode), voiceModes.isOn() {
+                            VoiceModeMenuRow(menu: voiceModes, appModes: appModes, lit: nav.highlighted == "voice-mode")
+                                .menuItem("voice-mode", nav: nav, step: { voiceModes.step($0) }, run: { voiceModes.step(1) })
+                                .blockMenu(menu(.voiceMode))
+                        }
+                        #endif
+                    }
+                    .padding(.vertical, 6)
+                }
+                if hasList {
+                    if hasTop || hasSwitches { PKDivider(leading: 12, trailing: 12).padding(.top, hasSwitches ? 0 : 10) }
+                    LayoutsList(sources: sources, nav: nav, onSelected: actions.close)
+                        .padding(.vertical, 6)
+                        .blockMenu(menu(.layoutsList))
+                }
+                if hasTop || hasSwitches || hasList { PKDivider(leading: 12, trailing: 12) }
+                commands
+                    .padding(.vertical, 6)
+                if let usage, store.settings.statistics, shows(.statistics) {
+                    usageLine(usage)
+                        .blockMenu(menu(.statistics))
+                }
             }
         }
         .frame(width: 318)
-        .onPreferenceChange(MenuOrderKey.self) { nav.order = $0 }
         .onAppear {
             lastReason.wrappedValue = pause.current
+            if layoutsOpenAtStart {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { layoutsOpen.wrappedValue = true }
+            }
             #if PEREKEY_VOICE
             // Expired dictations go when the menu opens, at most once a day.
-            actions.dictation?.history.purgeIfDue()
-            actions.callRecording?.purgeIfDue()
+            // Only the live menu cleans: the preview in Settings has no side effects.
+            if editable {
+                actions.dictation?.history.purgeIfDue()
+                actions.callRecording?.purgeIfDue()
+            }
             #endif
         }
         .onChange(of: pause.current) { _, new in
@@ -216,16 +324,107 @@ struct MenuContent: View {
         .environment(nav)
     }
 
+    // MARK: Blocks
+
+    private func shows(_ block: MenuBlock) -> Bool { store.settings.menu.shows(block) }
+
+    private func rows(_ block: MenuBlock) -> Int { store.settings.menu.rows(of: block) }
+
+    /// A right click on a block: hide it, or open the settings of the menu.
+    private func menu(_ block: MenuBlock) -> BlockMenu? {
+        guard editable else { return nil }
+        return BlockMenu(hide: {
+            store.update { $0.menu.set(block, shown: false) }
+            // The lit row may be in the block that goes: the keyboard would be left on nothing.
+            if let lit = nav.highlighted, Self.owns(block, row: lit) { nav.highlighted = nil }
+        }, customize: actions.customizeMenu)
+    }
+
+    /// Whether a row id belongs to a block of the menu.
+    static func owns(_ block: MenuBlock, row id: String) -> Bool {
+        switch block {
+        case .modeCard: id == "mode"
+        case .recentCorrections: id.hasPrefix("fix-")
+        case .recentDictations: id.hasPrefix("dictation-")
+        case .pause: id == "pause"
+        case .voiceMode: id == "voice-mode"
+        case .transcripts: id == "transcripts" || id.hasPrefix("summary-")
+        case .transcribeFile: id == "transcribe-file"
+        case .callRecording: id == "call"
+        case .updates: id == "updates"
+        case .about: id == "about"
+        case .statistics: false
+        case .launchAtLogin: id == "launch"
+        case .howTo: id == "onboarding"
+        case .layoutsList: id.hasPrefix("layout-")
+        }
+    }
+
+    /// The card, the lists and the dictations: what stands above the switches.
+    private var hasTop: Bool {
+        var top = shows(.modeCard) || rows(.recentCorrections) > 0
+        #if PEREKEY_VOICE
+        if let dictation = actions.dictation, showsDictations(dictation) { top = true }
+        #endif
+        return top
+    }
+
+    private var hasSwitches: Bool {
+        var any = shows(.pause) || (launch != nil && shows(.launchAtLogin))
+        #if PEREKEY_VOICE
+        if let voiceModes = actions.voiceModes, shows(.voiceMode), voiceModes.isOn() { any = true }
+        #endif
+        return any
+    }
+
+    /// The layouts as a list in the body, with no chevron in the header.
+    private var hasList: Bool { shows(.layoutsList) && !sources.layouts.isEmpty }
+
+    #if PEREKEY_VOICE
+    /// An unsaved dictation shows while there is one, whatever the number of rows.
+    private func showsDictations(_ dictation: DictationMenu) -> Bool {
+        dictation.history.unsaved != nil || (rows(.recentDictations) > 0 && !dictation.history.entries.isEmpty)
+    }
+    #endif
+
     // MARK: Header
 
+    /// More than one layout, and no list of them in the body: the header opens the list.
+    private var canExpandLayouts: Bool { sources.layouts.count > 1 && !shows(.layoutsList) }
+
+    private var layoutName: String { sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout") }
+
     private var header: some View {
+        let open = layoutsOpen.wrappedValue
+        return Group {
+            if canExpandLayouts {
+                Button { layoutsOpen.wrappedValue.toggle() } label: {
+                    headerStrip(chevron: true, open: open)
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Layouts"))
+                .accessibilityValue(Text(verbatim: open ? String(localized: "\(layoutName), expanded")
+                                         : String(localized: "\(layoutName), collapsed")))
+                .menuItem("header", nav: nav) { layoutsOpen.wrappedValue.toggle() }
+            } else {
+                headerStrip(chevron: false, open: false)
+                    .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+    }
+
+    private func headerStrip(chevron: Bool, open: Bool) -> some View {
         HStack(spacing: 10) {
             CapsuleView(
                 model: CapsuleModel(code: sources.currentLayout.map(sources.indicator(of:)) ?? "⌨", struck: !store.settings.autoswitch),
                 dark: colorScheme == .dark, height: 30, fontSize: 17, animated: true, flash: recents.flashes
             )
             VStack(alignment: .leading, spacing: 1) {
-                Text(sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout"))
+                Text(verbatim: layoutName)
                     .font(PK.Font.headline)
                     .foregroundStyle(Color.pkInk)
                 Text(hintLine)
@@ -235,14 +434,19 @@ struct MenuContent: View {
                     .minimumScaleFactor(0.85)
             }
             Spacer(minLength: 0)
+            if chevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.pkInk2)
+                    .rotationEffect(.degrees(open ? 180 : 0))
+                    .animation(reduceMotion ? .easeOut(duration: 0.15) : PK.Motion.easeOut(0.45), value: open)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
         .glassStrip(in: RoundedRectangle(cornerRadius: PK.Radius.row, style: .continuous), glow: false)
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .accessibilityElement(children: .combine)
+        .modifier(LitRing(lit: nav.highlighted == "header", radius: PK.Radius.row))
     }
 
     /// The shortcuts as the user set them: «⇧ — switch layout · ⌥ — retype word».
@@ -343,15 +547,16 @@ struct MenuContent: View {
                     .padding(.vertical, 2)
             } else {
                 VStack(spacing: 4) {
-                    let latest = recents.log.latestStanding?.id
-                    ForEach(recents.log.entries) { entry in
+                    let entries = Array(recents.log.entries.prefix(rows(.recentCorrections)))
+                    let latest = entries.first { !$0.undone }?.id
+                    ForEach(entries) { entry in
                         CorrectionRow(entry: entry, isLatest: entry.id == latest, store: store, nav: nav,
                                       onReport: { word, reason in actions.report(word, reason) },
                                       explained: entry.id == explainedEntry)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                     }
                 }
-                .animation(reduceMotion ? .easeOut(duration: 0.15) : PK.Motion.easeOut(0.32), value: recents.log.entries)
+                .animation(reduceMotion ? .easeOut(duration: 0.15) : PK.Motion.easeOut(0.32), value: Array(recents.log.entries.prefix(rows(.recentCorrections))))
             }
         }
         .padding(.horizontal, 12)
@@ -381,9 +586,10 @@ struct MenuContent: View {
     private var commands: some View {
         VStack(alignment: .leading, spacing: 0) {
             #if PEREKEY_VOICE
-            if let transcripts = actions.transcripts, transcripts.isOn() {
+            if let transcripts = actions.transcripts, shows(.transcripts), transcripts.isOn() {
                 MenuCommandRow(id: "transcripts", title: "", label: voiceText("Transcripts…"), shortcut: nil, nav: nav,
                                run: { actions.close(); transcripts.open() })
+                    .blockMenu(menu(.transcripts))
             }
             if let summaries = actions.summaries {
                 // A run goes on with the window closed, and never unseen: one line each, a click stops it.
@@ -394,32 +600,45 @@ struct MenuContent: View {
                         .accessibilityHint(voiceText("Stops it"))
                 }
             }
-            if let transcribeFile = actions.transcribeFile, actions.canTranscribeFiles() {
+            if let transcribeFile = actions.transcribeFile, shows(.transcribeFile), actions.canTranscribeFiles() {
                 MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {
+                    guard editable else { return }
                     actions.close()
                     transcribeFile()
                 }
+                .blockMenu(menu(.transcribeFile))
             }
-            if let call = actions.callRecording, call.isAvailable {
+            // A call being recorded keeps its «Stop Recording» in the menu, hidden or not.
+            if let call = actions.callRecording, call.isAvailable, call.isRecording || shows(.callRecording) {
                 if call.isRecording {
                     MenuCommandRow(id: "call", title: "Stop Recording", table: "Voice", nav: nav) {
+                        guard editable else { return }
                         actions.close()
                         call.menuAction()
                     }
                 } else {
                     MenuCommandRow(id: "call", title: "Record a Call…", table: "Voice", nav: nav) {
+                        guard editable else { return }
                         actions.close()
                         call.menuAction()
                     }
+                    .blockMenu(menu(.callRecording))
                 }
             }
             #endif
             MenuCommandRow(id: "settings", title: "Settings…", shortcut: "⌘,", nav: nav, run: actions.openSettings)
             if let updates {
-                UpdatesMenuRow(updates: updates, nav: nav, close: actions.close)
+                UpdatesMenuRow(updates: updates, nav: nav, checkShown: shows(.updates), blockMenu: menu(.updates),
+                               close: actions.close)
             }
-            MenuCommandRow(id: "onboarding", title: "How to Use Perekey", shortcut: nil, nav: nav, run: actions.showOnboarding)
-            MenuCommandRow(id: "about", title: "About Perekey", shortcut: nil, nav: nav, run: actions.showAbout)
+            if shows(.howTo) {
+                MenuCommandRow(id: "onboarding", title: "How to Use Perekey", shortcut: nil, nav: nav, run: actions.showOnboarding)
+                    .blockMenu(menu(.howTo))
+            }
+            if shows(.about) {
+                MenuCommandRow(id: "about", title: "About Perekey", shortcut: nil, nav: nav, run: actions.showAbout)
+                    .blockMenu(menu(.about))
+            }
             MenuCommandRow(id: "quit", title: "Quit Perekey", shortcut: "⌘Q", nav: nav, run: actions.quit)
         }
     }
@@ -439,6 +658,79 @@ struct MenuContent: View {
         case .appOff: pause.onTurnOnHere?()
         case .secureInput, .passwordField: break
         }
+    }
+}
+
+// MARK: - Scroll
+
+private struct TopHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// What is under the menu's header. It is as tall as its content up to `limit`
+/// (the screen's room), then it scrolls: the keyboard brings the lit row into
+/// view and the bottom fades while there is more below.
+private struct MenuScroll<Content: View>: View {
+    let nav: MenuNav
+    let limit: CGFloat
+    var onOverflow: ((Bool) -> Void)?
+    @ViewBuilder let content: Content
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let contentHeight = State(initialValue: CGFloat(0))
+    /// Where the content's top stands in the viewport: 0 at rest, below 0 scrolled.
+    private let contentTop = State(initialValue: CGFloat(0))
+    private let viewport = State(initialValue: CGFloat(0))
+
+    private static var top: String { "menu-top" }
+    private static var space: String { "menu-scroll" }
+    private static var fade: CGFloat { 28 }
+
+    var body: some View {
+        let more = contentHeight.wrappedValue > viewport.wrappedValue + 1
+            && contentTop.wrappedValue + contentHeight.wrappedValue > viewport.wrappedValue + 1
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear.frame(height: 0).id(Self.top)
+                    content
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight.wrappedValue = $0 }
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.space)).minY } action: {
+                    contentTop.wrappedValue = $0
+                }
+                .onPreferenceChange(MenuOrderKey.self) { nav.bodyOrder = $0 }
+            }
+            .coordinateSpace(name: Self.space)
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.automatic)
+            .frame(maxHeight: limit.isFinite ? max(limit, 0) : nil)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport.wrappedValue = $0 }
+            .onChange(of: contentHeight.wrappedValue > viewport.wrappedValue + 1, initial: true) { _, overflows in
+                onOverflow?(overflows)
+            }
+            .mask { fadeMask(more) }
+            .onChange(of: nav.scrollRequest) { _, request in
+                guard let request else { return }
+                // The header is above the scroll area: its top is the nearest place.
+                let above = request.id == "access" || request.id == "header"
+                withAnimation(reduceMotion ? nil : PK.Motion.easeOut(0.2)) {
+                    proxy.scrollTo(above ? Self.top : request.id, anchor: above ? .top : nil)
+                }
+            }
+        }
+    }
+
+    private func fadeMask(_ more: Bool) -> some View {
+        VStack(spacing: 0) {
+            Rectangle()
+            ZStack {
+                Rectangle().opacity(more ? 0 : 1)
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).opacity(more ? 1 : 0)
+            }
+            .frame(height: Self.fade)
+        }
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : PK.Motion.easeOut(0.2), value: more)
     }
 }
 
@@ -585,6 +877,8 @@ struct MenuCommandRow: View {
     /// Amber with a triangle: something does not work.
     var warn = false
     var enabled = true
+    /// False while the row is folded away: the keyboard skips it.
+    var navigable = true
     let nav: MenuNav
     let run: () -> Void
 
@@ -611,7 +905,7 @@ struct MenuCommandRow: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .menuItem(id, nav: nav, run: { if enabled { run() } })
+        .menuItem(id, nav: nav, active: navigable, run: { if enabled { run() } })
     }
 }
 
@@ -620,6 +914,9 @@ struct MenuCommandRow: View {
 struct UpdatesMenuRow: View {
     let updates: Updates
     let nav: MenuNav
+    /// False hides «Check for Updates…»; the row of a found update stays.
+    var checkShown = true
+    var blockMenu: BlockMenu?
     let close: () -> Void
 
     var body: some View {
@@ -628,9 +925,10 @@ struct UpdatesMenuRow: View {
             if let version = updates.pendingVersion {
                 MenuCommandRow(id: "updates", title: "Install Update \(version)…", shortcut: nil, badge: true,
                                enabled: policy.canCheckNow, nav: nav, run: run)
-            } else {
+            } else if checkShown {
                 MenuCommandRow(id: "updates", title: "Check for Updates…", shortcut: nil,
                                enabled: policy.canCheckNow, nav: nav, run: run)
+                    .blockMenu(blockMenu)
             }
         }
     }
@@ -642,16 +940,19 @@ struct UpdatesMenuRow: View {
 }
 
 /// The enabled layouts with a checkmark on the selected one; a click selects.
+/// The header of the menu opens it.
 struct LayoutsList: View {
     let sources: InputSources
     let nav: MenuNav
+    /// False while the list is folded: its rows are out of the keyboard's reach.
+    var active = true
     let onSelected: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(sources.layouts, id: \.id) { layout in
                 MenuCommandRow(id: "layout-\(layout.id.rawValue)", title: LocalizedStringKey(sources.name(of: layout.id)),
-                               checked: sources.currentLayout == layout.id, nav: nav) {
+                               checked: sources.currentLayout == layout.id, navigable: active, nav: nav) {
                     sources.select(layout.id)
                     onSelected()
                 }
@@ -721,7 +1022,9 @@ struct CorrectionRow: View {
     private var row: some View {
         // A switch's other reading is its replacement: never-touch covers both.
         let readings = entry.kind == .layout ? [entry.replacement] : []
-        let status = store.settings.words.validate(entry.original, readings: readings)
+        // The list holds words: «во первых» is kept as «вопервых», as its undo learns it.
+        let word = entry.kind == .hyphen ? entry.original.filter { $0 != " " } : entry.original
+        let status = store.settings.words.validate(word, readings: readings)
         return HStack(spacing: 6) {
             Image(systemName: entry.kind.symbol)
                 .font(.system(size: 11, weight: .semibold))
@@ -739,11 +1042,19 @@ struct CorrectionRow: View {
             .font(PK.Font.body)
             .lineLimit(1)
             .truncationMode(.tail)
+            if entry.count > 1 {
+                Text(verbatim: "×\(entry.count)")
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk2)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .layoutPriority(1)
+            }
             Spacer(minLength: 2)
             switch status {
             case .ok, .frequent:
                 RowIconButton(id: "fix-\(entry.id)-skip", symbol: "hand.raised", title: "Don't touch this word", nav: nav) {
-                    store.update { _ = $0.words.add(entry.original, readings: readings) }
+                    store.update { _ = $0.words.add(word, readings: readings) }
                 }
             case .duplicate:
                 Image(systemName: "checkmark")
@@ -769,11 +1080,13 @@ struct CorrectionRow: View {
     }
 }
 
-/// A 24pt icon button at the end of a correction row.
-private struct RowIconButton: View {
+/// A 24pt icon button at the end of a correction or dictation row.
+struct RowIconButton: View {
     let id: String
     let symbol: String
     let title: LocalizedStringKey
+    /// The strings table of the title: `Voice` for voice rows.
+    var table: String?
     let nav: MenuNav
     /// A toggle that is on: its glyph wears the accent.
     var selected = false
@@ -790,8 +1103,8 @@ private struct RowIconButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(Text(title))
-        .accessibilityLabel(Text(title))
+        .help(Text(title, tableName: table))
+        .accessibilityLabel(Text(title, tableName: table))
         .menuItem(id, nav: nav, run: run)
     }
 }

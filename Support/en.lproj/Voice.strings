@@ -20,7 +20,6 @@
 "Unavailable: %@" = "Unavailable: %@";
 "This microphone is not connected. Perekey uses the system one meanwhile." = "This microphone is not connected. Perekey uses the system one meanwhile.";
 "Model" = "Model";
-"Download a model below first." = "Download a model below first.";
 "%@ (not downloaded)" = "%@ (not downloaded)";
 "Switch the layout to the language of the phrase" = "Switch the layout to the language of the phrase";
 "Sounds" = "Sounds";
@@ -33,7 +32,6 @@
 "60 s" = "60 s";
 "10 min" = "10 min";
 "60 min" = "60 min";
-"Models" = "Models";
 "Your administrator turned off model downloads. Perekey reads models from the folder /Library/Application Support/Perekey/VoiceModels." = "Your administrator turned off model downloads. Perekey reads models from the folder /Library/Application Support/Perekey/VoiceModels.";
 "Turn on voice input to download models." = "Turn on voice input to download models.";
 "Show folder" = "Show folder";
@@ -43,10 +41,21 @@
 "Disk use: %@ (with cache)" = "Disk use: %@ (with cache)";
 "Delete all speech models?" = "Delete all speech models?";
 "Perekey will delete the downloaded models and the cache that speeds up loading them. You can download a model again later. A model in use stays." = "Perekey will delete the downloaded models and the cache that speeds up loading them. You can download a model again later. A model in use stays.";
+"Dictation" = "Dictation";
+"Dictation model" = "Dictation model";
+"Models run on this Mac. The network is only for downloads." = "Models run on this Mac. The network is only for downloads.";
+"Fast. 25 European languages; English terms stay in Latin letters." = "Fast. 25 European languages; English terms stay in Latin letters.";
+"A retrained v3. The same 25 languages; English words in a Russian phrase come out in Cyrillic." = "A retrained v3. The same 25 languages; English words in a Russian phrase come out in Cyrillic.";
+"Almost any language. Slower; after the download it gets ready for about 10 minutes." = "Almost any language. Slower; after the download it gets ready for about 10 minutes.";
+"Dictate with this model" = "Dictate with this model";
+"Download the model and dictate with it" = "Download the model and dictate with it";
+"Not downloaded. Download it to dictate." = "Not downloaded. Download it to dictate.";
+"Ready · %@" = "Ready · %@";
+"Perekey switches to it when it is downloaded." = "Perekey switches to it when it is downloaded.";
+"Not downloaded, %@" = "Not downloaded, %@";
+"Stop the download" = "Stop the download";
 "Cancel" = "Cancel";
-"offline" = "offline";
 "recommended" = "recommended";
-"in use" = "in use";
 "from your administrator" = "from your administrator";
 "Paused at %@" = "Paused at %@";
 "Ready" = "Ready";
@@ -110,6 +119,7 @@
 "Clear the history?" = "Clear the history?";
 "The texts and saved audio of all dictations are deleted." = "The texts and saved audio of all dictations are deleted.";
 "Recent dictations" = "Recent dictations";
+"Not saved: gone when Perekey quits." = "Not saved: gone when Perekey quits.";
 "Show text" = "Show text";
 "Paste again" = "Paste again";
 "Words dictated" = "Words dictated";
@@ -298,6 +308,11 @@
 "Keep the audio of calls" = "Keep the audio of calls";
 "Include in Time Machine" = "Include in Time Machine";
 "Recordings stay on this Mac. The text of a call stays when its audio is gone." = "Recordings stay on this Mac. The text of a call stays when its audio is gone.";
+"Record and transcribe" = "Record and transcribe";
+"The same as in the menu bar item, for when it is hidden." = "The same as in the menu bar item, for when it is hidden.";
+"Open Transcripts" = "Open Transcripts";
+"With the icon hidden, record a call or transcribe a file in Settings → Voice, in the Transcripts window, or with “Open With” in Finder." = "With the icon hidden, record a call or transcribe a file in Settings → Voice, in the Transcripts window, or with “Open With” in Finder.";
+"Drop an audio or video file here, or use the buttons above, and its text appears." = "Drop an audio or video file here, or use the buttons above, and its text appears.";
 "Delete all recordings?" = "Delete all recordings?";
 "The texts and the saved audio of all calls and files are deleted. Files you chose stay where they are." = "The texts and the saved audio of all calls and files are deleted. Files you chose stay where they are.";
 "Set by your administrator" = "Set by your administrator";
@@ -320,6 +335,7 @@
 "Not transcribed" = "Not transcribed";
 "The file is gone, or Perekey cannot open it." = "The file is gone, or Perekey cannot open it.";
 "The file has no audio, or it cannot be read." = "The file has no audio, or it cannot be read.";
+"Perekey cannot read %@ audio. Convert the file to m4a or mp3 and transcribe it again." = "Perekey cannot read %@ audio. Convert the file to m4a or mp3 and transcribe it again.";
 "The model is not downloaded, or the cloud is off. Pick another model." = "The model is not downloaded, or the cloud is off. Pick another model.";
 "The model failed on this audio." = "The model failed on this audio.";
 "Perekey could not read or write the files of this recording." = "Perekey could not read or write the files of this recording.";
@@ -336,7 +352,6 @@
 "Its transcript and saved audio are deleted. A file you chose stays where it is." = "Its transcript and saved audio are deleted. A file you chose stays where it is.";
 "Drop an audio or video file to transcribe it" = "Drop an audio or video file to transcribe it";
 "No transcripts yet" = "No transcripts yet";
-"Drop an audio or video file here, and its text appears." = "Drop an audio or video file here, and its text appears.";
 "Delete…" = "Delete…";
 "Dismiss" = "Dismiss";
 "Pick a transcript on the left." = "Pick a transcript on the left.";
@@ -371,6 +386,7 @@
 "Plays the audio from here" = "Plays the audio from here";
 "The audio of this call was removed, so the text cannot be played or transcribed again." = "The audio of this call was removed, so the text cannot be played or transcribed again.";
 /* Transcription of files */
+"Transcribe File" = "Transcribe File";
 "Transcribe File…" = "Transcribe File…";
 "Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Choose audio or video to transcribe. Perekey reads the file and does not copy it.";
 "Model for transcriptions" = "Model for transcriptions";
@@ -480,3 +496,11 @@
 "Dictation: pasted" = "Dictation: pasted";
 "Dictation: typed" = "Dictation: typed";
 "Remove the rule and the dictation input" = "Remove the rule and the dictation input";
+"The file was not transcribed" = "The file was not transcribed";
+"Perekey transcribes audio and video files. This one is neither." = "Perekey transcribes audio and video files. This one is neither.";
+"Voice input is off. Turn it on in Settings → Voice to transcribe files." = "Voice input is off. Turn it on in Settings → Voice to transcribe files.";
+"Voice input is not available on this Mac, or your administrator turned it off." = "Voice input is not available on this Mac, or your administrator turned it off.";
+"Voice input did not start in time. Try again in a moment." = "Voice input did not start in time. Try again in a moment.";
+"Open Settings → Voice" = "Open Settings → Voice";
+"Transcribing files needs voice input to be on and running." = "Transcribing files needs voice input to be on and running.";
+"Voice input has no shortcut. Set one in Settings → Voice to transcribe files." = "Voice input has no shortcut. Set one in Settings → Voice to transcribe files.";

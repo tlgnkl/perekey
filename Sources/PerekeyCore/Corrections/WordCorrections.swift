@@ -25,9 +25,16 @@ public enum WordCorrections {
         HyphenStep(),
     ]
 
+    /// The steps over the last few words together, tried at the end of a
+    /// word that stays in its layout, before `steps`: the first that
+    /// changes the words wins.
+    public static let phraseSteps: [any PhraseCorrectionStep] = [
+        SpacedHyphenStep(),
+    ]
+
     /// Whether some step is on: without one the boundary does not build the word.
     public static func anyOn(_ settings: Settings) -> Bool {
-        steps.contains { $0.isOn(settings) }
+        steps.contains { $0.isOn(settings) } || phraseSteps.contains { $0.isOn(settings) }
     }
 
     /// Runs the steps that are on. Returns true when the word changed.
@@ -51,6 +58,23 @@ public protocol WordCorrectionStep: Sendable {
     func isOn(_ settings: Settings) -> Bool
     /// Changes `word.characters` when it corrects the word, else leaves it.
     func apply(to word: inout BoundaryWord, model: LanguageModel)
+}
+
+/// A correction of the last few words together, at the key that ends the
+/// last one: "во первых" → "во-первых". The judge hands it the words as one
+/// `BoundaryWord`, one space between them, and retypes them all at once:
+/// one `Correction`, one hint, one Backspace to undo it (docs/corrections.md).
+public protocol PhraseCorrectionStep: Sendable {
+    /// What the hint and `Correction.kind` call it.
+    var kind: Correction.Kind { get }
+    /// How many words it reads, the one just ended included: 2 or more.
+    var words: Int { get }
+    /// Its switch in the settings.
+    func isOn(_ settings: Settings) -> Bool
+    /// Changes `phrase.characters` when it corrects the words, else leaves
+    /// them. It may change the number of characters only as a word step does
+    /// (`BoundaryWord.insertedAt`).
+    func apply(to phrase: inout BoundaryWord, model: LanguageModel)
 }
 
 /// A finished word as it reads in the layout it stays in.
@@ -233,9 +257,20 @@ public struct YoStep: WordCorrectionStep {
 }
 
 /// "вопервых" → "во-первых": the hyphen dropped in fast typing, merged
-/// form only: the model's table of words whose merged spelling is no word
-/// (`data/ru/hyphen.txt`). Letters and their case stay as typed: "ЧТОТО" →
-/// "ЧТО-ТО", "всетаки" → "все-таки".
+/// form only. Letters and their case stay as typed: "ЧТОТО" → "ЧТО-ТО",
+/// "всетаки" → "все-таки".
+///
+/// The model's table comes first: `data/ru/hyphen.txt` and the words the
+/// builder derives by rule from the dictionary ("поновому", "вообщето",
+/// "тихотихо", "давайка"), each with a merged spelling that is no word. A
+/// word the table does not know may start with a prefix of `prefixes`
+/// before a word ("вицемэр"): the rest must be a frequent word
+/// (`minimumRestRank`) and the merged spelling unknown to the model. A model
+/// without the table (built before the rules) has no prefix rule either.
+///
+/// A word of a rule with a capital first letter is a name or a word of
+/// another language, also at the start of a sentence and in capitals:
+/// "Оконто", "Лейбниц", "ОБАТО". Only the hand list fixes "Чтото", "ЧТОТО".
 public struct HyphenStep: WordCorrectionStep {
     public init() {}
 
@@ -243,13 +278,86 @@ public struct HyphenStep: WordCorrectionStep {
 
     public func isOn(_ settings: Settings) -> Bool { settings.corrections.hyphen }
 
+    /// Prefixes written with a hyphen before a noun: вице-мэр, штаб-квартира.
+    public static let prefixes = ["вице", "лейб", "унтер", "штаб"].map { Array($0.unicodeScalars).map(\.value) }
+
+    /// The word after a prefix: three letters or more, frequent (rank Zipf ×
+    /// 32, `WordFreq.rank`): "мэр", "квартира", not "штурмфюрер".
+    static let minimumRest = 3
+    static let minimumRestRank: UInt8 = 128
+
+    /// How many letters of the word are a prefix of `prefixes` with enough
+    /// letters after it, `nil` when none is. Reads the characters as they
+    /// are, folded, and allocates nothing: it runs on every word.
+    static func prefixLength(of letters: ArraySlice<Character>) -> Int? {
+        prefixes.first { prefix in
+            letters.count - prefix.count >= minimumRest
+                && zip(letters, prefix).allSatisfy { character, folded in
+                    var scalars = character.unicodeScalars.makeIterator()
+                    guard let scalar = scalars.next(), scalars.next() == nil else { return false }
+                    return ModelFormat.fold(scalar.value) == folded
+                }
+        }?.count
+    }
+
     public func apply(to word: inout BoundaryWord, model: LanguageModel) {
-        guard word.language == "ru", word.coreIsLetters(minimum: 4), let table = model.language("ru"),
-              let position = table.hyphenPosition(of: word.coreFingerprint())
-        else { return }
+        guard word.language == "ru", word.coreIsLetters(minimum: 4), let table = model.language("ru") else { return }
         let core = word.core
-        guard position > 0, Int(position) < core.count else { return }
-        word.characters.insert("-", at: core.lowerBound + Int(position))
-        word.insertedAt = core.lowerBound + Int(position)
+        let position: Int
+        let byRule: Bool
+        let fingerprint = word.coreFingerprint()
+        if let entry = table.hyphenEntry(of: fingerprint) {
+            (position, byRule) = (Int(entry.position), entry.byRule)
+        } else {
+            guard table.hasHyphenTable, let split = Self.prefixLength(of: word.characters[core]) else { return }
+            let letters = word.characters[core].flatMap(\.unicodeScalars).map { ModelFormat.fold($0.value) }
+            guard letters.count == core.count, table.rank(of: fingerprint) == nil,
+                  let rest = table.rank(of: Self.fingerprint(letters[split...])), rest >= Self.minimumRestRank
+            else { return }
+            (position, byRule) = (split, true)
+        }
+        guard position > 0, position < core.count else { return }
+        if byRule, word.characters[core.lowerBound].isUppercase { return }
+        word.characters.insert("-", at: core.lowerBound + position)
+        word.insertedAt = core.lowerBound + position
+    }
+
+    static func fingerprint(_ letters: ArraySlice<UInt32>) -> UInt64 {
+        var fingerprint = ModelFormat.Fingerprint()
+        for letter in letters { fingerprint.add(letter) }
+        return fingerprint.value
+    }
+}
+
+/// "во первых" → "во-первых": the hyphen typed as a space. Only the words of
+/// the hyphen table marked for it, whose form with a space is no two right
+/// words: во-первых, во-вторых, the pronouns with -нибудь and -либо (not
+/// "что либо"), кое- with a pronoun (`data/ru/hyphen.txt`, `space`). Letters
+/// and their case stay as typed: "Кое что" → "Кое-что".
+public struct SpacedHyphenStep: PhraseCorrectionStep {
+    public init() {}
+
+    public var kind: Correction.Kind { .hyphen }
+
+    public var words: Int { 2 }
+
+    public func isOn(_ settings: Settings) -> Bool { settings.corrections.hyphen }
+
+    public func apply(to phrase: inout BoundaryWord, model: LanguageModel) {
+        guard phrase.language == "ru", let table = model.language("ru") else { return }
+        let core = phrase.core
+        guard let space = phrase.characters[core].firstIndex(of: " ") else { return }
+        let first = core.lowerBound..<space
+        let second = (space + 1)..<core.upperBound
+        guard !first.isEmpty, !second.isEmpty, phrase.characters[first].allSatisfy(\.isLetter),
+              phrase.characters[second].allSatisfy(\.isLetter)
+        else { return }
+        var fingerprint = ModelFormat.Fingerprint()
+        for index in core where index != space {
+            for scalar in phrase.characters[index].unicodeScalars { fingerprint.add(ModelFormat.fold(scalar.value)) }
+        }
+        guard let position = table.spacedHyphenPosition(of: fingerprint.value), Int(position) == first.count
+        else { return }
+        phrase.characters[space] = "-"
     }
 }

@@ -25,8 +25,9 @@ public enum EngineMessage: Sendable {
     /// it replaced and `text` the new one, for the hint. `origin` says who
     /// asked: an automatic switch has its own hint (`corrected`), a manual
     /// retype names the shortcut that ran. `decision` is what automatic
-    /// switching made of the word, for «why?». Never stored or logged.
-    case retyped(original: String, text: String, origin: Retype.Origin, decision: Classifier.Decision?)
+    /// switching made of the word, for «why?». `app` is the bundle ID of the
+    /// focus it was typed in, as the machine knows it. Never stored or logged.
+    case retyped(original: String, text: String, origin: Retype.Origin, decision: Classifier.Decision?, app: String?)
     /// An automatic switch was posted (`Effect.corrected`): show the hint.
     case corrected(Correction)
     /// The correction with this `seq` was undone: hide its hint.
@@ -34,8 +35,9 @@ public enum EngineMessage: Sendable {
     /// The undo of the correction with this `seq` was cancelled by the caret
     /// check: the text stays corrected and cannot be undone. Hide its hint.
     case correctionUndoFailed(seq: UInt32)
-    /// The user undid an automatic switch: learn the word, as typed.
-    case learned(String)
+    /// An undone correction, once it is known what it says
+    /// (`Effect.undoSettled`): count it towards learning the word.
+    case undoSettled(UndoReport)
     /// The user undid a switch the "Всегда исправлять" list forced: take the
     /// word off the list.
     case alwaysFixWithdrawn(String)
@@ -506,7 +508,7 @@ public final class InputEngine: @unchecked Sendable {
 
     private func toMainRetyped(_ retype: Retype) {
         toMain(.retyped(original: retype.expected, text: retype.text, origin: retype.origin,
-                        decision: retype.decision))
+                        decision: retype.decision, app: retype.app))
     }
 
     private func replacedViaAccessibility(_ retype: Retype, done: Bool) {
@@ -596,8 +598,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.correctionUndone(seq: seq))
             case let .correctionUndoFailed(seq):
                 toMain(.correctionUndoFailed(seq: seq))
-            case let .learned(word):
-                toMain(.learned(word))
+            case let .undoSettled(report):
+                toMain(.undoSettled(report))
             case let .alwaysFixWithdrawn(word):
                 toMain(.alwaysFixWithdrawn(word))
             case .capsLockOff:

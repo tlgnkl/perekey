@@ -20,9 +20,10 @@ struct VoiceTextGroup: View {
     }
 
     var body: some View {
-        PKGroup(header: voiceText("Text")) {
+        PKGroup(header: voiceText("Text"), anchor: "voice.text") {
             PKRow(voiceText("Remove filler words"),
-                  detail: voiceText("Drops “um”, “uh”, “э-э”. “Ну” and “как бы”: only between commas.")) {
+                  detail: voiceText("Drops “um”, “uh”, “э-э”. “Ну” and “как бы”: only between commas."),
+                  anchor: "voice.fillers") {
                 Toggle(isOn: Binding(get: { settings.removesFillers },
                                      set: { on in store.update { $0.removesFillers = on } })) {
                     voiceText("Remove filler words")
@@ -78,8 +79,8 @@ struct VoiceHistoryGroup: View {
     private var settings: VoiceTextSettings { store.settings }
 
     var body: some View {
-        PKGroup(header: voiceText("History")) {
-            PKRow(voiceText("Keep dictations for"), detail: retentionDetail) {
+        PKGroup(header: voiceText("History"), anchor: "voice.history") {
+            PKRow(voiceText("Keep dictations for"), detail: retentionDetail, anchor: "voice.history-retention") {
                 Picker(selection: Binding(get: { store.effectiveRetention },
                                           set: { value in store.update { $0.retention = value } })) {
                     ForEach(store.availableRetentions, id: \.self) { term in
@@ -93,7 +94,8 @@ struct VoiceHistoryGroup: View {
             }
             PKDivider()
             PKRow(voiceText("Keep the audio of dictations"),
-                  detail: voiceText("Saved as .aac files for the same time. Off by default; turning it off deletes the files.")) {
+                  detail: voiceText("Saved as .aac files for the same time. Off by default; turning it off deletes the files."),
+                  anchor: "voice.history-audio") {
                 Toggle(isOn: Binding(get: { settings.keepsAudio },
                                      set: { on in store.update { $0.keepsAudio = on } })) {
                     voiceText("Keep the audio of dictations")

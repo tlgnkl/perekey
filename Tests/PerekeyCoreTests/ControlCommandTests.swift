@@ -82,4 +82,16 @@ import Testing
             #expect(parse(text) == nil, Comment(rawValue: text))
         }
     }
+
+    @Test func recordingAndFilesAreNotCommands() {
+        // A web page can open any perekey:// URL: nothing may start a call or pick a file.
+        for text in [
+            "perekey://record", "perekey://call", "perekey://record?file=/etc/passwd", "perekey://call?file=/tmp/a.m4a",
+            "perekey://transcribe?file=/tmp/a.m4a", "perekey://transcribe", "perekey://open?file=/tmp/a.m4a",
+            "perekey://file/tmp/a.m4a", "perekey://stop", "perekey://pause?file=/tmp/a.m4a",
+            "perekey://resume?file=/tmp/a.m4a", "perekey://mode?value=auto&file=/tmp/a.m4a",
+        ] {
+            #expect(parse(text) == nil, Comment(rawValue: text))
+        }
+    }
 }

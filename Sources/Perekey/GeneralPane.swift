@@ -5,7 +5,7 @@ import PerekeyCore
 import PerekeyInput
 import SwiftUI
 
-/// Settings → General: corrections, the hint, sounds and updates. What Perekey
+/// Settings → General: corrections, the hint, the menu bar and the menu, sounds and updates. What Perekey
 /// stores and never touches is in `PrivacyPane`.
 struct GeneralPane: View {
     let store: SettingsStore
@@ -15,6 +15,16 @@ struct GeneralPane: View {
     /// For the menu bar previews: the layout code and the system's icon.
     var sources: InputSources?
     var systemMenu: SystemInputMenu = .shared
+    var voiceIsOn = false
+    /// «Launch at login»; nil hides the group (snapshots without one).
+    var launch: LaunchAtLogin?
+    /// The welcome tour again: «How to Use Perekey».
+    var showOnboarding: () -> Void = {}
+    /// For the «Menu» group: the counts of the statistics line, and the voice parts of the preview.
+    var usage: UsageRecorder?
+    var menuPreviewActions = MenuActions()
+    /// The room the menu preview measures itself against; `nil`: the window's screen (snapshots set it).
+    var menuBudget: CGFloat?
 
     var body: some View {
         PKPane(title: Text("General")) {
@@ -23,9 +33,15 @@ struct GeneralPane: View {
             }
             correctionsSection
             hintSection
-            MenuBarGroup(store: store, sources: sources, systemMenu: systemMenu)
+            MenuBarGroup(store: store, sources: sources, systemMenu: systemMenu, voiceIsOn: voiceIsOn)
+            MenuGroup(store: store, sources: sources, updates: updates, usage: usage, launch: launch, voiceIsOn: voiceIsOn,
+                      previewActions: menuPreviewActions, budget: menuBudget)
             soundsSection
+            if let launch {
+                startupSection(launch)
+            }
             updatesSection
+            helpSection
         }
     }
 
@@ -33,9 +49,10 @@ struct GeneralPane: View {
     /// switch and the mock's example chip. Typos: docs/classifier.md,
     /// «Опечатки»; the rest: docs/corrections.md.
     private var correctionsSection: some View {
-        PKGroup(header: Text("Corrections")) {
+        PKGroup(header: Text("Corrections"), anchor: "general.corrections") {
             PKRow(Text("Correct typos"),
-                  detail: Text("Russian and English, one key off. Backspace right after a correction puts the word back.")) {
+                  detail: Text("Russian and English, one key off. Backspace right after a correction puts the word back."),
+                  anchor: "general.typos") {
                 HStack(spacing: 12) {
                     PKExampleChip(from: "прривет", to: "привет", isOn: store.settings.typoCorrection)
                     Toggle(isOn: Binding(get: { store.settings.typoCorrection },
@@ -47,30 +64,30 @@ struct GeneralPane: View {
                 }
             }
             PKDivider()
-            correctionRow(Text("Double capitals"), example: ("ПРивет", "Привет"), \.doubleCapitals)
+            correctionRow(Text("Double capitals"), anchor: "general.double-capitals", example: ("ПРивет", "Привет"), \.doubleCapitals)
             PKDivider()
             correctionRow(Text("Accidental Caps Lock"), detail: Text("Fix the word and turn Caps Lock off"),
-                          example: ("пРИВЕТ", "Привет"), \.capsLock)
+                          anchor: "general.caps-lock-fix", example: ("пРИВЕТ", "Привет"), \.capsLock)
             PKDivider()
-            correctionRow(Text("Abbreviations"), example: ("мвд", "МВД"), \.abbreviations)
+            correctionRow(Text("Abbreviations"), anchor: "general.abbreviations", example: ("мвд", "МВД"), \.abbreviations)
             PKDivider()
             correctionRow(Text("Letter ё"), detail: Text("Russian only, where the word with «е» is no other word"),
-                          example: ("еще", "ещё"), \.yo)
+                          anchor: "general.yo", example: ("еще", "ещё"), \.yo)
             PKDivider()
-            correctionRow(Text("Hyphen"), detail: Text("Russian only, where the merged word is no word"),
-                          example: ("чтото", "что-то"), \.hyphen)
+            correctionRow(Text("Hyphen"), detail: Text("Russian only, where the merged word is no word; also «кое что» → «кое-что»"),
+                          anchor: "general.hyphen", example: ("чтото", "что-то"), \.hyphen)
             PKDivider()
             correctionRow(Text("Retype a phrase"),
                           detail: Text("Press the retype shortcut again: the second press puts the word back, the third retypes two words, and so on."),
-                          example: ("ghbdtn vbh", "привет мир"), \.phraseRetype)
+                          anchor: "general.retype-phrase", example: ("ghbdtn vbh", "привет мир"), \.phraseRetype)
         }
     }
 
-    private func correctionRow(_ title: Text, detail: Text? = nil, example: (from: String, to: String),
+    private func correctionRow(_ title: Text, detail: Text? = nil, anchor: String, example: (from: String, to: String),
                                _ key: WritableKeyPath<TextCorrections, Bool>) -> some View
     {
         let isOn = store.settings.corrections[keyPath: key]
-        return PKRow(title, detail: detail) {
+        return PKRow(title, detail: detail, anchor: anchor) {
             HStack(spacing: 12) {
                 PKExampleChip(from: example.from, to: example.to, isOn: isOn)
                 Toggle(isOn: Binding(get: { isOn }, set: { on in store.update { $0.corrections[keyPath: key] = on } })) {
@@ -87,8 +104,9 @@ struct GeneralPane: View {
     }
 
     private var hintSection: some View {
-        PKGroup(header: Text("Hint")) {
-            PKRow(Text("Hint at the caret"), detail: Text("Shows what Perekey changed, a moment after the word.")) {
+        PKGroup(header: Text("Hint"), anchor: "general.hint") {
+            PKRow(Text("Hint at the caret"), detail: Text("Shows what Perekey changed, a moment after the word."),
+                  anchor: "general.hint-caret") {
                 PKSegmented(items: [
                     .init(value: CaretHintMode.all, label: Text("All edits")),
                     .init(value: .automatic, label: Text("Automatic only")),
@@ -101,13 +119,52 @@ struct GeneralPane: View {
     }
 
     private var soundsSection: some View {
-        PKGroup(header: Text("Sounds")) {
-            soundRow(Text("Sound on layout switch"), setting: store.settings.layoutSound) { change in
+        PKGroup(header: Text("Sounds"), anchor: "general.sounds") {
+            soundRow(Text("Sound on layout switch"), anchor: "general.sound-switch", setting: store.settings.layoutSound) { change in
                 store.update { change(&$0.layoutSound) }
             }
             PKDivider()
-            soundRow(Text("Sound on correction"), setting: store.settings.correctionSound) { change in
+            soundRow(Text("Sound on correction"), anchor: "general.sound-correction", setting: store.settings.correctionSound) { change in
                 store.update { change(&$0.correctionSound) }
+            }
+        }
+    }
+
+    /// «Launch at login» with the states `SMAppService` can be in.
+    private func startupSection(_ launch: LaunchAtLogin) -> some View {
+        PKGroup(header: Text("Startup"), anchor: "general.startup") {
+            PKRow(Text("Launch at login"), detail: launchDetail(launch), anchor: "general.launch-at-login") {
+                HStack(spacing: 12) {
+                    if launch.status == .requiresApproval {
+                        Button("Open Settings") { launch.openSystemSettings() }
+                            .buttonStyle(.pkSmall)
+                    }
+                    Toggle(isOn: Binding(get: { launch.isOn }, set: { launch.setEnabled($0) })) {
+                        Text("Launch at login")
+                    }
+                    .labelsHidden()
+                    .toggleStyle(.pkSwitch)
+                    .disabled(!launch.isAvailable)
+                }
+            }
+            if let error = launch.lastError {
+                PKCallout(Text(verbatim: error))
+            }
+        }
+        .onAppear { launch.refresh() }
+    }
+
+    private func launchDetail(_ launch: LaunchAtLogin) -> Text? {
+        if launch.status == .requiresApproval { return Text("Approve Perekey in Login Items.") }
+        if !launch.isAvailable { return Text("Works in the installed app only.") }
+        return nil
+    }
+
+    private var helpSection: some View {
+        PKGroup(header: Text("Help"), anchor: "general.help") {
+            PKRow(Text("How to Use Perekey"), anchor: "general.how-to") {
+                Button("Show") { showOnboarding() }
+                    .buttonStyle(.pkSecondary)
             }
         }
     }
@@ -116,9 +173,10 @@ struct GeneralPane: View {
     /// a development build has no key to check updates with.
     private var updatesSection: some View {
         let policy = updates.policy
-        return PKGroup(header: Text("Updates")) {
+        return PKGroup(header: Text("Updates"), anchor: "general.updates") {
             PKRow(Text("Check for updates automatically"),
-                  detail: Text("Once a day Perekey downloads the list of versions from one address. Nothing about you or this Mac is sent.")) {
+                  detail: Text("Once a day Perekey downloads the list of versions from one address. Nothing about you or this Mac is sent."),
+                  anchor: "general.updates-automatic") {
                 Toggle(isOn: Binding(get: { updates.checksAutomatically }, set: { updates.setChecksAutomatically($0) })) {
                     Text("Check for updates automatically")
                 }
@@ -127,7 +185,7 @@ struct GeneralPane: View {
                 .disabled(policy.isLocked)
             }
             PKDivider()
-            PKRow(Text("Last check"), detail: lastCheckText) {
+            PKRow(Text("Last check"), detail: lastCheckText, anchor: "general.updates-last") {
                 Button("Check Now") { updates.checkNow() }
                     .buttonStyle(.pkSecondary)
                     .disabled(!policy.canCheckNow)
@@ -150,10 +208,10 @@ struct GeneralPane: View {
     }
 
     /// A switch, a system sound picker and a play button.
-    private func soundRow(_ title: Text, setting: SoundSetting,
+    private func soundRow(_ title: Text, anchor: String, setting: SoundSetting,
                           update: @escaping ((inout SoundSetting) -> Void) -> Void) -> some View
     {
-        PKRow(title) {
+        PKRow(title, anchor: anchor) {
             HStack(spacing: 8) {
                 Picker(selection: Binding(get: { setting.name }, set: { name in
                     update { $0.name = name }

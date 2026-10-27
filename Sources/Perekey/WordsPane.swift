@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import PerekeyCore
+import AppKit
+import os
+import PerekeyInput
 import SwiftUI
 
 /// Settings → Words: the user's word rules. "Don't touch: mine" are typed in
@@ -12,6 +15,9 @@ struct WordsPane: View {
     var layouts: [LayoutMap] = []
     /// Says whether a word is among the 1000 most frequent. The classifier model will provide it.
     var isFrequent: (String) -> Bool = { _ in false }
+
+    /// Where the answers given here are written, as `InputController.answer` writes them.
+    var learningJournal = LearningJournalFile()
 
     private let draft: State<String>
     private let alwaysDraft: State<String>
@@ -40,18 +46,20 @@ struct WordsPane: View {
 
     var body: some View {
         PKPane(title: Text("Words")) {
-            Text("Perekey never touches the first two lists and always fixes the third, in any layout.")
+            Text("Perekey never touches the “Don't touch” words and always fixes the “Always fix” ones, in any layout. Words waiting for your answer are still fixed.")
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
             mineSection
+            if !words.pendingCandidates.isEmpty { candidatesSection }
             learnedSection
             alwaysSection
         }
     }
 
     private var mineSection: some View {
-        PKGroup(header: Text("Don't touch: mine") + Text(count(words.mine.count)).foregroundStyle(Color.pkInk3)) {
+        PKGroup(header: Text("Don't touch: mine") + Text(count(words.mine.count)).foregroundStyle(Color.pkInk3),
+                anchor: "words.mine") {
             HStack(spacing: 8) {
                 TextField("Word", text: draft.projectedValue, prompt: Text("Add a word"))
                     .labelsHidden()
@@ -89,9 +97,70 @@ struct WordsPane: View {
         }
     }
 
+    /// Words that reached their threshold but were not answered: the hint is
+    /// off, or the question went away.
+    private var candidatesSection: some View {
+        let pending = words.pendingCandidates
+        return PKGroup(header: Text("Waiting for your answer") + Text(count(pending.count)).foregroundStyle(Color.pkInk3),
+                       anchor: "words.candidates") {
+            VStack(spacing: 0) {
+                ForEach(pending, id: \.id) { item in
+                    let choices = words.question(for: item).choices
+                    VStack(spacing: 0) {
+                        PKDivider()
+                        PKRow(Text(item.word)) {
+                            HStack(spacing: 12) {
+                                if let app = item.app {
+                                    Text(Self.appName(app))
+                                        .font(PK.Font.caption)
+                                        .foregroundStyle(Color.pkInk2)
+                                }
+                                if choices.contains(.here) {
+                                    Button("Don't touch here") { decide(item, .here) }.buttonStyle(.pkLink)
+                                }
+                                Button("Everywhere") { decide(item, .everywhere) }.buttonStyle(.pkLink)
+                                Button("Remove") { decide(item, .no) }.buttonStyle(.pkLink)
+                            }
+                        }
+                    }
+                    .pkRowTransition()
+                }
+            }
+            .pkListChanges(pending.map(\.id))
+        }
+    }
+
+    private func decide(_ item: LearningCandidate, _ answer: LearningAnswer) {
+        let readings = readings(of: item.word)
+        let now = Date().timeIntervalSince1970
+        let question = words.question(for: item)
+        var learned: LearnedWord?
+        store.update { learned = $0.words.decide(item, answer, at: now, readings: readings) }
+        journal(LearningJournal.Entry(answer: answer, to: question, learned: learned, at: now))
+    }
+
+    private func learnEverywhere(_ item: LearnedWord) {
+        let now = Date().timeIntervalSince1970
+        var learned: LearnedWord?
+        store.update { learned = $0.words.learnEverywhere(item.word, at: now) }
+        guard let learned else { return }
+        journal(LearningJournal.Entry(answer: .everywhere, to: LearningQuestion(word: item.word, app: item.app),
+                                      learned: learned, at: now))
+    }
+
+    private func journal(_ entry: LearningJournal.Entry) {
+        do {
+            try learningJournal.append(entry)
+        } catch {
+            Logger(subsystem: "app.perekey", category: "settings")
+                .error("Learning journal not written: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     private var learnedSection: some View {
-        PKGroup(header: Text("Don't touch: learned") + Text(count(words.learned.count)).foregroundStyle(Color.pkInk3)) {
-            PKRow(Text("Learn from undone corrections")) {
+        PKGroup(header: Text("Don't touch: learned") + Text(count(words.learned.count)).foregroundStyle(Color.pkInk3),
+                anchor: "words.learned") {
+            PKRow(Text("Learn from undone corrections"), anchor: "words.learn") {
                 Toggle("Learn from undone corrections", isOn: learnBinding)
                     .labelsHidden()
                     .toggleStyle(.pkSwitch)
@@ -101,11 +170,16 @@ struct WordsPane: View {
                 PKNote(Text("Words you undo after a correction appear here."))
             }
             VStack(spacing: 0) {
-                ForEach(words.learned, id: \.word) { item in
+                ForEach(words.learned, id: \.id) { item in
                     VStack(spacing: 0) {
                         PKDivider()
                         PKRow(Text(item.word)) {
                             HStack(spacing: 12) {
+                                if let app = item.app {
+                                    Text(Self.appName(app))
+                                        .font(PK.Font.caption)
+                                        .foregroundStyle(Color.pkInk2)
+                                }
                                 if item.undoCount > 1 {
                                     Text("undone \(item.undoCount) times")
                                         .font(PK.Font.caption)
@@ -114,17 +188,21 @@ struct WordsPane: View {
                                 Text(Date(timeIntervalSince1970: item.lastUndoneAt).formatted(date: .abbreviated, time: .omitted))
                                     .font(PK.Font.caption)
                                     .foregroundStyle(Color.pkInk2)
-                                Button("Forget") { store.update { $0.words.forget(item.word) } }
+                                if item.app != nil {
+                                    Button("Everywhere") { learnEverywhere(item) }
+                                        .buttonStyle(.pkLink)
+                                }
+                                Button("Forget") { store.update { $0.words.forget(item.word, app: item.app) } }
                                     .buttonStyle(.pkLink)
                             }
                         }
-                        .pkFound("learned:" + item.word, tracker: found.wrappedValue)
+                        .pkFound("learned:" + item.id, tracker: found.wrappedValue)
                     }
                     .pkRowTransition()
                 }
             }
-            .pkListChanges(words.learned.map(\.word))
-            .onChange(of: words.learned.map(\.word)) { old, new in
+            .pkListChanges(words.learned.map(\.id))
+            .onChange(of: words.learned.map(\.id)) { old, new in
                 for word in new where !old.contains(word) { found.wrappedValue.mark("learned:" + word) }
             }
             if !words.learned.isEmpty {
@@ -138,7 +216,8 @@ struct WordsPane: View {
     }
 
     private var alwaysSection: some View {
-        PKGroup(header: Text("Always fix") + Text(count(words.always.count)).foregroundStyle(Color.pkInk3)) {
+        PKGroup(header: Text("Always fix") + Text(count(words.always.count)).foregroundStyle(Color.pkInk3),
+                anchor: "words.always") {
             HStack(spacing: 8) {
                 TextField("Word", text: alwaysDraft.projectedValue, prompt: Text("The word as it should come out"))
                     .labelsHidden()
@@ -174,6 +253,12 @@ struct WordsPane: View {
                 for word in new where !old.contains(word) { found.wrappedValue.mark("always:" + word) }
             }
         }
+    }
+
+    /// The app's name, or its bundle ID when it is not installed.
+    private static func appName(_ bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
+        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
     }
 
     private func count(_ number: Int) -> String { number == 0 ? "" : "  \(number)" }

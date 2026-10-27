@@ -131,6 +131,7 @@ struct AppsPane: View {
                 .tracking(-0.33)
                 .foregroundStyle(Color.pkInk)
                 .accessibilityAddTraits(.isHeader)
+                .pkAnchor(SettingsSearchModel.titleAnchor)
             Text("In terminals and code editors Perekey fixes only on your command. In games it is off.")
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk2)

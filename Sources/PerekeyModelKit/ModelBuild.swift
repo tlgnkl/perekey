@@ -98,6 +98,7 @@ public struct ModelBuild {
             // Ukrainian has none with a compatible licence (data/SOURCES.md):
             // wordfreq alone, the n-grams cover the rare forms.
             var seen: Set<String> = []
+            var derivedHyphens: [String: HyphenRules.Rule] = [:]
             if let (dic, aff, name) = try spellingDictionary(language) {
                 let hunspell = Hunspell(affix: aff)
                 var expanded = 0
@@ -137,6 +138,13 @@ public struct ModelBuild {
                     for form in yoForms where builder.addYo(form, language: language) { added += 1 }
                     report.notes.append("\(language): \(added) forms take \"ё\" unambiguously")
                 }
+                if !lists.hyphen.isEmpty {
+                    // The rules of the hyphen list: the dictionary gives the parts.
+                    let added = Set(lists.add)
+                    derivedHyphens = HyphenRules.derive(entries, hunspell: hunspell,
+                                                        isWord: { seen.contains($0) || added.contains($0) },
+                                                        rank: { ranks[$0] })
+                }
             }
 
             // 3. Hand-maintained lists.
@@ -167,11 +175,33 @@ public struct ModelBuild {
                                                   isWord: { seen.contains($0) || added.contains($0) },
                                                   rank: { ranks[$0] })
                 var count = 0
-                for word in hyphen where builder.addHyphen(word, language: language) { count += 1 }
+                for word in hyphen {
+                    do {
+                        if try builder.addHyphen(word, language: language, spaced: lists.hyphenSpaced.contains(word)) {
+                            count += 1
+                        }
+                    } catch let collision as ModelBuilder.HyphenCollision {
+                        throw Failure(description: "data/\(language)/hyphen.txt: \(collision)")
+                    }
+                }
                 guard count == hyphen.count else {
                     throw Failure(description: "data/\(language)/hyphen.txt: words outside the alphabet")
                 }
-                report.notes.append("\(language): \(count) words take a hyphen")
+                report.notes.append("\(language): \(count) words take a hyphen, \(lists.hyphenSpaced.count) also typed with a space")
+                // The words the rules derive; the hand list wins a merged spelling.
+                let listed = Set(hyphen.flatMap { [$0.replacingOccurrences(of: "-", with: ""),
+                                                   YoTable.plain($0.replacingOccurrences(of: "-", with: ""))] })
+                var byRule: [HyphenRules.Rule: Int] = [:]
+                for (word, rule) in derivedHyphens.sorted(by: { $0.key < $1.key }) {
+                    let merged = word.replacingOccurrences(of: "-", with: "")
+                    guard !listed.contains(merged), !listed.contains(YoTable.plain(merged)) else { continue }
+                    // Its "е" spelling may be another derived word's, split elsewhere: the first in order keeps it.
+                    if (try? builder.addHyphen(word, language: language, byRule: true)) == true {
+                        byRule[rule, default: 0] += 1
+                    }
+                }
+                report.notes.append("\(language): rules add " + HyphenRules.Rule.allCases
+                    .map { "\(byRule[$0] ?? 0) \($0.rawValue)" }.joined(separator: ", "))
             }
             report.notes.append("\(language): \(forms) forms, \(rejected) rejected (outside the alphabet)")
             for word in mixed.keep {
@@ -254,6 +284,9 @@ public struct DataLists {
     public var noYo: [String] = []
     /// `hyphen.txt`: words with a hyphen people type merged ("вопервых").
     public var hyphen: [String] = []
+    /// The words of `hyphen` marked `space`: their form with a space is no
+    /// two right words ("во первых"), so it takes the hyphen too.
+    public var hyphenSpaced: Set<String> = []
     public var keep: [String] = []
 
     public init() {}
@@ -270,7 +303,15 @@ public struct DataLists {
         abbreviations = try Self.read("\(directory)/abbrev.txt").map(\.word)
         correctedAbbreviations = try Self.read("\(directory)/abbreviations.txt").map(\.word)
         noYo = try Self.read("\(directory)/noyo.txt").map(\.word)
-        hyphen = try Self.read("\(directory)/hyphen.txt").map(\.word)
+        for entry in try Self.read("\(directory)/hyphen.txt") {
+            switch entry.field {
+            case nil: break
+            case "space": hyphenSpaced.insert(entry.word)
+            case let field?:
+                throw ModelBuild.Failure(description: "\(directory)/hyphen.txt: unknown mark \(field) for \(entry.word)")
+            }
+            hyphen.append(entry.word)
+        }
         keep = try Self.read("\(directory)/keep.txt").map(\.word)
     }
 

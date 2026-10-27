@@ -3,6 +3,7 @@
 import AppKit
 import PerekeyCore
 import PerekeyInput
+import os
 #if PEREKEY_VOICE
 import PerekeyVoice
 import PerekeyVoiceCore
@@ -45,11 +46,12 @@ enum PerekeyMain {
 /// Builds the app and keeps it alive.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let openLog = Logger(subsystem: "app.perekey", category: "open")
     private let inputSources = InputSources()
     private let store: SettingsStore
     private let onboarding: OnboardingController
     private let pause = PauseState()
-    private let launchAtLogin = LaunchAtLogin()
+    private let launchAtLogin: LaunchAtLogin
     private let updates: Updates
     private let input: InputController
     private let shell: MenuBarShell
@@ -70,6 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let voiceIntro: VoiceIntroController
     /// «Записать созвон»: the microphone and the system audio to disk.
     private let callRecording: CallRecordingController
+    /// Files from Finder's «Open With»; made once Settings exists.
+    private var openedFiles: OpenedFiles?
     #endif
 
     override init() {
@@ -84,6 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                               engineIsRunning: { input.tapState == .running },
                                               demoActive: { input.appModes.onboardingDemo = $0 })
         self.onboarding = onboarding
+        let launchAtLogin = LaunchAtLogin()
+        self.launchAtLogin = launchAtLogin
         let recents = RecentCorrections()
         let usage = UsageRecorder { [store] in store.settings.statistics }
         self.usage = usage
@@ -125,6 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // «Удалить» and resume leave the recording being written alone.
         transcriptsController.live = { [callRecording] in callRecording.liveRecording.map { [$0] } ?? [] }
         callRecording.recordingsChanged = { [transcriptsController] in transcriptsController.reload() }
+        // Settings and the Transcripts window carry the menu's commands, for a hidden menu bar item.
+        transcriptsController.entries = VoiceEntries(call: callRecording, chooseFiles: { [voice] in voice.files.chooseFiles() },
+                                                     openTranscripts: { transcriptsWindow.show() })
+        #endif
+        #if PEREKEY_VOICE
+        let canTranscribeFiles: @MainActor () -> Bool = { [voice] in voice.files.queue != nil }
         #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
@@ -134,14 +146,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             view.voiceModes = voiceModes
             view.voiceTextController = voiceText
             view.voiceTranscripts = transcriptsController
+            // The preview of General → Menu draws the voice blocks; none of it runs there.
+            let voiceOn: @MainActor @Sendable () -> Bool = { voiceModels.settings.isOn && voiceModels.isSupported }
+            view.menuPreviewActions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceOn)
+            view.menuPreviewActions.transcripts = TranscriptsMenu(isOn: voiceOn, open: {})
+            view.menuPreviewActions.transcribeFile = {}
+            view.menuPreviewActions.canTranscribeFiles = canTranscribeFiles
+            view.menuPreviewActions.callRecording = callRecording
+            view.menuPreviewActions.dictation = voiceText.menu(pasteAgain: { _ in })
             view.hasAccess = { input.hasAccess }
             view.openAccess = { onboarding.show(at: .access) }
+            view.launch = launchAtLogin
+            view.showOnboarding = { onboarding.show() }
             return view
             #else
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                     languages: input.languages, initial: section, scrollTarget: scrollTarget)
             view.hasAccess = { input.hasAccess }
             view.openAccess = { onboarding.show(at: .access) }
+            view.launch = launchAtLogin
+            view.showOnboarding = { onboarding.show() }
             return view
             #endif
         }
@@ -162,6 +186,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceIntro = VoiceIntroController(situation: situation, makeModel: makeIntro)
         onboarding.makeVoiceIntro = { VoiceIntro.offer(situation()) == .none ? nil : makeIntro() }
         voice.openVoiceSettings = { settings.show(section: .voice, scrollTarget: "models") }
+        let openedFiles = OpenedFiles(
+            files: voice.files,
+            availability: { [voice] in voice.availability },
+            openVoiceSettings: { settings.show(section: .voice) })
+        self.openedFiles = openedFiles
+        // The queue appears after launch, and goes when voice turns off.
+        voice.files.observeQueue { _ in openedFiles.queueChanged() }
         #endif
         settingsWindow = settings
         #if PEREKEY_VOICE
@@ -173,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
             actions.summaries = transcriptsController.summaries
             actions.transcribeFile = { voice.files.chooseFiles() }
-            actions.canTranscribeFiles = { voice.files.queue != nil }
+            actions.canTranscribeFiles = canTranscribeFiles
             actions.callRecording = callRecording
         }
         #else
@@ -199,6 +230,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        OpenAlert.onScreen = { [onboarding] in
+            #if PEREKEY_VOICE
+            onboarding.isOnScreen || self.voiceIntro.isOnScreen
+            #else
+            onboarding.isOnScreen
+            #endif
+        }
         #if PEREKEY_VOICE
         voiceModels.start()
         #endif
@@ -212,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A call a crash cut off is offered for transcription; old audio goes.
         callRecording.launched()
         #endif
+        OpenAlert.launched()
     }
 
     /// Opening Perekey again (Finder, Spotlight, Launchpad) opens Settings. It is
@@ -247,9 +286,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CapsLockRemapper.apply(.untouched)
     }
 
-    /// `perekey://` links (see `ControlCommand`).
+    /// `perekey://` links (see `ControlCommand`), and audio or video files from Finder's
+    /// «Open With» (Info.plist, rank Alternate): they go to the transcription queue as a drop does.
     func application(_ application: NSApplication, open urls: [URL]) {
-        ExternalControl.shared?.open(urls)
+        let routing = OpenRouting(urls)
+        ExternalControl.shared?.open(routing.links)
+        if routing.ignored > 0 { openLog.info("Ignored \(routing.ignored) URLs that are neither a link nor a file") }
+        guard !routing.files.isEmpty else { return }
+        #if PEREKEY_VOICE
+        // On a cold launch this runs before the queue exists: the files wait for it.
+        openedFiles?.open(routing.files)
+        #else
+        openLog.info("Ignored \(routing.files.count) files: this build has no voice")
+        OpenAlert.show(title: String(localized: "The file was not transcribed"),
+                       reason: String(localized: "This build of Perekey has no voice input, so it cannot transcribe files."),
+                       openSettings: nil, settingsTitle: "")
+        #endif
     }
 
     /// The menu bar never shows (LSUIElement), but its key equivalents work in
@@ -331,6 +383,7 @@ final class MenuBarShell {
         ) { menu in
             var actions = MenuActions(
                 openSettings: { menu.close(); settings.show() },
+                customizeMenu: { menu.close(); settings.show(section: .general, scrollTarget: "general.menu") }, // search: title in MenuGroup.swift
                 showOnboarding: { menu.close(); onboarding.show() },
                 openAccess: { menu.close(); onboarding.show(at: .access) },
                 showAbout: {

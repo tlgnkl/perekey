@@ -30,7 +30,7 @@ final class SettingsStore {
 
     /// Loads the file and applies the Caps Lock mode. Applying on launch also
     /// removes the remap a crashed run left behind when the mode is not `.instant`.
-    init(file: SettingsFile = SettingsFile()) {
+    init(file: SettingsFile = SettingsFile(url: SettingsFile.defaultURL, defaults: .standard)) {
         self.file = file
         settings = file.load()
         CapsLockRemapper.apply(settings.capsLock)

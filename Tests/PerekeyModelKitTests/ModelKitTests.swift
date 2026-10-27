@@ -92,8 +92,18 @@ import Testing
         #expect(lists.abbreviations == ["ГОСТ", "МФЦ"])
         #expect(lists.correctedAbbreviations == ["ВрИО", "МВД"])
         #expect(lists.noYo == ["все"])
-        #expect(lists.hyphen == ["что-то"])
+        #expect(lists.hyphen == ["что-то", "кое-что"])
+        #expect(lists.hyphenSpaced == ["кое-что"])
         #expect(lists.keep == ["ок"])
+    }
+
+    @Test func anUnknownMarkOfTheHyphenListFails() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try "кое-что\tspaced\n".write(to: directory.appendingPathComponent("hyphen.txt"), atomically: true, encoding: .utf8)
+        let error = try #require(throws: ModelBuild.Failure.self) { try DataLists(directory: directory.path) }
+        #expect(error.description.contains("spaced"))
     }
 
     @Test func missingFilesAreEmpty() throws {
@@ -220,6 +230,21 @@ import Testing
         for entry in lists.hyphen {
             #expect(entry.filter { $0 == "-" }.count == 1 && entry == entry.lowercased(), "\(entry)")
         }
+        // The form with a space only where the corpus has no right use of it
+        // (docs/corrections.md, «Форма с пробелом»).
+        #expect(lists.hyphenSpaced.isSubset(of: lists.hyphen))
+        for entry in ["что-то", "как-то", "кто-то", "по-моему", "всё-таки", "из-за", "из-под", "что-либо",
+                      "в-третьих", "в-пятых"]
+        {
+            #expect(!lists.hyphenSpaced.contains(entry), "\(entry)")
+        }
+        for entry in lists.hyphenSpaced {
+            let parts = entry.split(separator: "-")
+            let group = ["во-первых", "во-вторых"].contains(entry) || parts[0] == "кое"
+                || ["нибудь", "либо"].contains(parts[1])
+            #expect(group, "\(entry)")
+        }
+        #expect(lists.hyphenSpaced.count > 100)
     }
 }
 
@@ -384,5 +409,122 @@ import Testing
 
     @Test func coverageSplitsWordsWithApostrophesInside() {
         #expect(Coverage.words(of: "«П’ять» котів-м'ячів, 12 — так!") == ["П’ять", "котів-м'ячів", "12", "так"])
+    }
+}
+
+@Suite struct HyphenRulesTests {
+    /// The flags as ru_RU uses them: A the adjective, Z its adverb, O the
+    /// possessive adjective, B the imperative, L the past, N a noun in -ь.
+    static let affix = """
+    SET UTF-8
+
+    SFX A Y 4
+    SFX A   ый   ому          ый
+    SFX A   ый   ого          ый
+    SFX A   ий   ему          [^к]ий
+    SFX A   ий   ого          ий
+
+    SFX Z Y 1
+    SFX Z   ый   о            [лнртв]ый
+
+    SFX O Y 1
+    SFX O   ий   ьи           ий
+
+    SFX B Y 3
+    SFX B   ть   й            [аея]ть
+    SFX B   ть   йте          [аея]ть
+    SFX B   ить  ь            ить
+
+    SFX L Y 1
+    SFX L   ть   л            ть
+
+    SFX N Y 1
+    SFX N   ь    и            ь
+
+    """
+
+    static let dictionary = """
+    16
+    новый/AZ
+    левый/A
+    прежний/A
+    русский/A
+    лисий/O
+    вообще
+    наконец
+    так
+    ка
+    тихо
+    давать/BL
+    печалить/BL
+    печаль/N
+    знать/BL
+    добрый/A
+    про
+    беженцев
+    печали
+    знал
+    Сантос
+    """
+
+    /// Forms of the spelling dictionary and of `add.txt`.
+    static let words: Set = ["полевому", "новый", "новому", "нового", "ново", "левый", "левому", "прежний",
+                             "прежнему", "русский", "лисий", "лисьи", "вообще", "наконец", "так", "ка", "тихо",
+                             "давать", "давай", "давайте", "печалить", "печаль", "печали", "знать", "знай"]
+    /// wordfreq ranks: Zipf × 32.
+    static let ranks: [String: UInt8] = ["вообще": 170, "наконец": 160, "так": 208, "ка": 130, "тихо": 150,
+                                         "ново": 140, "давай": 158, "давайте": 159, "печаль": 145, "знай": 127,
+                                         "про": 150, "беженцев": 150, "печали": 150, "знал": 150,
+                                         "вообщето": 82, "наконецто": 74, "тактак": 100]
+
+    static func derive(isWord: (String) -> Bool = { words.contains($0) }) -> [String: HyphenRules.Rule] {
+        HyphenRules.derive(Hunspell.entries(dic: dictionary), hunspell: Hunspell(affix: affix), isWord: isWord,
+                           rank: { ranks[$0] })
+    }
+
+    @Test func everyRule() {
+        let words = Self.derive()
+        #expect(words["по-новому"] == .po && words["по-прежнему"] == .po)
+        #expect(words["по-русски"] == .po, "-ски from -ский, not the dative")
+        #expect(words["по-русскому"] == nil)
+        #expect(words["по-лисьи"] == .po)
+        #expect(words["вообще-то"] == .particle && words["наконец-то"] == .particle && words["так-либо"] == .particle)
+        #expect(words["ново-то"] == .particle, "the adverb of an adjective")
+        #expect(words["опять-таки"] == nil && words["вообще-таки"] == .taki)
+        #expect(words["тихо-тихо"] == .doubling)
+        #expect(words["давай-ка"] == .ka && words["давайте-ка"] == .ka && words["ну-ка"] == .ka)
+    }
+
+    @Test func realWordsStay() {
+        let words = Self.derive()
+        // The merged spelling is a word: "полевому" of "полевой", or frequent ("тактак" here).
+        #expect(words["по-левому"] == nil)
+        #expect(words["так-так"] == nil)
+        // An imperative that is a noun too: "печалька" is a word.
+        #expect(words["печаль-ка"] == nil)
+        // Not the dative of a noun or a pronoun: "потому" has no rule.
+        #expect(!words.keys.contains { $0.hasSuffix("-тому") })
+        #expect(!words.keys.contains { $0.first?.isUppercase == true }, "names give nothing")
+    }
+
+    @Test func noParticleAfterANounAVerbOrAPreposition() {
+        let words = Self.derive()
+        // A preposition ("прото" is no "про-то"), a genitive plural the
+        // dictionary lists without flags, a form of a noun and of a verb.
+        #expect(words["про-то"] == nil && words["про-либо"] == nil)
+        #expect(words["беженцев-то"] == nil)
+        #expect(words["печали-то"] == nil && words["знал-то"] == nil)
+        // The pronouns and adverbs keep theirs, and the other rules do not care.
+        #expect(words["вообще-то"] == .particle && words["так-нибудь"] == .particle)
+        #expect(words["про-таки"] == .taki, "only the particle rule reads the part of speech")
+    }
+
+    @Test func rareOrShortPartsGiveNothing() {
+        let words = Self.derive()
+        // "ка" is frequent but short; "знай" is below Zipf 4.
+        #expect(words["ка-то"] == nil && words["ка-ка"] == nil)
+        #expect(words["знай-ка"] == nil)
+        // по- needs no frequency: wordfreq does not know "доброму" here.
+        #expect(words["по-доброму"] == .po)
     }
 }

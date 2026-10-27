@@ -60,6 +60,9 @@ struct WordJudge: Sendable {
         /// The keys of the word after the retype, when a word correction
         /// changed them; nil when they are the same keys in `target`.
         var word: [KeyStroke]?
+        /// How many words of the buffer the retype replaces, the last one
+        /// included: more than 1 for a `PhraseCorrectionStep`.
+        var words = 1
         /// The key held for the retype: it comes back first after the fence.
         var held: Fence.Returning
         /// The buffer's last key is the held one (a switch inside the word):
@@ -453,7 +456,8 @@ struct WordJudge: Sendable {
             let forced = !switches && listed != nil && WordRules.overrides(listedDecision)
                 && !isMixedCase(buffer, auto)
             if forced || switches {
-                if isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
+                if isException(buffer, in: auto.typed, settings, focus)
+                    || isException(buffer, in: auto.other, settings, focus)
                     || alwaysFixSpelling(buffer, in: auto.typed, settings) != nil
                 {
                     record(auto.typed.language)
@@ -493,10 +497,14 @@ struct WordJudge: Sendable {
         } else {
             record(typed.language)
         }
-        // The word stays in its layout: fix it there.
-        guard let typo, !isException(buffer, in: typo, settings), alwaysFixSpelling(buffer, in: typo, settings) == nil,
-              var retype = typoRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary, undoable: !endsLine,
-                                      layouts: layouts, settings: settings)
+        // The word stays in its layout: fix it there, together with the
+        // words before it first.
+        guard let typo, !isException(buffer, in: typo, settings, focus),
+              alwaysFixSpelling(buffer, in: typo, settings) == nil,
+              var retype = phraseRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary,
+                                        undoable: !endsLine, layouts: layouts, settings: settings, focus: focus)
+              ?? typoRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary, undoable: !endsLine,
+                            layouts: layouts, settings: settings)
         else { return .keep }
         retype.decision = decision
         return .retype(retype)
@@ -525,7 +533,8 @@ struct WordJudge: Sendable {
             explaining: true
         )
         if decision.verdict == .switch(to: auto.other.id),
-           isException(buffer, in: auto.typed, settings) || isException(buffer, in: auto.other, settings)
+           isException(buffer, in: auto.typed, settings, focus)
+           || isException(buffer, in: auto.other, settings, focus)
         {
             // The user's list kept it.
             decision.verdict = .keep
@@ -547,7 +556,8 @@ struct WordJudge: Sendable {
               let other = Self.onlyPossibleStart(buffer, context)
         else { return nil }
         context.other = other
-        guard !isExceptionPrefix(buffer, context, settings), !isAlwaysFixPrefix(buffer, in: context.typed, settings)
+        guard !isExceptionPrefix(buffer, context, settings, focus),
+              !isAlwaysFixPrefix(buffer, in: context.typed, settings)
         else { return nil }
         let trigger = buffer.entries[count - 1].stroke
         guard var retype = autoRetype(context, buffer.entries.dropLast(), held: trigger, heldKeyCode: trigger.keyCode,
@@ -714,6 +724,65 @@ struct WordJudge: Sendable {
                           pending: pending, word: fix.strokes, held: .boundary(keyCode: heldKeyCode, endsWord: true))
     }
 
+    /// The last words of the buffer corrected together in their layout
+    /// (`WordCorrections.phraseSteps`): "во первых" → "во-первых". Every key
+    /// typed in `typed` without ⌥, one space between the words, and no word
+    /// on the user's list, here or everywhere, nor the words written
+    /// together: an undo counts for that ("вопервых"). Nil when there is nothing to correct.
+    private func phraseRetype(_ buffer: WordBuffer, in typed: LayoutMap, heldKeyCode: UInt16, held: KeyStroke?,
+                              undoable: Bool, layouts: LayoutState, settings: Settings, focus: Focus?) -> WordRetype?
+    {
+        guard let model = classifier?.model else { return nil }
+        for step in WordCorrections.phraseSteps where step.isOn(settings) {
+            guard let entries = buffer.phrase(words: step.words),
+                  entries.filter(\.isSpace).count == step.words - 1,
+                  !entries.contains(where: { $0.layout != typed.id || $0.endsPart
+                      || $0.stroke.modifiers.contains(.option) })
+            else { continue }
+            var characters: [Character] = []
+            var expected = ""
+            characters.reserveCapacity(entries.count)
+            for entry in entries {
+                guard let text = typed.text(for: entry.stroke), text.count == 1, let character = text.first
+                else { return nil }
+                characters.append(character)
+                expected += text
+            }
+            if !settings.exceptions.isEmpty || !settings.appExceptions.isEmpty {
+                let words = expected.split(separator: " ").map(String.init) + [expected.filter { $0 != " " }]
+                if words.contains(where: { settings.isException(Self.exceptionKey($0), app: focus?.bundleID) }) {
+                    continue
+                }
+            }
+            let strokes = entries.map(\.stroke)
+            var phrase = BoundaryWord(characters: characters, modifiers: strokes.map(\.modifiers),
+                                      language: typed.language)
+            step.apply(to: &phrase, model: model)
+            guard phrase.characters != characters,
+                  let corrected = Self.strokes(for: phrase, typed: strokes, in: typed)
+            else { continue }
+            var keys: [Retype.Key] = []
+            keys.reserveCapacity(corrected.count)
+            for stroke in corrected {
+                guard let text = typed.text(for: stroke) else { return nil }
+                keys.append(Retype.Key(stroke: stroke, text: text))
+            }
+            var undone = strokes
+            if let held, typed.text(for: held) != nil { undone.append(held) }
+            var pending = CorrectionUndo.Pending(
+                correction: Correction(seq: 0, original: "", replacement: "", source: typed.id,
+                                       target: typed.id, undoable: undoable, kind: step.kind),
+                strokes: undone, wordLength: strokes.count, isOpen: false, typed: corrected
+            )
+            pending.words = step.words
+            CorrectionUndo.describe(&pending, layouts: layouts)
+            return WordRetype(keys: keys, expected: expected, deleteCount: strokes.count, target: typed.id,
+                              pending: pending, word: corrected, words: step.words,
+                              held: .boundary(keyCode: heldKeyCode, endsWord: true))
+        }
+        return nil
+    }
+
     /// The word corrections at a word boundary, in order, on the word in the
     /// layout decided for it (`map`). Each step is off by its own setting
     /// and sees the word as the steps before it left it (docs/corrections.md):
@@ -741,13 +810,24 @@ struct WordJudge: Sendable {
             characters.append(character)
         }
         var word = BoundaryWord(characters: characters, modifiers: strokes.map(\.modifiers), language: map.language)
-        guard WordCorrections.run(&word, settings: settings, model: model), let kind = word.kind else { return fix }
+        guard WordCorrections.run(&word, settings: settings, model: model), let kind = word.kind,
+              let corrected = Self.strokes(for: word, typed: strokes, in: map)
+        else { return fix }
+        return WordFix(strokes: corrected, kind: fix?.kind ?? kind, capsLockOff: word.capsLockOff,
+                       typoChange: fix?.typoChange)
+    }
+
+    /// The keys that type a corrected `word` in `map`: the key the user
+    /// pressed (`typed`) where it still types the character, else the key
+    /// of the character without ⌥ ("-" of "что-то"). Nil when some
+    /// character has none.
+    private static func strokes(for word: BoundaryWord, typed strokes: [KeyStroke], in map: LayoutMap) -> [KeyStroke]? {
         var corrected: [KeyStroke] = []
         corrected.reserveCapacity(word.characters.count)
         // A character a step inserted ("-" of "что-то") has no typed key: the
         // characters after it map to the key one place earlier.
         let inserted = word.insertedAt
-        guard word.characters.count == strokes.count + (inserted == nil ? 0 : 1) else { return fix }
+        guard word.characters.count == strokes.count + (inserted == nil ? 0 : 1) else { return nil }
         for (index, character) in word.characters.enumerated() {
             // Keep the key the user pressed where it still types the character.
             var key: Int? = index
@@ -757,29 +837,35 @@ struct WordJudge: Sendable {
             } else if let stroke = map.stroke(for: character), !stroke.modifiers.contains(.option) {
                 corrected.append(stroke)
             } else {
-                return fix
+                return nil
             }
         }
-        return WordFix(strokes: corrected, kind: fix?.kind ?? kind, capsLockOff: word.capsLockOff,
-                       typoChange: fix?.typoChange)
+        return corrected
     }
 
     // MARK: - The user's list
 
-    /// The word is on the user's list as this layout reads it.
-    private func isException(_ buffer: WordBuffer, in map: LayoutMap, _ settings: Settings) -> Bool {
-        guard !settings.exceptions.isEmpty, let word = Self.text(of: buffer.entries, in: map) else { return false }
-        return settings.exceptions.contains(Self.exceptionKey(word))
+    /// The word is on the user's list as this layout reads it: everywhere,
+    /// or for the app in focus.
+    private func isException(_ buffer: WordBuffer, in map: LayoutMap, _ settings: Settings, _ focus: Focus?) -> Bool {
+        guard !settings.exceptions.isEmpty || !settings.appExceptions.isEmpty,
+              let word = Self.text(of: buffer.entries, in: map)
+        else { return false }
+        return settings.isException(Self.exceptionKey(word), app: focus?.bundleID)
     }
 
     /// Some word on the user's list starts with the word so far, in either
     /// reading: do not switch it early.
-    private func isExceptionPrefix(_ buffer: WordBuffer, _ context: AutoContext, _ settings: Settings) -> Bool {
-        guard !settings.exceptions.isEmpty else { return false }
+    private func isExceptionPrefix(_ buffer: WordBuffer, _ context: AutoContext, _ settings: Settings,
+                                   _ focus: Focus?) -> Bool
+    {
+        guard !settings.exceptions.isEmpty || !settings.appExceptions.isEmpty else { return false }
+        let own = settings.appExceptions.isEmpty ? nil : focus?.bundleID.flatMap { settings.appExceptions[$0] }
         for map in [context.typed, context.other] {
             guard let word = Self.text(of: buffer.entries, in: map) else { continue }
             let prefix = Self.exceptionKey(word)
             if settings.exceptions.contains(where: { $0.hasPrefix(prefix) }) { return true }
+            if let own, own.contains(where: { $0.hasPrefix(prefix) }) { return true }
         }
         return false
     }

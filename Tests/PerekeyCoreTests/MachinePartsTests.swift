@@ -392,7 +392,7 @@ private func buffer(_ text: String, in layout: LayoutID = en) -> WordBuffer {
         var undo = CorrectionUndo()
         var effects: [Effect] = []
         undo.posted(pending("ghbdtn"), effects: &effects)
-        let undone1 = undo.takeBack(layouts: layouts, learnFromUndos: true, heldKey: true)
+        let undone1 = undo.takeBack(layouts: layouts, learnFromUndos: true, channel: .backspace, frequentRank: 160)
         let plan = try #require(undone1)
         #expect(plan.source == en)
         #expect(plan.expected == "привет")
@@ -402,7 +402,7 @@ private func buffer(_ text: String, in layout: LayoutID = en) -> WordBuffer {
         #expect(plan.inFlight.seq == 7)
         #expect(plan.inFlight.learn == "ghbdtn")
         #expect(plan.inFlight.heldKey)
-        let undone2 = undo.takeBack(layouts: layouts, learnFromUndos: true, heldKey: true)
+        let undone2 = undo.takeBack(layouts: layouts, learnFromUndos: true, channel: .backspace, frequentRank: 160)
         #expect(undone2 == nil)
     }
 
@@ -412,7 +412,7 @@ private func buffer(_ text: String, in layout: LayoutID = en) -> WordBuffer {
         var caps = pending("ghbdtn")
         caps.correction.kind = .capsLock
         undo.posted(caps, effects: &effects)
-        let undone = undo.takeBack(layouts: layouts, learnFromUndos: true, heldKey: false)
+        let undone = undo.takeBack(layouts: layouts, learnFromUndos: true, channel: .button, frequentRank: 160)
         let plan = try #require(undone)
         #expect(plan.inFlight.learn == nil)
     }

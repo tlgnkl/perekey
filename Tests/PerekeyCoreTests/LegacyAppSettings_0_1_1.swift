@@ -2,12 +2,12 @@
 
 // The settings decoder and encoder of Perekey 0.1.1, for the rollback tests
 // (`SettingsRollbackTests`). Copied from the v0.1.1 tag:
-// Sources/PerekeyCore/AppSettings.swift, HotkeyPreset.swift (`HotkeyAction`)
-// and Trigger.swift. Never edit them to follow the app: they stand for the
-// binary a user goes back to.
+// Sources/PerekeyCore/AppSettings.swift, HotkeyPreset.swift (`HotkeyAction`),
+// Trigger.swift and the coding of WordRules.swift. Never edit them to follow
+// the app: they stand for the binary a user goes back to.
 //
 // The types of the fields 0.1.1 decodes with `try?` (`AppRule`, `SiteRule`,
-// `WordRules`, `TextCorrections`, the modifier types) are the app's own:
+// `TextCorrections`, the modifier types) are the app's own:
 // they have not changed since v0.1.1 (`git diff v0.1.1 -- Sources/PerekeyCore`).
 // Copy one here before changing how it is encoded.
 
@@ -53,6 +53,75 @@ enum Legacy_0_1_1 {
         var isOn: Bool
         var name: String
     }
+
+    struct LearnedWord: Hashable, Sendable {
+        var word: String
+        var learnedAt: Double
+        var undoCount: Int
+        var lastUndoneAt: Double
+    }
+
+    struct WordRules: Hashable, Sendable, Codable {
+        var mine: [String] = []
+        var learned: [LearnedWord] = []
+        var always: [String] = []
+        var learnFromUndos = true
+    }
+}
+
+extension Legacy_0_1_1.LearnedWord: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case word, learnedAt, undoCount, lastUndoneAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        word = try container.decode(String.self, forKey: .word)
+        learnedAt = try container.decode(Double.self, forKey: .learnedAt)
+        undoCount = max(1, (try? container.decodeIfPresent(Int.self, forKey: .undoCount)) ?? 1)
+        lastUndoneAt = (try? container.decodeIfPresent(Double.self, forKey: .lastUndoneAt)) ?? learnedAt
+    }
+}
+
+extension Legacy_0_1_1.WordRules {
+    private enum CodingKeys: String, CodingKey {
+        case mine, learned, always, learnFromUndos
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var seen = Set<String>()
+        func words(_ key: CodingKeys) -> [String] {
+            guard let raw = try? container.decodeIfPresent([String].self, forKey: key) else { return [] }
+            var words: [String] = []
+            for word in raw.map(PerekeyCore.WordRules.normalize) where !word.isEmpty && seen.insert(word).inserted {
+                words.append(word)
+            }
+            return words
+        }
+        let mine = words(.mine)
+        var learned: [Legacy_0_1_1.LearnedWord] = []
+        if var list = try? container.nestedUnkeyedContainer(forKey: .learned) {
+            while !list.isAtEnd {
+                guard var item = try? list.decode(Legacy_0_1_1.LearnedWord.self) else {
+                    _ = try? list.decode(LegacySkip.self)
+                    continue
+                }
+                item.word = PerekeyCore.WordRules.normalize(item.word)
+                if !item.word.isEmpty, seen.insert(item.word).inserted {
+                    learned.append(item)
+                }
+            }
+        }
+        self.mine = mine
+        self.learned = learned
+        always = words(.always)
+        learnFromUndos = (try? container.decodeIfPresent(Bool.self, forKey: .learnFromUndos)) ?? true
+    }
+}
+
+private struct LegacySkip: Decodable {
+    init(from decoder: any Decoder) throws {}
 }
 
 /// `AppSettings` of v0.1.1, field for field.
@@ -65,7 +134,7 @@ struct LegacyAppSettings_0_1_1: Hashable, Sendable {
     var onboardingDone: Bool
     var apps: [String: AppRule]
     var sites: [String: SiteRule]
-    var words: WordRules
+    var words: Legacy.WordRules
     var layoutSound: Legacy.SoundSetting
     var correctionSound: Legacy.SoundSetting
     var checkForUpdates: Bool
@@ -87,7 +156,7 @@ struct LegacyAppSettings_0_1_1: Hashable, Sendable {
         onboardingDone = false
         apps = [:]
         sites = [:]
-        words = WordRules()
+        words = Legacy.WordRules()
         layoutSound = .init(isOn: false, name: "Tink")
         correctionSound = .init(isOn: false, name: "Glass")
         checkForUpdates = true
@@ -114,7 +183,7 @@ extension LegacyAppSettings_0_1_1: Codable {
         autoswitch = try container.decodeIfPresent(Bool.self, forKey: .autoswitch) ?? defaults.autoswitch
         onboardingDone = try container.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? defaults.onboardingDone
         apps = (try? container.decodeIfPresent([String: AppRule].self, forKey: .apps)) ?? defaults.apps
-        words = (try? container.decodeIfPresent(WordRules.self, forKey: .words)) ?? defaults.words
+        words = (try? container.decodeIfPresent(Legacy.WordRules.self, forKey: .words)) ?? defaults.words
         sites = (try? container.decodeIfPresent([String: SiteRule].self, forKey: .sites)) ?? defaults.sites
         layoutSound = (try? container.decodeIfPresent(Legacy.SoundSetting.self, forKey: .layoutSound))
             ?? defaults.layoutSound

@@ -14,8 +14,9 @@ public struct ModelBuilder: Sendable {
     public static let bucketBits = 16
     /// Buckets of the "ё" table: it holds tens of thousands of forms, not millions.
     public static let yoBucketBits = 12
-    /// Buckets of the hyphen table: a few hundred words.
-    public static let hyphenBucketBits = 8
+    /// Buckets of the hyphen table: the hand list and the words derived by
+    /// rule, tens of thousands.
+    public static let hyphenBucketBits = 12
 
     /// Free text stored in the model: sources, licences, input hashes.
     public var meta = ""
@@ -83,15 +84,32 @@ public struct ModelBuilder: Sendable {
 
     /// Adds a word with one hyphen ("что-то"): the model then knows the
     /// merged spelling "чтото" takes it after three letters. A form with "ё"
-    /// also gives its "е" spelling ("всё-таки", "все-таки"). Returns false
+    /// also gives its "е" spelling ("всё-таки", "все-таки"). `spaced`: the
+    /// form typed with a space is no two right words either ("во первых"),
+    /// so it takes the hyphen too (`ModelFormat.hyphenSpaced`). Returns false
     /// when the form has no hyphen or more than one, one at an end, or other
-    /// letters than the alphabet.
+    /// letters than the alphabet. Throws `HyphenCollision`, adding nothing,
+    /// when a spelling of it already takes another value: "всё-таки" and
+    /// "все-таки" with only one of them marked `spaced`, or two fingerprints
+    /// that happen to be equal. `byRule`: a rule derived the word, not the
+    /// hand list (`ModelFormat.hyphenByRule`).
     @discardableResult
-    public mutating func addHyphen(_ form: String, language: String) -> Bool {
+    public mutating func addHyphen(_ form: String, language: String, spaced: Bool = false,
+                                   byRule: Bool = false) throws -> Bool
+    {
         guard let index = languages.firstIndex(where: { $0.language == language }) else {
             preconditionFailure("unknown language \(language)")
         }
-        return languages[index].addHyphen(form)
+        return try languages[index].addHyphen(form, spaced: spaced, byRule: byRule)
+    }
+
+    /// Two words of the hyphen table want different values for one merged spelling.
+    public struct HyphenCollision: Error, CustomStringConvertible {
+        public let form: String
+
+        public var description: String {
+            "\(form): its merged spelling takes another hyphen position or `space` mark already"
+        }
     }
 
     public func build() -> [UInt8] {
@@ -190,7 +208,8 @@ struct LanguageBuilder: Sendable {
     /// Folded fingerprint of the "е" spelling → which "е" become "ё", bit
     /// `i` for the `i`-th "е" of the word.
     private var yo: [UInt64: UInt8] = [:]
-    /// Folded fingerprint of the merged spelling → the letters before the hyphen.
+    /// Folded fingerprint of the merged spelling → the letters before the
+    /// hyphen, with `ModelFormat.hyphenSpaced` for a form fixed with a space too.
     private var hyphens: [UInt64: UInt8] = [:]
     private var prefixes3: [UInt64]
     private var prefixes4: [UInt64]
@@ -258,21 +277,27 @@ struct LanguageBuilder: Sendable {
         return true
     }
 
-    mutating func addHyphen(_ form: String) -> Bool {
+    mutating func addHyphen(_ form: String, spaced: Bool, byRule: Bool) throws -> Bool {
         let scalars = Array(form.unicodeScalars).map { ModelFormat.fold($0.value) }
         let hyphen: UInt32 = 0x2D
         guard let position = scalars.firstIndex(of: hyphen), position > 0, position < scalars.count - 1,
-              position <= Int(UInt8.max), scalars.lastIndex(of: hyphen) == position,
+              position < Int(ModelFormat.hyphenByRule), scalars.lastIndex(of: hyphen) == position,
               scalars.allSatisfy({ $0 == hyphen || symbols[$0] != nil })
         else { return false }
         let merged = scalars.filter { $0 != hyphen }
         var spellings = [merged]
         if merged.contains(0x451) { spellings.append(merged.map { $0 == 0x451 ? 0x435 : $0 }) }
-        for spelling in spellings {
+        let value = UInt8(position) | (spaced ? ModelFormat.hyphenSpaced : 0) | (byRule ? ModelFormat.hyphenByRule : 0)
+        let fingerprints = spellings.map { spelling in
             var fingerprint = ModelFormat.Fingerprint()
             for scalar in spelling { fingerprint.add(scalar) }
-            hyphens[fingerprint.value] = UInt8(position)
+            return fingerprint.value
         }
+        // A silent overwrite would move the hyphen or drop the `space` mark of another word.
+        guard !fingerprints.contains(where: { hyphens[$0].map { $0 != value } ?? false }) else {
+            throw ModelBuilder.HyphenCollision(form: form)
+        }
+        for fingerprint in fingerprints { hyphens[fingerprint] = value }
         return true
     }
 

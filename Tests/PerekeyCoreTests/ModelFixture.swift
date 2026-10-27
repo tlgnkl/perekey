@@ -29,8 +29,19 @@ enum ModelFixture {
     /// Words people type without their hyphen: `data/ru/hyphen.txt`.
     static let hyphen = [
         "во-первых", "в-четвёртых", "что-то", "кто-то", "какого-нибудь", "кое-что", "по-моему", "по-русски",
-        "из-за", "всё-таки", "чуть-чуть",
+        "из-за", "всё-таки", "чуть-чуть", "во-вторых", "кто-нибудь", "что-нибудь", "кто-либо", "что-либо",
+        "кое-кому", "чём-либо",
     ]
+
+    /// The words of `hyphen` marked `space`: typed with a space, they take
+    /// the hyphen too.
+    static let hyphenSpaced: Set = [
+        "во-первых", "во-вторых", "какого-нибудь", "кто-нибудь", "что-нибудь", "кто-либо", "кое-что", "кое-кому",
+        "чём-либо",
+    ]
+
+    /// Words the builder derives by rule (`ModelFormat.hyphenByRule`): one per rule.
+    static let hyphenByRule = ["по-новому", "вообще-то", "тихо-тихо", "давай-ка", "опять-таки"]
 
     /// Words with a fixed case, and whether Perekey corrects to them.
     static let cased: [(String, Bool)] = [
@@ -71,12 +82,19 @@ enum ModelFixture {
         try! LanguageModel(bytes: build(russianForms: words))
     }
 
-    private static func build(rareEnglish: [String] = [], russianForms: [String] = []) -> [UInt8] {
+    /// The fixture plus Russian words and words of the hyphen rules.
+    static func model(withRussianWords words: [(String, UInt8)], hyphenByRule extra: [String]) -> LanguageModel {
+        try! LanguageModel(bytes: build(russianWords: words, hyphenByRule: extra))
+    }
+
+    private static func build(rareEnglish: [String] = [], russianForms: [String] = [],
+                              russianWords: [(String, UInt8)] = [], hyphenByRule extra: [String] = []) -> [UInt8]
+    {
         var builder = ModelBuilder()
         builder.meta = "fixture"
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
         builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
-        for (word, rank) in russian {
+        for (word, rank) in russian + russianWords {
             builder.addForm(word, language: "ru", rank: rank, weight: Double(rank))
         }
         for (word, rank) in english {
@@ -88,13 +106,15 @@ enum ModelFixture {
         }
         for word in ["iPhone", "Wi-Fi", "ГОСТ"] { builder.addKeep(word) }
         addCorrections(to: &builder)
+        for word in extra { try! builder.addHyphen(word, language: "ru", byRule: true) }
         return builder.build()
     }
 
     /// The tables of the stage 4 corrections.
     static func addCorrections(to builder: inout ModelBuilder) {
         for word in yo { builder.addYo(word, language: "ru") }
-        for word in hyphen { builder.addHyphen(word, language: "ru") }
+        for word in hyphen { try! builder.addHyphen(word, language: "ru", spaced: hyphenSpaced.contains(word)) }
+        for word in hyphenByRule { try! builder.addHyphen(word, language: "ru", byRule: true) }
         for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
     }
 

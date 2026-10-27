@@ -20,7 +20,6 @@
 "Unavailable: %@" = "Недоступен: %@";
 "This microphone is not connected. Perekey uses the system one meanwhile." = "Этот микрофон не подключён. Пока Perekey берёт системный.";
 "Model" = "Модель";
-"Download a model below first." = "Сначала скачайте модель ниже.";
 "%@ (not downloaded)" = "%@ (не скачана)";
 "Switch the layout to the language of the phrase" = "Переключать раскладку на язык фразы";
 "Sounds" = "Звуки";
@@ -33,7 +32,6 @@
 "60 s" = "60 с";
 "10 min" = "10 мин";
 "60 min" = "60 мин";
-"Models" = "Модели";
 "Your administrator turned off model downloads. Perekey reads models from the folder /Library/Application Support/Perekey/VoiceModels." = "Администратор запретил скачивать модели. Perekey берёт их из папки /Library/Application Support/Perekey/VoiceModels.";
 "Turn on voice input to download models." = "Чтобы скачивать модели, включите голосовой ввод.";
 "Show folder" = "Показать папку";
@@ -43,10 +41,21 @@
 "Disk use: %@ (with cache)" = "Занято на диске: %@ (с кэшем)";
 "Delete all speech models?" = "Удалить все модели речи?";
 "Perekey will delete the downloaded models and the cache that speeds up loading them. You can download a model again later. A model in use stays." = "Perekey сотрёт скачанные модели и кэш, который ускоряет их загрузку. Модель можно скачать снова. Модель, которая сейчас работает, останется.";
+"Dictation" = "Диктовка";
+"Dictation model" = "Модель для диктовки";
+"Models run on this Mac. The network is only for downloads." = "Модели работают на этом Mac. Сеть нужна только для скачивания.";
+"Fast. 25 European languages; English terms stay in Latin letters." = "Быстрая. 25 европейских языков, английские термины остаются латиницей.";
+"A retrained v3. The same 25 languages; English words in a Russian phrase come out in Cyrillic." = "Дообученная v3. Те же 25 языков, но английские слова в русской фразе пишет кириллицей.";
+"Almost any language. Slower; after the download it gets ready for about 10 minutes." = "Почти любой язык. Медленнее, после скачивания готовится около 10 минут.";
+"Dictate with this model" = "Диктовать этой моделью";
+"Download the model and dictate with it" = "Скачать модель и диктовать ею";
+"Not downloaded. Download it to dictate." = "Не скачана. Скачайте её, чтобы диктовать.";
+"Ready · %@" = "Готова · %@";
+"Perekey switches to it when it is downloaded." = "Perekey перейдёт на неё, когда скачает.";
+"Not downloaded, %@" = "Не скачана, %@";
+"Stop the download" = "Остановить скачивание";
 "Cancel" = "Отмена";
-"offline" = "офлайн";
 "recommended" = "рекомендуем";
-"in use" = "используется";
 "from your administrator" = "от администратора";
 "Paused at %@" = "Остановлено на %@";
 "Ready" = "Готова";
@@ -110,6 +119,7 @@
 "Clear the history?" = "Очистить историю?";
 "The texts and saved audio of all dictations are deleted." = "Тексты и сохранённый звук всех диктовок будут удалены.";
 "Recent dictations" = "Последние диктовки";
+"Not saved: gone when Perekey quits." = "Не сохранена: пропадёт при выходе из Perekey.";
 "Show text" = "Показывать текст";
 "Paste again" = "Вставить снова";
 "Words dictated" = "Слов надиктовано";
@@ -298,6 +308,11 @@
 "Keep the audio of calls" = "Хранить звук созвонов";
 "Include in Time Machine" = "Включать в Time Machine";
 "Recordings stay on this Mac. The text of a call stays when its audio is gone." = "Записи остаются на этом Mac. Текст созвона остаётся, когда звук уже удалён.";
+"Record and transcribe" = "Записать и расшифровать";
+"The same as in the menu bar item, for when it is hidden." = "То же, что в меню Perekey, на случай, когда значок скрыт.";
+"Open Transcripts" = "Открыть расшифровки";
+"With the icon hidden, record a call or transcribe a file in Settings → Voice, in the Transcripts window, or with “Open With” in Finder." = "Пока значок скрыт, записать созвон или расшифровать файл можно в Настройках → Голос, в окне «Расшифровки» и через «Открыть с помощью» в Finder.";
+"Drop an audio or video file here, or use the buttons above, and its text appears." = "Бросьте сюда звуковой или видеофайл либо нажмите кнопку выше, и появится его текст.";
 "Delete all recordings?" = "Удалить все записи?";
 "The texts and the saved audio of all calls and files are deleted. Files you chose stay where they are." = "Тексты и сохранённый звук всех созвонов и файлов будут удалены. Файлы, которые вы выбрали, останутся на месте.";
 "Set by your administrator" = "Задано администратором";
@@ -320,6 +335,7 @@
 "Not transcribed" = "Не расшифровано";
 "The file is gone, or Perekey cannot open it." = "Файла больше нет, или Perekey не может его открыть.";
 "The file has no audio, or it cannot be read." = "В файле нет звука, или его не получается прочитать.";
+"Perekey cannot read %@ audio. Convert the file to m4a or mp3 and transcribe it again." = "Perekey не читает звук в формате %@. Сохраните файл как m4a или mp3 и расшифруйте его снова.";
 "The model is not downloaded, or the cloud is off. Pick another model." = "Модель не скачана, или облако выключено. Выберите другую модель.";
 "The model failed on this audio." = "Модель не справилась с этим звуком.";
 "Perekey could not read or write the files of this recording." = "Perekey не смог прочитать или записать файлы этой записи.";
@@ -336,7 +352,6 @@
 "Its transcript and saved audio are deleted. A file you chose stays where it is." = "Её текст и сохранённый звук будут удалены. Файл, который вы выбрали, останется на месте.";
 "Drop an audio or video file to transcribe it" = "Бросьте сюда звуковой или видеофайл, чтобы расшифровать его";
 "No transcripts yet" = "Расшифровок пока нет";
-"Drop an audio or video file here, and its text appears." = "Бросьте сюда звуковой или видеофайл, и появится его текст.";
 "Delete…" = "Удалить…";
 "Dismiss" = "Закрыть";
 "Pick a transcript on the left." = "Выберите расшифровку слева.";
@@ -371,6 +386,7 @@
 "Plays the audio from here" = "Проигрывает звук с этого места";
 "The audio of this call was removed, so the text cannot be played or transcribed again." = "Звук этого созвона удалён, поэтому текст нельзя проиграть или расшифровать заново.";
 /* Transcription of files */
+"Transcribe File" = "Расшифровать файл";
 "Transcribe File…" = "Расшифровать файл…";
 "Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Выберите звук или видео для расшифровки. Perekey читает файл и не копирует его.";
 "Model for transcriptions" = "Модель для расшифровок";
@@ -480,3 +496,11 @@
 "Dictation: pasted" = "Диктовка: вставкой";
 "Dictation: typed" = "Диктовка: набором";
 "Remove the rule and the dictation input" = "Удалить правило и вставку диктовки";
+"The file was not transcribed" = "Файл не расшифрован";
+"Perekey transcribes audio and video files. This one is neither." = "Perekey расшифровывает аудио и видео. Этот файл — ни то, ни другое.";
+"Voice input is off. Turn it on in Settings → Voice to transcribe files." = "Голосовой ввод выключен. Включите его в Настройках → Голос, чтобы расшифровывать файлы.";
+"Voice input is not available on this Mac, or your administrator turned it off." = "Голосовой ввод недоступен на этом Mac или выключен администратором.";
+"Voice input did not start in time. Try again in a moment." = "Голосовой ввод не успел запуститься. Попробуйте ещё раз через минуту.";
+"Open Settings → Voice" = "Открыть Настройки → Голос";
+"Transcribing files needs voice input to be on and running." = "Расшифровка файлов работает, когда голосовой ввод включён и запущен.";
+"Voice input has no shortcut. Set one in Settings → Voice to transcribe files." = "У голосового ввода нет клавиши. Задайте её в Настройках → Голос, чтобы расшифровывать файлы.";

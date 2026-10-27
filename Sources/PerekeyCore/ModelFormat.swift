@@ -42,9 +42,18 @@ public enum ModelFormat {
     public static let yoTag = tag("yo")
     /// Words of one language typed without their hyphen ("чтото"): the
     /// "dict" layout by the folded fingerprint of the merged spelling, the
-    /// value byte the number of letters before the hyphen. Optional,
-    /// Russian only.
+    /// value byte the number of letters before the hyphen, with
+    /// `hyphenSpaced` set when the form typed with a space takes it too and
+    /// `hyphenByRule` for a word a rule derived. Optional, Russian only.
     public static let hyphenTag = tag("hyph")
+    /// The bit of a "hyph" value for a word whose form with a space is no two
+    /// right words ("во первых" → "во-первых"). A model without it fixes the
+    /// merged form only.
+    public static let hyphenSpaced: UInt8 = 0x80
+    /// The bit of a "hyph" value for a word a rule derived from the
+    /// dictionary ("поновому"), not one of the hand list: with a capital
+    /// inside a sentence it is a name and stays.
+    public static let hyphenByRule: UInt8 = 0x40
 
     /// Four ASCII bytes packed little-endian; shorter strings are zero-padded.
     public static func tag(_ text: String) -> UInt32 {

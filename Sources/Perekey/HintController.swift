@@ -19,6 +19,8 @@ final class HintController {
     private static let glide: TimeInterval = 0.45
     /// How long an opened explanation stays after the press.
     private static let explanationSeconds: TimeInterval = 10
+    /// How long the learning question waits for a press while the user does not type.
+    private static let questionSeconds: TimeInterval = 8
 
     private let locator = CaretLocator()
     private let model = HintModel(content: .learned(word: ""))
@@ -79,8 +81,18 @@ final class HintController {
         present(.learned(word: word), action: onForget)
     }
 
+    /// At the threshold: «Stop changing “word”? Only here · Everywhere · No».
+    /// `onAnswer` runs when the user presses a button; a hint that goes away
+    /// unanswered runs nothing, and the word stays a candidate.
+    func showQuestion(word: String, choices: [LearningAnswer], onAnswer: @escaping (LearningAnswer) -> Void) {
+        alwaysFixAction = nil
+        answerAction = onAnswer
+        present(.question(word: HintMetrics.shortened(word), choices: choices), action: nil)
+    }
+
     func hide() {
         alwaysFixAction = nil
+        answerAction = nil
         generation += 1
         dismiss()
     }
@@ -93,10 +105,11 @@ final class HintController {
         generation += 1
         let mine = generation
         currentAction = action
-        locator.caretRect { [weak self] rect in
+        if case .question = content {} else { answerAction = nil }
+        locator.anchor { [weak self] anchor in
             Task { @MainActor in
                 guard let self, self.generation == mine else { return }
-                self.place(content, caret: rect, expanded: false)
+                self.place(content, anchor: anchor, expanded: false)
             }
         }
     }
@@ -106,16 +119,16 @@ final class HintController {
     private func explain() {
         guard model.visible, !model.expanded, case let .retyped(_, _, _, why, _) = model.content, why != nil else { return }
         lifetime.hold(for: Self.explanationSeconds, at: Self.now)
-        place(model.content, caret: lastCaret, expanded: true)
+        place(model.content, anchor: lastCaret, expanded: true)
     }
 
-    private func place(_ content: HintContent, caret: CGRect?, expanded: Bool) {
+    private func place(_ content: HintContent, anchor: CaretAnchor?, expanded: Bool) {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         let wasVisible = panel.isVisible && model.visible
         // The same hint, grown: no new strip, no new clock.
         let opens = expanded && wasVisible
-        lastCaret = caret
+        lastCaret = anchor
         buttonActive = true
 
         // The size the new content needs, from a copy laid out off screen.
@@ -124,8 +137,11 @@ final class HintController {
         let size = NSHostingView(rootView: HintBubbleContent(model: measured, action: {})).fittingSize
 
         let target: CGPoint
-        if let caret, let screen = screen(containing: CGPoint(x: caret.midX, y: caret.midY)) {
-            target = HintPlacement.origin(size: size, caret: caret, visible: screen.visibleFrame)
+        if let anchor, let screen = screen(containing: CGPoint(x: anchor.caret.midX, y: anchor.caret.midY)) {
+            let placement = HintPlacement.place(size: size, anchor: anchor, visible: screen.visibleFrame)
+            HintPlacement.log(bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                              anchor: anchor, visible: screen.visibleFrame, placement: placement)
+            target = placement.origin
         } else {
             let screen = screen(containing: NSEvent.mouseLocation) ?? NSScreen.main ?? NSScreen.screens.first
             guard let screen else { return }
@@ -185,14 +201,17 @@ final class HintController {
             lifetime = HintLifetime(now: Self.now)
             hover = HintHover(pointer: NSEvent.mouseLocation)
         }
+        // A question takes longer to read than a notice; a word typed on still closes it.
+        if case .question = content { lifetime.hold(for: Self.questionSeconds, at: Self.now) }
         startKeyMonitor()
         startTimer()
         publishButtonFrame()
     }
 
     private var remainingGlide = 0
-    private var lastCaret: CGRect?
+    private var lastCaret: CaretAnchor?
     private var alwaysFixAction: (() -> Void)?
+    private var answerAction: ((LearningAnswer) -> Void)?
     /// The hint is showing and its buttons take clicks.
     private var buttonActive = false
     /// The bubble is moving: its button has no stable place, so it takes no clicks.
@@ -330,7 +349,13 @@ final class HintController {
             let action = self.currentAction
             self.hide()
             action?()
-        }, explain: { [weak self] in self?.explain() }, alwaysFix: { [weak self] in self?.alwaysFixAction?() })
+        }, explain: { [weak self] in self?.explain() }, alwaysFix: { [weak self] in self?.alwaysFixAction?() },
+        answer: { [weak self] choice in
+            guard let self else { return }
+            let action = self.answerAction
+            self.hide()
+            action?(choice)
+        })
         return HintPanel(rootView: view, model: model)
     }
 }

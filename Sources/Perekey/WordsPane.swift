@@ -2,6 +2,8 @@
 
 import PerekeyCore
 import AppKit
+import os
+import PerekeyInput
 import SwiftUI
 
 /// Settings → Words: the user's word rules. "Don't touch: mine" are typed in
@@ -13,6 +15,9 @@ struct WordsPane: View {
     var layouts: [LayoutMap] = []
     /// Says whether a word is among the 1000 most frequent. The classifier model will provide it.
     var isFrequent: (String) -> Bool = { _ in false }
+
+    /// Where the answers given here are written, as `InputController.answer` writes them.
+    var learningJournal = LearningJournalFile()
 
     private let draft: State<String>
     private let alwaysDraft: State<String>
@@ -41,11 +46,12 @@ struct WordsPane: View {
 
     var body: some View {
         PKPane(title: Text("Words")) {
-            Text("Perekey never touches the first two lists and always fixes the third, in any layout.")
+            Text("Perekey never touches the “Don't touch” words and always fixes the “Always fix” ones, in any layout. Words waiting for your answer are still fixed.")
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
             mineSection
+            if !words.pendingCandidates.isEmpty { candidatesSection }
             learnedSection
             alwaysSection
         }
@@ -91,6 +97,66 @@ struct WordsPane: View {
         }
     }
 
+    /// Words undone but not answered yet: the question did not come (the hint
+    /// is off, or it went away), or the evidence is still short.
+    private var candidatesSection: some View {
+        let pending = words.pendingCandidates
+        return PKGroup(header: Text("Waiting for your answer") + Text(count(pending.count)).foregroundStyle(Color.pkInk3),
+                       anchor: "words.candidates") {
+            VStack(spacing: 0) {
+                ForEach(pending, id: \.id) { item in
+                    let choices = words.question(for: item).choices
+                    VStack(spacing: 0) {
+                        PKDivider()
+                        PKRow(Text(item.word)) {
+                            HStack(spacing: 12) {
+                                if let app = item.app {
+                                    Text(Self.appName(app))
+                                        .font(PK.Font.caption)
+                                        .foregroundStyle(Color.pkInk2)
+                                }
+                                if choices.contains(.here) {
+                                    Button("Don't touch here") { decide(item, .here) }.buttonStyle(.pkLink)
+                                }
+                                Button("Everywhere") { decide(item, .everywhere) }.buttonStyle(.pkLink)
+                                Button("Remove") { decide(item, .no) }.buttonStyle(.pkLink)
+                            }
+                        }
+                    }
+                    .pkRowTransition()
+                }
+            }
+            .pkListChanges(pending.map(\.id))
+        }
+    }
+
+    private func decide(_ item: LearningCandidate, _ answer: LearningAnswer) {
+        let readings = readings(of: item.word)
+        let now = Date().timeIntervalSince1970
+        let question = words.question(for: item)
+        var learned: LearnedWord?
+        store.update { learned = $0.words.decide(item, answer, at: now, readings: readings) }
+        journal(LearningJournal.Entry(answer: answer, to: question, learned: learned, at: now))
+    }
+
+    private func learnEverywhere(_ item: LearnedWord) {
+        let now = Date().timeIntervalSince1970
+        var learned: LearnedWord?
+        store.update { learned = $0.words.learnEverywhere(item.word, at: now) }
+        guard let learned else { return }
+        journal(LearningJournal.Entry(answer: .everywhere, to: LearningQuestion(word: item.word, app: item.app),
+                                      learned: learned, at: now))
+    }
+
+    private func journal(_ entry: LearningJournal.Entry) {
+        do {
+            try learningJournal.append(entry)
+        } catch {
+            Logger(subsystem: "app.perekey", category: "settings")
+                .error("Learning journal not written: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     private var learnedSection: some View {
         PKGroup(header: Text("Don't touch: learned") + Text(count(words.learned.count)).foregroundStyle(Color.pkInk3),
                 anchor: "words.learned") {
@@ -122,6 +188,10 @@ struct WordsPane: View {
                                 Text(Date(timeIntervalSince1970: item.lastUndoneAt).formatted(date: .abbreviated, time: .omitted))
                                     .font(PK.Font.caption)
                                     .foregroundStyle(Color.pkInk2)
+                                if item.app != nil {
+                                    Button("Everywhere") { learnEverywhere(item) }
+                                        .buttonStyle(.pkLink)
+                                }
                                 Button("Forget") { store.update { $0.words.forget(item.word, app: item.app) } }
                                     .buttonStyle(.pkLink)
                             }

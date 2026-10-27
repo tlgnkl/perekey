@@ -72,8 +72,8 @@ final class InputController {
     /// by itself any more, so someone has to tell the user.
     @ObservationIgnored var onAccessLost: (() -> Void)?
     /// A word reached its threshold (`WordRules.count`): ask «Больше не
-    /// менять?» and pass the answer to `answer(_:_:)`. Without it the word
-    /// is learned for its app (`ask`).
+    /// менять?» and pass the answer to `answer(_:_:)`. Without it the hint
+    /// asks (`ask`).
     @ObservationIgnored var onLearningQuestion: ((LearningQuestion) -> Void)?
     /// A learned word was retyped by hand and forgotten (`WordRules.unlearn`).
     @ObservationIgnored var onUnlearned: ((Unlearned) -> Void)?
@@ -412,10 +412,20 @@ final class InputController {
         if let onLearningQuestion { onLearningQuestion(question) } else { ask(question) }
     }
 
-    /// Until the hint asks the question: «Только здесь», said at the caret
-    /// with «Forget» to take it back.
+    /// Asks at the caret: «Stop changing “word”? Only here · Everywhere · No».
+    /// With the hint off nothing is asked and the word stays a candidate, to
+    /// be answered in Settings → Words. A hint that closes unanswered leaves
+    /// the candidate too; the next counted undo asks again.
     private func ask(_ question: LearningQuestion) {
-        guard let learned = answer(question, .here) else { return }
+        guard store.settings.caretHint != .off else { return }
+        hint.showQuestion(word: question.word, choices: question.choices) { [weak self] choice in
+            self?.confirm(question, choice)
+        }
+    }
+
+    /// The press on the question: record it, and confirm with «Forget» when the word was learned.
+    func confirm(_ question: LearningQuestion, _ choice: LearningAnswer) {
+        guard let learned = answer(question, choice) else { return }
         guard store.settings.caretHint != .off else { return }
         hint.showLearned(word: learned.word) { [weak self] in
             self?.store.update { $0.words.forget(learned.word, app: learned.app) }

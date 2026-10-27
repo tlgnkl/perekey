@@ -80,6 +80,8 @@ struct SettingsView: View {
     var launch: LaunchAtLogin?
     /// «How to Use Perekey» of General.
     var showOnboarding: () -> Void = {}
+    /// The voice parts of the menu, for the preview in General → Menu.
+    var menuPreviewActions = MenuActions()
     #if PEREKEY_VOICE
     /// The speech models and the voice settings; the Voice tab is empty without it.
     var voiceController: VoiceModelsController?
@@ -168,6 +170,7 @@ struct SettingsView: View {
         if languages != nil { shown.insert(.languageStats) }
         #if PEREKEY_VOICE
         if let voiceController {
+            if voiceController.settings.isOn && voiceController.isSupported { shown.insert(.voiceOn) }
             shown.formUnion(VoicePane.shown(controller: voiceController, textController: voiceTextController,
                                             transcripts: voiceTranscripts))
             if voiceModes != nil {
@@ -214,10 +217,11 @@ struct SettingsView: View {
             #if PEREKEY_VOICE
             GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources,
                         voiceIsOn: (voiceController?.settings.isOn ?? false) && (voiceController?.isSupported ?? false),
-                        launch: launch, showOnboarding: showOnboarding)
+                        launch: launch, showOnboarding: showOnboarding, usage: usage,
+                        menuPreviewActions: menuPreviewActions)
             #else
             GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources,
-                        launch: launch, showOnboarding: showOnboarding)
+                        launch: launch, showOnboarding: showOnboarding, usage: usage)
             #endif
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         #if PEREKEY_VOICE

@@ -12,15 +12,15 @@ import SwiftUI
 struct DictationMenuSection: View {
     let menu: DictationMenu
     let nav: MenuNav
+    /// How many stored dictations show: 0, 3 or 5. The unsaved one shows whatever the number.
+    var rows = 3
     var close: () -> Void = {}
-
-    private static let rows = 3
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
 
     var body: some View {
         let history = menu.history
-        let entries = history.recent(Self.rows)
+        let entries = history.recent(rows)
         let shows = menu.text.settings.showsTextInMenu
         VStack(alignment: .leading, spacing: 6) {
             HStack {

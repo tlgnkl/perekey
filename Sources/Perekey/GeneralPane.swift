@@ -5,7 +5,7 @@ import PerekeyCore
 import PerekeyInput
 import SwiftUI
 
-/// Settings → General: corrections, the hint, sounds and updates. What Perekey
+/// Settings → General: corrections, the hint, the menu bar and the menu, sounds and updates. What Perekey
 /// stores and never touches is in `PrivacyPane`.
 struct GeneralPane: View {
     let store: SettingsStore
@@ -20,6 +20,11 @@ struct GeneralPane: View {
     var launch: LaunchAtLogin?
     /// The welcome tour again: «How to Use Perekey».
     var showOnboarding: () -> Void = {}
+    /// For the «Menu» group: the counts of the statistics line, and the voice parts of the preview.
+    var usage: UsageRecorder?
+    var menuPreviewActions = MenuActions()
+    /// The room the menu preview measures itself against; `nil`: the window's screen (snapshots set it).
+    var menuBudget: CGFloat?
 
     var body: some View {
         PKPane(title: Text("General")) {
@@ -29,6 +34,8 @@ struct GeneralPane: View {
             correctionsSection
             hintSection
             MenuBarGroup(store: store, sources: sources, systemMenu: systemMenu, voiceIsOn: voiceIsOn)
+            MenuGroup(store: store, sources: sources, updates: updates, usage: usage, launch: launch, voiceIsOn: voiceIsOn,
+                      previewActions: menuPreviewActions, budget: menuBudget)
             soundsSection
             if let launch {
                 startupSection(launch)

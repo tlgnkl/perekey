@@ -112,12 +112,10 @@ final class PauseState {
         }
     }
 
-    #if DEBUG
-    /// Snapshot helper: a state frozen at `now`, with no wake-up.
+    /// Snapshot and preview helper: a state frozen at `now`, with no wake-up.
     convenience init(frozen pauses: PauseSet, now: Date) {
         self.init()
         self.pauses = pauses
         self.now = now
     }
-    #endif
 }

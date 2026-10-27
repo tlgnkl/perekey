@@ -49,6 +49,7 @@
 "It looks like a password, so Perekey leaves it alone" = "Похоже на пароль, поэтому Perekey его не трогает";
 "Karabiner-Elements is running. Its rules may override this." = "Запущен Karabiner-Elements. Его правила могут перебить это.";
 "Key %lld" = "Клавиша %lld";
+"Launch at login in the menu" = "Вход в систему в меню";
 "Launch at login" = "Открывать при входе в систему";
 "Let Perekey see the keys" = "Дайте Perekey видеть нажатия";
 "Like Alt+Shift on Windows" = "Как Alt+Shift в Windows";
@@ -263,6 +264,7 @@
 "This build has no update key and cannot update itself." = "В этой сборке нет ключа обновлений, она не обновляется сама.";
 "Never" = "Ни разу";
 "Install Update %@…" = "Установить обновление %@…";
+"Check for Updates" = "Проверить обновления";
 "Check for Updates…" = "Проверить обновления…";
 /* Stage 2: automatic switching */
 "Undo last correction" = "Отменить последнее исправление";
@@ -401,3 +403,17 @@
 "Startup" = "Запуск";
 "Help" = "Справка";
 "Show" = "Показать";
+
+/* Settings → General → Menu, and the menu's right-click */
+"Menu" = "Меню";
+"Automatic switching and mode" = "Автопереключение и режим";
+"Layouts as a list" = "Раскладки списком";
+"Instead of opening them from the header." = "Вместо раскрытия из шапки.";
+"Count for today" = "Счётчик за сегодня";
+"Only while “Count corrections” is on in Privacy." = "Только пока в «Приватности» включено «Считать правки».";
+"Right-click a block in the menu to hide it. The layout, Settings and Quit always stay." = "Щёлкните блок меню правой кнопкой, чтобы скрыть его. Раскладка, «Настройки…» и «Выйти» остаются всегда.";
+"Reset to Default" = "Вернуть как было";
+"Fits on this screen" = "Помещается на этом экране";
+"Does not fit on this screen: it will scroll" = "Не помещается на этом экране: будет прокрутка";
+"Hide from Menu" = "Скрыть из меню";
+"Customize Menu…" = "Настроить меню…";

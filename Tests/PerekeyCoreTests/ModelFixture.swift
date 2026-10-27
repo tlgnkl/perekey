@@ -82,12 +82,19 @@ enum ModelFixture {
         try! LanguageModel(bytes: build(russianForms: words))
     }
 
-    private static func build(rareEnglish: [String] = [], russianForms: [String] = []) -> [UInt8] {
+    /// The fixture plus Russian words and words of the hyphen rules.
+    static func model(withRussianWords words: [(String, UInt8)], hyphenByRule extra: [String]) -> LanguageModel {
+        try! LanguageModel(bytes: build(russianWords: words, hyphenByRule: extra))
+    }
+
+    private static func build(rareEnglish: [String] = [], russianForms: [String] = [],
+                              russianWords: [(String, UInt8)] = [], hyphenByRule extra: [String] = []) -> [UInt8]
+    {
         var builder = ModelBuilder()
         builder.meta = "fixture"
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
         builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
-        for (word, rank) in russian {
+        for (word, rank) in russian + russianWords {
             builder.addForm(word, language: "ru", rank: rank, weight: Double(rank))
         }
         for (word, rank) in english {
@@ -99,6 +106,7 @@ enum ModelFixture {
         }
         for word in ["iPhone", "Wi-Fi", "ГОСТ"] { builder.addKeep(word) }
         addCorrections(to: &builder)
+        for word in extra { try! builder.addHyphen(word, language: "ru", byRule: true) }
         return builder.build()
     }
 

@@ -460,6 +460,10 @@ import Testing
     печаль/N
     знать/BL
     добрый/A
+    про
+    беженцев
+    печали
+    знал
     Сантос
     """
 
@@ -470,6 +474,7 @@ import Testing
     /// wordfreq ranks: Zipf × 32.
     static let ranks: [String: UInt8] = ["вообще": 170, "наконец": 160, "так": 208, "ка": 130, "тихо": 150,
                                          "ново": 140, "давай": 158, "давайте": 159, "печаль": 145, "знай": 127,
+                                         "про": 150, "беженцев": 150, "печали": 150, "знал": 150,
                                          "вообщето": 82, "наконецто": 74, "тактак": 100]
 
     static func derive(isWord: (String) -> Bool = { words.contains($0) }) -> [String: HyphenRules.Rule] {
@@ -500,6 +505,18 @@ import Testing
         // Not the dative of a noun or a pronoun: "потому" has no rule.
         #expect(!words.keys.contains { $0.hasSuffix("-тому") })
         #expect(!words.keys.contains { $0.first?.isUppercase == true }, "names give nothing")
+    }
+
+    @Test func noParticleAfterANounAVerbOrAPreposition() {
+        let words = Self.derive()
+        // A preposition ("прото" is no "про-то"), a genitive plural the
+        // dictionary lists without flags, a form of a noun and of a verb.
+        #expect(words["про-то"] == nil && words["про-либо"] == nil)
+        #expect(words["беженцев-то"] == nil)
+        #expect(words["печали-то"] == nil && words["знал-то"] == nil)
+        // The pronouns and adverbs keep theirs, and the other rules do not care.
+        #expect(words["вообще-то"] == .particle && words["так-нибудь"] == .particle)
+        #expect(words["про-таки"] == .taki, "only the particle rule reads the part of speech")
     }
 
     @Test func rareOrShortPartsGiveNothing() {

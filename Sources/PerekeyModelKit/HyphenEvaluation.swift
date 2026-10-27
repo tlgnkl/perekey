@@ -115,8 +115,7 @@ public struct HyphenEvaluation {
             for token in Coverage.words(of: sentence) {
                 result.tokens += 1
                 let word = Array(token)
-                let start = startsSentence(sentence[..<token.startIndex])
-                if let after = correct(word, model, sentenceStart: start), after != word {
+                if let after = correct(word, model), after != word {
                     result.changed["\(token) → \(String(after))", default: 0] += 1
                     result.changedByShape[Shape.of(String(after)), default: 0] += 1
                 }
@@ -125,7 +124,7 @@ public struct HyphenEvaluation {
                 result.hyphenated += 1
                 let shape = Shape.of(token)
                 result.hyphenatedByShape[shape, default: 0] += 1
-                switch correct(word.filter { $0 != "-" }, model, sentenceStart: start) {
+                switch correct(word.filter { $0 != "-" }, model) {
                 case word?:
                     result.restored += 1
                     result.restoredByShape[shape, default: 0] += 1
@@ -142,18 +141,10 @@ public struct HyphenEvaluation {
         return result
     }
 
-    /// A word after this text starts a sentence: nothing but opening marks
-    /// before it, or `. ! ? …` and then only those.
-    static func startsSentence(_ before: Substring) -> Bool {
-        guard let last = before.last(where: { !$0.isWhitespace && !"«\"„“(—–-'".contains($0) }) else { return true }
-        return ".!?…".contains(last)
-    }
-
     /// The word after the step, `nil` when it stays.
-    static func correct(_ characters: [Character], _ model: LanguageModel, sentenceStart: Bool) -> [Character]? {
+    static func correct(_ characters: [Character], _ model: LanguageModel) -> [Character]? {
         var word = BoundaryWord(characters: characters, modifiers: Array(repeating: [], count: characters.count),
                                 language: "ru")
-        word.sentenceStart = sentenceStart
         HyphenStep().apply(to: &word, model: model)
         return word.characters == characters ? nil : word.characters
     }

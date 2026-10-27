@@ -30,6 +30,15 @@ public enum HyphenRules {
     /// The particles of `Rule.particle`.
     static let particles = ["то", "либо", "нибудь"]
 
+    /// The prepositions of three letters or more: no word before a particle
+    /// ("прото" is not "про-то"). The dictionary does not mark them.
+    static let prepositions: Set = [
+        "без", "безо", "близ", "вдоль", "вместо", "вне", "внутри", "внутрь", "возле", "вокруг", "для", "изо",
+        "кроме", "между", "мимо", "над", "около", "ото", "перед", "передо", "под", "подо", "после", "пред",
+        "при", "про", "против", "ради", "сквозь", "среди", "через", "чрез", "благодаря", "согласно", "вопреки",
+        "вследствие", "ввиду", "поверх", "позади", "посреди", "сверх", "спустя", "вблизи", "наряду",
+    ]
+
     /// A derived word's merged spelling is rarer than Zipf 3, below the hand
     /// list's bar (`HyphenList.maxMergedRank`): typos of the rules sit near
     /// 2.5 ("вообщето" 2.56, "дайка" 2.55), names above ("Като" 3.12, "Коко" 3.41).
@@ -74,6 +83,8 @@ public enum HyphenRules {
         var imperatives: Set<String> = []
         var invariable: Set<String> = []
         var others: [(stem: String, flags: Substring)] = []
+        var verbs: [(stem: String, flags: Substring)] = []
+        var particleBases: Set<String> = []
         for entry in entries {
             let stem = entry.stem
             guard stem.first?.isLowercase == true, stem.allSatisfy(\.isLetter) else { continue }
@@ -82,7 +93,7 @@ public enum HyphenRules {
                 // Adverbs, pronoun forms, particles, and the odd form of an
                 // irregular word; the frequent ones are pronouns and adverbs.
                 if isBase(stem) {
-                    for particle in particles { add(stem, particle, .particle) }
+                    particleBases.insert(stem)
                     add(stem, "таки", .taki)
                     add(stem, stem, .doubling)
                 }
@@ -97,7 +108,10 @@ public enum HyphenRules {
                     }
                 }
             }
-            if entry.flags.contains("B") || entry.flags.contains("L") { continue }
+            if entry.flags.contains("B") || entry.flags.contains("L") {
+                verbs.append(entry)
+                continue
+            }
             others.append(entry)
             guard stem.hasSuffix("ый") || stem.hasSuffix("ий") || stem.hasSuffix("ой") else { continue }
             // An adjective: по- with -ски, -цки from -ский, -цкий (по-русски),
@@ -125,8 +139,19 @@ public enum HyphenRules {
         // An imperative that is also another word is read as that: a form of
         // a noun ("печаль", "вой"; "печалька" is a word), a word that does not inflect.
         imperatives.subtract(invariable)
-        for entry in others where !imperatives.isEmpty {
-            hunspell.expand(entry.stem, flags: entry.flags) { imperatives.remove($0) }
+        for entry in others {
+            hunspell.expand(entry.stem, flags: entry.flags) {
+                imperatives.remove($0)
+                particleBases.remove($0)
+            }
+        }
+        // A particle follows a pronoun, an adverb, a conjunction, not a noun
+        // or a verb ("окон", "идти") and not a preposition: "Оконто" is a name.
+        for entry in verbs {
+            hunspell.expand(entry.stem, flags: entry.flags) { particleBases.remove($0) }
+        }
+        for base in particleBases.subtracting(prepositions).sorted() where !isGenitivePlural(base) {
+            for particle in particles { add(base, particle, .particle) }
         }
         for imperative in imperatives { add(imperative, "ка", .ka) }
         add("ну", "ка", .ka)
@@ -134,6 +159,13 @@ public enum HyphenRules {
         var words: [String: Rule] = [:]
         for candidate in candidates.values { words[candidate.form] = candidate.rule }
         return words
+    }
+
+    /// A noun form the dictionary lists without flags: the genitive plural
+    /// in -ов, -ев, -ей ("денег" and "окон" it cannot tell): "беженцев",
+    /// "детей". Not "ней".
+    static func isGenitivePlural(_ word: String) -> Bool {
+        word != "ней" && ["ов", "ев", "ей"].contains(where: word.hasSuffix)
     }
 
     /// An infinitive: "дать", "идти", "лечь", "мыться".

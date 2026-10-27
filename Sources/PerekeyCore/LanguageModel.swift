@@ -449,6 +449,10 @@ extension LanguageModel.Language {
         hyphenEntry(of: fingerprint)?.position
     }
 
+    /// Whether the model has the hyphen table at all: a model built before
+    /// the rules has none.
+    public var hasHyphenTable: Bool { hyphen != nil }
+
     /// `hyphenPosition`, and whether a rule derived the word (`ModelFormat.hyphenByRule`).
     public func hyphenEntry(of fingerprint: UInt64) -> (position: UInt8, byRule: Bool)? {
         hyphen?.value(of: fingerprint).map {

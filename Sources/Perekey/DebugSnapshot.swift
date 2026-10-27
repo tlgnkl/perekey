@@ -369,7 +369,7 @@ enum DebugSnapshot {
         let now = Date()
         var held = PauseSet()
         held.pause(until: now.addingTimeInterval(59 * 60 - 30))
-        let file = SettingsFile(url: directory.appending(path: "menu-crowded.json"))
+        let file = SettingsFile(url: directory.appending(path: "menu-crowded.json"), defaults: debugDefaults())
         try? file.save(AppSettings())
         let store = SettingsStore(file: file)
         let pause = PauseState(frozen: held, now: now)
@@ -463,13 +463,13 @@ enum DebugSnapshot {
             layout.setRows(0, of: .recentDictations)
         }
         let launch = LaunchAtLogin(previewStatus: .enabled)
-        let updates = Updates(store: SettingsStore(file: SettingsFile(url: directory.appending(path: "menu-customize-u.json"))),
+        let updates = Updates(store: SettingsStore(file: SettingsFile(url: directory.appending(path: "menu-customize-u.json"), defaults: debugDefaults())),
                               preview: ManagedSettings(), configured: true, lastCheck: nil)
         func store(_ name: String, _ change: (inout MenuLayout) -> Void) -> SettingsStore {
             var settings = AppSettings()
             settings.statistics = true
             change(&settings.menu)
-            let file = SettingsFile(url: directory.appending(path: "menu-customize-\(name).json"))
+            let file = SettingsFile(url: directory.appending(path: "menu-customize-\(name).json"), defaults: debugDefaults())
             try? file.save(settings)
             return SettingsStore(file: file)
         }

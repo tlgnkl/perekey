@@ -478,17 +478,17 @@ extension Desk {
         #expect(retype.deleteCount == 9 && retype.expected == "во первых")
     }
 
-    @Test func undoPutsBothWordsBackAndLearnsThemWrittenTogether() {
+    @Test func undoPutsBothWordsBackAndCountsThemWrittenTogether() {
         var desk = Desk(Self.settings, current: ru)
         desk.type("во первых ", on: Fixture.russian)
         #expect(desk.text == "во-первых ")
         desk.press(KeyCode.delete)
         #expect(desk.text == "во первых ")
-        #expect(desk.learned == ["вопервых"])
         #expect(desk.undone.count == 1)
-        // Typing on after the undo fixes nothing more.
+        // Typing on after the undo fixes nothing more, and shows the undo was meant.
         desk.type("и ", on: Fixture.russian)
         #expect(desk.text == "во первых и ")
+        #expect(desk.learned == ["вопервых"])
         #expect(desk.corrections.count == 1)
     }
 

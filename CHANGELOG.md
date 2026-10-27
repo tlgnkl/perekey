@@ -13,6 +13,13 @@ differently, what was fixed.
 
 ### Added
 
+- **Dictation that was not saved.** When a dictation goes into a field Perekey
+  cannot see (Electron apps, or no Accessibility), the menu now shows it at the
+  top of «Recent dictations» with the note that it is not saved, and «Copy» and
+  «Paste again» get the text back after the HUD is gone. Only the latest one is
+  kept, in memory: it is not written to disk, and it goes away when a newer
+  dictation is saved, on «Clear history» and when Perekey quits. Password
+  fields, excluded apps and a switched-off history never show anything.
 - **Search in Settings.** A field above the sections: type a word and the
   sections without it dim, and the others show how many rows match. Return
   goes through the matches and opens each row with a highlight; clicking a

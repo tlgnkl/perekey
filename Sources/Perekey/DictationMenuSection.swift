@@ -33,6 +33,9 @@ struct DictationMenuSection: View {
             .padding(.horizontal, 4)
             ScrollView {
                 VStack(spacing: 4) {
+                    if let unsaved = history.unsaved {
+                        row(unsaved, shows: shows, note: "Not saved: gone when Perekey quits.")
+                    }
                     ForEach(entries) { entry in
                         row(entry, shows: shows)
                     }
@@ -45,12 +48,20 @@ struct DictationMenuSection: View {
         .padding(.top, 12)
     }
 
-    private func row(_ entry: HistoryEntry, shows: Bool) -> some View {
+    private func row(_ entry: HistoryEntry, shows: Bool, note: LocalizedStringKey? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(verbatim: shows ? DictationHistoryText.preview(entry.text) : (entry.appName ?? "—"))
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk)
                 .lineLimit(1)
+            // A line of its own: beside the buttons the caption has room for the time only.
+            if let note {
+                voiceText(note)
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk3)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack(spacing: 8) {
                 Text(verbatim: caption(entry))
                     .font(PK.Font.caption)

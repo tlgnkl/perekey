@@ -204,6 +204,71 @@ struct DictationHistoryTests {
         #expect(fixture.history().entries.isEmpty)
     }
 
+    // MARK: Unsaved
+
+    @Test func unknownTargetIsHeldInMemoryNotStored() {
+        let fixture = Fixture()
+        let history = fixture.history()
+        #expect(history.record(record("не вставилось", privacy: .unknown)) == .heldUnsaved)
+        #expect(history.unsaved?.text == "не вставилось")
+        #expect(history.entries.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.directory.path))
+        #expect(fixture.history().unsaved == nil)
+    }
+
+    @Test func newerUnsavedReplacesTheOlder() {
+        let history = Fixture().history()
+        history.record(record("первая", privacy: .unknown))
+        history.record(record("вторая", privacy: .unknown))
+        #expect(history.unsaved?.text == "вторая")
+    }
+
+    @Test func storedDictationReplacesTheUnsavedOne() {
+        let history = Fixture().history()
+        history.record(record("не сохранена", privacy: .unknown))
+        history.record(record("сохранена"))
+        #expect(history.unsaved == nil)
+        #expect(history.entries.map(\.text) == ["сохранена"])
+    }
+
+    @Test func skippedDictationLeavesTheUnsavedOne() {
+        let history = Fixture().history()
+        history.record(record("не сохранена", privacy: .unknown))
+        history.record(record("пароль", privacy: .secureField))
+        #expect(history.unsaved?.text == "не сохранена")
+    }
+
+    @Test func clearAndHistoryOffDropTheUnsavedOne() {
+        let fixture = Fixture()
+        let history = fixture.history()
+        history.record(record("раз", privacy: .unknown))
+        history.clear()
+        #expect(history.unsaved == nil)
+        history.record(record("два", privacy: .unknown))
+        fixture.settings.retention = .off
+        history.settingsChanged()
+        #expect(history.unsaved == nil)
+    }
+
+    @Test func unknownTargetOfAnExcludedAppOrWithHistoryOffIsNotHeld() {
+        let fixture = Fixture()
+        fixture.excluded = ["com.secret.App"]
+        let history = fixture.history()
+        #expect(history.record(record(bundle: "com.secret.App", privacy: .unknown)) == .skipped(.excludedApp))
+        #expect(history.record(record(host: "secret.example", privacy: .unknown)) == .heldUnsaved)
+        fixture.excluded = ["secret.example"]
+        #expect(history.record(record(host: "secret.example", privacy: .unknown)) == .skipped(.excludedApp))
+        fixture.settings.retention = .off
+        #expect(history.record(record(privacy: .unknown)) == .skipped(.retentionOff))
+        #expect(history.unsaved?.text == "привет мир")
+    }
+
+    @Test func emptyUnknownTextIsNotHeld() {
+        let history = Fixture().history()
+        #expect(history.record(record("  ", privacy: .unknown)) == .skipped(.emptyText))
+        #expect(history.unsaved == nil)
+    }
+
     // MARK: Profile
 
     @Test func profileLimitsTheTerm() {

@@ -110,6 +110,7 @@
 "Clear the history?" = "Очистить историю?";
 "The texts and saved audio of all dictations are deleted." = "Тексты и сохранённый звук всех диктовок будут удалены.";
 "Recent dictations" = "Последние диктовки";
+"Not saved: gone when Perekey quits." = "Не сохранена: пропадёт при выходе из Perekey.";
 "Show text" = "Показывать текст";
 "Paste again" = "Вставить снова";
 "Words dictated" = "Слов надиктовано";

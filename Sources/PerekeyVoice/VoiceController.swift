@@ -1062,8 +1062,9 @@ public final class VoiceController {
     private func record(_ delivered: Delivered, target: (any Sendable)?, plan: DictationPlan?, audio: [Float],
                         model: String)
     {
-        // Nothing private or unknown reaches the history or the statistics.
-        guard delivered.privacy == .normal else { return }
+        // Nothing private reaches the history or the statistics. An unknown target reaches
+        // the history only, which keeps its text in memory for the menu.
+        guard delivered.privacy == .normal || delivered.privacy == .unknown else { return }
         let app = paster.application(of: target)
         hooks.record(DictationRecord(
             text: delivered.text, bundleID: app?.bundleID, appName: app?.name, host: plan?.host,

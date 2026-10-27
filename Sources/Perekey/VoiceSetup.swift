@@ -127,6 +127,7 @@ final class VoiceSetup {
                 },
                 record: { record in
                     text.history.record(record)
+                    guard record.privacy == .normal else { return }
                     usage.recordDictation(words: DictationHistoryText.wordCount(record.text))
                 }),
             cloudEngine: { [modes] id in Self.cloudEngine(id, modes: modes) })

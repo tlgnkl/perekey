@@ -146,6 +146,7 @@ private func always(_ words: String...) -> [String: String] {
         var desk = Desk(Settings(alwaysFix: always("аня")))
         desk.type("ghbdtn ")
         desk.press(KeyCode.delete)
+        desk.type(" ")
         #expect(desk.learned == ["ghbdtn"])
         #expect(desk.withdrawn.isEmpty)
     }

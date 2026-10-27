@@ -32,7 +32,7 @@ struct PrivacyPane: View {
     var body: some View {
         PKPane(title: Text("Privacy")) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory.")
+                Text("Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts), learning-journal.json (the last 500 undos and answers about learning a word: kinds, app IDs and times, no words). Site counts stay in memory.")
                 networkNote
             }
             .font(PK.Font.body)

@@ -164,10 +164,11 @@ private let ru = Fixture.russian.id
         desk.press(KeyCode.delete)
         #expect(desk.text == "wrold ")
         #expect(desk.undone == [seq])
-        #expect(desk.learned == ["wrold"])
         // The Backspace was the undo, not a deletion; another one deletes.
         desk.press(KeyCode.delete)
         #expect(desk.text == "wrold")
+        desk.type(" ")
+        #expect(desk.learned == ["wrold"])
         #expect(desk.undone.count == 1)
     }
 
@@ -219,6 +220,7 @@ private let ru = Fixture.russian.id
         desk.press(KeyCode.delete)
         #expect(desk.text == "[jhjjij ")
         #expect(desk.appLayout == en)
+        desk.type(" ")
         #expect(desk.learned == ["jhjjij"])
     }
 

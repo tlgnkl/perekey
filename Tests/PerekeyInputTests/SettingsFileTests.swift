@@ -5,13 +5,21 @@ import PerekeyCore
 import Testing
 @testable import PerekeyInput
 
+/// Defaults of their own: a test never sets the migration mark of the real settings.
+func isolatedDefaults() -> UserDefaults {
+    let name = "perekey-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: name) ?? UserDefaults()
+    defaults.removePersistentDomain(forName: name)
+    return defaults
+}
+
 struct SettingsFileTests {
     /// Runs `body` with a settings file in a fresh temporary directory.
     private func withFile(_ body: (SettingsFile) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "perekey-settings-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: directory) }
-        try body(SettingsFile(url: directory.appending(path: "nested/settings.json")))
+        try body(SettingsFile(url: directory.appending(path: "nested/settings.json"), defaults: isolatedDefaults()))
     }
 
     private func write(_ text: String, to file: SettingsFile) throws {

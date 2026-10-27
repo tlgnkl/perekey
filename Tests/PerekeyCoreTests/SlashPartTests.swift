@@ -55,10 +55,10 @@ private let ru = Fixture.russian.id
         desk.press(KeyCode.delete)
         #expect(desk.text == "[jhjij/")
         #expect(desk.appLayout == en)
-        #expect(desk.learned == ["jhjij"], "the bracket is no part of a word")
         // The undone token is left alone to its end, as an undone word is.
         desk.type("vbh ")
         #expect(desk.text == "[jhjij/vbh ")
+        #expect(desk.learned == ["jhjij"], "the bracket is no part of a word")
     }
 
     @Test func alwaysFixActsOnThePart() {

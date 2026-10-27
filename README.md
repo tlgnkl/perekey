@@ -72,8 +72,9 @@ comes with a `.sha256` file:
 - **Retype on a shortcut.** Option (or any shortcut) retypes the last word or
   the selection in the other layout; press again to bring it back.
 - **Automatic switching.** A language model inside the app decides at the end
-  of each word. One Backspace right after a correction undoes it, and Perekey
-  remembers the word — the hint near the caret says so and offers "Forget".
+  of each word. One Backspace right after a correction undoes it. Undo the
+  same word a few times and Perekey asks whether to leave it alone in this
+  app or everywhere.
 - **Typo fixes.** One-key typos such as `прривет` are fixed with the same undo.
 - **Languages.** Russian, English, Ukrainian and Belarusian, in any mix of
   installed layouts.
@@ -166,15 +167,19 @@ first launch after the update asks first.
 ## What is stored
 
 Typed text is never saved: the word you are typing lives in memory. Perekey
-keeps three files in `~/Library/Application Support/Perekey/`:
+keeps four files in `~/Library/Application Support/Perekey/`:
 
 - `settings.json`: settings and your word lists ("Mine", "Learned",
-  "Always fix"), with dates and undo counts. These are words you chose or
+  "Always fix"), with dates, undo counts and app IDs, and the words you
+  undid but Perekey has not asked about yet. These are words you chose or
   undid, so they are text you typed; the lists are in Settings → Words.
 - `statistics.json`: only with "Count corrections" on. Counts per day and kind
   of correction, and how many you undid. No words, no apps.
 - `languages.json`: how many words of each language you type in each app, by
   app ID. No words. Counts for websites stay in memory and are gone on quit.
+- `learning-journal.json`: the last 500 undos and answers about learning a
+  word, to tune when Perekey asks: how you undid, what you typed next (as a
+  kind: space, punctuation), the app ID and the time. No words.
 
 Settings → Privacy erases the counts.
 

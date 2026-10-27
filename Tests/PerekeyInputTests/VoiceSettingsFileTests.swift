@@ -172,7 +172,7 @@ struct VoiceSettingsFileTests {
         let directory = FileManager.default.temporaryDirectory
             .appending(path: "perekey-voice-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let settingsFile = SettingsFile(url: directory.appending(path: "settings.json"))
+        let settingsFile = SettingsFile(url: directory.appending(path: "settings.json"), defaults: isolatedDefaults())
         let voiceFile = VoiceSettingsFile(url: directory.appending(path: "voice.json"))
         var original = AppSettings(capsLock: .instant)
         original.setTrigger(.modifiers(.option, taps: .double), for: .changeCase)

@@ -55,11 +55,12 @@ struct SettingsTransferTests {
         }
         """#
         let settings = try SettingsTransfer.importSettings(from: Data(file.utf8))
-        #expect(settings.words == WordRules(mine: ["kubectl"],
-                                            learned: [LearnedWord(word: "ghbdtn", learnedAt: 1_790_000_000)],
-                                            learnFromUndos: false))
-        #expect(settings.words.learned.first?.undoCount == 1)
-        #expect(settings.words.learned.first?.lastUndoneAt == 1_790_000_000)
+        // Learned from one undo: stays learned. Only the settings file migrates, once (`SettingsFile`).
+        #expect(settings.words == WordRules(
+            mine: ["kubectl"],
+            learned: [LearnedWord(word: "ghbdtn", learnedAt: 1_790_000_000)],
+            learnFromUndos: false
+        ))
         #expect(SettingsTransfer.Summary(settings).words == 2)
     }
 

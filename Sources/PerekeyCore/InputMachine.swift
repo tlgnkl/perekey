@@ -30,6 +30,11 @@ public struct InputMachine: Sendable {
     private var fence: Fence
     private(set) var judge: WordJudge
     private var undo = CorrectionUndo()
+    /// A Backspace undo waiting for the next key to say what it meant.
+    private var undoWatch: UndoWatch?
+    /// The undo of a switch inside a word, reported when the word ends
+    /// (`WordJudge.Ruling.learn`). Its `word` is empty until then.
+    private var openUndo: UndoReport?
     private var manual = ManualActions()
     /// The language a manual retype in flight chose: it goes into the context
     /// when the retype is posted, and is dropped with a cancelled one.
@@ -55,6 +60,9 @@ public struct InputMachine: Sendable {
         judge = WordJudge(classifier: classifier)
         self.layouts.typoLanguages = judge.typoLanguages
     }
+
+    /// The bundle ID of the focus, as the undos and the per-app exceptions see it.
+    public var focusApp: String? { focus?.bundleID }
 
     /// Whether user input is being held back right now.
     public var isHolding: Bool { fence.isHolding }
@@ -106,6 +114,7 @@ public struct InputMachine: Sendable {
             buffer.clear()
             manual.endPhrase()
             undo.clicked(onHint: onHint)
+            settleUndo(.unknown, effects: &effects)
             if !onHint {
                 fence.clickedDuringCorrection()
                 // The caret may be in another paragraph: the words before
@@ -122,6 +131,7 @@ public struct InputMachine: Sendable {
             let samePlace = change == .resolved && focus?.bundleID == newFocus.bundleID
             focus = newFocus
             if !samePlace {
+                settleUndo(.unknown, effects: &effects)
                 forgetText()
                 judge.forgetContext(newField: true)
             }
@@ -135,6 +145,7 @@ public struct InputMachine: Sendable {
 
         case let .layoutsChanged(maps):
             layouts.set(maps)
+            settleUndo(.unknown, effects: &effects)
             forgetText()
 
         case let .secureInputChanged(isOn):
@@ -143,6 +154,7 @@ public struct InputMachine: Sendable {
             // Shift tap. Keep the detector off until Secure Input ends.
             secureInput = isOn
             shortcuts.reset()
+            settleUndo(.unknown, effects: &effects)
             forgetText()
 
         case let .retypePosted(seq, time):
@@ -166,6 +178,7 @@ public struct InputMachine: Sendable {
 
         case .inputLost:
             shortcuts.reset()
+            settleUndo(.unknown, effects: &effects)
             forgetText()
             judge.forgetContext(newField: false)
             fence.forgetBoundary()
@@ -192,13 +205,14 @@ public struct InputMachine: Sendable {
 
         case let .dictationTyping(on):
             dictationTyping = on
+            if on { settleUndo(.unknown, effects: &effects) }
             // A key up lost since the last typing must not take a later one.
             if on { typingKeyUps.removeAll() }
 
         case let .undoLastCorrection(seq, time):
             // A hint left over from an older switch must not undo a newer one.
             guard undo.isLast(seq: seq) else { break }
-            undoCorrection(at: time, heldKey: false, effects: &effects)
+            undoCorrection(at: time, channel: .button, effects: &effects)
         }
         return .pass
     }
@@ -276,6 +290,16 @@ public struct InputMachine: Sendable {
         }
         // Typing ends a phrase retype: the next press starts over.
         manual.endPhrase()
+        // A Backspace inside the word an undo opened: the user edits it, so the word is not "kept as typed".
+        if key.keyCode == KeyCode.delete, openUndo?.channel == .backspace { openUndo?.followUp = .unknown }
+        if var watch = undoWatch {
+            undoWatch = nil
+            if let report = watch.keyDown(key, held: held, in: layouts.currentMap) {
+                effects.append(.undoSettled(report))
+            } else {
+                undoWatch = watch
+            }
+        }
 
         // The key a correction held comes back first after the fence.
         let boundary = fence.takeBoundary(key)
@@ -290,20 +314,25 @@ public struct InputMachine: Sendable {
             case .undoes:
                 // Held, not dropped: if the undo is cancelled, the Backspace
                 // still does what the user pressed it for.
-                if undoCorrection(at: time, heldKey: true, effects: &effects) { return .hold }
+                if undoCorrection(at: time, channel: .backspace, effects: &effects) { return .hold }
             case .extends:
                 extendsCorrection = true
             case .ends:
                 break
             }
             if judge.gate.mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings) {
-                switch judge.judge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings,
-                                   focus: focus, secureInput: secureInput)
-                {
+                let ruling = judge.judge(endedBy: key, held: held, buffer: buffer, layouts: layouts,
+                                         settings: settings, focus: focus, secureInput: secureInput)
+                let open = openUndo
+                openUndo = nil
+                switch ruling {
                 case .keep:
                     break
                 case let .learn(word):
-                    effects.append(.learned(word))
+                    if var report = open {
+                        report.word = word
+                        effects.append(.undoSettled(report))
+                    }
                 case let .withdraw(word):
                     effects.append(.alwaysFixWithdrawn(word))
                 case let .retype(retype):
@@ -334,6 +363,16 @@ public struct InputMachine: Sendable {
 
     /// The caret may be anywhere now: the word, the last correction and
     /// the phrase are gone.
+    /// Ends the wait of a Backspace undo, if one waits: what came next says
+    /// nothing for the word, or that the correction was right.
+    private mutating func settleUndo(_ followUp: UndoFollowUp, effects: inout [Effect]) {
+        // An undo inside the word the caret left, or the user retyped, reports nothing.
+        openUndo = nil
+        guard let watch = undoWatch else { return }
+        undoWatch = nil
+        effects.append(.undoSettled(watch.settle(followUp)))
+    }
+
     private mutating func forgetText() {
         buffer.clear()
         undo.forget()
@@ -409,13 +448,15 @@ public struct InputMachine: Sendable {
 
     /// Puts back the last automatic correction through the fence. Returns
     /// false when there is nothing to undo. What the undo reports waits in
-    /// the fence for `.retypePosted`. `heldKey`: the Backspace that asked for
-    /// it is held, to be dropped once the undo is posted and let through if
-    /// it is cancelled.
+    /// the fence for `.retypePosted`. A Backspace that asked for it
+    /// (`.backspace`) is held, to be dropped once the undo is posted and let
+    /// through if it is cancelled.
     @discardableResult
-    private mutating func undoCorrection(at time: Double, heldKey: Bool, effects: inout [Effect]) -> Bool {
+    private mutating func undoCorrection(at time: Double, channel: UndoChannel, effects: inout [Effect]) -> Bool {
         guard !fence.isHolding,
-              let plan = undo.takeBack(layouts: layouts, learnFromUndos: settings.learnFromUndos, heldKey: heldKey)
+              let plan = undo.takeBack(layouts: layouts, learnFromUndos: settings.learnFromUndos, channel: channel,
+                                       frequentRank: judge.classifier?.options.shortWordRank
+                                           ?? Classifier.Options().shortWordRank)
         else { return false }
         startRetype((plan.keys, plan.expected), deleteCount: plan.deleteCount, target: plan.source,
                     seq: fence.takeSeq(), purpose: .undo(plan.inFlight), origin: .undo, at: time, effects: &effects)
@@ -434,10 +475,21 @@ public struct InputMachine: Sendable {
         case let .undo(inFlight):
             judge.undoPosted(language: inFlight.language)
             if inFlight.reported { effects.append(.correctionUndone(seq: inFlight.seq)) }
+            settleUndo(.unknown, effects: &effects)
+            let report = UndoReport(word: inFlight.learn ?? "", app: focus?.bundleID, channel: inFlight.channel,
+                                    followUp: inFlight.channel == .backspace ? .continued : .none,
+                                    threshold: inFlight.threshold, facts: inFlight.facts)
             if inFlight.isOpen {
                 judge.learnAtWordEnd()
-            } else if let word = inFlight.learn {
-                effects.append(.learned(word))
+                // Typing on to the word's end keeps it as typed.
+                openUndo = report
+            } else if inFlight.learn != nil {
+                if inFlight.channel == .backspace {
+                    // Counted once the next key says what the Backspace was for.
+                    undoWatch = UndoWatch(report: report, boundaryLeft: inFlight.boundaryLeft)
+                } else {
+                    effects.append(.undoSettled(report))
+                }
             }
             if let word = inFlight.withdraw { effects.append(.alwaysFixWithdrawn(word)) }
             fence.undoPosted(heldKey: inFlight.heldKey)
@@ -495,11 +547,22 @@ public struct InputMachine: Sendable {
         // The retype shortcut right after an automatic fix takes it back, as
         // Backspace does: an undo, with all an undo brings (the recent list,
         // learning, «Всегда исправлять», statistics, the context).
-        if action == .convertLastWord, fixedByAutoswitch, undoCorrection(at: time, heldKey: false, effects: &effects) {
+        if action == .convertLastWord, fixedByAutoswitch,
+           undoCorrection(at: time, channel: .shortcut, effects: &effects)
+        {
             manual.endPhrase()
             return
         }
         if case .undoLastCorrection = action {} else { undo.forget() }
+        switch action {
+        case .convertLastWord:
+            // The word retyped right after its undo: the correction was right.
+            settleUndo(.retyped, effects: &effects)
+        case .switchLayout, .selectLanguage, .toggleAutoswitch:
+            break
+        default:
+            settleUndo(.unknown, effects: &effects)
+        }
         if action != .convertLastWord { manual.endPhrase() }
         let isSecureField = focus?.isSecureField == true
         switch action {
@@ -534,7 +597,7 @@ public struct InputMachine: Sendable {
             effects.append(.pastePlain)
 
         case .undoLastCorrection:
-            undoCorrection(at: time, heldKey: false, effects: &effects)
+            undoCorrection(at: time, channel: .shortcut, effects: &effects)
         }
     }
 
@@ -588,7 +651,8 @@ public struct InputMachine: Sendable {
             let layoutBefore = target == layouts.current ? nil : layouts.current
             select(target, effects: &effects)
             effects.append(.retype(Retype(deleteCount: 0, keys: keys, target: target, expected: text, seq: seq,
-                                          viaAccessibility: viaAccessibility, origin: .manualSelection(action.hotkeyAction))))
+                                          viaAccessibility: viaAccessibility, origin: .manualSelection(action.hotkeyAction),
+                                          app: focusApp)))
             fence.retypesSelection(into: target, layoutBefore: layoutBefore, viaAccessibility: viaAccessibility)
         }
     }
@@ -617,7 +681,8 @@ public struct InputMachine: Sendable {
         }
         select(target, byUser: byUser, effects: &effects)
         effects.append(.retype(Retype(deleteCount: deleteCount ?? word.keys.count, keys: word.keys, target: target,
-                                      expected: word.expected, seq: seq, origin: origin, decision: decision)))
+                                      expected: word.expected, seq: seq, origin: origin, decision: decision,
+                                      app: focusApp)))
         // Long until the retype is posted; `.retypePosted` shortens it.
         fence.raise(seq: seq, awaiting: awaitsLayout ? target : nil, layoutBefore: layoutBefore,
                     deadline: time + settings.postTimeout, purpose: purpose, effects: &effects)

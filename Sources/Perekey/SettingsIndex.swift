@@ -146,6 +146,7 @@ enum SettingsIndex {
 
             item(.words, "Words", "title"),
             item(.words, "Don't touch: mine", "words.mine"),
+            item(.words, "Waiting for your answer", "words.candidates"),
             item(.words, "Don't touch: learned", "words.learned"),
             item(.words, "Learn from undone corrections", "words.learn"),
             item(.words, "Always fix", "words.always"),

@@ -42,8 +42,8 @@
 // parts after it are not judged. Context is the parts before; `--lead`
 // also puts the first part's language before the token, as a sentence would.
 // `hyphen` measures the hyphen step on the Russian Tatoeba sentences
-// (`HyphenEvaluation`): every word with a hyphen typed merged, how many come
-// back, and every change of the clean text; `--list` prints the N most
+// (`HyphenEvaluation`): every word with a hyphen typed merged and typed
+// with a space, how many come back, and every change of the clean text; `--list` prints the N most
 // frequent hyphenated words not on the list (default 30). A change of the
 // clean text is reported, not an error: the corpus has typos of its own.
 // With `--layouts` and `--words` every word of the list, typed merged on the
@@ -331,6 +331,7 @@ do {
         if let layouts = flags["--layouts"], let list = flags["--words"] {
             let words = try String(contentsOfFile: list, encoding: .utf8).split(separator: "\n")
                 .map { $0.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+                    .split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)[0]
                     .trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
             let clashes = HyphenEvaluation.typoClashes(words, model: model, layout: layout("Russian", in: layouts))

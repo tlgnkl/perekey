@@ -281,7 +281,7 @@
 "Letter ё" = "Буква ё";
 "Russian only, where the word with «е» is no other word" = "Только там, где слово с «е» — не другое слово";
 "Hyphen" = "Дефис";
-"Russian only, where the merged word is no word" = "Только там, где слитное написание — не слово";
+"Russian only, where the merged word is no word; also «кое что» → «кое-что»" = "Только там, где слитное написание — не слово; и «кое что» → «кое-что»";
 "Layout on entry" = "Раскладка при входе";
 "Perekey does not touch" = "Perekey не трогает";
 "Password fields" = "Поля паролей";

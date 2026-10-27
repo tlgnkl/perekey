@@ -399,7 +399,7 @@ public struct InputMachine: Sendable {
                     decision: retype.decision, at: time, effects: &effects)
         if retype.dropsLastKey { buffer.deleteBackward() }
         if let word = retype.word {
-            buffer.replaceWord(word, in: retype.target)
+            buffer.replacePhrase(words: retype.words, with: word, in: retype.target)
         } else {
             buffer.relabel(to: retype.target)
         }

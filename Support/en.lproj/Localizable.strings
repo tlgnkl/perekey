@@ -281,7 +281,7 @@
 "Letter ё" = "Letter ё";
 "Russian only, where the word with «е» is no other word" = "Russian only, where the word with «е» is no other word";
 "Hyphen" = "Hyphen";
-"Russian only, where the merged word is no word" = "Russian only, where the merged word is no word";
+"Russian only, where the merged word is no word; also «кое что» → «кое-что»" = "Russian only, where the merged word is no word; also «кое что» → «кое-что»";
 "Layout on entry" = "Layout on entry";
 "Perekey does not touch" = "Perekey does not touch";
 "Password fields" = "Password fields";

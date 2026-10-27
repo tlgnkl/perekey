@@ -25,9 +25,16 @@ public enum WordCorrections {
         HyphenStep(),
     ]
 
+    /// The steps over the last few words together, tried at the end of a
+    /// word that stays in its layout, before `steps`: the first that
+    /// changes the words wins.
+    public static let phraseSteps: [any PhraseCorrectionStep] = [
+        SpacedHyphenStep(),
+    ]
+
     /// Whether some step is on: without one the boundary does not build the word.
     public static func anyOn(_ settings: Settings) -> Bool {
-        steps.contains { $0.isOn(settings) }
+        steps.contains { $0.isOn(settings) } || phraseSteps.contains { $0.isOn(settings) }
     }
 
     /// Runs the steps that are on. Returns true when the word changed.
@@ -51,6 +58,23 @@ public protocol WordCorrectionStep: Sendable {
     func isOn(_ settings: Settings) -> Bool
     /// Changes `word.characters` when it corrects the word, else leaves it.
     func apply(to word: inout BoundaryWord, model: LanguageModel)
+}
+
+/// A correction of the last few words together, at the key that ends the
+/// last one: "во первых" → "во-первых". The judge hands it the words as one
+/// `BoundaryWord`, one space between them, and retypes them all at once:
+/// one `Correction`, one hint, one Backspace to undo it (docs/corrections.md).
+public protocol PhraseCorrectionStep: Sendable {
+    /// What the hint and `Correction.kind` call it.
+    var kind: Correction.Kind { get }
+    /// How many words it reads, the one just ended included: 2 or more.
+    var words: Int { get }
+    /// Its switch in the settings.
+    func isOn(_ settings: Settings) -> Bool
+    /// Changes `phrase.characters` when it corrects the words, else leaves
+    /// them. It may change the number of characters only as a word step does
+    /// (`BoundaryWord.insertedAt`).
+    func apply(to phrase: inout BoundaryWord, model: LanguageModel)
 }
 
 /// A finished word as it reads in the layout it stays in.
@@ -251,5 +275,38 @@ public struct HyphenStep: WordCorrectionStep {
         guard position > 0, Int(position) < core.count else { return }
         word.characters.insert("-", at: core.lowerBound + Int(position))
         word.insertedAt = core.lowerBound + Int(position)
+    }
+}
+
+/// "во первых" → "во-первых": the hyphen typed as a space. Only the words of
+/// the hyphen table marked for it, whose form with a space is no two right
+/// words: во-первых, во-вторых, the pronouns with -нибудь and -либо (not
+/// "что либо"), кое- with a pronoun (`data/ru/hyphen.txt`, `space`). Letters
+/// and their case stay as typed: "Кое что" → "Кое-что".
+public struct SpacedHyphenStep: PhraseCorrectionStep {
+    public init() {}
+
+    public var kind: Correction.Kind { .hyphen }
+
+    public var words: Int { 2 }
+
+    public func isOn(_ settings: Settings) -> Bool { settings.corrections.hyphen }
+
+    public func apply(to phrase: inout BoundaryWord, model: LanguageModel) {
+        guard phrase.language == "ru", let table = model.language("ru") else { return }
+        let core = phrase.core
+        guard let space = phrase.characters[core].firstIndex(of: " ") else { return }
+        let first = core.lowerBound..<space
+        let second = (space + 1)..<core.upperBound
+        guard !first.isEmpty, !second.isEmpty, phrase.characters[first].allSatisfy(\.isLetter),
+              phrase.characters[second].allSatisfy(\.isLetter)
+        else { return }
+        var fingerprint = ModelFormat.Fingerprint()
+        for index in core where index != space {
+            for scalar in phrase.characters[index].unicodeScalars { fingerprint.add(ModelFormat.fold(scalar.value)) }
+        }
+        guard let position = table.spacedHyphenPosition(of: fingerprint.value), Int(position) == first.count
+        else { return }
+        phrase.characters[space] = "-"
     }
 }

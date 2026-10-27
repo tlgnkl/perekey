@@ -167,11 +167,19 @@ public struct ModelBuild {
                                                   isWord: { seen.contains($0) || added.contains($0) },
                                                   rank: { ranks[$0] })
                 var count = 0
-                for word in hyphen where builder.addHyphen(word, language: language) { count += 1 }
+                for word in hyphen {
+                    do {
+                        if try builder.addHyphen(word, language: language, spaced: lists.hyphenSpaced.contains(word)) {
+                            count += 1
+                        }
+                    } catch let collision as ModelBuilder.HyphenCollision {
+                        throw Failure(description: "data/\(language)/hyphen.txt: \(collision)")
+                    }
+                }
                 guard count == hyphen.count else {
                     throw Failure(description: "data/\(language)/hyphen.txt: words outside the alphabet")
                 }
-                report.notes.append("\(language): \(count) words take a hyphen")
+                report.notes.append("\(language): \(count) words take a hyphen, \(lists.hyphenSpaced.count) also typed with a space")
             }
             report.notes.append("\(language): \(forms) forms, \(rejected) rejected (outside the alphabet)")
             for word in mixed.keep {
@@ -254,6 +262,9 @@ public struct DataLists {
     public var noYo: [String] = []
     /// `hyphen.txt`: words with a hyphen people type merged ("вопервых").
     public var hyphen: [String] = []
+    /// The words of `hyphen` marked `space`: their form with a space is no
+    /// two right words ("во первых"), so it takes the hyphen too.
+    public var hyphenSpaced: Set<String> = []
     public var keep: [String] = []
 
     public init() {}
@@ -270,7 +281,15 @@ public struct DataLists {
         abbreviations = try Self.read("\(directory)/abbrev.txt").map(\.word)
         correctedAbbreviations = try Self.read("\(directory)/abbreviations.txt").map(\.word)
         noYo = try Self.read("\(directory)/noyo.txt").map(\.word)
-        hyphen = try Self.read("\(directory)/hyphen.txt").map(\.word)
+        for entry in try Self.read("\(directory)/hyphen.txt") {
+            switch entry.field {
+            case nil: break
+            case "space": hyphenSpaced.insert(entry.word)
+            case let field?:
+                throw ModelBuild.Failure(description: "\(directory)/hyphen.txt: unknown mark \(field) for \(entry.word)")
+            }
+            hyphen.append(entry.word)
+        }
         keep = try Self.read("\(directory)/keep.txt").map(\.word)
     }
 

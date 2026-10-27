@@ -53,7 +53,7 @@ struct DictationMenuSection: View {
             if let note {
                 note
                     .font(PK.Font.caption)
-                    .foregroundStyle(Color.pkInk3)
+                    .foregroundStyle(Color.pkInk2)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

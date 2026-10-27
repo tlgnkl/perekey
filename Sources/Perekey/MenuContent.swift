@@ -171,6 +171,8 @@ struct MenuContent: View {
     private let layoutsOpen = State(initialValue: false)
     /// The height of the part that stays in place, for the scroll area's share.
     private let topHeight = State(initialValue: CGFloat(0))
+    /// The scroll area never gets less than this, so Quit stays within reach.
+    private static var minScroll: CGFloat { 120 }
 
     var body: some View {
         let heldReason = pause.current ?? lastReason.wrappedValue
@@ -182,17 +184,17 @@ struct MenuContent: View {
                     accessRow
                 }
                 header
+            }
+            .background(GeometryReader { Color.clear.preference(key: TopHeightKey.self, value: $0.size.height) })
+            .onPreferenceChange(TopHeightKey.self) { topHeight.wrappedValue = $0 }
+            .onPreferenceChange(MenuOrderKey.self) { nav.topOrder = $0 }
+            MenuScroll(nav: nav, limit: max(presentation.budget - topHeight.wrappedValue, Self.minScroll)) {
                 Reveal(open: open) {
                     LayoutsList(sources: sources, nav: nav, active: open, onSelected: actions.close)
                         .padding(.bottom, 8)
                         .accessibilityHidden(!open)
                         .allowsHitTesting(open)
                 }
-            }
-            .background(GeometryReader { Color.clear.preference(key: TopHeightKey.self, value: $0.size.height) })
-            .onPreferenceChange(TopHeightKey.self) { topHeight.wrappedValue = $0 }
-            .onPreferenceChange(MenuOrderKey.self) { nav.topOrder = $0 }
-            MenuScroll(nav: nav, limit: presentation.budget - topHeight.wrappedValue) {
                 Reveal(open: pause.current != nil) {
                     if let reason = heldReason {
                         PauseCard(reason: reason, now: pause.now, nav: nav, onAction: { action(for: reason) })
@@ -558,8 +560,8 @@ private struct MenuScroll<Content: View>: View {
             .mask { fadeMask(more) }
             .onChange(of: nav.scrollRequest) { _, request in
                 guard let request else { return }
-                // The header and the layouts are above the scroll area: its top is the nearest place.
-                let above = request.id == "access" || request.id == "header" || request.id.hasPrefix("layout-")
+                // The header is above the scroll area: its top is the nearest place.
+                let above = request.id == "access" || request.id == "header"
                 withAnimation(reduceMotion ? nil : PK.Motion.easeOut(0.2)) {
                     proxy.scrollTo(above ? Self.top : request.id, anchor: above ? .top : nil)
                 }

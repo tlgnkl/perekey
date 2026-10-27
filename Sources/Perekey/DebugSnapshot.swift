@@ -392,7 +392,7 @@ enum DebugSnapshot {
         #endif
         let cases: [(name: String, budget: CGFloat, open: Bool)] = [
             ("crowded", .infinity, false), ("short", 700, false),
-            ("layouts", .infinity, true), ("short-layouts", 700, true),
+            ("layouts", .infinity, true), ("short-layouts", 700, true), ("tiny-layouts", 400, true),
         ]
         for dark in [false, true] {
             for item in cases {

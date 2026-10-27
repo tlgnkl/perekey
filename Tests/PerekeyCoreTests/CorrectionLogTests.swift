@@ -34,7 +34,7 @@ import Testing
 
     @Test func undoOfAnEntryPushedOutDoesNothing() {
         var log = CorrectionLog()
-        for seq in 1...6 { log.record(correction(UInt32(seq))) }
+        for seq in 1...6 { log.record(correction(UInt32(seq), "w\(seq)")) }
         let before = log
         let changed = log.markUndone(seq: 1)
         #expect(!changed)
@@ -92,16 +92,63 @@ import Testing
         #expect(log.entries.map(\.count) == [1, 1])
     }
 
-    @Test func undoStrikesTheMergedRowByItsNewestSeq() {
+    @Test func undoOfTheNewestInAMergedRowStrikesOnlyThatOne() {
         var log = CorrectionLog()
         log.record(correction(1))
         log.record(correction(2))
-        let old = log.markUndone(seq: 1)
-        let newest = log.markUndone(seq: 2)
-        #expect(!old)
-        #expect(newest)
-        #expect(log.entries.map(\.undone) == [true])
+        let changed = log.markUndone(seq: 2)
+        #expect(changed)
+        #expect(log.entries.map(\.undone) == [true, false])
+        #expect(log.entries.map(\.count) == [1, 1])
+        #expect(log.entries.map(\.seq) == [2, 1])
+        #expect(log.latestStanding?.seq == 1)
+    }
+
+    @Test func undoOfAnOlderOneInAMergedRowKeepsTheRowStanding() {
+        var log = CorrectionLog()
+        log.record(correction(1))
+        log.record(correction(2))
+        log.record(correction(3))
+        let changed = log.markUndone(seq: 1)
+        #expect(changed)
+        #expect(log.entries.map(\.undone) == [true, false])
+        #expect(log.entries.map(\.count) == [1, 2])
+        #expect(log.entries[1].seqs == [2, 3])
+        #expect(Set(log.entries.map(\.id)).count == 2)
+    }
+
+    @Test func undoingAMergedRowTwiceStrikesItAll() {
+        var log = CorrectionLog()
+        log.record(correction(1))
+        log.record(correction(2))
+        let first = log.markUndone(seq: 2)
+        let again = log.markUndone(seq: 2)
+        let last = log.markUndone(seq: 1)
+        #expect(first && !again && last)
+        #expect(log.entries.map(\.undone) == [true, true])
+        #expect(log.latestStanding == nil)
+    }
+
+    @Test func aStruckRowFromAMergeStillKeepsTheLimit() {
+        var log = CorrectionLog()
+        for seq in 1...5 { log.record(correction(UInt32(seq), "w\(seq)")) }
+        log.record(correction(6, "w5"))
+        #expect(log.entries.count == CorrectionLog.limit)
+        log.markUndone(seq: 5)
+        #expect(log.entries.count == CorrectionLog.limit)
+        #expect(Set(log.entries.map(\.id)).count == log.entries.count)
+    }
+
+    @Test func aMergedRowKeepsItsID() {
+        var log = CorrectionLog()
+        log.record(correction(1))
+        let id = log.entries[0].id
+        log.record(correction(2, "other"))
+        log.record(correction(3))
+        #expect(log.entries.first?.id == id)
         #expect(log.entries.first?.count == 2)
+        log.record(correction(4, "new"))
+        #expect(Set(log.entries.map(\.id)).count == 3)
     }
 
     @Test func anUndoneCorrectionIsNotMergedInto() {

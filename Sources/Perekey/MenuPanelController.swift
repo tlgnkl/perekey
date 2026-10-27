@@ -209,7 +209,11 @@ final class MenuPanelController {
         guard let panel, let anchorFrame = anchor(), size.width > 0, size.height > 0 else { return }
         let visible = visibleFrame(of: anchorFrame)
         let inset = Self.inset
-        let size = CGSize(width: size.width, height: min(size.height, budget() + 2 * inset))
+        // The item moved or the menu went to another display: the view takes the new room
+        // (only when it differs, so the resize it causes does not come back here forever).
+        let room = budget()
+        if presentation.budget != room { presentation.budget = room }
+        let size = CGSize(width: size.width, height: min(size.height, room + 2 * inset))
         let menuWidth = size.width - 2 * inset
         let right = min(anchorFrame.maxX + 6, visible.maxX - 8)
         let left = max(visible.minX + 8, right - menuWidth)

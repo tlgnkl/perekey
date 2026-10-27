@@ -48,7 +48,7 @@ enum DebugVoiceScenario {
     }
 
     private static func run(in directory: URL) async {
-        let file = VoiceSettingsFile(url: directory.appending(path: "voice.json"), defaults: debugDefaults())
+        let file = VoiceSettingsFile(url: directory.appending(path: "voice.json"))
         try? FileManager.default.removeItem(at: file.url)
         let settings = VoiceSettingsStore(file: file, managed: ManagedSettings())
         let locations = VoiceModelLocations(

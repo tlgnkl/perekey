@@ -268,7 +268,7 @@ enum DebugSnapshot {
         }
         #if PEREKEY_VOICE
         // «Вставка диктовки»: VS Code types, Terminal is automatic.
-        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "apps-voice.json"), defaults: debugDefaults())
+        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "apps-voice.json"))
         try? FileManager.default.removeItem(at: voiceFile.url)
         try? voiceFile.save(VoiceSettings(isEnabled: true, insertion: ["com.microsoft.VSCode": .typing]))
         let voice = VoiceSettingsStore(file: voiceFile, managed: ManagedSettings())
@@ -799,7 +799,7 @@ extension DebugSnapshot {
                              enabled: Bool = true, supported: Bool = true,
                              states: PreviewStates = .running) -> VoiceModelsController
     {
-        let file = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"), defaults: debugDefaults())
+        let file = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
         try? FileManager.default.removeItem(at: file.url)
         try? file.save(VoiceSettings(isEnabled: enabled, microphoneUID: "gone-usb-mic", microphoneName: "Rode NT-USB"))
         let settings = VoiceSettingsStore(file: file, managed: managed)
@@ -914,7 +914,7 @@ extension DebugSnapshot {
     static func voiceTextPreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings()) -> VoiceTextController {
         let folder = directory.appending(path: "\(name)-history", directoryHint: .isDirectory)
         try? FileManager.default.removeItem(at: folder)
-        let textFile = VoiceTextSettingsFile(url: directory.appending(path: "\(name)-voice-text.json"), defaults: debugDefaults())
+        let textFile = VoiceTextSettingsFile(url: directory.appending(path: "\(name)-voice-text.json"))
         try? FileManager.default.removeItem(at: textFile.url)
         var settings = VoiceTextSettings()
         settings.dictionary += [DictionaryEntry(from: "ай фон", to: "iPhone"), DictionaryEntry(from: "ка эн ка", to: "KNK")]
@@ -1105,7 +1105,7 @@ extension DebugSnapshot {
         let root = directory.appending(path: "\(name)-recordings", directoryHint: .isDirectory)
         try? FileManager.default.removeItem(at: root)
         let folder = RecordingsFolder(root: root)
-        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"), defaults: debugDefaults())
+        let voiceFile = VoiceSettingsFile(url: directory.appending(path: "\(name)-voice.json"))
         try? FileManager.default.removeItem(at: voiceFile.url)
         try? voiceFile.save(VoiceSettings(isEnabled: true))
         let voice = VoiceSettingsStore(file: voiceFile, managed: managed)

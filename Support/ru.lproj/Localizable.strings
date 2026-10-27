@@ -231,6 +231,12 @@
 "This site already has a rule." = "У этого сайта уже есть правило.";
 "Undo" = "Отменить";
 "Remembered “%@”" = "Запомнил «%@»";
+"Stop changing “%@”?" = "Больше не менять «%@»?";
+"Only here" = "Только здесь";
+"Everywhere" = "Везде";
+"No" = "Нет";
+"Don't touch here" = "Не трогать здесь";
+"Waiting for your answer" = "Ждут ответа";
 /* Stage 4: actions, sounds, report */
 "A wrong correction?" = "Исправление не там?";
 "Change case of the word or selection" = "Сменить регистр слова или выделения";

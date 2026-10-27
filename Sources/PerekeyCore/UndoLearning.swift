@@ -247,6 +247,13 @@ public struct LearningQuestion: Hashable, Sendable {
         self.app = app
         self.reachedElsewhere = reachedElsewhere
     }
+
+    /// The buttons the hint shows. "Только здесь" is left out where it would
+    /// mean everywhere anyway: the focus is unknown, or the word is learned
+    /// or ripe in another app too.
+    public var choices: [LearningAnswer] {
+        app != nil && !reachedElsewhere ? [.here, .everywhere, .no] : [.everywhere, .no]
+    }
 }
 
 /// The user's answer to a `LearningQuestion`.

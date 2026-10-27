@@ -46,6 +46,7 @@ struct WordsPane: View {
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)
             mineSection
+            if !words.pendingCandidates.isEmpty { candidatesSection }
             learnedSection
             alwaysSection
         }
@@ -91,6 +92,44 @@ struct WordsPane: View {
         }
     }
 
+    /// Words undone but not answered yet: the question did not come (the hint
+    /// is off, or it went away), or the evidence is still short.
+    private var candidatesSection: some View {
+        let pending = words.pendingCandidates
+        return PKGroup(header: Text("Waiting for your answer") + Text(count(pending.count)).foregroundStyle(Color.pkInk3),
+                       anchor: "words.candidates") {
+            VStack(spacing: 0) {
+                ForEach(pending, id: \.id) { item in
+                    let choices = words.question(for: item).choices
+                    VStack(spacing: 0) {
+                        PKDivider()
+                        PKRow(Text(item.word)) {
+                            HStack(spacing: 12) {
+                                if let app = item.app {
+                                    Text(Self.appName(app))
+                                        .font(PK.Font.caption)
+                                        .foregroundStyle(Color.pkInk2)
+                                }
+                                if choices.contains(.here) {
+                                    Button("Don't touch here") { decide(item, .here) }.buttonStyle(.pkLink)
+                                }
+                                Button("Everywhere") { decide(item, .everywhere) }.buttonStyle(.pkLink)
+                                Button("Remove") { decide(item, .no) }.buttonStyle(.pkLink)
+                            }
+                        }
+                    }
+                    .pkRowTransition()
+                }
+            }
+            .pkListChanges(pending.map(\.id))
+        }
+    }
+
+    private func decide(_ item: LearningCandidate, _ answer: LearningAnswer) {
+        let readings = readings(of: item.word)
+        store.update { $0.words.decide(item, answer, at: Date().timeIntervalSince1970, readings: readings) }
+    }
+
     private var learnedSection: some View {
         PKGroup(header: Text("Don't touch: learned") + Text(count(words.learned.count)).foregroundStyle(Color.pkInk3),
                 anchor: "words.learned") {
@@ -122,6 +161,12 @@ struct WordsPane: View {
                                 Text(Date(timeIntervalSince1970: item.lastUndoneAt).formatted(date: .abbreviated, time: .omitted))
                                     .font(PK.Font.caption)
                                     .foregroundStyle(Color.pkInk2)
+                                if item.app != nil {
+                                    Button("Everywhere") {
+                                        store.update { $0.words.learnEverywhere(item.word, at: Date().timeIntervalSince1970) }
+                                    }
+                                    .buttonStyle(.pkLink)
+                                }
                                 Button("Forget") { store.update { $0.words.forget(item.word, app: item.app) } }
                                     .buttonStyle(.pkLink)
                             }

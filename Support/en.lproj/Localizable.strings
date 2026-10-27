@@ -231,6 +231,12 @@
 "This site already has a rule." = "This site already has a rule.";
 "Undo" = "Undo";
 "Remembered “%@”" = "Remembered “%@”";
+"Stop changing “%@”?" = "Stop changing “%@”?";
+"Only here" = "Only here";
+"Everywhere" = "Everywhere";
+"No" = "No";
+"Don't touch here" = "Don't touch here";
+"Waiting for your answer" = "Waiting for your answer";
 /* Stage 4: actions, sounds, report */
 "A wrong correction?" = "A wrong correction?";
 "Change case of the word or selection" = "Change case of the word or selection";

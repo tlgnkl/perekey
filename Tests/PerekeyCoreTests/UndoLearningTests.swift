@@ -267,6 +267,82 @@ import Testing
 
     // MARK: - Settings file
 
+    // MARK: - The hint's question and the pane
+
+    @Test func hintOffersHereOnlyWhereItMeansHere() throws {
+        var words = WordRules()
+        let first = try #require(Self.count(Self.report(), in: &words).question)
+        #expect(first.choices == [.here, .everywhere, .no])
+        #expect(LearningQuestion(word: "jrtq", app: nil).choices == [.everywhere, .no])
+        let second = try #require(Self.count(Self.report(app: Self.notes), in: &words).question)
+        #expect(second.reachedElsewhere && second.choices == [.everywhere, .no])
+    }
+
+    @Test func unansweredQuestionLeavesACandidateTheNextUndoAsksAgain() throws {
+        var words = WordRules()
+        let question = try #require(Self.count(Self.report(), in: &words).question)
+        #expect(words.learned.isEmpty)
+        #expect(words.pendingCandidates.map(\.word) == ["jrtq"])
+        let again = try #require(Self.count(Self.report(), in: &words, at: Self.day + 1).question)
+        #expect(again == question)
+    }
+
+    @Test func answerNoTakesTheWordOffThePendingList() throws {
+        var words = WordRules()
+        let question = try #require(Self.count(Self.report(), in: &words).question)
+        words.answer(question, .no, at: Self.day)
+        #expect(words.pendingCandidates.isEmpty && words.candidates.count == 1)
+    }
+
+    @Test func paneAnswersACandidateBelowItsThreshold() throws {
+        var words = WordRules()
+        Self.count(Self.report(.backspace, .continued, threshold: 3), in: &words)
+        let candidate = try #require(words.pendingCandidates.first)
+        #expect(!candidate.isRipe)
+        let learned = words.decide(candidate, .here, at: Self.day + 1)
+        #expect(learned?.app == Self.textEdit)
+        #expect(words.candidates.isEmpty && words.isLearned("jrtq", in: Self.textEdit))
+    }
+
+    @Test func paneEverywhereLearnsGlobally() throws {
+        var words = WordRules()
+        Self.count(Self.report(.backspace, .continued), in: &words)
+        let candidate = try #require(words.pendingCandidates.first)
+        #expect(words.decide(candidate, .everywhere, at: Self.day)?.app == nil)
+        #expect(words.isLearned("jrtq", in: Self.notes))
+    }
+
+    @Test func paneRemoveDropsTheCandidateAndLearnsNothing() throws {
+        var words = WordRules()
+        Self.count(Self.report(), in: &words)
+        Self.count(Self.report(app: Self.notes), in: &words)
+        let candidate = try #require(words.pendingCandidates.first { $0.app == Self.textEdit })
+        #expect(words.decide(candidate, .no, at: Self.day) == nil)
+        #expect(words.learned.isEmpty && words.pendingCandidates.map(\.app) == [Self.notes])
+    }
+
+    @Test func paneHereInASecondAppIsEverywhere() throws {
+        var words = WordRules()
+        let first = try #require(Self.count(Self.report(), in: &words).question)
+        words.answer(first, .here, at: Self.day)
+        Self.count(Self.report(app: Self.notes), in: &words)
+        let candidate = try #require(words.pendingCandidates.first)
+        #expect(words.question(for: candidate).choices == [.everywhere, .no])
+        #expect(words.decide(candidate, .here, at: Self.day + 1)?.app == nil)
+        #expect(words.learned.count == 1)
+    }
+
+    @Test func paneEverywhereForAPerAppWordMergesTheEntries() throws {
+        var words = WordRules()
+        let question = try #require(Self.count(Self.report(), in: &words).question)
+        words.answer(question, .here, at: Self.day)
+        let learned = words.learnEverywhere("jrtq", at: Self.day + 9)
+        #expect(learned?.app == nil && learned?.undoCount == 1 && words.learned.count == 1)
+        #expect(words.isLearned("jrtq", in: Self.notes))
+        #expect(words.learnEverywhere("jrtq", at: Self.day + 10) == nil, "already everywhere")
+        #expect(words.learnEverywhere("other", at: Self.day) == nil)
+    }
+
     @Test func olderFilesMigrate() throws {
         let json = #"{"words":{"learned":[{"word":"jrtq","learnedAt":5},{"word":"ghbdtn","learnedAt":6,"undoCount":2}]}}"#
         let decoder = JSONDecoder()

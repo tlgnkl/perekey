@@ -584,6 +584,19 @@ enum DebugSnapshot {
             let view = WordsPane(store: SettingsStore(file: file)).frame(width: size.width, height: size.height)
             render(view, dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
+        var pending = WordRules()
+        pending.learned = [LearnedWord(word: "окей", learnedAt: Date().addingTimeInterval(-86_400 * 3).timeIntervalSince1970,
+                                       undoCount: 2, app: "com.apple.TextEdit")]
+        pending.candidates = [LearningCandidate(word: "jrtq", app: "com.apple.Notes", evidence: 2, threshold: 2, undoCount: 2,
+                                                firstUndoneAt: Date().addingTimeInterval(-86_400).timeIntervalSince1970,
+                                                lastCountedDay: 0)]
+        for dark in [false, true] {
+            let name = "words-pending-\(dark ? "dark" : "light")"
+            let file = SettingsFile(url: directory.appending(path: "\(name).json"), defaults: debugDefaults())
+            try? file.save(AppSettings(words: pending))
+            render(WordsPane(store: SettingsStore(file: file)).frame(width: size.width, height: size.height),
+                   dark: dark, size: size, to: directory.appending(path: "\(name).png"))
+        }
         let general = SettingsStore(file: SettingsFile(url: directory.appending(path: "general.json"), defaults: debugDefaults()))
         let generalSize = CGSize(width: size.width, height: 1000)
         let updateStates: [(name: String, managed: ManagedSettings, configured: Bool, lastCheck: Date?, dark: Bool)] = [
@@ -666,6 +679,8 @@ enum DebugSnapshot {
             ("always-fixed", .alwaysFixed(word: "аня")),
             ("always-withdrawn", .alwaysFixWithdrawn(word: "аня")),
             ("learned", .learned(word: "дедлайн")),
+            ("question-here", .question(word: "jrtq", choices: [.here, .everywhere, .no])),
+            ("question-everywhere", .question(word: "jrtq", choices: [.everywhere, .no])),
         ]
         for (name, content) in states {
             for dark in [false, true] {

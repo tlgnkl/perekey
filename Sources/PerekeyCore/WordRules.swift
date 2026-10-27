@@ -78,6 +78,8 @@ public struct LearningCandidate: Hashable, Sendable, Codable {
         self.lastCountedDay = lastCountedDay
     }
 
+    public var id: String { word + "\u{0}" + (app ?? "") }
+
     /// Reached its threshold: the user was asked, or will be at the next counted undo.
     public var isRipe: Bool { evidence >= threshold }
 }
@@ -421,6 +423,61 @@ public struct WordRules: Hashable, Sendable {
                                 undoCount: max(1, undos + before.reduce(0) { $0 + $1.undoCount }),
                                 lastUndoneAt: seconds, app: question.app)
         }
+        learned.append(entry)
+        return entry
+    }
+
+    /// The candidates that reached their threshold (the question was asked)
+    /// and have no answer yet, for the Words pane. One accidental undo is not
+    /// listed: "Везде" there would turn it into a global rule. A "Нет" starts
+    /// the evidence over and takes the candidate off.
+    public var pendingCandidates: [LearningCandidate] {
+        candidates.filter(\.isRipe)
+    }
+
+    /// The question the pane would ask for `candidate`, to know what "Только здесь" means for it.
+    public func question(for candidate: LearningCandidate) -> LearningQuestion {
+        LearningQuestion(word: candidate.word, app: candidate.app,
+                         reachedElsewhere: !otherApps(candidate.word, than: candidate.app).isEmpty)
+    }
+
+    /// The user answers for a candidate in the Words pane (a ripe one, though
+    /// the answer does not depend on it). "Не трогать здесь" and "Везде" learn
+    /// the word as `answer` does; "Убрать" (`.no`) drops the candidate with
+    /// its evidence. Returns the entry learned, if any.
+    @discardableResult
+    public mutating func decide(_ candidate: LearningCandidate, _ answer: LearningAnswer, at seconds: Double,
+                                readings: [String] = [], options: LearningOptions = LearningOptions()) -> LearnedWord?
+    {
+        guard let index = candidates.firstIndex(where: { $0.word == candidate.word && $0.app == candidate.app })
+        else { return nil }
+        if answer == .no {
+            candidates.remove(at: index)
+            return nil
+        }
+        // The user decided: the candidate is ripe whatever the evidence says.
+        let before = candidates[index]
+        candidates[index].evidence = max(before.evidence, before.threshold)
+        let learned = self.answer(question(for: before), answer, at: seconds, readings: readings, options: options)
+        if learned == nil, let back = candidates.firstIndex(where: { $0.word == before.word && $0.app == before.app }) {
+            candidates[back].evidence = before.evidence
+        }
+        return learned
+    }
+
+    /// "Везде" for a word learned in some apps only: one entry for every
+    /// app, with the undos of them all. Does nothing for a word learned
+    /// nowhere, or everywhere already.
+    @discardableResult
+    public mutating func learnEverywhere(_ word: String, at seconds: Double) -> LearnedWord? {
+        let normalized = Self.normalize(word)
+        let entries = learned.filter { $0.word == normalized }
+        guard !entries.isEmpty, !entries.contains(where: { $0.app == nil }) else { return nil }
+        let entry = LearnedWord(word: normalized, learnedAt: entries.map(\.learnedAt).min() ?? seconds,
+                                undoCount: max(1, entries.reduce(0) { $0 + $1.undoCount }),
+                                lastUndoneAt: entries.map(\.lastUndoneAt).max() ?? seconds)
+        learned.removeAll { $0.word == normalized }
+        candidates.removeAll { $0.word == normalized }
         learned.append(entry)
         return entry
     }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Observation
+import PerekeyCore
 import SwiftUI
 
 /// What the caret hint says.
@@ -12,6 +13,9 @@ enum HintContent: Equatable {
     /// `offersAlways`: the small «Always fix» next to it.
     case retyped(original: String, word: String, shortcut: String?, why: HintWhy?, offersAlways: Bool)
     case learned(word: String)
+    /// «Stop changing “word”? Only here · Everywhere · No»: the word reached its
+    /// threshold (`LearningQuestion`). `choices` are the buttons.
+    case question(word: String, choices: [LearningAnswer])
     /// «Will always fix “word” · Undo»: the word went on «Всегда исправлять».
     case alwaysFixed(word: String)
     /// «No longer always fixing “word»: an undo took it off the list. No button.
@@ -21,7 +25,7 @@ enum HintContent: Equatable {
         switch self {
         case let .retyped(_, _, _, why, offersAlways): why != nil || offersAlways
         case .alwaysFixWithdrawn: false
-        case .corrected, .learned, .alwaysFixed: true
+        case .corrected, .learned, .alwaysFixed, .question: true
         }
     }
 }
@@ -97,6 +101,7 @@ struct HintBubbleContent: View {
     let action: () -> Void
     var explain: () -> Void = {}
     var alwaysFix: () -> Void = {}
+    var answer: (LearningAnswer) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -123,6 +128,13 @@ struct HintBubbleContent: View {
                         .font(.system(size: 12.5))
                         .foregroundStyle(Color.pkInk)
                     chip(Text("Forget"), keycap: nil)
+                case let .question(word, choices):
+                    Text("Stop changing “\(word)”?")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.pkInk)
+                    ForEach(choices, id: \.self) { choice in
+                        smallChip(Self.label(of: choice)) { answer(choice) }
+                    }
                 }
             }
             // One line, however long the translation: the bubble takes its width.
@@ -136,6 +148,14 @@ struct HintBubbleContent: View {
         .padding(.trailing, model.content.hasButton ? 6 : 12)
         .padding(.vertical, model.content.hasButton ? 6 : 9)
         .fixedSize()
+    }
+
+    static func label(of answer: LearningAnswer) -> Text {
+        switch answer {
+        case .here: Text("Only here")
+        case .everywhere: Text("Everywhere")
+        case .no: Text("No")
+        }
     }
 
     private func explanation(_ why: HintWhy) -> some View {
@@ -243,6 +263,7 @@ struct HintView: View {
     let action: () -> Void
     var explain: () -> Void = {}
     var alwaysFix: () -> Void = {}
+    var answer: (LearningAnswer) -> Void = { _ in }
     @Environment(\.colorScheme) private var scheme
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 13, style: .continuous) }
@@ -267,7 +288,7 @@ struct HintView: View {
 
     private func bubble(size: CGSize?) -> some View {
         let dark = scheme == .dark
-        return HintBubbleContent(model: model, action: action, explain: explain, alwaysFix: alwaysFix)
+        return HintBubbleContent(model: model, action: action, explain: explain, alwaysFix: alwaysFix, answer: answer)
             .frame(width: size?.width, height: size?.height, alignment: .leading)
             .clipShape(shape)
             .pkGlass(in: shape)

@@ -10,6 +10,11 @@ import PerekeyCore
 ///   know are counted by spelling, to show what the list misses.
 /// - **False corrections.** Every word as written: each change is wrong,
 ///   since the text is right. The target is none.
+///
+/// The same for the form with a space (`SpacedHyphenStep`): every word with
+/// one hyphen typed with a space ("что нибудь"), and every two neighbours of
+/// the clean text, as the space between them leaves them ("кое с", "что
+/// либо,").
 public struct HyphenEvaluation {
     public var tokens = 0
     /// Words with one hyphen between letters.
@@ -22,12 +27,29 @@ public struct HyphenEvaluation {
     public var missed: [String: Int] = [:]
     /// Words of the clean text the step changed: "word → change".
     public var changed: [String: Int] = [:]
+    /// Of `hyphenated`, given back exactly when typed with a space.
+    public var spacedRestored = 0
+    /// Typed with a space, changed, but not into the word as written.
+    public var spacedWrong: [String: Int] = [:]
+    /// Two neighbours of the clean text, one space between them.
+    public var pairs = 0
+    /// Neighbours of the clean text the step changed: "words → change".
+    public var spacedChanged: [String: Int] = [:]
 
     public static func measure(_ model: LanguageModel, cache: String) throws -> HyphenEvaluation {
         var result = HyphenEvaluation()
         for line in try Archive.bunzip2("\(cache)/tatoeba/rus_sentences.tsv.bz2").lines() {
             let fields = line.split(separator: "\t")
             guard fields.count == 3 else { continue }
+            // The neighbours as the space key leaves them, punctuation and all.
+            let chunks = fields[2].split(separator: " ")
+            for (first, second) in zip(chunks, chunks.dropFirst()) {
+                result.pairs += 1
+                let phrase = Array("\(first) \(second)")
+                if let after = correctSpaced(phrase, model) {
+                    result.spacedChanged["\(String(phrase)) → \(String(after))", default: 0] += 1
+                }
+            }
             for token in Coverage.words(of: fields[2]) {
                 result.tokens += 1
                 let word = Array(token)
@@ -42,6 +64,11 @@ public struct HyphenEvaluation {
                 case let other?: result.wrong["\(token) → \(String(other))", default: 0] += 1
                 case nil: result.missed[token.lowercased(), default: 0] += 1
                 }
+                switch correctSpaced(word.map { $0 == "-" ? " " : $0 }, model) {
+                case word?: result.spacedRestored += 1
+                case let other?: result.spacedWrong["\(token) → \(String(other))", default: 0] += 1
+                case nil: break
+                }
             }
         }
         return result
@@ -53,6 +80,14 @@ public struct HyphenEvaluation {
                                 language: "ru")
         HyphenStep().apply(to: &word, model: model)
         return word.characters == characters ? nil : word.characters
+    }
+
+    /// The words after the step for the form with a space, `nil` when they stay.
+    static func correctSpaced(_ characters: [Character], _ model: LanguageModel) -> [Character]? {
+        var phrase = BoundaryWord(characters: characters, modifiers: Array(repeating: [], count: characters.count),
+                                  language: "ru")
+        SpacedHyphenStep().apply(to: &phrase, model: model)
+        return phrase.characters == characters ? nil : phrase.characters
     }
 
     /// The words of the list, typed merged, that the typo step would change
@@ -86,6 +121,16 @@ public struct HyphenEvaluation {
             lines.append("  false: \(text) ×\(count)")
         }
         for (text, count) in wrong.sorted(by: { ($1.value, $0.key) < ($0.value, $1.key) }) {
+            lines.append("  wrong: \(text) ×\(count)")
+        }
+        let spacedShare = hyphenated > 0 ? Double(spacedRestored) / Double(hyphenated) * 100 : 0
+        lines.append(String(format: "with a space: %d of %d typed with a space (%.1f %%), %d changed wrongly",
+                            spacedRestored, hyphenated, spacedShare, spacedWrong.values.reduce(0, +)))
+        lines.append("false corrections of clean neighbours: \(spacedChanged.values.reduce(0, +)) in \(pairs) pairs")
+        for (text, count) in spacedChanged.sorted(by: { ($1.value, $0.key) < ($0.value, $1.key) }) {
+            lines.append("  false: \(text) ×\(count)")
+        }
+        for (text, count) in spacedWrong.sorted(by: { ($1.value, $0.key) < ($0.value, $1.key) }) {
             lines.append("  wrong: \(text) ×\(count)")
         }
         if list > 0 {

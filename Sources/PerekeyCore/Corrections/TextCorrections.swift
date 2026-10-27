@@ -18,7 +18,8 @@ public struct TextCorrections: Hashable, Sendable {
     public var abbreviations: Bool
     /// "еще" → "ещё" where the word without "ё" is no other word. Russian only.
     public var yo: Bool
-    /// "чтото" → "что-то" where the merged word is no word. Russian only.
+    /// "чтото" → "что-то" where the merged word is no word, and "кое что" →
+    /// "кое-что" where the words with a space are no right text. Russian only.
     public var hyphen: Bool
 
     public init(phraseRetype: Bool = true, doubleCapitals: Bool = true, capsLock: Bool = false,

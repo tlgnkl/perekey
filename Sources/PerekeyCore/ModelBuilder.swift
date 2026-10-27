@@ -83,15 +83,17 @@ public struct ModelBuilder: Sendable {
 
     /// Adds a word with one hyphen ("что-то"): the model then knows the
     /// merged spelling "чтото" takes it after three letters. A form with "ё"
-    /// also gives its "е" spelling ("всё-таки", "все-таки"). Returns false
+    /// also gives its "е" spelling ("всё-таки", "все-таки"). `spaced`: the
+    /// form typed with a space is no two right words either ("во первых"),
+    /// so it takes the hyphen too (`ModelFormat.hyphenSpaced`). Returns false
     /// when the form has no hyphen or more than one, one at an end, or other
     /// letters than the alphabet.
     @discardableResult
-    public mutating func addHyphen(_ form: String, language: String) -> Bool {
+    public mutating func addHyphen(_ form: String, language: String, spaced: Bool = false) -> Bool {
         guard let index = languages.firstIndex(where: { $0.language == language }) else {
             preconditionFailure("unknown language \(language)")
         }
-        return languages[index].addHyphen(form)
+        return languages[index].addHyphen(form, spaced: spaced)
     }
 
     public func build() -> [UInt8] {
@@ -190,7 +192,8 @@ struct LanguageBuilder: Sendable {
     /// Folded fingerprint of the "е" spelling → which "е" become "ё", bit
     /// `i` for the `i`-th "е" of the word.
     private var yo: [UInt64: UInt8] = [:]
-    /// Folded fingerprint of the merged spelling → the letters before the hyphen.
+    /// Folded fingerprint of the merged spelling → the letters before the
+    /// hyphen, with `ModelFormat.hyphenSpaced` for a form fixed with a space too.
     private var hyphens: [UInt64: UInt8] = [:]
     private var prefixes3: [UInt64]
     private var prefixes4: [UInt64]
@@ -258,11 +261,11 @@ struct LanguageBuilder: Sendable {
         return true
     }
 
-    mutating func addHyphen(_ form: String) -> Bool {
+    mutating func addHyphen(_ form: String, spaced: Bool) -> Bool {
         let scalars = Array(form.unicodeScalars).map { ModelFormat.fold($0.value) }
         let hyphen: UInt32 = 0x2D
         guard let position = scalars.firstIndex(of: hyphen), position > 0, position < scalars.count - 1,
-              position <= Int(UInt8.max), scalars.lastIndex(of: hyphen) == position,
+              position < Int(ModelFormat.hyphenSpaced), scalars.lastIndex(of: hyphen) == position,
               scalars.allSatisfy({ $0 == hyphen || symbols[$0] != nil })
         else { return false }
         let merged = scalars.filter { $0 != hyphen }
@@ -271,7 +274,7 @@ struct LanguageBuilder: Sendable {
         for spelling in spellings {
             var fingerprint = ModelFormat.Fingerprint()
             for scalar in spelling { fingerprint.add(scalar) }
-            hyphens[fingerprint.value] = UInt8(position)
+            hyphens[fingerprint.value] = UInt8(position) | (spaced ? ModelFormat.hyphenSpaced : 0)
         }
         return true
     }

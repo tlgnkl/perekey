@@ -92,8 +92,18 @@ import Testing
         #expect(lists.abbreviations == ["ГОСТ", "МФЦ"])
         #expect(lists.correctedAbbreviations == ["ВрИО", "МВД"])
         #expect(lists.noYo == ["все"])
-        #expect(lists.hyphen == ["что-то"])
+        #expect(lists.hyphen == ["что-то", "кое-что"])
+        #expect(lists.hyphenSpaced == ["кое-что"])
         #expect(lists.keep == ["ок"])
+    }
+
+    @Test func anUnknownMarkOfTheHyphenListFails() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try "кое-что\tspaced\n".write(to: directory.appendingPathComponent("hyphen.txt"), atomically: true, encoding: .utf8)
+        let error = try #require(throws: ModelBuild.Failure.self) { try DataLists(directory: directory.path) }
+        #expect(error.description.contains("spaced"))
     }
 
     @Test func missingFilesAreEmpty() throws {
@@ -220,6 +230,21 @@ import Testing
         for entry in lists.hyphen {
             #expect(entry.filter { $0 == "-" }.count == 1 && entry == entry.lowercased(), "\(entry)")
         }
+        // The form with a space only where the corpus has no right use of it
+        // (docs/corrections.md, «Форма с пробелом»).
+        #expect(lists.hyphenSpaced.isSubset(of: lists.hyphen))
+        for entry in ["что-то", "как-то", "кто-то", "по-моему", "всё-таки", "из-за", "из-под", "что-либо",
+                      "в-третьих", "в-пятых"]
+        {
+            #expect(!lists.hyphenSpaced.contains(entry), "\(entry)")
+        }
+        for entry in lists.hyphenSpaced {
+            let parts = entry.split(separator: "-")
+            let group = ["во-первых", "во-вторых"].contains(entry) || parts[0] == "кое"
+                || ["нибудь", "либо"].contains(parts[1])
+            #expect(group, "\(entry)")
+        }
+        #expect(lists.hyphenSpaced.count > 100)
     }
 }
 

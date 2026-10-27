@@ -19,8 +19,12 @@ struct CorrectionUndo: Sendable {
         /// The strokes to put back: the word, plus the key that ended it when
         /// that key typed a character (space, punctuation).
         var strokes: [KeyStroke]
-        /// How many of `strokes` are the word itself.
+        /// How many of `strokes` are the word itself: for a correction of a
+        /// few words (`words`), all of them with the spaces between.
         var wordLength: Int
+        /// How many words the correction spans: 2 for "во первых" →
+        /// "во-первых" (`PhraseCorrectionStep`).
+        var words = 1
         /// The word is still being typed.
         var isOpen: Bool
         /// Letters were typed after the switch: Backspace now fixes a typo,
@@ -182,11 +186,14 @@ struct CorrectionUndo: Sendable {
         // a word preference: "привет" on the exception list would also stop
         // "ghbdtn" from ever switching. A typo or hyphen undo learns the typed
         // word only: "чтото" stays merged, "что-то" is no word to learn.
-        // Abbreviations and «ё» are about the word itself, so they learn.
+        // The list holds words, not phrases: "во первых" teaches "вопервых",
+        // which stops both forms. Abbreviations and «ё» are about the word
+        // itself, so they learn.
+        let typed = last.words > 1 ? correction.original.filter { $0 != " " } : correction.original
         let learn: String? = switch correction.kind {
         case _ where last.isOpen || !learnFromUndos || last.alwaysFix != nil: nil
         case .layout, .abbreviation, .yo: Self.learnable(correction.original, or: correction.replacement)
-        case .typo, .hyphen: Self.learnable(correction.original, or: nil)
+        case .typo, .hyphen: Self.learnable(typed, or: nil)
         case .capsLock, .doubleCapitals: nil
         }
         return Plan(keys: keys, expected: expected, deleteCount: deleteCount, source: source.id,

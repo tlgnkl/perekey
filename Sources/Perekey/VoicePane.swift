@@ -56,7 +56,13 @@ struct VoicePane: View {
                 dictationGroup
             } else {
                 dictationGroup
-                ModelsList(controller: controller).id("models")
+                ModelsList(controller: controller) {
+                    TranscriptionModelPicker(controller: controller)
+                    PKDivider()
+                    unloadRow
+                }
+                .id("models")
+                captureGroup
                 if shown.contains(.voiceText), let textController {
                     VoiceTextGroup(controller: textController)
                     VoiceHistoryGroup(controller: textController)
@@ -77,46 +83,41 @@ struct VoicePane: View {
 
     // MARK: Dictation
 
+    /// The switch and the shortcut: what it takes to start talking.
     private var dictationGroup: some View {
         PKGroup {
-            PKRow(voiceText("Voice input"), detail: switchDetail, anchor: "voice.input") {
-                Toggle(isOn: Binding(get: { settings.isEnabled && !voice.managed.voiceDisabled },
-                                     set: { on in voice.update { $0.isEnabled = on } })) {
-                    voiceText("Voice input")
-                }
-                .labelsHidden()
-                .toggleStyle(.pkSwitch)
-                .disabled(voice.managed.voiceDisabled)
+            VoiceHero(isOn: settings.isEnabled && !voice.managed.voiceDisabled, detail: switchDetail,
+                      disabled: voice.managed.voiceDisabled) { on in
+                voice.update { $0.isEnabled = on }
             }
+            .pkAnchor("voice.input")
             if voice.isLocked {
                 PKCallout(voiceText("These voice settings were written by a newer version of Perekey. Update the app to change them."))
             }
             if !voice.managed.voiceDisabled {
                 triggerRows
-                Group {
-                    PKDivider()
-                    microphoneRow
-                    // The input level meter goes here: it needs the microphone running.
-                    PKDivider()
-                    VoiceModelPicker(controller: controller)
-                    PKDivider()
-                    TranscriptionModelPicker(controller: controller)
-                    PKDivider()
-                    PKRow(voiceText("Switch the layout to the language of the phrase"), anchor: "voice.switch-layout") {
-                        flag(\.switchesLayout, label: voiceText("Switch the layout to the language of the phrase"))
-                    }
-                    PKDivider()
-                    PKRow(voiceText("Sounds"), anchor: "voice.sounds") { flag(\.playsSounds, label: voiceText("Sounds")) }
-                    PKDivider()
-                    autoStopRow
-                    PKDivider()
-                    unloadRow
-                }
-                .disabled(!settings.isEnabled)
-                .opacity(settings.isEnabled ? 1 : 0.55)
             }
         }
         .disabled(voice.isLocked)
+    }
+
+    /// «Диктовка»: where the sound comes from and what happens around a dictation.
+    private var captureGroup: some View {
+        PKGroup(header: voiceText("Dictation"), anchor: "voice.dictation") {
+            microphoneRow
+            // The input level meter goes here: it needs the microphone running.
+            PKDivider()
+            PKRow(voiceText("Switch the layout to the language of the phrase"), anchor: "voice.switch-layout") {
+                flag(\.switchesLayout, label: voiceText("Switch the layout to the language of the phrase"))
+            }
+            PKDivider()
+            PKRow(voiceText("Sounds"), anchor: "voice.sounds") { flag(\.playsSounds, label: voiceText("Sounds")) }
+            PKDivider()
+            autoStopRow
+        }
+        .disabled(!settings.isEnabled || voice.isLocked)
+        .opacity(settings.isEnabled ? 1 : 0.55)
+        .pkAnimation(PK.Motion.easeOut(0.32), value: settings.isEnabled)
     }
 
     private var switchDetail: Text? {
@@ -241,33 +242,6 @@ struct VoicePane: View {
     }
 }
 
-/// The model choice on its own, so that a progress tick of a download redraws
-/// this row and not the whole tab.
-private struct VoiceModelPicker: View {
-    let controller: VoiceModelsController
-
-    var body: some View {
-        let settings = controller.settings.settings
-        let ready = controller.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }
-        PKRow(voiceText("Model"), detail: ready.isEmpty ? voiceText("Download a model below first.") : nil,
-              anchor: "voice.model") {
-            Picker(selection: Binding(get: { settings.model },
-                                      set: { id in controller.settings.update { $0.model = id } })) {
-                ForEach(ready) { Text(verbatim: ModelNames.display($0.entry)).tag($0.id) }
-                if !ready.contains(where: { $0.id == settings.model }) {
-                    Text(verbatim: ModelCatalog.entry(id: settings.model).map {
-                        voiceString("\(ModelNames.display($0)) (not downloaded)")
-                    } ?? settings.model).tag(settings.model)
-                }
-            } label: {
-                voiceText("Model")
-            }
-            .labelsHidden()
-            .frame(width: 240)
-        }
-    }
-}
-
 /// «Модель для расшифровок»: files and calls. As dictation by default, on
 /// this Mac; a cloud model only by this choice and with the consent to send
 /// it recordings of conversations.
@@ -325,6 +299,77 @@ extension VoiceUnload {
         case .minutes60: voiceString("60 min")
         case .never: voiceString("Don't unload")
         }
+    }
+}
+
+/// The head of the tab: a microphone tile, the title, what voice input does,
+/// and its switch. On, the tile is a strip and its level bars rise one after
+/// another; off, it is a plain tile with the bars down.
+private struct VoiceHero: View {
+    let isOn: Bool
+    let detail: Text?
+    let disabled: Bool
+    let set: (Bool) -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VoiceTile(isOn: isOn)
+            VStack(alignment: .leading, spacing: 3) {
+                voiceText("Voice input")
+                    .font(PK.Font.headline)
+                    .foregroundStyle(Color.pkInk)
+                if let detail {
+                    detail.font(PK.Font.caption).foregroundStyle(Color.pkInk2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            Toggle(isOn: Binding(get: { isOn }, set: set)) { voiceText("Voice input") }
+                .labelsHidden()
+                .toggleStyle(.pkSwitch)
+                .disabled(disabled)
+        }
+        .padding(.horizontal, PK.Space.lg)
+        .padding(.vertical, 14)
+        .frame(minHeight: 72)
+    }
+}
+
+/// 44pt tile with a microphone and four level bars.
+private struct VoiceTile: View {
+    let isOn: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Heights of the bars, as a share of the tile: a word being said.
+    private static let levels: [CGFloat] = [0.30, 0.62, 0.44, 0.22]
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        HStack(alignment: .center, spacing: 5) {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isOn ? Color.pkIndigoInk : Color.pkInk2)
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(Array(Self.levels.enumerated()), id: \.offset) { index, level in
+                    Capsule()
+                        .fill(isOn ? Color.pkIndigo : Color.pkInk3)
+                        .frame(width: 2.5, height: 44 * (isOn ? level : 0.07))
+                        .animation(reduceMotion ? nil : PK.Motion.settle(0.5).delay(isOn ? Double(index) * 0.06 : 0), value: isOn)
+                }
+            }
+            .frame(height: 30)
+        }
+        .frame(width: 52, height: 44)
+        .background {
+            if isOn {
+                Color.clear.glassStrip(in: shape)
+            } else {
+                shape.fill(Color.pkWash)
+            }
+        }
+        .overlay { if !isOn { shape.strokeBorder(Color.pkRule, lineWidth: 0.5) } }
+        .pkAnimation(PK.Motion.easeOut(0.32), value: isOn)
+        .accessibilityHidden(true)
     }
 }
 

@@ -616,7 +616,8 @@ extension DebugSnapshot {
     /// A model in each state the Voice tab shows.
     /// `.running`: a download goes on. `.stopped`: voice is off, so nothing downloads and a stopped one is `partial`.
     /// `.administrator`: a profile forbids downloads, so the models come from the administrator's folder.
-    enum PreviewStates { case running, stopped, administrator }
+    /// `pending`: Ultra picked while it downloads; `empty`: a first start, nothing on disk.
+    enum PreviewStates { case running, stopped, administrator, pending, empty }
 
     static func voicePreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings(),
                              enabled: Bool = true, supported: Bool = true,
@@ -646,6 +647,18 @@ extension DebugSnapshot {
                 VoiceModelStatus(entry: whisper, state: .partial(received: whisper.totalSize * 42 / 100)),
             ]
             statuses += others.map { VoiceModelStatus(entry: $0, state: .absent) }
+        case .pending:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready, isInUse: true),
+                VoiceModelStatus(entry: whisper, state: .absent),
+            ]
+            statuses += others.map { VoiceModelStatus(entry: $0, state: .downloading(received: $0.totalSize * 68 / 100)) }
+        case .empty:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .absent),
+                VoiceModelStatus(entry: whisper, state: .absent),
+            ]
+            statuses += others.map { VoiceModelStatus(entry: $0, state: .absent) }
         case .administrator:
             statuses = [
                 VoiceModelStatus(entry: parakeet, state: .ready, isManaged: true),
@@ -655,9 +668,11 @@ extension DebugSnapshot {
                 VoiceModelStatus(entry: $0, state: .damaged, failure: .checksumMismatch("model.mil"))
             }
         }
-        return VoiceModelsController(preview: settings, statuses: statuses,
-                                     usage: VoiceModelDiskUsage(models: 1_100_000_000, cache: 140_000_000),
-                                     isSupported: supported)
+        let controller = VoiceModelsController(preview: settings, statuses: statuses,
+                                               usage: VoiceModelDiskUsage(models: 1_100_000_000, cache: 140_000_000),
+                                               isSupported: supported)
+        if states == .pending, let ultra = others.first { controller.previewPending(ultra.id) }
+        return controller
     }
 
     /// Modes as a person who set up OpenAI for mail would have them.
@@ -706,12 +721,14 @@ extension DebugSnapshot {
                                                 managed: ManagedSettings(voiceModelDownloadsDisabled: true),
                                                 states: .administrator)),
             ("unsupported", voicePreview(in: directory, name: "un", supported: false)),
+            ("pending", voicePreview(in: directory, name: "pe", states: .pending)),
+            ("empty", voicePreview(in: directory, name: "em", states: .empty)),
         ]
         for dark in [false, true] {
             for item in cases {
                 let view = VoicePane(controller: item.controller, store: store, recording: recording)
                     .background(Color(nsColor: .windowBackgroundColor))
-                render(view, dark: dark, size: CGSize(width: 620, height: 900),
+                render(view, dark: dark, size: CGSize(width: 620, height: 1_240),
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
         }

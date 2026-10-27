@@ -191,7 +191,7 @@
 "They replace all your current settings." = "They replace all your current settings.";
 "Apps" = "Apps";
 "Words" = "Words";
-"Perekey never touches the first two lists and always fixes the third, in any layout." = "Perekey never touches the first two lists and always fixes the third, in any layout.";
+"Perekey never touches the “Don't touch” words and always fixes the “Always fix” ones, in any layout. Words waiting for your answer are still fixed." = "Perekey never touches the “Don't touch” words and always fixes the “Always fix” ones, in any layout. Words waiting for your answer are still fixed.";
 "Word" = "Word";
 "Add a word" = "Add a word";
 "Add" = "Add";

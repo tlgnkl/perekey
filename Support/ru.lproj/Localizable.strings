@@ -191,7 +191,7 @@
 "They replace all your current settings." = "Они заменят все текущие настройки.";
 "Apps" = "Программы";
 "Words" = "Слова";
-"Perekey never touches the first two lists and always fixes the third, in any layout." = "Слова из первых двух списков Perekey не трогает, из третьего — исправляет всегда, в любой раскладке.";
+"Perekey never touches the “Don't touch” words and always fixes the “Always fix” ones, in any layout. Words waiting for your answer are still fixed." = "Слова из списков «Не трогать» Perekey не трогает, из «Всегда исправлять» — исправляет всегда, в любой раскладке. Слова, которые ждут ответа, пока исправляются.";
 "Word" = "Слово";
 "Add a word" = "Добавить слово";
 "Add" = "Добавить";

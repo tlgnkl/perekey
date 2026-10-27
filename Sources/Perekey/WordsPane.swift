@@ -46,7 +46,7 @@ struct WordsPane: View {
 
     var body: some View {
         PKPane(title: Text("Words")) {
-            Text("Perekey never touches the first two lists and always fixes the third, in any layout.")
+            Text("Perekey never touches the “Don't touch” words and always fixes the “Always fix” ones, in any layout. Words waiting for your answer are still fixed.")
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk2)
                 .fixedSize(horizontal: false, vertical: true)

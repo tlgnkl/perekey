@@ -741,6 +741,8 @@ extension DebugSnapshot {
             history.record(DictationRecord(text: sample.0, bundleID: sample.1, appName: sample.2, duration: 4,
                                            model: "parakeet-tdt-v3", pasted: true))
         }
+        // The file is written on the history's own queue: the controller below reads it.
+        history.flush()
         return VoiceTextController(managed: managed, textFile: textFile, historyFile: DictationHistoryFile(directory: folder))
     }
 
@@ -764,6 +766,10 @@ extension DebugSnapshot {
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
             let controller = voiceTextPreview(in: directory, name: "menu")
+            // A paste into a field with no accessibility element: held in memory, shown on top.
+            controller.history.record(DictationRecord(
+                text: "Что касается картинок, смотри, вот я открыл превью и там пусто.", bundleID: "com.stablyai.orca",
+                appName: "Orca", duration: 6, model: "parakeet-tdt-v3", pasted: true, privacy: .unknown))
             let sources = InputSources()
             let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-menu.json")))
             let pause = PauseState(frozen: PauseSet(), now: Date())

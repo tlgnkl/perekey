@@ -34,7 +34,7 @@ struct DictationMenuSection: View {
             ScrollView {
                 VStack(spacing: 4) {
                     if let unsaved = history.unsaved {
-                        row(unsaved, shows: shows, note: "Not saved. Kept until Perekey quits.")
+                        row(unsaved, shows: shows, note: "Not saved: gone when Perekey quits.")
                     }
                     ForEach(entries) { entry in
                         row(entry, shows: shows)
@@ -54,10 +54,16 @@ struct DictationMenuSection: View {
                 .font(PK.Font.body)
                 .foregroundStyle(Color.pkInk)
                 .lineLimit(1)
+            // A line of its own: beside the buttons the caption has room for the time only.
+            if let note {
+                voiceText(note)
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk3)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack(spacing: 8) {
-                Group {
-                    if let note { voiceText(note) } else { Text(verbatim: caption(entry)) }
-                }
+                Text(verbatim: caption(entry))
                     .font(PK.Font.caption)
                     .foregroundStyle(Color.pkInk3)
                     .lineLimit(1)

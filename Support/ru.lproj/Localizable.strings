@@ -49,6 +49,7 @@
 "It looks like a password, so Perekey leaves it alone" = "Похоже на пароль, поэтому Perekey его не трогает";
 "Karabiner-Elements is running. Its rules may override this." = "Запущен Karabiner-Elements. Его правила могут перебить это.";
 "Key %lld" = "Клавиша %lld";
+"Launch at login in the menu" = "Вход в систему в меню";
 "Launch at login" = "Открывать при входе в систему";
 "Let Perekey see the keys" = "Дайте Perekey видеть нажатия";
 "Like Alt+Shift on Windows" = "Как Alt+Shift в Windows";
@@ -263,6 +264,7 @@
 "This build has no update key and cannot update itself." = "В этой сборке нет ключа обновлений, она не обновляется сама.";
 "Never" = "Ни разу";
 "Install Update %@…" = "Установить обновление %@…";
+"Check for Updates" = "Проверить обновления";
 "Check for Updates…" = "Проверить обновления…";
 /* Stage 2: automatic switching */
 "Undo last correction" = "Отменить последнее исправление";
@@ -281,7 +283,7 @@
 "Letter ё" = "Буква ё";
 "Russian only, where the word with «е» is no other word" = "Только там, где слово с «е» — не другое слово";
 "Hyphen" = "Дефис";
-"Russian only, where the merged word is no word" = "Только там, где слитное написание — не слово";
+"Russian only, where the merged word is no word; also «кое что» → «кое-что»" = "Только там, где слитное написание — не слово; и «кое что» → «кое-что»";
 "Layout on entry" = "Раскладка при входе";
 "Perekey does not touch" = "Perekey не трогает";
 "Password fields" = "Поля паролей";
@@ -384,3 +386,34 @@
 "The layout is not shown in the menu bar now." = "Раскладку сейчас не видно в строке меню.";
 "Show the layout in Perekey" = "Показывать раскладку в Perekey";
 "Show the capsule" = "Показать капсулу";
+"The file was not transcribed" = "Файл не расшифрован";
+"This build of Perekey has no voice input, so it cannot transcribe files." = "В этой сборке Perekey нет голосового ввода, поэтому файлы она не расшифровывает.";
+"OK" = "OK";
+
+/* Settings search */
+"Search" = "Поиск";
+"Search settings" = "Поиск по настройкам";
+"Nothing found" = "Ничего не найдено";
+"No matches" = "Нет совпадений";
+
+/* Menu header and General: layouts, startup, help */
+"Layouts" = "Раскладки";
+"%@, expanded" = "%@, раскрыто";
+"%@, collapsed" = "%@, свёрнуто";
+"Startup" = "Запуск";
+"Help" = "Справка";
+"Show" = "Показать";
+
+/* Settings → General → Menu, and the menu's right-click */
+"Menu" = "Меню";
+"Automatic switching and mode" = "Автопереключение и режим";
+"Layouts as a list" = "Раскладки списком";
+"Instead of opening them from the header." = "Вместо раскрытия из шапки.";
+"Count for today" = "Счётчик за сегодня";
+"Only while “Count corrections” is on in Privacy." = "Только пока в «Приватности» включено «Считать правки».";
+"Right-click a block in the menu to hide it. The layout, Settings and Quit always stay." = "Щёлкните блок меню правой кнопкой, чтобы скрыть его. Раскладка, «Настройки…» и «Выйти» остаются всегда.";
+"Reset to Default" = "Вернуть как было";
+"Fits on this screen" = "Помещается на этом экране";
+"Does not fit on this screen: it will scroll" = "Не помещается на этом экране: будет прокрутка";
+"Hide from Menu" = "Скрыть из меню";
+"Customize Menu…" = "Настроить меню…";

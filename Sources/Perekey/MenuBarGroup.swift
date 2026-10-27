@@ -80,12 +80,14 @@ struct MenuBarGroup: View {
     let store: SettingsStore
     var sources: InputSources?
     var systemMenu: SystemInputMenu = .shared
+    /// Voice is on: the commands of its menu items live elsewhere too.
+    var voiceIsOn = false
 
     private var style: MenuBarIconStyle { store.settings.menuBarIcon }
     private var visibility: MenuBarVisibility { store.settings.menuBarVisibility }
 
     var body: some View {
-        PKGroup(header: Text("Menu bar")) {
+        PKGroup(header: Text("Menu bar"), anchor: "general.menu-bar") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Icon").font(PK.Font.body).foregroundStyle(Color.pkInk)
                 HStack(alignment: .top, spacing: 12) {
@@ -99,11 +101,13 @@ struct MenuBarGroup: View {
             .padding(.horizontal, PK.Space.lg)
             .padding(.vertical, 12)
             .accessibilityElement(children: .contain)
+            .pkAnchor("general.menu-icon")
             PKDivider()
             PKRow(Text("Show the icon"),
                   detail: visibility == .never
                       ? Text("To bring it back, open Perekey again: from Finder, Spotlight or Launchpad.")
-                      : Text("“When there is news” means a pause, automatic switching off, or a call being recorded.")) {
+                      : Text("“When there is news” means a pause, automatic switching off, or a call being recorded."),
+                  anchor: "general.menu-visibility") {
                 PKSegmented(items: [
                     .init(value: MenuBarVisibility.always, label: Text("Always")),
                     .init(value: .whenNeeded, label: Text("When there is news")),
@@ -113,6 +117,7 @@ struct MenuBarGroup: View {
                 }), mini: true)
             }
             notice
+            voiceEntriesNote
         }
         .onAppear { systemMenu.refresh() }
     }
@@ -123,12 +128,23 @@ struct MenuBarGroup: View {
         }
     }
 
+    /// Hidden or hideable, the item is not the only door to calls and files.
+    @ViewBuilder private var voiceEntriesNote: some View {
+        #if PEREKEY_VOICE
+        if MenuBarPolicy.showsVoiceEntriesNote(voiceIsOn: voiceIsOn, visibility: visibility) {
+            PKDivider()
+            PKNote(voiceText("With the icon hidden, record a call or transcribe a file in Settings → Voice, in the Transcripts window, or with “Open With” in Finder."))
+        }
+        #endif
+    }
+
     @ViewBuilder private var notice: some View {
         switch MenuBarPolicy.notice(style: style, visibility: visibility, systemMenuVisible: systemMenu.visible) {
         case .shownTwice:
             PKDivider()
             PKCallout(Text("The language is shown twice: by the system input menu and by Perekey."),
                       symbol: "info.circle.fill", quiet: true)
+            // search: skip (shown only in some states)
             PKRow(Text("In System Settings turn off “Show Input menu in menu bar”."), detail: nil) {
                 Button("Open Keyboard Settings…") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
@@ -140,6 +156,7 @@ struct MenuBarGroup: View {
         case .notShown:
             PKDivider()
             PKCallout(Text("The layout is not shown in the menu bar now."))
+            // search: skip (shown only in some states)
             PKRow(Text("Show the layout in Perekey"), detail: nil) {
                 Button("Show the capsule") {
                     store.update {

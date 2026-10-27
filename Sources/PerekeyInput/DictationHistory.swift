@@ -199,6 +199,8 @@ public final class DictationHistory {
     /// What `record` did.
     public enum Outcome: Equatable, Sendable {
         case recorded
+        /// Not stored: kept in memory for the menu only (`unsaved`).
+        case heldUnsaved
         case skipped(Reason)
 
         public enum Reason: Equatable, Sendable {
@@ -213,6 +215,11 @@ public final class DictationHistory {
     public private(set) var entries: [HistoryEntry]
     /// The file was written by a newer Perekey: shown, not changed.
     public private(set) var isReadOnly: Bool
+    /// The latest dictation that went into a field nothing is known about
+    /// (`DictationPrivacy.unknown`), so it is not in `entries`. Memory only: never
+    /// written to disk, gone when Perekey quits. Cleared by a newer stored dictation,
+    /// by "Clear history" and when the history is switched off.
+    public private(set) var unsaved: HistoryEntry?
     /// Moves on every change, so views redraw.
     public private(set) var revision = 0
 
@@ -264,6 +271,7 @@ public final class DictationHistory {
 
     @discardableResult
     public func record(_ item: DictationRecord) -> Outcome {
+        if item.privacy == .unknown { return holdUnsaved(item) }
         guard !isReadOnly else { return .skipped(.readOnly) }
         guard retention != .off else { return .skipped(.retentionOff) }
         guard item.privacy == .normal else { return .skipped(.privateField) }
@@ -286,6 +294,7 @@ public final class DictationHistory {
                 }
             }
         }
+        unsaved = nil
         entries.insert(entry, at: 0)
         if entries.count > Self.capacity {
             let dropped = entries[Self.capacity...].filter(\.hasAudio).map(\.id)
@@ -295,6 +304,28 @@ public final class DictationHistory {
         }
         persist()
         return .recorded
+    }
+
+    /// A dictation into a field with no accessibility element is not stored, but the
+    /// user may still need the text: the paste can fail silently (Electron apps), the
+    /// pasteboard is restored and the HUD hides. So the latest one waits in memory.
+    ///
+    /// Only the reasons that mean "nothing stored" for lack of knowledge qualify. The
+    /// ones that are the user's request do not: history off (`retentionOff`) and an
+    /// excluded program or site (`excludedApp`) ask for nothing to be kept, so nothing
+    /// is shown either. A password field or Secure Input (`isPrivate`) never get here.
+    /// A history file of a newer version only stops writing to disk, which this
+    /// does not do, so it does not stop the hold. The text is never logged.
+    private func holdUnsaved(_ item: DictationRecord) -> Outcome {
+        guard retention != .off else { return .skipped(.retentionOff) }
+        guard !isExcluded(item.bundleID, item.host) else { return .skipped(.excludedApp) }
+        let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return .skipped(.emptyText) }
+        unsaved = HistoryEntry(
+            text: text, bundleID: item.bundleID, appName: item.appName, date: now(), duration: item.duration,
+            model: item.model, pasted: item.pasted)
+        revision += 1
+        return .heldUnsaved
     }
 
     /// The audio file did not get written: the entry keeps its text only.
@@ -328,8 +359,10 @@ public final class DictationHistory {
         let file = self.file
         if term == .off {
             entries = []
+            let held = unsaved != nil
+            unsaved = nil
             disk.async { file.eraseAll() }
-            if before > 0 { revision += 1 }
+            if before > 0 || held { revision += 1 }
             return
         }
         let cutoff = cutoff(for: term)
@@ -373,6 +406,7 @@ public final class DictationHistory {
     /// the user asked for the texts to go. New dictations are kept again after.
     public func clear() {
         entries = []
+        unsaved = nil
         isReadOnly = false
         let file = self.file
         disk.async { file.eraseAll() }

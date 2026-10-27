@@ -62,5 +62,25 @@
 			<string>отменяли %lld раза</string>
 		</dict>
 	</dict>
+	<key>%lld matches</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>few</key>
+			<string>%lld совпадения</string>
+			<key>many</key>
+			<string>%lld совпадений</string>
+			<key>one</key>
+			<string>%lld совпадение</string>
+			<key>other</key>
+			<string>%lld совпадения</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

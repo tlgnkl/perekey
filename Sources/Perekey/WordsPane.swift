@@ -52,7 +52,8 @@ struct WordsPane: View {
     }
 
     private var mineSection: some View {
-        PKGroup(header: Text("Don't touch: mine") + Text(count(words.mine.count)).foregroundStyle(Color.pkInk3)) {
+        PKGroup(header: Text("Don't touch: mine") + Text(count(words.mine.count)).foregroundStyle(Color.pkInk3),
+                anchor: "words.mine") {
             HStack(spacing: 8) {
                 TextField("Word", text: draft.projectedValue, prompt: Text("Add a word"))
                     .labelsHidden()
@@ -91,8 +92,9 @@ struct WordsPane: View {
     }
 
     private var learnedSection: some View {
-        PKGroup(header: Text("Don't touch: learned") + Text(count(words.learned.count)).foregroundStyle(Color.pkInk3)) {
-            PKRow(Text("Learn from undone corrections")) {
+        PKGroup(header: Text("Don't touch: learned") + Text(count(words.learned.count)).foregroundStyle(Color.pkInk3),
+                anchor: "words.learned") {
+            PKRow(Text("Learn from undone corrections"), anchor: "words.learn") {
                 Toggle("Learn from undone corrections", isOn: learnBinding)
                     .labelsHidden()
                     .toggleStyle(.pkSwitch)
@@ -144,7 +146,8 @@ struct WordsPane: View {
     }
 
     private var alwaysSection: some View {
-        PKGroup(header: Text("Always fix") + Text(count(words.always.count)).foregroundStyle(Color.pkInk3)) {
+        PKGroup(header: Text("Always fix") + Text(count(words.always.count)).foregroundStyle(Color.pkInk3),
+                anchor: "words.always") {
             HStack(spacing: 8) {
                 TextField("Word", text: alwaysDraft.projectedValue, prompt: Text("The word as it should come out"))
                     .labelsHidden()

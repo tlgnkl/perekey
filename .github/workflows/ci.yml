@@ -35,6 +35,7 @@ jobs:
           fetch-depth: 0 # the benchmark builds the base commit too
       - run: swift --version
       - run: scripts/check-strings.sh
+      - run: scripts/check-settings-index.sh
       - run: swift build
       - run: scripts/test.sh
       # A test process that dies on a signal prints little; its crash report

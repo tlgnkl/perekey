@@ -29,7 +29,15 @@ enum ModelFixture {
     /// Words people type without their hyphen: `data/ru/hyphen.txt`.
     static let hyphen = [
         "во-первых", "в-четвёртых", "что-то", "кто-то", "какого-нибудь", "кое-что", "по-моему", "по-русски",
-        "из-за", "всё-таки", "чуть-чуть",
+        "из-за", "всё-таки", "чуть-чуть", "во-вторых", "кто-нибудь", "что-нибудь", "кто-либо", "что-либо",
+        "кое-кому", "чём-либо",
+    ]
+
+    /// The words of `hyphen` marked `space`: typed with a space, they take
+    /// the hyphen too.
+    static let hyphenSpaced: Set = [
+        "во-первых", "во-вторых", "какого-нибудь", "кто-нибудь", "что-нибудь", "кто-либо", "кое-что", "кое-кому",
+        "чём-либо",
     ]
 
     /// Words with a fixed case, and whether Perekey corrects to them.
@@ -94,7 +102,7 @@ enum ModelFixture {
     /// The tables of the stage 4 corrections.
     static func addCorrections(to builder: inout ModelBuilder) {
         for word in yo { builder.addYo(word, language: "ru") }
-        for word in hyphen { builder.addHyphen(word, language: "ru") }
+        for word in hyphen { try! builder.addHyphen(word, language: "ru", spaced: hyphenSpaced.contains(word)) }
         for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
     }
 

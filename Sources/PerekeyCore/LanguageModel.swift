@@ -446,7 +446,15 @@ extension LanguageModel.Language {
     /// folded fingerprint of the merged spelling: 3 for "чтото". `nil` when
     /// the word takes no hyphen.
     public func hyphenPosition(of fingerprint: UInt64) -> UInt8? {
-        hyphen?.value(of: fingerprint)
+        hyphen?.value(of: fingerprint).map { $0 & ~ModelFormat.hyphenSpaced }
+    }
+
+    /// `hyphenPosition` for a word typed with a space where the hyphen goes
+    /// ("во первых"), by the fingerprint of the two parts without it: `nil`
+    /// unless the list fixes that form too (`ModelFormat.hyphenSpaced`).
+    public func spacedHyphenPosition(of fingerprint: UInt64) -> UInt8? {
+        guard let value = hyphen?.value(of: fingerprint), value & ModelFormat.hyphenSpaced != 0 else { return nil }
+        return value & ~ModelFormat.hyphenSpaced
     }
 
     /// Whether some word of the language starts with these 3 or 4 symbols.

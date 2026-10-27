@@ -76,6 +76,12 @@ struct SettingsView: View {
     var hasAccess: @MainActor () -> Bool = { true }
     /// Opens the access step of onboarding: the banner's button.
     var openAccess: () -> Void = {}
+    /// «Launch at login» of General; nil hides it.
+    var launch: LaunchAtLogin?
+    /// «How to Use Perekey» of General.
+    var showOnboarding: () -> Void = {}
+    /// The voice parts of the menu, for the preview in General → Menu.
+    var menuPreviewActions = MenuActions()
     #if PEREKEY_VOICE
     /// The speech models and the voice settings; the Voice tab is empty without it.
     var voiceController: VoiceModelsController?
@@ -89,11 +95,15 @@ struct SettingsView: View {
     private let scrollTarget: State<String?>
     private let selection: State<SettingsSection>
     private let direction = State(initialValue: 1)
+    private let search: State<SettingsSearchModel>
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
          usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general,
-         scrollTarget: String? = nil) {
+         scrollTarget: String? = nil, searchQuery: String = "") {
         self.scrollTarget = State(initialValue: scrollTarget)
+        let search = SettingsSearchModel()
+        if !searchQuery.isEmpty { search.setQuery(searchQuery) }
+        self.search = State(initialValue: search)
         self.usage = usage
         self.languages = languages
         self.updates = updates
@@ -118,16 +128,7 @@ struct SettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            SettingsSidebar(selection: Binding(
-                get: { current },
-                set: { new in
-                    guard new != current else { return }
-                    recording.stop()
-                    scrollTarget.wrappedValue = nil
-                    direction.wrappedValue = new.rawValue > current.rawValue ? 1 : -1
-                    withAnimation(reduceMotionFree(PK.Motion.easeOut(0.32))) { selection.wrappedValue = new }
-                }
-            ))
+            SettingsSidebar(selected: current, search: search.wrappedValue, pick: pick, walk: walk)
             .frame(width: 216)
             .padding(8)
 
@@ -141,6 +142,7 @@ struct SettingsView: View {
                 ZStack {
                     pane
                         .environment(\.pkScrollTarget, scrollTarget.wrappedValue)
+                        .environment(\.pkSearch, search.wrappedValue)
                         .id(current)
                         .transition(.asymmetric(
                             insertion: .offset(x: CGFloat(direction.wrappedValue) * 14).combined(with: .opacity),
@@ -152,7 +154,55 @@ struct SettingsView: View {
             .animation(reduceMotionFree(PK.Motion.easeOut(0.2)), value: hasAccess())
         }
         .frame(width: 840, height: height)
+        .onChange(of: shownInWindow, initial: true) { _, shown in search.wrappedValue.setAvailable(shown) }
         .onDisappear { recording.stop() }
+    }
+
+    /// The rows the window has now: the search counts only those. Each flag is the
+    /// condition its pane shows the group by (`VoicePane.shown`, `PrivacyPane`, `GeneralPane`).
+    private var shownInWindow: Set<SettingsFlag> {
+        var shown: Set<SettingsFlag> = []
+        if LanguagePairs(layouts: sources.layouts).hasChoice { shown.insert(.languageChoice) }
+        if usage != nil {
+            shown.insert(.usage)
+            if store.settings.statistics { shown.insert(.statisticsOn) }
+        }
+        if languages != nil { shown.insert(.languageStats) }
+        #if PEREKEY_VOICE
+        if let voiceController {
+            if voiceController.settings.isOn && voiceController.isSupported { shown.insert(.voiceOn) }
+            shown.formUnion(VoicePane.shown(controller: voiceController, textController: voiceTextController,
+                                            transcripts: voiceTranscripts))
+            if voiceModes != nil {
+                shown.insert(.voiceModes)
+                if voiceController.isSupported { shown.insert(.voiceModesSupported) }
+            }
+        }
+        #endif
+        return shown
+    }
+
+    /// Opens `new` at its top.
+    private func select(_ new: SettingsSection) {
+        guard new != current else { return }
+        recording.stop()
+        scrollTarget.wrappedValue = nil
+        search.wrappedValue.forget()
+        direction.wrappedValue = new.rawValue > current.rawValue ? 1 : -1
+        withAnimation(reduceMotionFree(PK.Motion.easeOut(0.32))) { selection.wrappedValue = new }
+    }
+
+    /// A click on a section. With a query typed, the section also shows its first match.
+    private func pick(_ section: SettingsSection) {
+        select(section)
+        if let match = search.wrappedValue.first(in: section) { search.wrappedValue.reveal(match) }
+    }
+
+    /// Return in the search field: the next match, in its pane.
+    private func walk() {
+        guard let match = search.wrappedValue.next() else { return }
+        select(match.section)
+        search.wrappedValue.reveal(match)
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -163,7 +213,16 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch current {
-        case .general: GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources)
+        case .general:
+            #if PEREKEY_VOICE
+            GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources,
+                        voiceIsOn: (voiceController?.settings.isOn ?? false) && (voiceController?.isSupported ?? false),
+                        launch: launch, showOnboarding: showOnboarding, usage: usage,
+                        menuPreviewActions: menuPreviewActions)
+            #else
+            GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources,
+                        launch: launch, showOnboarding: showOnboarding, usage: usage)
+            #endif
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         #if PEREKEY_VOICE
         case .voice:
@@ -187,14 +246,21 @@ struct SettingsView: View {
 }
 
 private struct SettingsSidebar: View {
-    @Binding var selection: SettingsSection
+    let selected: SettingsSection
+    let search: SettingsSearchModel
+    let pick: (SettingsSection) -> Void
+    let walk: () -> Void
     @Namespace private var strip
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            SidebarSearch(search: search, walk: walk)
+                .padding(.horizontal, 2)
+                .padding(.bottom, 6)
             ForEach(SettingsSection.allCases) { section in
-                SidebarItem(section: section, selected: selection == section, namespace: strip) {
-                    selection = section
+                SidebarItem(section: section, selected: selected == section, namespace: strip,
+                            matches: search.isActive ? search.count(in: section) : nil) {
+                    pick(section)
                 }
             }
             Spacer(minLength: 0)
@@ -217,9 +283,13 @@ private struct SidebarItem: View {
     let section: SettingsSection
     let selected: Bool
     let namespace: Namespace.ID
+    /// How many matches of the query are in this section; `nil` without a query.
+    var matches: Int?
     let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let dimmed = matches == 0
         Button(action: action) {
             HStack(spacing: 9) {
                 Image(systemName: section.symbol)
@@ -235,6 +305,13 @@ private struct SidebarItem: View {
                     .font(.system(size: 13, weight: selected ? .semibold : .regular))
                     .foregroundStyle(Color.pkInk)
                 Spacer(minLength: 0)
+                if let matches, matches > 0 {
+                    Text(verbatim: "\(matches)")
+                        .font(PK.Font.tag)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.pkIndigoInk)
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, 8)
             .frame(height: 32)
@@ -248,7 +325,59 @@ private struct SidebarItem: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .opacity(dimmed ? 0.38 : 1)
+        .animation(reduceMotion ? nil : PK.Motion.easeOut(0.2), value: dimmed)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityValue(matches.map { $0 > 0 ? Text("\($0) matches") : Text("No matches") } ?? Text(verbatim: ""))
+    }
+}
+
+/// The search field above the sections: 28pt, a magnifier, Return walks the
+/// matches and Escape clears. With no match the field says so in Quiet Ink and
+/// the sections dim.
+private struct SidebarSearch: View {
+    let search: SettingsSearchModel
+    let walk: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: PK.Radius.field, style: .continuous)
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.pkInk3)
+                .accessibilityHidden(true)
+            TextField("Search settings", text: Binding(get: { search.query }, set: { search.setQuery($0) }),
+                      prompt: Text("Search"))
+                .labelsHidden()
+                .textFieldStyle(.plain)
+                .font(PK.Font.body)
+                .foregroundStyle(Color.pkInk)
+                .focused($focused)
+                .autocorrectionDisabled()
+                .onSubmit(walk)
+                // An empty field leaves Escape to the window.
+                .onKeyPress(.escape) {
+                    guard !search.query.isEmpty else { return .ignored }
+                    search.setQuery("")
+                    return .handled
+                }
+                .accessibilityLabel(Text("Search settings"))
+            if search.hasNoMatches {
+                Text("Nothing found")
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk3)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(focused ? Color.pkPlate : Color.pkWash, in: shape)
+        .overlay(shape.strokeBorder(focused ? Color.pkIndigo : Color.pkRule, lineWidth: focused ? 1 : 0.5))
+        .background(shape.fill(Color.pkMist).padding(-3).opacity(focused ? 1 : 0))
+        .accessibilityElement(children: .contain)
     }
 }
 

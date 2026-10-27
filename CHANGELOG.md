@@ -13,18 +13,60 @@ differently, what was fixed.
 
 ### Added
 
+- **Dictation that was not saved.** When a dictation goes into a field Perekey
+  cannot see (Electron apps, or no Accessibility), the menu now shows it at the
+  top of «Recent dictations» with the note that it is not saved, and «Copy» and
+  «Paste again» get the text back after the HUD is gone. Only the latest one is
+  kept, in memory: it is not written to disk, and it goes away when a newer
+  dictation is saved, on «Clear history» and when Perekey quits. Password
+  fields, excluded apps and a switched-off history never show anything.
+- **Search in Settings.** A field above the sections: type a word and the
+  sections without it dim, and the others show how many rows match. Return
+  goes through the matches and opens each row with a highlight; clicking a
+  section shows its first match; Escape clears the field. It finds «ё» as
+  «е», ignores case, and from five letters it forgives an ending («пароль»
+  finds «паролей»). It searches the names of rows and groups in your language
+  and in English, not the apps, sites and words you added: those lists have
+  their own filters.
 - **Menu bar icon.** Settings → General → Menu bar: keep the capsule, or show
   the layout as plain letters, as the system's own icon, or as a single
   Perekey mark. The icon can show always, only when there is news (a pause,
   automatic switching off, a call being recorded), or never. Open Perekey
   again from Finder or Spotlight and Settings opens, so a hidden icon is
   never a dead end. Settings also tells you when the system's input menu and
-  Perekey show the language twice, or when neither shows it.
+  Perekey show the language twice, or when neither shows it. With voice on
+  and the icon hidden, you can still record a call and transcribe a file:
+  Settings → Voice → Recordings and the Transcripts window have the same
+  buttons, and Finder's “Open With” offers Perekey for audio and video files.
 - **Hyphen.** Settings → General → Corrections: a Russian word typed without
   its hyphen gets it back: «вопервых» → «во-первых», «чтото» → «что-то»,
   «изза» → «из-за», «помоему» → «по-моему». Only words whose merged spelling
-  is no word, from a fixed list; «что то» with a space stays as typed. Off by
-  default; Backspace undoes it and Perekey leaves that word alone from then on.
+  is no word, from a fixed list. A hyphen typed as a space comes back too
+  where the two words cannot be right text: «во первых» → «во-первых», «что
+  нибудь» → «что-нибудь», «кое что» → «кое-что»; «что то», «по моему», «кое с
+  кем» stay as typed. Off by default; Backspace undoes it and Perekey leaves
+  that word alone from then on, in both spellings.
+
+- **Choose what the menu shows.** Settings → General → Menu: switch off the
+  blocks you never use (the mode card, the pause, the update, About and the
+  rest), pick 0, 3 or 5 rows for recent corrections and dictations, and bring
+  back what is hidden by default: «Launch at login», «How to Use Perekey» and
+  the layouts as a list in the menu instead of opening them from the header.
+  A small copy of the menu next to the list follows each switch and says
+  whether it fits this screen or will scroll. In the menu itself, a right
+  click (or Control-click) on a block offers «Hide from Menu» and «Customize
+  Menu…». The layout header, «Settings…», «Quit», a found update and a
+  dictation that was not saved always stay. «Reset to Default» puts it all
+  back.
+
+### Changed
+
+- **The menu always fits the screen.** On a small display a long menu no
+  longer runs off the bottom: the header stays and the rest scrolls. It is
+  also shorter. The layouts open from the header (click it), the same
+  correction several times is one row with «×3», the last three dictations
+  take one line each, and «Launch at login» and «How to Use Perekey» moved to
+  Settings → General.
 
 ### Fixed
 
@@ -62,6 +104,12 @@ differently, what was fixed.
   until you moved the mouse. Now the pointer holds the hint only after it
   moves, and a finished word ends the hint either way. The hint's glow is no
   longer cut off at the edge.
+- **A call recorded in the browser can be transcribed.** «Расшифровать
+  файл…» and a drop on the menu bar item now read WebM and Matroska files
+  (.webm, .mkv, .mka) with Opus or AAC audio, such as a call recorded in the
+  browser or by OBS. A file in a format Perekey cannot decode (Vorbis in WebM,
+  WMA, WMV, FLV, AVI) now says which format it is and to convert it to m4a or
+  mp3, instead of «the file has no audio».
 
 ## [0.2.0] - 2026-10-14
 

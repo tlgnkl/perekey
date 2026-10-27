@@ -126,8 +126,10 @@ public enum TranscriptionPhase: Sendable, Equatable {
 public enum TranscriptionFailure: Sendable, Equatable {
     /// The chosen file is gone, or the bookmark no longer opens it.
     case sourceMissing
-    /// AVFoundation could not read it, or it has no audio.
+    /// Perekey could not read it, or it has no audio.
     case unreadable
+    /// The file holds audio in a format Perekey cannot decode; the name of the format.
+    case unsupportedFormat(String)
     /// The model is not downloaded, or the cloud is not allowed.
     case modelUnavailable
     /// The model failed on the audio.

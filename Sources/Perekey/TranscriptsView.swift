@@ -47,6 +47,8 @@ extension TranscriptionFailure {
         switch self {
         case .sourceMissing: voiceString("The file is gone, or Perekey cannot open it.")
         case .unreadable: voiceString("The file has no audio, or it cannot be read.")
+        case let .unsupportedFormat(format):
+            voiceString("Perekey cannot read \(format) audio. Convert the file to m4a or mp3 and transcribe it again.")
         case .modelUnavailable: voiceString("The model is not downloaded, or the cloud is off. Pick another model.")
         case .needsConsent: voiceString("A cloud model needs your consent to get the recording of a conversation. Transcribe again to be asked.")
         case .engineFailed: voiceString("The model failed on this audio.")
@@ -96,8 +98,17 @@ struct TranscriptsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            TranscriptsList(controller: controller, deleting: deleting.projectedValue)
-                .frame(width: 280)
+            VStack(spacing: 0) {
+                if controller.entries != nil {
+                    VoiceEntryButtons(controller: controller, small: true)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Rectangle().fill(Color.pkRule).frame(height: 0.5)
+                }
+                TranscriptsList(controller: controller, deleting: deleting.projectedValue)
+            }
+            .frame(width: 280)
             Rectangle().fill(Color.pkRule).frame(width: 0.5)
             TranscriptDetail(controller: controller, deleting: deleting.projectedValue)
                 .frame(maxWidth: .infinity)
@@ -146,7 +157,7 @@ private struct TranscriptsList: View {
                 Spacer()
                 Image(systemName: "waveform").font(.system(size: 28)).foregroundStyle(Color.pkInk3).accessibilityHidden(true)
                 voiceText("No transcripts yet").font(PK.Font.headline).foregroundStyle(Color.pkInk)
-                voiceText("Drop an audio or video file here, and its text appears.")
+                voiceText("Drop an audio or video file here, or use the buttons above, and its text appears.")
                     .font(PK.Font.caption).foregroundStyle(Color.pkInk2).multilineTextAlignment(.center)
                 Spacer()
             }

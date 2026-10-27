@@ -7,9 +7,9 @@ import Testing
 /// A user may go back to 0.1.1 and forward again. 0.1.1 decodes `hotkeys`
 /// with `try`: one shortcut it does not know, and it drops the whole file
 /// (`SettingsFile.load`). So nothing new goes into `settings.json`; dictation
-/// keeps its settings in `voice.json`. The one exception is the two scalar
-/// menu bar keys (`addedSince0_1_1`): 0.1.1 ignores keys it does not know and
-/// drops them when it saves, so the choice falls back to the capsule, and the
+/// keeps its settings in `voice.json`. The exceptions are the two scalar
+/// menu bar keys and the `menu` object (`addedSince0_1_1`): 0.1.1 ignores keys it does not know and
+/// drops them when it saves, so the choice falls back to the capsule and the full menu, and the
 /// rest of the file is read as before. A new switch inside `corrections`
 /// (`addedToCorrectionsSince0_1_1`) is the same: 0.1.1 reads the keys of that
 /// object one by one, ignores the new one and drops it on save. Learning by
@@ -39,7 +39,7 @@ import Testing
     }
 
     /// Keys a later version added to `settings.json`; 0.1.1 does not write them back.
-    static let addedSince0_1_1: Set<String> = ["menuBarIcon", "menuBarVisibility"]
+    static let addedSince0_1_1: Set<String> = ["menuBarIcon", "menuBarVisibility", "menu"]
 
     /// Keys of `corrections` that a later version added.
     static let addedToCorrectionsSince0_1_1: Set<String> = ["hyphen"]

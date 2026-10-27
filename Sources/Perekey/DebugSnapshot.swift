@@ -66,6 +66,8 @@ enum DebugSnapshot {
         renderMenuBar(into: directory)
         renderStatistics(in: directory)
         renderThreeLayouts(in: directory)
+        renderCrowdedMenus(in: directory)
+        renderMenuCustomize(in: directory)
         renderHint(in: directory)
         renderReasons(in: directory)
         renderStrips(in: directory)
@@ -78,6 +80,7 @@ enum DebugSnapshot {
             ("twice", AppSettings(), true),
             ("not-shown", { var s = AppSettings(); s.menuBarIcon = .mark; return s }(), false),
             ("never", { var s = AppSettings(); s.menuBarVisibility = .never; return s }(), true),
+            ("never-voice", { var s = AppSettings(); s.menuBarVisibility = .never; return s }(), true),
         ]
         for item in cases {
             let file = SettingsFile(url: directory.appending(path: "menubar-\(item.name).json"), defaults: debugDefaults())
@@ -85,7 +88,8 @@ enum DebugSnapshot {
             let store = SettingsStore(file: file)
             let size = CGSize(width: 560, height: 360)
             for dark in [false, true] {
-                render(MenuBarGroup(store: store, sources: sources, systemMenu: SystemInputMenu(preview: item.systemMenu))
+                render(MenuBarGroup(store: store, sources: sources, systemMenu: SystemInputMenu(preview: item.systemMenu),
+                                 voiceIsOn: item.name.hasSuffix("voice"))
                     .padding(20).frame(width: size.width, height: size.height, alignment: .top), dark: dark, size: size,
                        to: directory.appending(path: "menubar-settings-\(item.name)-\(dark ? "dark" : "light").png"))
             }
@@ -159,7 +163,7 @@ enum DebugSnapshot {
                     log.markUndone(seq: 2)
                 }
                 func menuView(explained: Int? = nil, hasAccess: Bool = true) -> some View {
-                    var content = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch,
+                    var content = MenuContent(sources: sources, store: store, pause: pause,
                                               appModes: appModes, recents: RecentCorrections(log), updates: updates)
                     content.explainedEntry = explained
                     content.hasAccess = { hasAccess }
@@ -174,6 +178,10 @@ enum DebugSnapshot {
                     render(menuView(hasAccess: false), dark: dark, size: CGSize(width: 318, height: 680),
                            to: directory.appending(path: "menu-noaccess-\(suffix).png"))
                 }
+                // «Launch at login» is a row of General now, in the states it can have.
+                render(GeneralPane(store: store, updates: updates, launch: menu.launch).frame(width: 560, height: 1500),
+                       dark: dark, size: CGSize(width: 560, height: 1500),
+                       to: directory.appending(path: "general-launch-\(menu.name)-\(suffix).png"))
             }
         }
     }
@@ -209,6 +217,15 @@ enum DebugSnapshot {
                 #endif
                 render(view, dark: dark, size: CGSize(width: 840, height: 640),
                        to: directory.appending(path: "settings-\(section)-\(dark ? "dark" : "light").png"))
+            }
+            // The search: sections without a match dim, the others count their matches.
+            for (name, query) in [("match", "correct"), ("none", "qqzx")] {
+                let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
+                                      lastCheck: Date().addingTimeInterval(-3_600 * 5))
+                let view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
+                                        languages: languages, initial: .general, searchQuery: query)
+                render(view, dark: dark, size: CGSize(width: 840, height: 640),
+                       to: directory.appending(path: "settings-search-\(name)-\(dark ? "dark" : "light").png"))
             }
             // No access: the banner above the panes.
             let updates = Updates(store: store, preview: ManagedSettings(), configured: true,
@@ -339,9 +356,171 @@ enum DebugSnapshot {
         let pause = PauseState(frozen: PauseSet(), now: Date())
         let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
         appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Notes", name: "Notes", isGame: false))
-        let menu = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+        let menu = MenuContent(sources: sources, store: store, pause: pause,
                                appModes: appModes, recents: RecentCorrections())
         render(menu, dark: false, size: CGSize(width: 318, height: 560), to: directory.appending(path: "menu-three-light.png"))
+    }
+
+    /// The menu with everything on: a repeated correction among five, four dictations and an unsaved one, a held
+    /// card, voice, three layouts. `short` has room for 700pt only, so its lower part scrolls;
+    /// `layouts` has the header's list open. Prints the height each one takes.
+    private static func renderCrowdedMenus(in directory: URL) {
+        let sources = threeLayouts()
+        let now = Date()
+        var held = PauseSet()
+        held.pause(until: now.addingTimeInterval(59 * 60 - 30))
+        let file = SettingsFile(url: directory.appending(path: "menu-crowded.json"))
+        try? file.save(AppSettings())
+        let store = SettingsStore(file: file)
+        let pause = PauseState(frozen: held, now: now)
+        let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+        appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", isGame: false))
+        let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil)
+        var log = CorrectionLog()
+        let words = ["ghbdtn", "мвд", "еще", "чтото", "vbh"]
+        // One correction three times among others, then four more kinds: five rows.
+        for (seq, index) in [0, 1, 0, 2, 0, 3, 4].enumerated() {
+            let word = words[index]
+            log.record(Correction(seq: UInt32(seq + 1), original: word, replacement: word.uppercased(),
+                                  source: "en", target: "ru", kind: index == 0 ? .layout : .abbreviation), at: now)
+        }
+        var actions = MenuActions()
+        #if PEREKEY_VOICE
+        let controller = voiceTextPreview(in: directory, name: "menu-crowded")
+        // The last one went into a field the app could not read: it waits in memory, above the stored ones.
+        controller.history.record(DictationRecord(text: "Напомни завтра про созвон с Антоном в одиннадцать.", bundleID: "com.apple.Terminal",
+                                                  appName: "Terminal", duration: 3, model: "parakeet-tdt-v3", pasted: false,
+                                                  privacy: .unknown))
+        actions.dictation = controller.menu(pasteAgain: { _ in })
+        actions.voiceModes = VoiceModeMenu(store: modesPreview(), isOn: { true })
+        actions.transcripts = TranscriptsMenu(isOn: { true }, open: {})
+        actions.transcribeFile = {}
+        actions.canTranscribeFiles = { true }
+        actions.callRecording = CallRecordingController(capture: AudioCapture(), settings: voicePreview(in: directory, name: "menu-crowded").settings,
+                                                   isSupported: { true })
+        #endif
+        let cases: [(name: String, budget: CGFloat, open: Bool)] = [
+            ("crowded", .infinity, false), ("short", 700, false),
+            ("layouts", .infinity, true), ("short-layouts", 700, true), ("tiny-layouts", 400, true),
+        ]
+        for dark in [false, true] {
+            for item in cases {
+                let presentation = MenuPresentation()
+                presentation.budget = item.budget
+                var content = MenuContent(sources: sources, store: store, pause: pause, appModes: appModes,
+                                          recents: RecentCorrections(log), actions: actions, updates: updates)
+                content.presentation = presentation
+                content.layoutsOpenAtStart = item.open
+                let height = fittedHeight(of: content, dark: dark)
+                print("menu-\(item.name)-\(dark ? "dark" : "light"): \(Int(height)) pt")
+                render(content, dark: dark, size: CGSize(width: 318, height: max(height, 100)),
+                       to: directory.appending(path: "menu-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    /// Settings → General → «Menu» (every switch at its default, and a changed set; a wide and a narrow pane) and
+    /// the menu with the fewest blocks and with all of them. Prints the height each menu takes.
+    private static func renderMenuCustomize(in directory: URL) {
+        let sources = threeLayouts()
+        let now = Date()
+        let usage = sampleUsage(in: directory, name: "menu-customize")
+        var held = PauseSet()
+        held.pause(until: now.addingTimeInterval(59 * 60 - 30))
+        var log = CorrectionLog()
+        let words = ["ghbdtn", "мвд", "еще", "чтото", "vbh"]
+        for (seq, index) in [0, 1, 0, 2, 0, 3, 4].enumerated() {
+            let word = words[index]
+            log.record(Correction(seq: UInt32(seq + 1), original: word, replacement: word.uppercased(),
+                                  source: "en", target: "ru", kind: index == 0 ? .layout : .abbreviation), at: now)
+        }
+        var actions = MenuActions()
+        #if PEREKEY_VOICE
+        let controller = voiceTextPreview(in: directory, name: "menu-customize")
+        controller.history.record(DictationRecord(text: "Напомни завтра про созвон с Антоном в одиннадцать.", bundleID: "com.apple.Terminal",
+                                                  appName: "Terminal", duration: 3, model: "parakeet-tdt-v3", pasted: false,
+                                                  privacy: .unknown))
+        actions.dictation = controller.menu(pasteAgain: { _ in })
+        actions.voiceModes = VoiceModeMenu(store: modesPreview(), isOn: { true })
+        actions.transcripts = TranscriptsMenu(isOn: { true }, open: {})
+        actions.transcribeFile = {}
+        actions.canTranscribeFiles = { true }
+        actions.callRecording = CallRecordingController(capture: AudioCapture(), settings: voicePreview(in: directory, name: "menu-customize").settings,
+                                                        isSupported: { true })
+        #endif
+        let fewest: (inout MenuLayout) -> Void = { layout in
+            for block in MenuBlock.allCases { layout.set(block, shown: false) }
+        }
+        let everything: (inout MenuLayout) -> Void = { layout in
+            for block in MenuBlock.allCases { layout.set(block, shown: true) }
+        }
+        let changed: (inout MenuLayout) -> Void = { layout in
+            layout.set(.about, shown: false)
+            layout.set(.pause, shown: false)
+            layout.set(.launchAtLogin, shown: true)
+            layout.set(.layoutsList, shown: true)
+            layout.setRows(3, of: .recentCorrections)
+            layout.setRows(0, of: .recentDictations)
+        }
+        let launch = LaunchAtLogin(previewStatus: .enabled)
+        let updates = Updates(store: SettingsStore(file: SettingsFile(url: directory.appending(path: "menu-customize-u.json"))),
+                              preview: ManagedSettings(), configured: true, lastCheck: nil)
+        func store(_ name: String, _ change: (inout MenuLayout) -> Void) -> SettingsStore {
+            var settings = AppSettings()
+            settings.statistics = true
+            change(&settings.menu)
+            let file = SettingsFile(url: directory.appending(path: "menu-customize-\(name).json"))
+            try? file.save(settings)
+            return SettingsStore(file: file)
+        }
+        for dark in [false, true] {
+            let suffix = dark ? "dark" : "light"
+            let groups: [(name: String, change: (inout MenuLayout) -> Void, budget: CGFloat, width: CGFloat)] = [
+                ("default", { _ in }, 900, 608), ("changed", changed, 900, 608), ("tight", { _ in }, 520, 608),
+                ("narrow", changed, 900, 480),
+            ]
+            for item in groups {
+                let store = store("group-\(item.name)", item.change)
+                let view = MenuGroup(store: store, sources: sources, updates: updates, usage: usage, launch: launch,
+                                     voiceIsOn: true, previewActions: actions, budget: item.budget)
+                    .padding(.horizontal, 26).padding(.vertical, 20)
+                    .frame(width: item.width, height: 1000, alignment: .topLeading)
+                render(view, dark: dark, size: CGSize(width: item.width, height: 1000),
+                       to: directory.appending(path: "menu-group-\(item.name)-\(suffix).png"))
+            }
+            let menus: [(name: String, change: (inout MenuLayout) -> Void, budget: CGFloat, held: Bool)] = [
+                ("fewest", fewest, 900, false), ("everything", everything, 900, true), ("everything-short", everything, 560, true),
+            ]
+            for item in menus {
+                let store = store("menu-\(item.name)", item.change)
+                let pause = PauseState(frozen: item.held ? held : PauseSet(), now: now)
+                let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+                appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", isGame: false))
+                let presentation = MenuPresentation()
+                presentation.budget = item.budget
+                var content = MenuContent(sources: sources, store: store, pause: pause, appModes: appModes,
+                                          recents: RecentCorrections(log), usage: usage, launch: launch, actions: actions,
+                                          updates: Updates(store: store, preview: ManagedSettings(), configured: true,
+                                                           lastCheck: nil, pendingVersion: "1.2"))
+                content.presentation = presentation
+                let height = fittedHeight(of: content, dark: dark)
+                print("menu-custom-\(item.name)-\(suffix): \(Int(height)) pt")
+                render(content, dark: dark, size: CGSize(width: 318, height: max(height, 100)),
+                       to: directory.appending(path: "menu-custom-\(item.name)-\(suffix).png"))
+            }
+        }
+    }
+
+    /// The height the menu takes in its panel: the hosting view's fitting size.
+    private static func fittedHeight(of view: some View, dark: Bool) -> CGFloat {
+        let host = NSHostingView(rootView: view.environment(\.pkLiquidGlass, liquidGlass))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 318, height: 100), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        return host.fittingSize.height
     }
 
     /// A recorder with a week of made-up counts, in a file of its own.
@@ -384,7 +563,7 @@ enum DebugSnapshot {
         let store = SettingsStore(file: file)
         let pause = PauseState(frozen: PauseSet(), now: Date())
         let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
-        let view = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+        let view = MenuContent(sources: sources, store: store, pause: pause,
                                appModes: appModes, recents: RecentCorrections(),
                                usage: sampleUsage(in: directory, name: "menu-statistics"))
         render(view, dark: false, size: CGSize(width: 318, height: 560), to: directory.appending(path: "menu-statistics.png"))
@@ -613,7 +792,8 @@ extension DebugSnapshot {
     /// A model in each state the Voice tab shows.
     /// `.running`: a download goes on. `.stopped`: voice is off, so nothing downloads and a stopped one is `partial`.
     /// `.administrator`: a profile forbids downloads, so the models come from the administrator's folder.
-    enum PreviewStates { case running, stopped, administrator }
+    /// `pending`: Ultra picked while it downloads; `empty`: a first start, nothing on disk.
+    enum PreviewStates { case running, stopped, administrator, pending, empty }
 
     static func voicePreview(in directory: URL, name: String, managed: ManagedSettings = ManagedSettings(),
                              enabled: Bool = true, supported: Bool = true,
@@ -643,6 +823,18 @@ extension DebugSnapshot {
                 VoiceModelStatus(entry: whisper, state: .partial(received: whisper.totalSize * 42 / 100)),
             ]
             statuses += others.map { VoiceModelStatus(entry: $0, state: .absent) }
+        case .pending:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .ready, isInUse: true),
+                VoiceModelStatus(entry: whisper, state: .absent),
+            ]
+            statuses += others.map { VoiceModelStatus(entry: $0, state: .downloading(received: $0.totalSize * 68 / 100)) }
+        case .empty:
+            statuses = [
+                VoiceModelStatus(entry: parakeet, state: .absent),
+                VoiceModelStatus(entry: whisper, state: .absent),
+            ]
+            statuses += others.map { VoiceModelStatus(entry: $0, state: .absent) }
         case .administrator:
             statuses = [
                 VoiceModelStatus(entry: parakeet, state: .ready, isManaged: true),
@@ -652,9 +844,11 @@ extension DebugSnapshot {
                 VoiceModelStatus(entry: $0, state: .damaged, failure: .checksumMismatch("model.mil"))
             }
         }
-        return VoiceModelsController(preview: settings, statuses: statuses,
-                                     usage: VoiceModelDiskUsage(models: 1_100_000_000, cache: 140_000_000),
-                                     isSupported: supported)
+        let controller = VoiceModelsController(preview: settings, statuses: statuses,
+                                               usage: VoiceModelDiskUsage(models: 1_100_000_000, cache: 140_000_000),
+                                               isSupported: supported)
+        if states == .pending, let ultra = others.first { controller.previewPending(ultra.id) }
+        return controller
     }
 
     /// Modes as a person who set up OpenAI for mail would have them.
@@ -703,12 +897,14 @@ extension DebugSnapshot {
                                                 managed: ManagedSettings(voiceModelDownloadsDisabled: true),
                                                 states: .administrator)),
             ("unsupported", voicePreview(in: directory, name: "un", supported: false)),
+            ("pending", voicePreview(in: directory, name: "pe", states: .pending)),
+            ("empty", voicePreview(in: directory, name: "em", states: .empty)),
         ]
         for dark in [false, true] {
             for item in cases {
                 let view = VoicePane(controller: item.controller, store: store, recording: recording)
                     .background(Color(nsColor: .windowBackgroundColor))
-                render(view, dark: dark, size: CGSize(width: 620, height: 900),
+                render(view, dark: dark, size: CGSize(width: 620, height: 1_240),
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
         }
@@ -738,6 +934,8 @@ extension DebugSnapshot {
             history.record(DictationRecord(text: sample.0, bundleID: sample.1, appName: sample.2, duration: 4,
                                            model: "parakeet-tdt-v3", pasted: true))
         }
+        // The file is written on the history's own queue: the controller below reads it.
+        history.flush()
         return VoiceTextController(managed: managed, textFile: textFile, historyFile: DictationHistoryFile(directory: folder))
     }
 
@@ -761,13 +959,17 @@ extension DebugSnapshot {
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
             let controller = voiceTextPreview(in: directory, name: "menu")
+            // A paste into a field with no accessibility element: held in memory, shown on top.
+            controller.history.record(DictationRecord(
+                text: "Что касается картинок, смотри, вот я открыл превью и там пусто.", bundleID: "com.stablyai.orca",
+                appName: "Orca", duration: 6, model: "parakeet-tdt-v3", pasted: true, privacy: .unknown))
             let sources = InputSources()
             let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "voice-menu.json"), defaults: debugDefaults()))
             let pause = PauseState(frozen: PauseSet(), now: Date())
             let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
             var actions = MenuActions()
             actions.dictation = controller.menu(pasteAgain: { _ in })
-            let menu = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+            let menu = MenuContent(sources: sources, store: store, pause: pause,
                                    appModes: appModes, recents: RecentCorrections(), actions: actions)
                 .background(Color(nsColor: .windowBackgroundColor))
             render(menu, dark: dark, size: CGSize(width: 318, height: 700),
@@ -1011,6 +1213,12 @@ extension DebugSnapshot {
                                   failed: failed, interrupted: interrupted, expired: expired)
     }
 
+    /// The commands the menu also has, for the window and the Recordings group: they do nothing here.
+    private static func previewEntries(_ controller: TranscriptsController) -> VoiceEntries {
+        VoiceEntries(call: CallRecordingController(capture: AudioCapture(), settings: controller.voice, isSupported: { true }),
+                     chooseFiles: {}, openTranscripts: {})
+    }
+
     /// The «Расшифровки» window with a recording of each kind chosen, and the Recordings group of the Voice tab.
     static func renderTranscripts(in directory: URL) {
         let size = CGSize(width: 920, height: 620)
@@ -1020,6 +1228,7 @@ extension DebugSnapshot {
             for dark in [false, true] {
                 let fixture = transcriptsPreview(in: directory, name: "t-\(name)", empty: empty)
                 fixture.controller.reload()
+                fixture.controller.entries = previewEntries(fixture.controller)
                 fixture.controller.selection = pick(fixture)
                 fixture.controller.query = query
                 fixture.controller.pane = pane
@@ -1045,11 +1254,12 @@ extension DebugSnapshot {
             for item in cases {
                 let fixture = transcriptsPreview(in: directory, name: "g-\(item.name)", managed: item.managed)
                 fixture.controller.reload()
+                fixture.controller.entries = previewEntries(fixture.controller)
                 let view = VStack(alignment: .leading, spacing: 16) { RecordingsGroup(controller: fixture.controller) }
                     .padding(24)
-                    .frame(width: 620, height: 420, alignment: .top)
+                    .frame(width: 620, height: 520, alignment: .top)
                     .background(Color(nsColor: .windowBackgroundColor))
-                render(view, dark: dark, size: CGSize(width: 620, height: 420),
+                render(view, dark: dark, size: CGSize(width: 620, height: 520),
                        to: directory.appending(path: "voice-\(item.name)-\(dark ? "dark" : "light").png"))
             }
         }

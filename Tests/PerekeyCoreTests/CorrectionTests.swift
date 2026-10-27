@@ -387,7 +387,7 @@ extension Desk {
         var builder = ModelBuilder()
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
         builder.addForm("чтото", language: "ru", rank: 104, weight: 0)
-        builder.addHyphen("что-то", language: "ru")
+        try builder.addHyphen("что-то", language: "ru")
         let model = try LanguageModel(bytes: builder.build())
         var settings = Settings()
         settings.corrections = TextCorrections(doubleCapitals: true, capsLock: true, hyphen: true)
@@ -430,6 +430,175 @@ extension Desk {
         var settings = Settings()
         settings.corrections = TextCorrections(hyphen: true)
         #expect(!WordCorrections.run(&word, settings: settings, model: model))
+    }
+}
+
+@Suite struct SpacedHyphenTests {
+    private static let settings = only { $0.hyphen = true }
+
+    @Test(arguments: [("во первых ", "во-первых "), ("во вторых, ", "во-вторых, "), ("кто нибудь ", "кто-нибудь "),
+                      ("какого нибудь ", "какого-нибудь "), ("кто либо ", "кто-либо "), ("в чём либо ", "в чём-либо "),
+                      ("в чем либо ", "в чем-либо "), ("кое что ", "кое-что "), ("кое кому ", "кое-кому "),
+                      ("ты что нибудь знаешь ", "ты что-нибудь знаешь ")])
+    func everyGroup(typed: String, expected: String) {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == expected)
+    }
+
+    @Test(arguments: [("Во первых, ", "Во-первых, "), ("КОЕ ЧТО ", "КОЕ-ЧТО "), ("Кто Нибудь ", "Кто-Нибудь "),
+                      ("(кое что) ", "(кое-что) "), ("кто нибудь?", "кто-нибудь?")])
+    func caseAndPunctuationStay(typed: String, expected: String) {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == expected)
+    }
+
+    @Test(arguments: ["что то ", "кто то ", "что либо ", "в четвёртых ", "по моему ", "из за ", "всё таки ",
+                      "кое с кем ", "во  первых ", "во, первых ", "кто, нибудь ", "кое-что ", "во первыхх "])
+    func othersStay(typed: String) {
+        // Two right words, a pair not marked for the space, a preposition
+        // after «кое», two spaces, punctuation between.
+        var desk = Desk(Self.settings, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == typed)
+        #expect(desk.corrections.isEmpty)
+    }
+
+    @Test func oneCorrectionOverBothWords() throws {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("во первых ", on: Fixture.russian)
+        #expect(desk.text == "во-первых ")
+        let correction = try #require(desk.corrections.first)
+        #expect(desk.corrections.count == 1)
+        #expect(correction.kind == .hyphen)
+        #expect(correction.original == "во первых" && correction.replacement == "во-первых")
+        #expect(correction.source == ru && correction.target == ru)
+        let retype = try #require(desk.history.last)
+        #expect(retype.deleteCount == 9 && retype.expected == "во первых")
+    }
+
+    @Test func undoPutsBothWordsBackAndLearnsThemWrittenTogether() {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("во первых ", on: Fixture.russian)
+        #expect(desk.text == "во-первых ")
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "во первых ")
+        #expect(desk.learned == ["вопервых"])
+        #expect(desk.undone.count == 1)
+        // Typing on after the undo fixes nothing more.
+        desk.type("и ", on: Fixture.russian)
+        #expect(desk.text == "во первых и ")
+        #expect(desk.corrections.count == 1)
+    }
+
+    @Test func undoWithoutLearning() {
+        var settings = Self.settings
+        settings.learnFromUndos = false
+        var desk = Desk(settings, current: ru)
+        desk.type("кое что ", on: Fixture.russian)
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "кое что ")
+        #expect(desk.learned.isEmpty)
+    }
+
+    @Test(arguments: [["вопервых"], ["во"], ["первых"]])
+    func notForExceptions(exceptions: Set<String>) {
+        // The undo learns the words written together: that stops both forms.
+        var desk = Desk(only({ $0.hyphen = true }, exceptions: exceptions), current: ru)
+        desk.type("во первых ", on: Fixture.russian)
+        #expect(desk.text == "во первых ")
+    }
+
+    @Test func clickBetweenTheWordsForgetsTheFirst() {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("кое ", on: Fixture.russian)
+        desk.send(.click(time: desk.time))
+        desk.type("что ", on: Fixture.russian)
+        #expect(desk.text == "кое что ")
+    }
+
+    @Test(arguments: [KeyCode.leftArrow, KeyCode.return])
+    func keyBetweenTheWordsForgetsTheFirst(key: UInt16) {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("кое ", on: Fixture.russian)
+        desk.press(key)
+        desk.type("что ", on: Fixture.russian)
+        #expect(desk.corrections.isEmpty)
+    }
+
+    @Test func focusChangeBetweenTheWordsForgetsTheFirst() {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("кое ", on: Fixture.russian)
+        desk.send(.focusChanged(Focus(bundleID: "com.apple.Safari")))
+        desk.type("что ", on: Fixture.russian)
+        #expect(desk.text == "кое что ")
+    }
+
+    @Test func backspacePastTheWordForgetsTheOneBefore() {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("кое ч", on: Fixture.russian)
+        desk.press(KeyCode.delete)
+        desk.press(KeyCode.delete)
+        desk.type(" что ", on: Fixture.russian)
+        #expect(desk.text == "кое что ")
+    }
+
+    @Test func keysTypedDuringTheRetypeLandAfterIt() {
+        var desk = Desk(Self.settings, current: ru)
+        desk.type("во первых мы", on: Fixture.russian, settling: false)
+        desk.settle()
+        #expect(desk.text == "во-первых мы")
+    }
+
+    @Test func withCapsLock() {
+        var desk = Desk(Self.settings, current: ru)
+        desk.typeWithCapsLock("кто нибудь ", on: Fixture.russian)
+        #expect(desk.text == "КТО-НИБУДЬ ")
+    }
+
+    @Test func russianPC() {
+        var desk = Desk(Self.settings, layouts: [Fixture.abc, Fixture.russianPC], current: Fixture.russianPC.id)
+        desk.type("кое что ", on: Fixture.russianPC)
+        #expect(desk.text == "кое-что ")
+    }
+
+    @Test func layoutWithoutAPlainHyphenKey() {
+        // The hyphen only with ⌥ or not at all: the words stay as typed.
+        var table: [KeyStroke: String] = [:]
+        for keyCode in UInt16(0)..<128 {
+            for modifiers in LayoutModifiers.allCombinations {
+                let stroke = KeyStroke(keyCode, modifiers)
+                guard let text = Fixture.russian.text(for: stroke), text != "-" || modifiers.contains(.option)
+                else { continue }
+                table[stroke] = text
+            }
+        }
+        let layout = LayoutMap(id: Fixture.russian.id, language: "ru", table: table)
+        #expect(layout.stroke(for: "-").map { $0.modifiers.contains(.option) } ?? true)
+        var desk = Desk(Self.settings, layouts: [Fixture.abc, layout], current: ru)
+        desk.type("кое что ", on: layout)
+        #expect(desk.text == "кое что ")
+    }
+
+    @Test func offByTheHyphenSwitch() {
+        var desk = Desk(only { _ in }, current: ru)
+        desk.type("во первых ", on: Fixture.russian)
+        #expect(desk.text == "во первых ")
+    }
+
+    @Test func modelWithoutTheMarkFixesTheMergedFormOnly() throws {
+        var builder = ModelBuilder()
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        try builder.addHyphen("кое-что", language: "ru")
+        let model = try LanguageModel(bytes: builder.build())
+        let russian = try #require(model.language("ru"))
+        let fingerprint = ModelFormat.Fingerprint.of("коечто".unicodeScalars, folded: true)
+        #expect(russian.hyphenPosition(of: fingerprint) == 3 && russian.spacedHyphenPosition(of: fingerprint) == nil)
+        var phrase = BoundaryWord(characters: Array("кое что"), modifiers: Array(repeating: [], count: 7),
+                                  language: "ru")
+        SpacedHyphenStep().apply(to: &phrase, model: model)
+        #expect(String(phrase.characters) == "кое что")
     }
 }
 
@@ -636,34 +805,59 @@ extension Desk {
         #expect(position("какогонибудь") == 6)
         #expect(position("всётаки") == 3 && position("всетаки") == 3, "a form with «ё» gives its «е» spelling")
         #expect(position("что-то") == nil && position("что") == nil)
+        func spaced(_ word: String) -> UInt8? {
+            russian.spacedHyphenPosition(of: ModelFormat.Fingerprint.of(word.unicodeScalars, folded: true))
+        }
+        #expect(spaced("вопервых") == 2 && spaced("коекому") == 3)
+        #expect(spaced("чемлибо") == 3, "the «е» spelling keeps the mark")
+        #expect(spaced("чтото") == nil && spaced("чтолибо") == nil && position("чтолибо") == 3)
         #expect(ModelFixture.model.language("en")?.hyphenPosition(of: 1) == nil)
     }
 
-    @Test func hyphenRejectsWhatItCannotStore() {
+    @Test func hyphenRejectsWhatItCannotStore() throws {
         var builder = ModelBuilder()
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
         for form in ["чтото", "-то", "что-", "точь-в-точь", "что-q", ""] {
-            let added = builder.addHyphen(form, language: "ru")
+            let added = try builder.addHyphen(form, language: "ru")
             #expect(!added, "\(form)")
         }
-        let fine = builder.addHyphen("что-то", language: "ru")
+        let fine = try builder.addHyphen("что-то", language: "ru")
         #expect(fine)
     }
 
-    @Test func tablesDoNotDependOnTheOrderOfCalls() {
-        func build(_ yo: [String], _ cased: [(String, Bool)]) -> [UInt8] {
+    @Test func hyphenCollisionFails() throws {
+        var builder = ModelBuilder()
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        try builder.addHyphen("всё-таки", language: "ru")
+        // The same value again is no collision.
+        #expect(try builder.addHyphen("все-таки", language: "ru"))
+        // The «е» spelling of «всё-таки» with the `space` mark, or another
+        // hyphen position: the table would lose the old value.
+        #expect(throws: ModelBuilder.HyphenCollision.self) {
+            try builder.addHyphen("все-таки", language: "ru", spaced: true)
+        }
+        #expect(throws: ModelBuilder.HyphenCollision.self) { try builder.addHyphen("вс-етаки", language: "ru") }
+        let model = try LanguageModel(bytes: builder.build())
+        let russian = try #require(model.language("ru"))
+        let fingerprint = ModelFormat.Fingerprint.of("всетаки".unicodeScalars, folded: true)
+        #expect(russian.hyphenPosition(of: fingerprint) == 3 && russian.spacedHyphenPosition(of: fingerprint) == nil,
+                "a failed add changes nothing")
+    }
+
+    @Test func tablesDoNotDependOnTheOrderOfCalls() throws {
+        func build(_ yo: [String], _ cased: [(String, Bool)]) throws -> [UInt8] {
             var builder = ModelBuilder()
             builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
             for word in yo { builder.addYo(word, language: "ru") }
             for word in yo.first == "ещё" ? ["что-то", "из-за"] : ["из-за", "что-то"] {
-                builder.addHyphen(word, language: "ru")
+                try builder.addHyphen(word, language: "ru")
             }
             for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
             return builder.build()
         }
         let cased = [("МВД", false), ("Мвд", true), ("ООН", true)]
-        let a = build(["ещё", "ёлка", "берёза"], cased)
-        let b = build(["берёза", "ещё", "ёлка"], cased.reversed())
+        let a = try build(["ещё", "ёлка", "берёза"], cased)
+        let b = try build(["берёза", "ещё", "ёлка"], cased.reversed())
         #expect(a == b)
         let model = try? LanguageModel(bytes: a)
         let mvd = model?.casedForm(of: ModelFormat.Fingerprint.of("мвд".unicodeScalars, folded: true))

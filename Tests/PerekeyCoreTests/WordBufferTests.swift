@@ -116,4 +116,25 @@ import Testing
         #expect(Fixture.abc.type(buffer.entries.map(\.stroke)) == "xyz")
         #expect(buffer.wordLayout == Fixture.russian.id)
     }
+
+    @Test func replacesAPhrase() {
+        // "zz ab cd" → "zz ab-cd": the two words are one now, the one before stays.
+        var buffer = typed("zz ab cd")
+        buffer.replacePhrase(words: 2, with: Fixture.abc.strokes("ab-cd"), in: en)
+        #expect(text(buffer.entries) == "ab-cd")
+        #expect(buffer.historyCount == 1)
+        #expect(text(buffer.phrase(words: 2)) == "zz ab-cd")
+        #expect(buffer.phrase(words: 3) == nil)
+
+        // A space among the new keys starts a word; the gap after the last stays.
+        buffer = typed("ab cd ")
+        buffer.replacePhrase(words: 2, with: Fixture.abc.strokes("x y"), in: en)
+        #expect(text(buffer.entries) == "y ")
+        #expect(text(buffer.phrase(words: 2)) == "x y ")
+
+        // One word is `replaceWord`.
+        buffer = typed("ab cd")
+        buffer.replacePhrase(words: 1, with: Fixture.abc.strokes("xyz"), in: en)
+        #expect(text(buffer.phrase(words: 2)) == "ab xyz")
+    }
 }

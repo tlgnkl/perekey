@@ -160,6 +160,22 @@ public struct WordBuffer: Hashable, Sendable {
         entries = strokes.map { Entry($0, in: layout) } + tail
     }
 
+    /// After a correction of the last `words` words together
+    /// (`PhraseCorrectionStep`) they are other keys in `layout`: a space
+    /// among them starts a word, the gap after the last one stays. "во
+    /// первых" fixed to "во-первых" is one word now.
+    public mutating func replacePhrase(words: Int, with strokes: [KeyStroke], in layout: LayoutID) {
+        guard words > 1 else { return replaceWord(strokes, in: layout) }
+        guard let phrase = phrase(words: words) else { return clear() }
+        let spaces = entries.reversed().prefix(while: \.isGap).count
+        let tail = entries.suffix(spaces)
+        history.removeLast(phrase.count - entries.count)
+        historyCount -= words - 1
+        entries.removeAll(keepingCapacity: true)
+        for stroke in strokes { type(stroke, in: layout) }
+        entries.append(contentsOf: tail)
+    }
+
     /// After a case change the word's keys are other strokes in the same layout.
     /// `strokes` must have one stroke per entry.
     public mutating func replaceStrokes(_ strokes: [KeyStroke]) {

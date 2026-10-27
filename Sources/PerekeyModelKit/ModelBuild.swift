@@ -167,10 +167,14 @@ public struct ModelBuild {
                                                   isWord: { seen.contains($0) || added.contains($0) },
                                                   rank: { ranks[$0] })
                 var count = 0
-                for word in hyphen
-                    where builder.addHyphen(word, language: language, spaced: lists.hyphenSpaced.contains(word))
-                {
-                    count += 1
+                for word in hyphen {
+                    do {
+                        if try builder.addHyphen(word, language: language, spaced: lists.hyphenSpaced.contains(word)) {
+                            count += 1
+                        }
+                    } catch let collision as ModelBuilder.HyphenCollision {
+                        throw Failure(description: "data/\(language)/hyphen.txt: \(collision)")
+                    }
                 }
                 guard count == hyphen.count else {
                     throw Failure(description: "data/\(language)/hyphen.txt: words outside the alphabet")

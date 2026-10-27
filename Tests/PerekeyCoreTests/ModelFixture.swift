@@ -102,7 +102,7 @@ enum ModelFixture {
     /// The tables of the stage 4 corrections.
     static func addCorrections(to builder: inout ModelBuilder) {
         for word in yo { builder.addYo(word, language: "ru") }
-        for word in hyphen { builder.addHyphen(word, language: "ru", spaced: hyphenSpaced.contains(word)) }
+        for word in hyphen { try! builder.addHyphen(word, language: "ru", spaced: hyphenSpaced.contains(word)) }
         for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
     }
 

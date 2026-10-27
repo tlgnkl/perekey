@@ -385,7 +385,7 @@ extension Desk {
         var builder = ModelBuilder()
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
         builder.addForm("чтото", language: "ru", rank: 104, weight: 0)
-        builder.addHyphen("что-то", language: "ru")
+        try builder.addHyphen("что-то", language: "ru")
         let model = try LanguageModel(bytes: builder.build())
         var settings = Settings()
         settings.corrections = TextCorrections(doubleCapitals: true, capsLock: true, hyphen: true)
@@ -588,7 +588,7 @@ extension Desk {
     @Test func modelWithoutTheMarkFixesTheMergedFormOnly() throws {
         var builder = ModelBuilder()
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
-        builder.addHyphen("кое-что", language: "ru")
+        try builder.addHyphen("кое-что", language: "ru")
         let model = try LanguageModel(bytes: builder.build())
         let russian = try #require(model.language("ru"))
         let fingerprint = ModelFormat.Fingerprint.of("коечто".unicodeScalars, folded: true)
@@ -812,31 +812,50 @@ extension Desk {
         #expect(ModelFixture.model.language("en")?.hyphenPosition(of: 1) == nil)
     }
 
-    @Test func hyphenRejectsWhatItCannotStore() {
+    @Test func hyphenRejectsWhatItCannotStore() throws {
         var builder = ModelBuilder()
         builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
         for form in ["чтото", "-то", "что-", "точь-в-точь", "что-q", ""] {
-            let added = builder.addHyphen(form, language: "ru")
+            let added = try builder.addHyphen(form, language: "ru")
             #expect(!added, "\(form)")
         }
-        let fine = builder.addHyphen("что-то", language: "ru")
+        let fine = try builder.addHyphen("что-то", language: "ru")
         #expect(fine)
     }
 
-    @Test func tablesDoNotDependOnTheOrderOfCalls() {
-        func build(_ yo: [String], _ cased: [(String, Bool)]) -> [UInt8] {
+    @Test func hyphenCollisionFails() throws {
+        var builder = ModelBuilder()
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        try builder.addHyphen("всё-таки", language: "ru")
+        // The same value again is no collision.
+        #expect(try builder.addHyphen("все-таки", language: "ru"))
+        // The «е» spelling of «всё-таки» with the `space` mark, or another
+        // hyphen position: the table would lose the old value.
+        #expect(throws: ModelBuilder.HyphenCollision.self) {
+            try builder.addHyphen("все-таки", language: "ru", spaced: true)
+        }
+        #expect(throws: ModelBuilder.HyphenCollision.self) { try builder.addHyphen("вс-етаки", language: "ru") }
+        let model = try LanguageModel(bytes: builder.build())
+        let russian = try #require(model.language("ru"))
+        let fingerprint = ModelFormat.Fingerprint.of("всетаки".unicodeScalars, folded: true)
+        #expect(russian.hyphenPosition(of: fingerprint) == 3 && russian.spacedHyphenPosition(of: fingerprint) == nil,
+                "a failed add changes nothing")
+    }
+
+    @Test func tablesDoNotDependOnTheOrderOfCalls() throws {
+        func build(_ yo: [String], _ cased: [(String, Bool)]) throws -> [UInt8] {
             var builder = ModelBuilder()
             builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
             for word in yo { builder.addYo(word, language: "ru") }
             for word in yo.first == "ещё" ? ["что-то", "из-за"] : ["из-за", "что-то"] {
-                builder.addHyphen(word, language: "ru")
+                try builder.addHyphen(word, language: "ru")
             }
             for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
             return builder.build()
         }
         let cased = [("МВД", false), ("Мвд", true), ("ООН", true)]
-        let a = build(["ещё", "ёлка", "берёза"], cased)
-        let b = build(["берёза", "ещё", "ёлка"], cased.reversed())
+        let a = try build(["ещё", "ёлка", "берёза"], cased)
+        let b = try build(["берёза", "ещё", "ёлка"], cased.reversed())
         #expect(a == b)
         let model = try? LanguageModel(bytes: a)
         let mvd = model?.casedForm(of: ModelFormat.Fingerprint.of("мвд".unicodeScalars, folded: true))

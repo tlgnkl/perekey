@@ -40,8 +40,15 @@ differently, what was fixed.
   buttons, and Finder's “Open With” offers Perekey for audio and video files.
 - **Hyphen.** Settings → General → Corrections: a Russian word typed without
   its hyphen gets it back: «вопервых» → «во-первых», «чтото» → «что-то»,
-  «изза» → «из-за», «помоему» → «по-моему». Only words whose merged spelling
-  is no word, from a fixed list. A hyphen typed as a space comes back too
+  «изза» → «из-за», «помоему» → «по-моему». Rules over the dictionary cover
+  whole classes, not just a list: по- with an adverb («поновому»,
+  «попрежнему», «поанглийски», «полисьи»), -то, -либо, -нибудь, -таки after
+  pronouns and adverbs («вообщето», «наконецто», «опятьтаки»), a word typed
+  twice («тихотихо»), -ка after an imperative («давайка», «нука»), and вице-,
+  лейб-, унтер-, штаб- («вицемэр»). Only words whose merged spelling is no
+  word; a rule word that starts with a capital is a name or another language
+  and stays (only the fixed list fixes «Чтото»). On the Tatoeba sentences
+  83 % of hyphenated words typed merged come back, up from 78 %. A hyphen typed as a space comes back too
   where the two words cannot be right text: «во первых» → «во-первых», «что
   нибудь» → «что-нибудь», «кое что» → «кое-что»; «что то», «по моему», «кое с
   кем» stay as typed. Off by default; Backspace undoes it and Perekey leaves

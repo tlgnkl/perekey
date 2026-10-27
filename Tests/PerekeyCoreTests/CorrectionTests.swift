@@ -433,6 +433,114 @@ extension Desk {
     }
 }
 
+@Suite struct HyphenRuleTests {
+    @Test(arguments: [("поновому ", "по-новому "), ("вообщето ", "вообще-то "), ("тихотихо ", "тихо-тихо "),
+                      ("давайка ", "давай-ка "), ("опятьтаки, ", "опять-таки, ")])
+    func everyRule(typed: String, expected: String) {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == expected)
+        #expect(desk.corrections.first?.kind == .hyphen)
+    }
+
+    @Test func aCapitalFirstLetterIsLeftToTheHandList() {
+        // A rule word with a capital first letter is a name or another
+        // language: inside a sentence, at its start and in capitals. The hand
+        // list has no names: "Чтото" and "ЧТОТО" are fixed.
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type("Поновому и Поновому и Чтото. Вообщето ", on: Fixture.russian)
+        #expect(desk.text == "Поновому и Поновому и Что-то. Вообщето ")
+        #expect(desk.corrections.count == 1)
+        desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.typeWithCapsLock("поновому ", on: Fixture.russian)
+        desk.typeWithCapsLock("чтото ", on: Fixture.russian)
+        #expect(desk.text == "ПОНОВОМУ ЧТО-ТО ")
+    }
+
+    @Test func theTypoStepRunsBeforeTheRules() throws {
+        // "самто" is one letter from the word "само": the typo step fixes it
+        // first and the hyphen step never sees it. The same happens to 17 of
+        // 1150 rule words of Tatoeba; it stays (docs/corrections.md).
+        let model = ModelFixture.model(withRussianWords: [("само", 190)], hyphenByRule: ["сам-то"])
+        var settings = only { $0.hyphen = true }
+        settings.typoCorrection = true
+        var desk = Desk(settings, current: ru, classifier: Classifier(model: model))
+        desk.type("самто ", on: Fixture.russian)
+        #expect(desk.text == "само ")
+        #expect(try #require(desk.corrections.first).kind == .typo)
+        // Without the typo step the rule applies.
+        desk = Desk(only { $0.hyphen = true }, current: ru, classifier: Classifier(model: model))
+        desk.type("самто ", on: Fixture.russian)
+        #expect(desk.text == "сам-то ")
+    }
+
+    @Test func undoLearnsTheTypedWord() {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type("поновому ", on: Fixture.russian)
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "поновому ")
+        desk.type(" ")
+        #expect(desk.learned == ["поновому"])
+    }
+
+    /// A model with the forms the prefix rule reads, with a hyphen table
+    /// (one word of a rule) or without, as a model built before the rules.
+    static func model(withHyphenTable: Bool) -> LanguageModel {
+        var builder = ModelBuilder()
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        for (form, rank) in [("мэр", 150), ("квартира", 140), ("ной", 130), ("штабной", 0), ("клав", 60),
+                             ("вицемэров", 40), ("елей", 100)] as [(String, UInt8)]
+        {
+            builder.addForm(form, language: "ru", rank: rank, weight: 1)
+        }
+        if withHyphenTable { try! builder.addHyphen("по-новому", language: "ru", byRule: true) }
+        return try! LanguageModel(bytes: builder.build())
+    }
+
+    static let model = model(withHyphenTable: true)
+
+    static func prefix(_ text: String, in model: LanguageModel = model) -> String {
+        var word = BoundaryWord(characters: Array(text), modifiers: Array(repeating: [], count: text.count),
+                                language: "ru")
+        HyphenStep().apply(to: &word, model: model)
+        return String(word.characters)
+    }
+
+    @Test func prefixBeforeAWord() {
+        #expect(Self.prefix("вицемэр") == "вице-мэр")
+        #expect(Self.prefix("штабквартира") == "штаб-квартира")
+        #expect(Self.prefix("штабквартиры") == "штабквартиры", "an unknown rest")
+    }
+
+    @Test(arguments: ["Вицемэр", "ВИЦЕМЭР", "Штабквартира"])
+    func aCapitalFirstLetterIsNoRule(word: String) {
+        #expect(Self.prefix(word) == word)
+    }
+
+    @Test(arguments: ["штабной", "вицемэров", "вицеклав", "вицекот", "вицемэ", "экспрезидент", "штабелей"])
+    func prefixGuards(word: String) {
+        // A word of the model ("штабной"), a merged spelling wordfreq knows
+        // ("вицемэров" here), a rare rest ("клав"; "елей" is below Zipf 4),
+        // an unknown one ("кот"), a rest too short, a prefix that is out
+        // ("экс": "эксклав" is a word).
+        #expect(Self.prefix(word) == word)
+    }
+
+    @Test func aModelWithoutTheTableHasNoPrefixRule() {
+        let old = Self.model(withHyphenTable: false)
+        #expect(old.language("ru")?.hasHyphenTable == false)
+        #expect(Self.prefix("вицемэр", in: old) == "вицемэр")
+        #expect(Self.prefix("вицемэр") == "вице-мэр")
+    }
+
+    @Test func aPrefixIsFoundWithoutLookingAtTheRest() {
+        // The check of a typed word is a few comparisons, case and ё folded.
+        func length(_ text: String) -> Int? { HyphenStep.prefixLength(of: Array(text)[...]) }
+        #expect(length("вицемэр") == 4 && length("УНТЕРофицер") == 5 && length("штабквартира") == 4)
+        #expect(length("привет") == nil && length("вице") == nil && length("вицем") == nil)
+    }
+}
+
 @Suite struct SpacedHyphenTests {
     private static let settings = only { $0.hyphen = true }
 

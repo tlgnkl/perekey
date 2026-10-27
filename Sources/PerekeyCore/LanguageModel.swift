@@ -446,7 +446,18 @@ extension LanguageModel.Language {
     /// folded fingerprint of the merged spelling: 3 for "чтото". `nil` when
     /// the word takes no hyphen.
     public func hyphenPosition(of fingerprint: UInt64) -> UInt8? {
-        hyphen?.value(of: fingerprint).map { $0 & ~ModelFormat.hyphenSpaced }
+        hyphenEntry(of: fingerprint)?.position
+    }
+
+    /// Whether the model has the hyphen table at all: a model built before
+    /// the rules has none.
+    public var hasHyphenTable: Bool { hyphen != nil }
+
+    /// `hyphenPosition`, and whether a rule derived the word (`ModelFormat.hyphenByRule`).
+    public func hyphenEntry(of fingerprint: UInt64) -> (position: UInt8, byRule: Bool)? {
+        hyphen?.value(of: fingerprint).map {
+            ($0 & ~(ModelFormat.hyphenSpaced | ModelFormat.hyphenByRule), $0 & ModelFormat.hyphenByRule != 0)
+        }
     }
 
     /// `hyphenPosition` for a word typed with a space where the hyphen goes
@@ -454,7 +465,7 @@ extension LanguageModel.Language {
     /// unless the list fixes that form too (`ModelFormat.hyphenSpaced`).
     public func spacedHyphenPosition(of fingerprint: UInt64) -> UInt8? {
         guard let value = hyphen?.value(of: fingerprint), value & ModelFormat.hyphenSpaced != 0 else { return nil }
-        return value & ~ModelFormat.hyphenSpaced
+        return value & ~(ModelFormat.hyphenSpaced | ModelFormat.hyphenByRule)
     }
 
     /// Whether some word of the language starts with these 3 or 4 symbols.

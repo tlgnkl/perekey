@@ -257,9 +257,20 @@ public struct YoStep: WordCorrectionStep {
 }
 
 /// "вопервых" → "во-первых": the hyphen dropped in fast typing, merged
-/// form only: the model's table of words whose merged spelling is no word
-/// (`data/ru/hyphen.txt`). Letters and their case stay as typed: "ЧТОТО" →
-/// "ЧТО-ТО", "всетаки" → "все-таки".
+/// form only. Letters and their case stay as typed: "ЧТОТО" → "ЧТО-ТО",
+/// "всетаки" → "все-таки".
+///
+/// The model's table comes first: `data/ru/hyphen.txt` and the words the
+/// builder derives by rule from the dictionary ("поновому", "вообщето",
+/// "тихотихо", "давайка"), each with a merged spelling that is no word. A
+/// word the table does not know may start with a prefix of `prefixes`
+/// before a word ("вицемэр"): the rest must be a frequent word
+/// (`minimumRestRank`) and the merged spelling unknown to the model. A model
+/// without the table (built before the rules) has no prefix rule either.
+///
+/// A word of a rule with a capital first letter is a name or a word of
+/// another language, also at the start of a sentence and in capitals:
+/// "Оконто", "Лейбниц", "ОБАТО". Only the hand list fixes "Чтото", "ЧТОТО".
 public struct HyphenStep: WordCorrectionStep {
     public init() {}
 
@@ -267,14 +278,54 @@ public struct HyphenStep: WordCorrectionStep {
 
     public func isOn(_ settings: Settings) -> Bool { settings.corrections.hyphen }
 
+    /// Prefixes written with a hyphen before a noun: вице-мэр, штаб-квартира.
+    public static let prefixes = ["вице", "лейб", "унтер", "штаб"].map { Array($0.unicodeScalars).map(\.value) }
+
+    /// The word after a prefix: three letters or more, frequent (rank Zipf ×
+    /// 32, `WordFreq.rank`): "мэр", "квартира", not "штурмфюрер".
+    static let minimumRest = 3
+    static let minimumRestRank: UInt8 = 128
+
+    /// How many letters of the word are a prefix of `prefixes` with enough
+    /// letters after it, `nil` when none is. Reads the characters as they
+    /// are, folded, and allocates nothing: it runs on every word.
+    static func prefixLength(of letters: ArraySlice<Character>) -> Int? {
+        prefixes.first { prefix in
+            letters.count - prefix.count >= minimumRest
+                && zip(letters, prefix).allSatisfy { character, folded in
+                    var scalars = character.unicodeScalars.makeIterator()
+                    guard let scalar = scalars.next(), scalars.next() == nil else { return false }
+                    return ModelFormat.fold(scalar.value) == folded
+                }
+        }?.count
+    }
+
     public func apply(to word: inout BoundaryWord, model: LanguageModel) {
-        guard word.language == "ru", word.coreIsLetters(minimum: 4), let table = model.language("ru"),
-              let position = table.hyphenPosition(of: word.coreFingerprint())
-        else { return }
+        guard word.language == "ru", word.coreIsLetters(minimum: 4), let table = model.language("ru") else { return }
         let core = word.core
-        guard position > 0, Int(position) < core.count else { return }
-        word.characters.insert("-", at: core.lowerBound + Int(position))
-        word.insertedAt = core.lowerBound + Int(position)
+        let position: Int
+        let byRule: Bool
+        let fingerprint = word.coreFingerprint()
+        if let entry = table.hyphenEntry(of: fingerprint) {
+            (position, byRule) = (Int(entry.position), entry.byRule)
+        } else {
+            guard table.hasHyphenTable, let split = Self.prefixLength(of: word.characters[core]) else { return }
+            let letters = word.characters[core].flatMap(\.unicodeScalars).map { ModelFormat.fold($0.value) }
+            guard letters.count == core.count, table.rank(of: fingerprint) == nil,
+                  let rest = table.rank(of: Self.fingerprint(letters[split...])), rest >= Self.minimumRestRank
+            else { return }
+            (position, byRule) = (split, true)
+        }
+        guard position > 0, position < core.count else { return }
+        if byRule, word.characters[core.lowerBound].isUppercase { return }
+        word.characters.insert("-", at: core.lowerBound + position)
+        word.insertedAt = core.lowerBound + position
+    }
+
+    static func fingerprint(_ letters: ArraySlice<UInt32>) -> UInt64 {
+        var fingerprint = ModelFormat.Fingerprint()
+        for letter in letters { fingerprint.add(letter) }
+        return fingerprint.value
     }
 }
 

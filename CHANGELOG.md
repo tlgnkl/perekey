@@ -46,9 +46,9 @@ differently, what was fixed.
   pronouns and adverbs («вообщето», «наконецто», «опятьтаки»), a word typed
   twice («тихотихо»), -ка after an imperative («давайка», «нука»), and вице-,
   лейб-, унтер-, штаб- («вицемэр»). Only words whose merged spelling is no
-  word; a capitalised one inside a sentence is a name and stays. On the
-  Tatoeba sentences 85 % of hyphenated words typed merged come back, up from
-  78 %. A hyphen typed as a space comes back too
+  word; a rule word that starts with a capital is a name or another language
+  and stays (only the fixed list fixes «Чтото»). On the Tatoeba sentences
+  83 % of hyphenated words typed merged come back, up from 78 %. A hyphen typed as a space comes back too
   where the two words cannot be right text: «во первых» → «во-первых», «что
   нибудь» → «что-нибудь», «кое что» → «кое-что»; «что то», «по моему», «кое с
   кем» stay as typed. Off by default; Backspace undoes it and Perekey leaves

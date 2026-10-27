@@ -110,6 +110,7 @@
 "Clear the history?" = "Clear the history?";
 "The texts and saved audio of all dictations are deleted." = "The texts and saved audio of all dictations are deleted.";
 "Recent dictations" = "Recent dictations";
+"Not saved. Kept until Perekey quits." = "Not saved. Kept until Perekey quits.";
 "Show text" = "Show text";
 "Paste again" = "Paste again";
 "Words dictated" = "Words dictated";

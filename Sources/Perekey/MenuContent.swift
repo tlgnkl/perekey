@@ -168,7 +168,7 @@ struct MenuContent: View {
                 .padding(.horizontal, 12)
             recentSection
             #if PEREKEY_VOICE
-            if let dictation = actions.dictation, !dictation.history.entries.isEmpty {
+            if let dictation = actions.dictation, (!dictation.history.entries.isEmpty || dictation.history.unsaved != nil) {
                 DictationMenuSection(menu: dictation, close: actions.close)
             }
             #endif

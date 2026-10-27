@@ -468,18 +468,18 @@ struct VoiceControllerTests {
         #expect(!rig.records[0].pasted)
     }
 
-    @Test func keptTextOfATargetWithoutElementIsNotRecordedNorPrivate() async {
+    @Test func keptTextOfATargetWithoutElementIsHandedOnAsUnknown() async {
         let rig = Rig()
         rig.paster.targetPrivacy = .unknown
         await rig.startRecording()
         rig.controller.accessibilityLost()
         #expect(await rig.until { rig.hud == .notPasted(.noAccessibility) })
         #expect(rig.controller.last?.isPrivate == false)
-        try? await Task.sleep(for: .milliseconds(100))
-        #expect(rig.records.isEmpty)
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(rig.records[0].privacy == .unknown)
     }
 
-    @Test func targetWithoutElementIsNotStoredButStaysOnTheHUD() async {
+    @Test func targetWithoutElementIsHandedOnAsUnknownAndStaysOnTheHUD() async {
         for result in [DictationPasteResult.targetChanged, .timedOut, .pasted] {
             let rig = Rig()
             rig.paster.targetPrivacy = .unknown
@@ -488,7 +488,8 @@ struct VoiceControllerTests {
             rig.controller.voice(.toggle)
             #expect(await rig.until { rig.controller.last != nil })
             #expect(rig.controller.last?.isPrivate == false)
-            #expect(rig.records.isEmpty)
+            #expect(await rig.until { rig.records.count == 1 })
+            #expect(rig.records[0].privacy == .unknown)
         }
     }
 
@@ -1650,7 +1651,7 @@ struct VoiceControllerCloudSpeechTests {
         #expect(rig.records.isEmpty)
     }
 
-    @Test func anUnknownTargetReachesTheCloudButNotTheHistory() async {
+    @Test func anUnknownTargetReachesTheCloudAndIsHandedOnAsUnknown() async {
         let rig = Rig()
         rig.paster.targetPrivacy = .unknown
         await rig.cloud.set(.answer("Из облака."))
@@ -1660,7 +1661,8 @@ struct VoiceControllerCloudSpeechTests {
         #expect(await rig.until { rig.hud == .pasted })
         #expect(await rig.cloud.calls == 1)
         #expect(rig.paster.pasted == ["Из облака."])
-        #expect(rig.records.isEmpty)
+        #expect(await rig.until { rig.records.count == 1 })
+        #expect(rig.records[0].privacy == .unknown)
     }
 
     @Test func aRetryAfterTheCloudFailedWritesOneEntry() async {

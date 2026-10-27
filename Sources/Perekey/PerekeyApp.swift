@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store: SettingsStore
     private let onboarding: OnboardingController
     private let pause = PauseState()
-    private let launchAtLogin = LaunchAtLogin()
+    private let launchAtLogin: LaunchAtLogin
     private let updates: Updates
     private let input: InputController
     private let shell: MenuBarShell
@@ -88,6 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                               engineIsRunning: { input.tapState == .running },
                                               demoActive: { input.appModes.onboardingDemo = $0 })
         self.onboarding = onboarding
+        let launchAtLogin = LaunchAtLogin()
+        self.launchAtLogin = launchAtLogin
         let recents = RecentCorrections()
         let usage = UsageRecorder { [store] in store.settings.statistics }
         self.usage = usage
@@ -143,12 +145,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             view.voiceTranscripts = transcriptsController
             view.hasAccess = { input.hasAccess }
             view.openAccess = { onboarding.show(at: .access) }
+            view.launch = launchAtLogin
+            view.showOnboarding = { onboarding.show() }
             return view
             #else
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
                                     languages: input.languages, initial: section, scrollTarget: scrollTarget)
             view.hasAccess = { input.hasAccess }
             view.openAccess = { onboarding.show(at: .access) }
+            view.launch = launchAtLogin
+            view.showOnboarding = { onboarding.show() }
             return view
             #endif
         }
@@ -366,7 +372,6 @@ final class MenuBarShell {
         ) { menu in
             var actions = MenuActions(
                 openSettings: { menu.close(); settings.show() },
-                showOnboarding: { menu.close(); onboarding.show() },
                 openAccess: { menu.close(); onboarding.show(at: .access) },
                 showAbout: {
                     menu.close()

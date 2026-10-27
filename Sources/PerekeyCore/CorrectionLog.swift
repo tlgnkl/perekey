@@ -24,6 +24,8 @@ public struct CorrectionLog: Equatable, Sendable {
         public var summary: String
         public var date: Date
         public var undone = false
+        /// How many times this same correction happened: the menu shows «×3».
+        public var count = 1
     }
 
     /// Newest first, at most `limit`.
@@ -37,12 +39,23 @@ public struct CorrectionLog: Equatable, Sendable {
     /// The newest correction that still stands: the menu shows it as the strip.
     public var latestStanding: Entry? { entries.first { !$0.undone } }
 
-    /// Adds a correction at the top and drops the oldest past the limit.
+    /// Adds a correction at the top and drops the oldest past the limit. The same
+    /// correction that still stands is not a second row: the old row goes and the
+    /// new one takes its count plus one.
     public mutating func record(_ correction: Correction, at date: Date = Date()) {
-        entries.insert(Entry(id: nextID, seq: correction.seq, original: correction.original,
-                             replacement: correction.replacement, kind: correction.kind,
-                             explanation: Explanation(correction: correction),
-                             summary: FalseSwitchReport.summary(of: correction), date: date), at: 0)
+        var count = 1
+        if let same = entries.firstIndex(where: {
+            !$0.undone && $0.original == correction.original && $0.replacement == correction.replacement
+                && $0.kind == correction.kind
+        }) {
+            count += entries.remove(at: same).count
+        }
+        var entry = Entry(id: nextID, seq: correction.seq, original: correction.original,
+                          replacement: correction.replacement, kind: correction.kind,
+                          explanation: Explanation(correction: correction),
+                          summary: FalseSwitchReport.summary(of: correction), date: date)
+        entry.count = count
+        entries.insert(entry, at: 0)
         nextID += 1
         if entries.count > Self.limit { entries.removeLast(entries.count - Self.limit) }
     }

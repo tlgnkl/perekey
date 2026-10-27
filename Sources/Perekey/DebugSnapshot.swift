@@ -58,6 +58,7 @@ enum DebugSnapshot {
         renderMenuBar(into: directory)
         renderStatistics(in: directory)
         renderThreeLayouts(in: directory)
+        renderCrowdedMenus(in: directory)
         renderHint(in: directory)
         renderReasons(in: directory)
         renderStrips(in: directory)
@@ -153,7 +154,7 @@ enum DebugSnapshot {
                     log.markUndone(seq: 2)
                 }
                 func menuView(explained: Int? = nil, hasAccess: Bool = true) -> some View {
-                    var content = MenuContent(sources: sources, store: store, pause: pause, launch: menu.launch,
+                    var content = MenuContent(sources: sources, store: store, pause: pause,
                                               appModes: appModes, recents: RecentCorrections(log), updates: updates)
                     content.explainedEntry = explained
                     content.hasAccess = { hasAccess }
@@ -168,6 +169,10 @@ enum DebugSnapshot {
                     render(menuView(hasAccess: false), dark: dark, size: CGSize(width: 318, height: 680),
                            to: directory.appending(path: "menu-noaccess-\(suffix).png"))
                 }
+                // «Launch at login» is a row of General now, in the states it can have.
+                render(GeneralPane(store: store, updates: updates, launch: menu.launch).frame(width: 560, height: 1500),
+                       dark: dark, size: CGSize(width: 560, height: 1500),
+                       to: directory.appending(path: "general-launch-\(menu.name)-\(suffix).png"))
             }
         }
     }
@@ -342,9 +347,79 @@ enum DebugSnapshot {
         let pause = PauseState(frozen: PauseSet(), now: Date())
         let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
         appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Notes", name: "Notes", isGame: false))
-        let menu = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+        let menu = MenuContent(sources: sources, store: store, pause: pause,
                                appModes: appModes, recents: RecentCorrections())
         render(menu, dark: false, size: CGSize(width: 318, height: 560), to: directory.appending(path: "menu-three-light.png"))
+    }
+
+    /// The menu with everything on: a repeated correction among five, four dictations and an unsaved one, a held
+    /// card, voice, three layouts. `short` has room for 700pt only, so its lower part scrolls;
+    /// `layouts` has the header's list open. Prints the height each one takes.
+    private static func renderCrowdedMenus(in directory: URL) {
+        let sources = threeLayouts()
+        let now = Date()
+        var held = PauseSet()
+        held.pause(until: now.addingTimeInterval(59 * 60 - 30))
+        let file = SettingsFile(url: directory.appending(path: "menu-crowded.json"))
+        try? file.save(AppSettings())
+        let store = SettingsStore(file: file)
+        let pause = PauseState(frozen: held, now: now)
+        let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+        appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", isGame: false))
+        let updates = Updates(store: store, preview: ManagedSettings(), configured: true, lastCheck: nil)
+        var log = CorrectionLog()
+        let words = ["ghbdtn", "мвд", "еще", "чтото", "vbh"]
+        // One correction three times among others, then four more kinds: five rows.
+        for (seq, index) in [0, 1, 0, 2, 0, 3, 4].enumerated() {
+            let word = words[index]
+            log.record(Correction(seq: UInt32(seq + 1), original: word, replacement: word.uppercased(),
+                                  source: "en", target: "ru", kind: index == 0 ? .layout : .abbreviation), at: now)
+        }
+        var actions = MenuActions()
+        #if PEREKEY_VOICE
+        let controller = voiceTextPreview(in: directory, name: "menu-crowded")
+        // The last one went into a field the app could not read: it waits in memory, above the stored ones.
+        controller.history.record(DictationRecord(text: "Напомни завтра про созвон с Антоном в одиннадцать.", bundleID: "com.apple.Terminal",
+                                                  appName: "Terminal", duration: 3, model: "parakeet-tdt-v3", pasted: false,
+                                                  privacy: .unknown))
+        actions.dictation = controller.menu(pasteAgain: { _ in })
+        actions.voiceModes = VoiceModeMenu(store: modesPreview(), isOn: { true })
+        actions.transcripts = TranscriptsMenu(isOn: { true }, open: {})
+        actions.transcribeFile = {}
+        actions.canTranscribeFiles = { true }
+        actions.callRecording = CallRecordingController(capture: AudioCapture(), settings: voicePreview(in: directory, name: "menu-crowded").settings,
+                                                   isSupported: { true })
+        #endif
+        let cases: [(name: String, budget: CGFloat, open: Bool)] = [
+            ("crowded", .infinity, false), ("short", 700, false),
+            ("layouts", .infinity, true), ("short-layouts", 700, true),
+        ]
+        for dark in [false, true] {
+            for item in cases {
+                let presentation = MenuPresentation()
+                presentation.budget = item.budget
+                var content = MenuContent(sources: sources, store: store, pause: pause, appModes: appModes,
+                                          recents: RecentCorrections(log), actions: actions, updates: updates)
+                content.presentation = presentation
+                content.layoutsOpenAtStart = item.open
+                let height = fittedHeight(of: content, dark: dark)
+                print("menu-\(item.name)-\(dark ? "dark" : "light"): \(Int(height)) pt")
+                render(content, dark: dark, size: CGSize(width: 318, height: max(height, 100)),
+                       to: directory.appending(path: "menu-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    /// The height the menu takes in its panel: the hosting view's fitting size.
+    private static func fittedHeight(of view: some View, dark: Bool) -> CGFloat {
+        let host = NSHostingView(rootView: view.environment(\.pkLiquidGlass, liquidGlass))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 318, height: 100), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        return host.fittingSize.height
     }
 
     /// A recorder with a week of made-up counts, in a file of its own.
@@ -387,7 +462,7 @@ enum DebugSnapshot {
         let store = SettingsStore(file: file)
         let pause = PauseState(frozen: PauseSet(), now: Date())
         let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
-        let view = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+        let view = MenuContent(sources: sources, store: store, pause: pause,
                                appModes: appModes, recents: RecentCorrections(),
                                usage: sampleUsage(in: directory, name: "menu-statistics"))
         render(view, dark: false, size: CGSize(width: 318, height: 560), to: directory.appending(path: "menu-statistics.png"))
@@ -793,7 +868,7 @@ extension DebugSnapshot {
             let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
             var actions = MenuActions()
             actions.dictation = controller.menu(pasteAgain: { _ in })
-            let menu = MenuContent(sources: sources, store: store, pause: pause, launch: LaunchAtLogin(previewStatus: .enabled),
+            let menu = MenuContent(sources: sources, store: store, pause: pause,
                                    appModes: appModes, recents: RecentCorrections(), actions: actions)
                 .background(Color(nsColor: .windowBackgroundColor))
             render(menu, dark: dark, size: CGSize(width: 318, height: 700),

@@ -60,9 +60,13 @@ enum SettingsIndex {
             item(.general, "Sounds", "general.sounds"),
             item(.general, "Sound on layout switch", "general.sound-switch"),
             item(.general, "Sound on correction", "general.sound-correction"),
+            item(.general, "Startup", "general.startup"),
+            item(.general, "Launch at login", "general.launch-at-login"),
             item(.general, "Updates", "general.updates"),
             item(.general, "Check for updates automatically", "general.updates-automatic"),
             item(.general, "Last check", "general.updates-last"),
+            item(.general, "Help", "general.help"),
+            item(.general, "How to Use Perekey", "general.how-to"),
 
             item(.shortcuts, "Shortcuts", "title"),
             item(.shortcuts, "Preset", "shortcuts.preset"),

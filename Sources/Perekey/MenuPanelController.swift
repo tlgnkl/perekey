@@ -10,6 +10,9 @@ import SwiftUI
 @Observable
 final class MenuPresentation {
     var shown = false
+    /// The most height the menu may take: the screen's room under the status item.
+    /// Infinite until the controller has measured it.
+    var budget: CGFloat = .infinity
 }
 
 /// The menu panel: borderless, never activates the app, but takes keys.
@@ -82,6 +85,8 @@ final class MenuPanelController {
     /// Room around the menu for its shadow; the panel is this much larger on each side.
     private static let inset: CGFloat = 28
     private static let gap: CGFloat = 4
+    /// Room left between the menu's bottom and the screen's.
+    private static let bottomMargin: CGFloat = 8
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin,
          appModes: AppModeController, recents: RecentCorrections, usage: UsageRecorder? = nil, updates: Updates,
@@ -108,13 +113,14 @@ final class MenuPanelController {
         isOpen = true
         nav = MenuNav()
         presentation = MenuPresentation()
+        presentation.budget = budget()
 
         var menuActions = actions(self)
         menuActions.close = { [weak self] in self?.close() }
         let root = MenuRoot(
-            content: MenuContent(sources: sources, store: store, pause: pause, launch: launch, appModes: appModes,
+            content: MenuContent(sources: sources, store: store, pause: pause, appModes: appModes,
                                  recents: recents, usage: usage, nav: nav, actions: menuActions, updates: updates,
-                                 hasAccess: { [input] in input?.hasAccess ?? true }),
+                                 hasAccess: { [input] in input?.hasAccess ?? true }, presentation: presentation),
             presentation: presentation, inset: Self.inset)
         let host = SizingHost(rootView: AnyView(root))
         host.sizingOptions = [.intrinsicContentSize]
@@ -180,12 +186,30 @@ final class MenuPanelController {
         return panel
     }
 
+    private func visibleFrame(of anchorFrame: NSRect) -> NSRect {
+        let screen = NSScreen.screens.first { $0.frame.intersects(anchorFrame) } ?? NSScreen.main
+        return screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+    }
+
+    /// The height from the status item's gap down to the screen's visible edge, less the margin.
+    private func budget() -> CGFloat {
+        guard let anchorFrame = anchor() else { return .infinity }
+        return max(0, anchorFrame.minY - Self.gap - visibleFrame(of: anchorFrame).minY - Self.bottomMargin)
+    }
+
+    /// The screen changed (a display, the Dock, the menu bar): the view takes the new room.
+    private func refreshBudget() {
+        let new = budget()
+        if presentation.budget != new { presentation.budget = new }
+    }
+
     /// Keeps the menu's top edge under the status item and its right edge near the item's.
+    /// The panel never grows past the screen, even if the view did not follow its budget.
     private func place(size: CGSize) {
         guard let panel, let anchorFrame = anchor(), size.width > 0, size.height > 0 else { return }
-        let screen = NSScreen.screens.first { $0.frame.intersects(anchorFrame) } ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let visible = visibleFrame(of: anchorFrame)
         let inset = Self.inset
+        let size = CGSize(width: size.width, height: min(size.height, budget() + 2 * inset))
         let menuWidth = size.width - 2 * inset
         let right = min(anchorFrame.maxX + 6, visible.maxX - 8)
         let left = max(visible.minX + 8, right - menuWidth)
@@ -242,6 +266,11 @@ final class MenuPanelController {
             MainActor.assumeIsolated { self?.close() }
         }))
         let center = NotificationCenter.default
+        observers.append((center, center.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshBudget() }
+        }))
         observers.append((center, center.addObserver(
             forName: NSWindow.didResignKeyNotification, object: panel, queue: .main
         ) { [weak self] _ in

@@ -70,7 +70,46 @@ import Testing
 
     @Test func idsStayUniquePastTheLimit() {
         var log = CorrectionLog()
-        for seq in 1...12 { log.record(correction(UInt32(seq))) }
+        for seq in 1...12 { log.record(correction(UInt32(seq), "w\(seq)")) }
         #expect(Set(log.entries.map(\.id)).count == log.entries.count)
+    }
+
+    @Test func theSameCorrectionIsOneRowWithACount() {
+        var log = CorrectionLog()
+        log.record(correction(1))
+        log.record(correction(2, "other"))
+        log.record(correction(3))
+        log.record(correction(4))
+        #expect(log.entries.map(\.original) == ["ghbdtn", "other"])
+        #expect(log.entries.map(\.count) == [3, 1])
+        #expect(log.entries.first?.seq == 4)
+    }
+
+    @Test func aDifferentKindIsAnotherRow() {
+        var log = CorrectionLog()
+        log.record(correction(1, "мвд", kind: .abbreviation))
+        log.record(correction(2, "мвд", kind: .layout))
+        #expect(log.entries.map(\.count) == [1, 1])
+    }
+
+    @Test func undoStrikesTheMergedRowByItsNewestSeq() {
+        var log = CorrectionLog()
+        log.record(correction(1))
+        log.record(correction(2))
+        let old = log.markUndone(seq: 1)
+        let newest = log.markUndone(seq: 2)
+        #expect(!old)
+        #expect(newest)
+        #expect(log.entries.map(\.undone) == [true])
+        #expect(log.entries.first?.count == 2)
+    }
+
+    @Test func anUndoneCorrectionIsNotMergedInto() {
+        var log = CorrectionLog()
+        log.record(correction(1))
+        log.markUndone(seq: 1)
+        log.record(correction(2))
+        #expect(log.entries.map(\.undone) == [false, true])
+        #expect(log.entries.map(\.count) == [1, 1])
     }
 }

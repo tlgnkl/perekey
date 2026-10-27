@@ -393,3 +393,11 @@
 "Search settings" = "Поиск по настройкам";
 "Nothing found" = "Ничего не найдено";
 "No matches" = "Нет совпадений";
+
+/* Menu header and General: layouts, startup, help */
+"Layouts" = "Раскладки";
+"%@, expanded" = "%@, раскрыто";
+"%@, collapsed" = "%@, свёрнуто";
+"Startup" = "Запуск";
+"Help" = "Справка";
+"Show" = "Показать";

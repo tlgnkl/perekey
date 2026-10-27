@@ -44,6 +44,15 @@ differently, what was fixed.
   is no word, from a fixed list; «что то» with a space stays as typed. Off by
   default; Backspace undoes it and Perekey leaves that word alone from then on.
 
+### Changed
+
+- **The menu always fits the screen.** On a small display a long menu no
+  longer runs off the bottom: the header stays and the rest scrolls. It is
+  also shorter. The layouts open from the header (click it), the same
+  correction several times is one row with «×3», the last three dictations
+  take one line each, and «Launch at login» and «How to Use Perekey» moved to
+  Settings → General.
+
 ### Fixed
 
 - **Missing access is no longer silent.** Without Accessibility access, for

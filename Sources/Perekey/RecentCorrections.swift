@@ -21,13 +21,11 @@ final class RecentCorrections {
         log.markUndone(seq: seq)
     }
 
-    #if DEBUG
-    /// Snapshot helper: a ready-made log.
+    /// Snapshot and preview helper: a ready-made log.
     convenience init(_ log: CorrectionLog) {
         self.init()
         self.log = log
     }
-    #endif
 }
 
 extension Correction.Kind {

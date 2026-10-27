@@ -2,6 +2,7 @@
 
 import AppKit
 import Observation
+import PerekeyCore
 import PerekeyInput
 import SwiftUI
 
@@ -81,12 +82,12 @@ final class MenuPanelController {
     @ObservationIgnored private var observers: [(NotificationCenter, any NSObjectProtocol)] = []
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var teardown: DispatchWorkItem?
+    /// A context menu (a right click on a block) is open: the panel may lose the key to it, and stays.
+    @ObservationIgnored private var contextMenuOpen = false
 
     /// Room around the menu for its shadow; the panel is this much larger on each side.
     private static let inset: CGFloat = 28
-    private static let gap: CGFloat = 4
-    /// Room left between the menu's bottom and the screen's.
-    private static let bottomMargin: CGFloat = 8
+    private static let gap = CGFloat(MenuRoom.gap)
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState, launch: LaunchAtLogin,
          appModes: AppModeController, recents: RecentCorrections, usage: UsageRecorder? = nil, updates: Updates,
@@ -119,7 +120,7 @@ final class MenuPanelController {
         menuActions.close = { [weak self] in self?.close() }
         let root = MenuRoot(
             content: MenuContent(sources: sources, store: store, pause: pause, appModes: appModes,
-                                 recents: recents, usage: usage, nav: nav, actions: menuActions, updates: updates,
+                                 recents: recents, usage: usage, launch: launch, nav: nav, actions: menuActions, updates: updates,
                                  hasAccess: { [input] in input?.hasAccess ?? true }, presentation: presentation),
             presentation: presentation, inset: Self.inset)
         let host = SizingHost(rootView: AnyView(root))
@@ -156,6 +157,7 @@ final class MenuPanelController {
         ticker?.cancel()
         ticker = nil
         removeMonitors()
+        contextMenuOpen = false
         presentation.shown = false
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -194,7 +196,7 @@ final class MenuPanelController {
     /// The height from the status item's gap down to the screen's visible edge, less the margin.
     private func budget() -> CGFloat {
         guard let anchorFrame = anchor() else { return .infinity }
-        return max(0, anchorFrame.minY - Self.gap - visibleFrame(of: anchorFrame).minY - Self.bottomMargin)
+        return CGFloat(MenuRoom.budget(itemBottom: anchorFrame.minY, visibleBottom: visibleFrame(of: anchorFrame).minY))
     }
 
     /// The screen changed (a display, the Dock, the menu bar): the view takes the new room.
@@ -258,7 +260,7 @@ final class MenuPanelController {
         }
         // Clicks in our own windows: the panel itself and the status item are not "outside".
         if let local = NSEvent.addLocalMonitorForEvents(matching: clicks, handler: { [weak self] event in
-            if let self, event.window !== panel, event.window !== statusWindow { close() }
+            if let self, !contextMenuOpen, event.window !== panel, event.window !== statusWindow { close() }
             return event
         }) {
             monitors.append(local)
@@ -278,7 +280,25 @@ final class MenuPanelController {
         observers.append((center, center.addObserver(
             forName: NSWindow.didResignKeyNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.close() }
+            MainActor.assumeIsolated {
+                guard let self, !self.contextMenuOpen else { return }
+                self.close()
+            }
+        }))
+        observers.append((center, center.addObserver(
+            forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.contextMenuOpen = true }
+        }))
+        observers.append((center, center.addObserver(
+            forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.contextMenuOpen else { return }
+                self.contextMenuOpen = false
+                // The menu is done: the keyboard works in the panel again.
+                if self.isOpen { self.panel?.makeKey() }
+            }
         }))
     }
 
@@ -315,7 +335,7 @@ private struct MenuRoot: View {
     }
 }
 
-private struct MenuSurface<S: InsettableShape>: ViewModifier {
+struct MenuSurface<S: InsettableShape>: ViewModifier {
     let shape: S
     let liquid: Bool
 

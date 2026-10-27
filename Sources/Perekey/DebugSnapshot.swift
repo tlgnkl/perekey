@@ -59,6 +59,7 @@ enum DebugSnapshot {
         renderStatistics(in: directory)
         renderThreeLayouts(in: directory)
         renderCrowdedMenus(in: directory)
+        renderMenuCustomize(in: directory)
         renderHint(in: directory)
         renderReasons(in: directory)
         renderStrips(in: directory)
@@ -406,6 +407,98 @@ enum DebugSnapshot {
                 print("menu-\(item.name)-\(dark ? "dark" : "light"): \(Int(height)) pt")
                 render(content, dark: dark, size: CGSize(width: 318, height: max(height, 100)),
                        to: directory.appending(path: "menu-\(item.name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    /// Settings → General → «Menu» (every switch at its default, and a changed set; a wide and a narrow pane) and
+    /// the menu with the fewest blocks and with all of them. Prints the height each menu takes.
+    private static func renderMenuCustomize(in directory: URL) {
+        let sources = threeLayouts()
+        let now = Date()
+        let usage = sampleUsage(in: directory, name: "menu-customize")
+        var held = PauseSet()
+        held.pause(until: now.addingTimeInterval(59 * 60 - 30))
+        var log = CorrectionLog()
+        let words = ["ghbdtn", "мвд", "еще", "чтото", "vbh"]
+        for (seq, index) in [0, 1, 0, 2, 0, 3, 4].enumerated() {
+            let word = words[index]
+            log.record(Correction(seq: UInt32(seq + 1), original: word, replacement: word.uppercased(),
+                                  source: "en", target: "ru", kind: index == 0 ? .layout : .abbreviation), at: now)
+        }
+        var actions = MenuActions()
+        #if PEREKEY_VOICE
+        let controller = voiceTextPreview(in: directory, name: "menu-customize")
+        controller.history.record(DictationRecord(text: "Напомни завтра про созвон с Антоном в одиннадцать.", bundleID: "com.apple.Terminal",
+                                                  appName: "Terminal", duration: 3, model: "parakeet-tdt-v3", pasted: false,
+                                                  privacy: .unknown))
+        actions.dictation = controller.menu(pasteAgain: { _ in })
+        actions.voiceModes = VoiceModeMenu(store: modesPreview(), isOn: { true })
+        actions.transcripts = TranscriptsMenu(isOn: { true }, open: {})
+        actions.transcribeFile = {}
+        actions.canTranscribeFiles = { true }
+        actions.callRecording = CallRecordingController(capture: AudioCapture(), settings: voicePreview(in: directory, name: "menu-customize").settings,
+                                                        isSupported: { true })
+        #endif
+        let fewest: (inout MenuLayout) -> Void = { layout in
+            for block in MenuBlock.allCases { layout.set(block, shown: false) }
+        }
+        let everything: (inout MenuLayout) -> Void = { layout in
+            for block in MenuBlock.allCases { layout.set(block, shown: true) }
+        }
+        let changed: (inout MenuLayout) -> Void = { layout in
+            layout.set(.about, shown: false)
+            layout.set(.pause, shown: false)
+            layout.set(.launchAtLogin, shown: true)
+            layout.set(.layoutsList, shown: true)
+            layout.setRows(3, of: .recentCorrections)
+            layout.setRows(0, of: .recentDictations)
+        }
+        let launch = LaunchAtLogin(previewStatus: .enabled)
+        let updates = Updates(store: SettingsStore(file: SettingsFile(url: directory.appending(path: "menu-customize-u.json"))),
+                              preview: ManagedSettings(), configured: true, lastCheck: nil)
+        func store(_ name: String, _ change: (inout MenuLayout) -> Void) -> SettingsStore {
+            var settings = AppSettings()
+            settings.statistics = true
+            change(&settings.menu)
+            let file = SettingsFile(url: directory.appending(path: "menu-customize-\(name).json"))
+            try? file.save(settings)
+            return SettingsStore(file: file)
+        }
+        for dark in [false, true] {
+            let suffix = dark ? "dark" : "light"
+            let groups: [(name: String, change: (inout MenuLayout) -> Void, budget: CGFloat, width: CGFloat)] = [
+                ("default", { _ in }, 900, 608), ("changed", changed, 900, 608), ("tight", { _ in }, 520, 608),
+                ("narrow", changed, 900, 480),
+            ]
+            for item in groups {
+                let store = store("group-\(item.name)", item.change)
+                let view = MenuGroup(store: store, sources: sources, updates: updates, usage: usage, launch: launch,
+                                     voiceIsOn: true, previewActions: actions, budget: item.budget)
+                    .padding(.horizontal, 26).padding(.vertical, 20)
+                    .frame(width: item.width, height: 1000, alignment: .topLeading)
+                render(view, dark: dark, size: CGSize(width: item.width, height: 1000),
+                       to: directory.appending(path: "menu-group-\(item.name)-\(suffix).png"))
+            }
+            let menus: [(name: String, change: (inout MenuLayout) -> Void, budget: CGFloat, held: Bool)] = [
+                ("fewest", fewest, 900, false), ("everything", everything, 900, true), ("everything-short", everything, 560, true),
+            ]
+            for item in menus {
+                let store = store("menu-\(item.name)", item.change)
+                let pause = PauseState(frozen: item.held ? held : PauseSet(), now: now)
+                let appModes = AppModeController(sources: sources, store: store, pause: pause, live: false)
+                appModes.freeze(frontmost: FrontApp(bundleID: "com.apple.Terminal", name: "Terminal", isGame: false))
+                let presentation = MenuPresentation()
+                presentation.budget = item.budget
+                var content = MenuContent(sources: sources, store: store, pause: pause, appModes: appModes,
+                                          recents: RecentCorrections(log), usage: usage, launch: launch, actions: actions,
+                                          updates: Updates(store: store, preview: ManagedSettings(), configured: true,
+                                                           lastCheck: nil, pendingVersion: "1.2"))
+                content.presentation = presentation
+                let height = fittedHeight(of: content, dark: dark)
+                print("menu-custom-\(item.name)-\(suffix): \(Int(height)) pt")
+                render(content, dark: dark, size: CGSize(width: 318, height: max(height, 100)),
+                       to: directory.appending(path: "menu-custom-\(item.name)-\(suffix).png"))
             }
         }
     }

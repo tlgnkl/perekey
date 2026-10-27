@@ -82,6 +82,8 @@ public struct AppSettings: Hashable, Sendable {
     public var menuBarIcon: MenuBarIconStyle = .capsule
     /// When the menu bar item is on screen.
     public var menuBarVisibility: MenuBarVisibility = .always
+    /// Which blocks of the menu show (Settings → General, «Menu»); only the differences are stored.
+    public var menu = MenuLayout()
 
     public init(hotkeys: [HotkeyBinding] = HotkeyPreset.default.hotkeys, capsLock: CapsLockMode = .untouched,
                 autoswitch: Bool = true, onboardingDone: Bool = false, apps: [String: AppRule] = [:],
@@ -157,7 +159,7 @@ public struct AppSettings: Hashable, Sendable {
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
-        case checkForUpdates, typoCorrection, corrections, caretHint, statistics, menuBarIcon, menuBarVisibility
+        case checkForUpdates, typoCorrection, corrections, caretHint, statistics, menuBarIcon, menuBarVisibility, menu
     }
 
     public init(from decoder: any Decoder) throws {
@@ -182,5 +184,6 @@ extension AppSettings: Codable {
         menuBarIcon = (try? container.decodeIfPresent(MenuBarIconStyle.self, forKey: .menuBarIcon)) ?? defaults.menuBarIcon
         menuBarVisibility = (try? container.decodeIfPresent(MenuBarVisibility.self, forKey: .menuBarVisibility))
             ?? defaults.menuBarVisibility
+        menu = (try? container.decodeIfPresent(MenuLayout.self, forKey: .menu)) ?? defaults.menu
     }
 }

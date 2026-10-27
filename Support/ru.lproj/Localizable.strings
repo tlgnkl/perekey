@@ -401,3 +401,17 @@
 "Startup" = "Запуск";
 "Help" = "Справка";
 "Show" = "Показать";
+
+/* Settings → General → Menu, and the menu's right-click */
+"Menu" = "Меню";
+"Automatic switching and mode" = "Автопереключение и режим";
+"Layouts as a list" = "Раскладки списком";
+"Instead of opening them from the header." = "Вместо раскрытия из шапки.";
+"Count for today" = "Счётчик за сегодня";
+"Only while “Count corrections” is on in Privacy." = "Только пока в «Приватности» включено «Считать правки».";
+"Right-click a block in the menu to hide it. The layout, Settings and Quit always stay." = "Щёлкните блок меню правой кнопкой, чтобы скрыть его. Раскладка, «Настройки…» и «Выйти» остаются всегда.";
+"Reset to Default" = "Вернуть как было";
+"Fits on this screen" = "Помещается на этом экране";
+"Does not fit on this screen: it will scroll" = "Не помещается на этом экране: будет прокрутка";
+"Hide from Menu" = "Скрыть из меню";
+"Customize Menu…" = "Настроить меню…";

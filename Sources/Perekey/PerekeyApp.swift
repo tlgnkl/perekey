@@ -135,6 +135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transcriptsController.entries = VoiceEntries(call: callRecording, chooseFiles: { [voice] in voice.files.chooseFiles() },
                                                      openTranscripts: { transcriptsWindow.show() })
         #endif
+        #if PEREKEY_VOICE
+        let canTranscribeFiles: @MainActor () -> Bool = { [voice] in voice.files.queue != nil }
+        #endif
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
@@ -143,6 +146,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             view.voiceModes = voiceModes
             view.voiceTextController = voiceText
             view.voiceTranscripts = transcriptsController
+            // The preview of General → Menu draws the voice blocks; none of it runs there.
+            let voiceOn: @MainActor @Sendable () -> Bool = { voiceModels.settings.isOn && voiceModels.isSupported }
+            view.menuPreviewActions.voiceModes = VoiceModeMenu(store: voiceModes, isOn: voiceOn)
+            view.menuPreviewActions.transcripts = TranscriptsMenu(isOn: voiceOn, open: {})
+            view.menuPreviewActions.transcribeFile = {}
+            view.menuPreviewActions.canTranscribeFiles = canTranscribeFiles
+            view.menuPreviewActions.callRecording = callRecording
+            view.menuPreviewActions.dictation = voiceText.menu(pasteAgain: { _ in })
             view.hasAccess = { input.hasAccess }
             view.openAccess = { onboarding.show(at: .access) }
             view.launch = launchAtLogin
@@ -193,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actions.transcripts = TranscriptsMenu(isOn: voiceIsOn, open: { transcriptsWindow.show() })
             actions.summaries = transcriptsController.summaries
             actions.transcribeFile = { voice.files.chooseFiles() }
-            actions.canTranscribeFiles = { voice.files.queue != nil }
+            actions.canTranscribeFiles = canTranscribeFiles
             actions.callRecording = callRecording
         }
         #else
@@ -372,6 +383,8 @@ final class MenuBarShell {
         ) { menu in
             var actions = MenuActions(
                 openSettings: { menu.close(); settings.show() },
+                customizeMenu: { menu.close(); settings.show(section: .general, scrollTarget: "general.menu") }, // search: title in MenuGroup.swift
+                showOnboarding: { menu.close(); onboarding.show() },
                 openAccess: { menu.close(); onboarding.show(at: .access) },
                 showAbout: {
                     menu.close()

@@ -386,6 +386,7 @@
 "Plays the audio from here" = "Plays the audio from here";
 "The audio of this call was removed, so the text cannot be played or transcribed again." = "The audio of this call was removed, so the text cannot be played or transcribed again.";
 /* Transcription of files */
+"Transcribe File" = "Transcribe File";
 "Transcribe File…" = "Transcribe File…";
 "Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Choose audio or video to transcribe. Perekey reads the file and does not copy it.";
 "Model for transcriptions" = "Model for transcriptions";

@@ -28,11 +28,25 @@ import Testing
         #expect(first && !second)
     }
 
+    /// The word learned the way the user does it: an undo by the hint's
+    /// button, then «Только здесь» or «Везде».
+    @discardableResult
+    static func learn(_ word: String, in words: inout WordRules, at seconds: Double, app: String? = nil,
+                      readings: [String] = []) -> LearnedWord?
+    {
+        // An undo without an app counts nothing: «Везде» is asked in some app.
+        let report = UndoReport(word: word, app: app ?? "com.test.App", channel: .button, threshold: 1,
+                                facts: UndoFacts(kind: .layout, decision: nil))
+        let step = words.count(report, at: seconds, day: 1, readings: readings)
+        guard let question = step.question else { return nil }
+        return words.answer(question, app == nil ? .everywhere : .here, at: seconds, readings: readings)
+    }
+
     @Test func learnAndForget() {
         var words = WordRules()
-        let first = words.learn("Ghbdtn", at: 100)
-        let second = words.learn("ghbdtn", at: 200)
-        #expect(first && !second)
+        let first = Self.learn("Ghbdtn", in: &words, at: 100)
+        let second = Self.learn("ghbdtn", in: &words, at: 200)
+        #expect(first != nil && second == nil)
         #expect(words.learned == [LearnedWord(word: "ghbdtn", learnedAt: 100, undoCount: 2, lastUndoneAt: 200)])
         #expect(words.contains("GHBDTN"))
         words.forget("Ghbdtn")
@@ -41,32 +55,35 @@ import Testing
 
     @Test func learningOffIgnoresUndos() {
         var words = WordRules(learnFromUndos: false)
-        let learned = words.learn("слово", at: 1)
-        #expect(!learned)
-        #expect(words.isEmpty)
+        let learned = Self.learn("слово", in: &words, at: 1)
+        #expect(learned == nil)
+        #expect(words.isEmpty && words.candidates.isEmpty)
     }
 
     @Test func addingLearnedWordMovesItToMine() {
         var words = WordRules()
-        _ = words.learn("слово", at: 1)
+        Self.learn("слово", in: &words, at: 1)
         let added = words.add("слово")
         #expect(added)
         #expect(words.learned.isEmpty && words.mine == ["слово"])
     }
 
     @Test func forgetKeepsMineAndForgetAllClearsLearned() {
-        var words = WordRules(mine: ["a"], learned: [LearnedWord(word: "b", learnedAt: 1)])
+        var words = WordRules(mine: ["a"], learned: [LearnedWord(word: "b", learnedAt: 1)],
+                              candidates: [LearningCandidate(word: "c", app: nil, evidence: 1, threshold: 2,
+                                                             undoCount: 1, firstUndoneAt: 1, lastCountedDay: 1)])
         words.forget("a")
         #expect(words.mine == ["a"])
         words.forgetAllLearned()
-        #expect(words.learned.isEmpty)
+        #expect(words.learned.isEmpty && words.candidates.isEmpty)
     }
 
     @Test func tolerantDecoding() throws {
-        let json = #"{"words":{"mine":["Слово","слово",""],"learned":[{"word":"x","learnedAt":5},{"bad":1},{"word":"X","learnedAt":6}]}}"#
+        let json = #"{"words":{"learning":2,"mine":["Слово","слово",""],"learned":[{"word":"x","learnedAt":5},{"bad":1},{"word":"X","learnedAt":6}],"candidates":[{"word":"y"}]}}"#
         let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
         #expect(settings.words.mine == ["слово"])
         #expect(settings.words.learned == [LearnedWord(word: "x", learnedAt: 5)])
+        #expect(settings.words.candidates.isEmpty)
         #expect(settings.words.learnFromUndos)
         let broken = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"words":"nope"}"#.utf8))
         #expect(broken.words == WordRules())
@@ -74,8 +91,12 @@ import Testing
 
     @Test func roundTrip() throws {
         let settings = AppSettings(words: WordRules(
-            mine: ["a"], learned: [LearnedWord(word: "b", learnedAt: 2.5, undoCount: 3, lastUndoneAt: 9)],
-            always: ["аня"], learnFromUndos: false
+            mine: ["a"], learned: [LearnedWord(word: "b", learnedAt: 2.5, undoCount: 3, lastUndoneAt: 9),
+                                   LearnedWord(word: "c", learnedAt: 3, app: "com.apple.TextEdit")],
+            always: ["аня"],
+            candidates: [LearningCandidate(word: "d", app: "com.apple.Notes", evidence: 1, threshold: 3,
+                                           undoCount: 1, firstUndoneAt: 4, lastCountedDay: 20_000)],
+            learnFromUndos: false
         ))
         let data = try JSONEncoder().encode(settings)
         #expect(try JSONDecoder().decode(AppSettings.self, from: data) == settings)
@@ -129,9 +150,11 @@ import Testing
 
     @Test func learningAnAlwaysFixWordWithdrawsIt() {
         var words = WordRules(always: ["аня"])
-        let learned = words.learn("аня", at: 1)
-        #expect(!learned)
-        #expect(words.learned.isEmpty && words.always.isEmpty)
+        let report = UndoReport(word: "аня", app: nil, channel: .button, threshold: 1,
+                                facts: UndoFacts(kind: .layout, decision: nil))
+        let step = words.count(report, at: 1, day: 1)
+        #expect(step.outcome == .withdrawn && step.oldRule == .withdraw)
+        #expect(words.learned.isEmpty && words.always.isEmpty && words.candidates.isEmpty)
     }
 
     // MARK: - The other reading
@@ -176,8 +199,8 @@ import Testing
 
     @Test func learningAnOtherReadingWithdrawsTheAlwaysWord() {
         var words = WordRules(always: ["аня"])
-        let learned = words.learn("fyz", at: 1, readings: WordRules.readings(of: "fyz", in: layouts))
-        #expect(!learned)
+        let learned = Self.learn("fyz", in: &words, at: 1, readings: WordRules.readings(of: "fyz", in: layouts))
+        #expect(learned == nil)
         #expect(words.learned.isEmpty && words.always.isEmpty)
     }
 
@@ -192,12 +215,12 @@ import Testing
 
     @Test func repeatedUndoCountsInsteadOfDuplicating() {
         var words = WordRules()
-        words.learn("ghbdtn", at: 10)
-        words.learn("GHBDTN", at: 20)
-        words.learn("ghbdtn", at: 30)
+        Self.learn("ghbdtn", in: &words, at: 10)
+        Self.learn("GHBDTN", in: &words, at: 20)
+        Self.learn("ghbdtn", in: &words, at: 30)
         #expect(words.learned == [LearnedWord(word: "ghbdtn", learnedAt: 10, undoCount: 3, lastUndoneAt: 30)])
         words.learnFromUndos = false
-        words.learn("ghbdtn", at: 40)
+        Self.learn("ghbdtn", in: &words, at: 40)
         #expect(words.learned.first?.undoCount == 3, "learning off counts nothing")
     }
 
@@ -213,7 +236,7 @@ import Testing
         let json = #"{"words":{"mine":["аня"],"learned":[{"word":"вася","learnedAt":1}],"always":["Аня","вася","гошан",""]}}"#
         let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
         #expect(settings.words.mine == ["аня"])
-        #expect(settings.words.learned.map(\.word) == ["вася"])
+        #expect(settings.words.candidates.map(\.word) == ["вася"], "learned from one undo, it keeps its place")
         #expect(settings.words.always == ["гошан"])
     }
 
@@ -225,10 +248,10 @@ import Testing
                                                  subdirectory: "Fixtures"))
         let settings = try JSONDecoder().decode(AppSettings.self, from: Data(contentsOf: url))
         #expect(settings.words.mine == ["kubectl", "перекей"])
-        #expect(settings.words.learned == [
-            LearnedWord(word: "ghbdtn", learnedAt: 1_790_000_000, undoCount: 1, lastUndoneAt: 1_790_000_000),
-            LearnedWord(word: "дедлайн", learnedAt: 1_790_086_400.5, undoCount: 1, lastUndoneAt: 1_790_086_400.5),
-        ])
+        // Learned from one undo each: candidates now, counted in every app.
+        #expect(settings.words.learned.isEmpty)
+        #expect(settings.words.candidates.map(\.word) == ["ghbdtn", "дедлайн"])
+        #expect(settings.words.candidates.allSatisfy { $0.app == nil && $0.evidence == 1 })
         #expect(settings.words.always.isEmpty)
         #expect(settings.words.learnFromUndos)
         #expect(settings.apps["com.apple.Terminal"]?.mode == .manualOnly)

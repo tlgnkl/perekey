@@ -156,6 +156,11 @@ public struct Classifier: Sendable {
         /// What the typed reading and the other one are as words.
         public var typedForm = Form.notWord
         public var otherForm = Form.notWord
+        /// The dictionary ranks of the two readings (Zipf × 32; 0 is a form
+        /// without a frequency), nil when not in the dictionary. Filled with
+        /// the forms: learning picks its threshold by them (`LearningOptions.threshold`).
+        public var typedRank: UInt8?
+        public var otherRank: UInt8?
         /// The languages of the two layouts, e.g. "en" and "ru".
         public var typedLanguage: String?
         public var otherLanguage: String?
@@ -557,6 +562,8 @@ public struct Classifier: Sendable {
         decision.margin = isKnown(other) ? options.threshold : options.threshold + options.unknownWordExtra
         decision.typedForm = form(of: typed)
         decision.otherForm = form(of: other)
+        decision.typedRank = typed.rank
+        decision.otherRank = other.rank
         decision.typedLanguage = typedLayout.language
         decision.otherLanguage = otherLayout.language
         return decision

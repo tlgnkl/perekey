@@ -386,6 +386,7 @@
 "Plays the audio from here" = "Проигрывает звук с этого места";
 "The audio of this call was removed, so the text cannot be played or transcribed again." = "Звук этого созвона удалён, поэтому текст нельзя проиграть или расшифровать заново.";
 /* Transcription of files */
+"Transcribe File" = "Расшифровать файл";
 "Transcribe File…" = "Расшифровать файл…";
 "Choose audio or video to transcribe. Perekey reads the file and does not copy it." = "Выберите звук или видео для расшифровки. Perekey читает файл и не копирует его.";
 "Model for transcriptions" = "Модель для расшифровок";

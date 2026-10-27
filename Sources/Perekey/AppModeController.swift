@@ -75,10 +75,8 @@ final class AppModeController {
         observeRules()
     }
 
-    #if DEBUG
-    /// Snapshot helper: a fixed frontmost app, no observers.
+    /// Snapshot and preview helper: a fixed frontmost app, no observers.
     func freeze(frontmost app: FrontApp?) { frontmost = app }
-    #endif
 
     /// Switches the frontmost app between "off" and "auto" (the menu row).
     func setOff(_ off: Bool) {

@@ -11,6 +11,8 @@ enum SettingsFlag: String, Hashable {
     case voiceSupported
     /// … and an administrator has not turned it off: the whole tab.
     case voiceActive
+    /// … and the user turned it on: the menu's voice blocks are listed in General.
+    case voiceOn
     case voiceText
     case voiceRecordings
     /// … and the Transcripts window can be opened from Settings.

@@ -71,6 +71,14 @@ final class InputController {
     /// Accessibility was revoked while the taps ran. Nothing asks the system
     /// by itself any more, so someone has to tell the user.
     @ObservationIgnored var onAccessLost: (() -> Void)?
+    /// A word reached its threshold (`WordRules.count`): ask «Больше не
+    /// менять?» and pass the answer to `answer(_:_:)`. Without it the word
+    /// is learned for its app (`ask`).
+    @ObservationIgnored var onLearningQuestion: ((LearningQuestion) -> Void)?
+    /// A learned word was retyped by hand and forgotten (`WordRules.unlearn`).
+    @ObservationIgnored var onUnlearned: ((Unlearned) -> Void)?
+    /// The shadow journal of learning, written on the main thread: undos are rare.
+    @ObservationIgnored private let learningJournal = LearningJournalFile()
     /// Corrections of the onboarding demo, by `seq`: they count for nothing,
     /// neither the menu's list nor the statistics, nor their undo.
     @ObservationIgnored private var demoCorrections = Set<UInt32>()
@@ -142,6 +150,10 @@ final class InputController {
         }
         pause.setSecureInput(secureInput.isOn, owner: secureInput.ownerName)
 
+        // Candidates go 30 days after their last counted undo, also while Perekey was not running.
+        if !store.settings.words.candidates.isEmpty {
+            store.update { $0.words.expireCandidates(at: Date().timeIntervalSince1970) }
+        }
         observeSystem()
         observePause()
         observeAppMode()
@@ -310,10 +322,13 @@ final class InputController {
             // the tap never sends this.
             _ = signal
             #endif
-        case let .retyped(original, text, origin, decision):
+        case let .retyped(original, text, origin, decision, app):
             SystemSounds.play(store.settings.correctionSound)
             // An automatic switch has its own hint, from `corrected`; an undo hides it.
-            if manualAction(of: origin) != nil, !isDemo(original, text) { onManualRetype?() }
+            if manualAction(of: origin) != nil, !isDemo(original, text) {
+                onManualRetype?()
+                if manualAction(of: origin)?.action == .convertLastWord { unlearn(original, text, app: app) }
+            }
             if let manual = manualAction(of: origin), store.settings.caretHint.shows(automatic: false),
                original != text
             {
@@ -367,8 +382,8 @@ final class InputController {
                 shownCorrection = nil
                 hint.hide()
             }
-        case let .learned(word):
-            learn(word)
+        case let .undoSettled(report):
+            countUndo(report)
         case let .alwaysFixWithdrawn(word):
             store.update { $0.words.stopFixing(word) }
             // After the `correctionUndone` of the same undo, which hid the old hint.
@@ -381,20 +396,69 @@ final class InputController {
         }
     }
 
-    /// Puts an undone word on the learned list and says so at the caret, with
-    /// «Forget» to take it back.
-    private func learn(_ word: String) {
+    /// Counts an undone correction towards learning its word, and asks at the
+    /// threshold (docs/classifier.md, «Обучение»).
+    private func countUndo(_ report: UndoReport) {
         // The onboarding demo undoes «ghbdtn» on purpose: that teaches nothing.
-        guard !(appModes.isDemoFront && AppModeController.isDemoWord(word)) else { return }
-        var added = false
-        let readings = WordRules.readings(of: word, in: sources.layouts)
-        store.update { added = $0.words.learn(word, at: Date().timeIntervalSince1970, readings: readings) }
-        guard added else { return }
+        guard !(appModes.isDemoFront && AppModeController.isDemoWord(report.word)) else { return }
+        let now = Date()
+        let readings = WordRules.readings(of: report.word, in: sources.layouts)
+        var step = LearningStep(outcome: .off, oldRule: .nothing)
+        store.update {
+            step = $0.words.count(report, at: now.timeIntervalSince1970, day: Self.day(of: now), readings: readings)
+        }
+        journal(LearningJournal.Entry(undo: report, step: step, at: now.timeIntervalSince1970))
+        guard let question = step.question else { return }
+        if let onLearningQuestion { onLearningQuestion(question) } else { ask(question) }
+    }
+
+    /// Until the hint asks the question: «Только здесь», said at the caret
+    /// with «Forget» to take it back.
+    private func ask(_ question: LearningQuestion) {
+        guard let learned = answer(question, .here) else { return }
         guard store.settings.caretHint != .off else { return }
-        hint.showLearned(word: word) { [weak self] in
-            self?.store.update { $0.words.forget(word) }
+        hint.showLearned(word: learned.word) { [weak self] in
+            self?.store.update { $0.words.forget(learned.word, app: learned.app) }
             self?.hint.hide()
         }
+    }
+
+    /// The user's answer to a `LearningQuestion`. Returns the word learned, if any.
+    @discardableResult
+    func answer(_ question: LearningQuestion, _ answer: LearningAnswer) -> LearnedWord? {
+        let now = Date().timeIntervalSince1970
+        let readings = WordRules.readings(of: question.word, in: sources.layouts)
+        var learned: LearnedWord?
+        store.update { learned = $0.words.answer(question, answer, at: now, readings: readings) }
+        journal(LearningJournal.Entry(answer: answer, to: question, learned: learned, at: now))
+        return learned
+    }
+
+    /// A retype by hand of a learned word into the other layout: the
+    /// correction was right after all, so the word is forgotten where it was
+    /// learned for this app. `app` is the focus the machine saw, as for the undos.
+    private func unlearn(_ original: String, _ text: String, app: String?) {
+        guard !isDemo(original, text) else { return }
+        var unlearned: Unlearned?
+        store.update { unlearned = $0.words.unlearn(typed: original, retyped: text, app: app) }
+        guard let unlearned else { return }
+        journal(LearningJournal.Entry(unlearned: unlearned, app: app, at: Date().timeIntervalSince1970))
+        onUnlearned?(unlearned)
+    }
+
+    private func journal(_ entry: LearningJournal.Entry) {
+        do {
+            try learningJournal.append(entry)
+        } catch {
+            log.error("Learning journal not written: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// The calendar day of `date` in this time zone, counted from 1970, for
+    /// the evidence of an undo on another day (`LearningCandidate.lastCountedDay`).
+    static func day(of date: Date) -> Int {
+        let local = date.timeIntervalSince1970 + Double(TimeZone.current.secondsFromGMT(for: date))
+        return Int((local / 86_400).rounded(.down))
     }
 
     /// Puts a word on "Всегда исправлять": from now on it switches at the

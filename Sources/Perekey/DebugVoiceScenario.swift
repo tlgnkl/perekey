@@ -85,7 +85,7 @@ enum DebugVoiceScenario {
         // Start from a window, close the window: the download goes on.
         var window: NSWindow? = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "settings.json")))
+        let store = SettingsStore(file: SettingsFile(url: directory.appending(path: "settings.json"), defaults: debugDefaults()))
         window?.contentView = NSHostingView(rootView: VoicePane(controller: controller, store: store,
                                                                 recording: ShortcutRecording(store: store)))
         window?.isReleasedWhenClosed = false

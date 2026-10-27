@@ -54,6 +54,18 @@ differently, what was fixed.
   кем» stay as typed. Off by default; Backspace undoes it and Perekey leaves
   that word alone from then on, in both spellings.
 
+- **Choose what the menu shows.** Settings → General → Menu: switch off the
+  blocks you never use (the mode card, the pause, the update, About and the
+  rest), pick 0, 3 or 5 rows for recent corrections and dictations, and bring
+  back what is hidden by default: «Launch at login», «How to Use Perekey» and
+  the layouts as a list in the menu instead of opening them from the header.
+  A small copy of the menu next to the list follows each switch and says
+  whether it fits this screen or will scroll. In the menu itself, a right
+  click (or Control-click) on a block offers «Hide from Menu» and «Customize
+  Menu…». The layout header, «Settings…», «Quit», a found update and a
+  dictation that was not saved always stay. «Reset to Default» puts it all
+  back.
+
 ### Changed
 
 - **The menu always fits the screen.** On a small display a long menu no
@@ -65,6 +77,15 @@ differently, what was fixed.
 
 ### Fixed
 
+- **One Backspace no longer stops a word from being fixed for good.** A
+  Backspace meant for the space after a fixed word ("jrtq " came out "окей ",
+  and you wanted a comma) used to put the word on "Learned" everywhere, and
+  Perekey never fixed it again. Now an undo counts only when you go on typing
+  with the word as you typed it; Undo in the hint counts more. When a word is
+  undone often enough, Perekey asks whether to leave it alone in this app,
+  everywhere, or not at all. Retyping a learned word by hand makes Perekey fix
+  it again. Words learned from a single undo go back to being fixed until you
+  undo them again.
 - **Missing access is no longer silent.** Without Accessibility access, for
   example after a reinstall, the setup window comes to the front, opening
   Perekey again opens its access step, Settings shows a banner, and the menu

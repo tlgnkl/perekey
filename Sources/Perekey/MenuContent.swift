@@ -10,6 +10,9 @@ import SwiftUI
 /// What the menu asks its owner to do. Every action closes the menu first.
 struct MenuActions {
     var openSettings: () -> Void = {}
+    /// Opens Settings → General at the «Menu» group.
+    var customizeMenu: () -> Void = {}
+    var showOnboarding: () -> Void = {}
     /// Opens the access step of onboarding.
     var openAccess: () -> Void = {}
     var showAbout: () -> Void = {}
@@ -138,6 +141,35 @@ private struct LitRing: ViewModifier {
     }
 }
 
+/// What a right click on a block of the menu offers.
+struct BlockMenu {
+    let hide: () -> Void
+    let customize: () -> Void
+}
+
+private struct BlockContextMenu: ViewModifier {
+    let menu: BlockMenu?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let menu {
+            content.contextMenu {
+                Button("Hide from Menu", action: menu.hide)
+                Divider()
+                Button("Customize Menu…", action: menu.customize)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// A right click (or Control-click) offers «Hide from Menu»; `nil` leaves the row without a menu.
+    func blockMenu(_ menu: BlockMenu?) -> some View {
+        modifier(BlockContextMenu(menu: menu))
+    }
+}
+
 // MARK: - Menu
 
 /// The menu panel's content: header, held-state card, mode, recent corrections,
@@ -150,6 +182,8 @@ struct MenuContent: View {
     let recents: RecentCorrections
     /// `nil` hides the statistics line (snapshots, tests).
     var usage: UsageRecorder?
+    /// `nil` hides «Launch at login» (snapshots, tests).
+    var launch: LaunchAtLogin?
     var nav = MenuNav()
     var actions = MenuActions()
     /// `nil` hides "Check for Updates…" (snapshots).
@@ -162,6 +196,10 @@ struct MenuContent: View {
     var presentation = MenuPresentation()
     /// The layouts list starts open (snapshots).
     var layoutsOpenAtStart = false
+    /// Told whether what is under the header is taller than the room, so it scrolls.
+    var onOverflow: ((Bool) -> Void)?
+    /// A right click offers «Hide from Menu»; false in the preview of Settings.
+    var editable = true
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -188,12 +226,16 @@ struct MenuContent: View {
             .background(GeometryReader { Color.clear.preference(key: TopHeightKey.self, value: $0.size.height) })
             .onPreferenceChange(TopHeightKey.self) { topHeight.wrappedValue = $0 }
             .onPreferenceChange(MenuOrderKey.self) { nav.topOrder = $0 }
-            MenuScroll(nav: nav, limit: max(presentation.budget - topHeight.wrappedValue, Self.minScroll)) {
-                Reveal(open: open) {
-                    LayoutsList(sources: sources, nav: nav, active: open, onSelected: actions.close)
-                        .padding(.bottom, 8)
-                        .accessibilityHidden(!open)
-                        .allowsHitTesting(open)
+            MenuScroll(nav: nav, limit: max(presentation.budget - topHeight.wrappedValue, Self.minScroll),
+                       onOverflow: onOverflow) {
+                // The header's list is not built while the block below shows the same list.
+                if !hasList {
+                    Reveal(open: open) {
+                        LayoutsList(sources: sources, nav: nav, active: open, onSelected: actions.close)
+                            .padding(.bottom, 8)
+                            .accessibilityHidden(!open)
+                            .allowsHitTesting(open)
+                    }
                 }
                 Reveal(open: pause.current != nil) {
                     if let reason = heldReason {
@@ -202,36 +244,60 @@ struct MenuContent: View {
                             .padding(.bottom, 8)
                     }
                 }
-                modeCard
-                    .padding(.horizontal, 12)
-                recentSection
+                if shows(.modeCard) {
+                    modeCard
+                        .padding(.horizontal, 12)
+                        .blockMenu(menu(.modeCard))
+                }
+                if rows(.recentCorrections) > 0 {
+                    recentSection
+                        .blockMenu(menu(.recentCorrections))
+                }
                 #if PEREKEY_VOICE
-                if let dictation = actions.dictation, (!dictation.history.entries.isEmpty || dictation.history.unsaved != nil) {
-                    DictationMenuSection(menu: dictation, nav: nav, close: actions.close)
+                if let dictation = actions.dictation, showsDictations(dictation) {
+                    DictationMenuSection(menu: dictation, nav: nav, rows: rows(.recentDictations), close: actions.close)
+                        .blockMenu(rows(.recentDictations) > 0 ? menu(.recentDictations) : nil)
                 }
                 #endif
-                PKDivider(leading: 12, trailing: 12).padding(.top, 10)
-                VStack(alignment: .leading, spacing: 2) {
-                    switchRow(
-                        id: "pause", title: "Pause for 1 hour", subtitle: nil,
-                        isOn: Binding(
-                            get: { pause.isTimedPauseActive },
-                            set: { $0 ? pause.pauseForOneHour() : pause.resumeTimed() }
-                        )
-                    )
-                    #if PEREKEY_VOICE
-                    if let voiceModes = actions.voiceModes, voiceModes.isOn() {
-                        VoiceModeMenuRow(menu: voiceModes, appModes: appModes, lit: nav.highlighted == "voice-mode")
-                            .menuItem("voice-mode", nav: nav, step: { voiceModes.step($0) }, run: { voiceModes.step(1) })
+                if hasTop && hasSwitches { PKDivider(leading: 12, trailing: 12).padding(.top, 10) }
+                if hasSwitches {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if shows(.pause) {
+                            switchRow(
+                                id: "pause", title: "Pause for 1 hour", subtitle: nil,
+                                isOn: Binding(
+                                    get: { pause.isTimedPauseActive },
+                                    set: { $0 ? pause.pauseForOneHour() : pause.resumeTimed() }
+                                )
+                            )
+                            .blockMenu(menu(.pause))
+                        }
+                        if let launch, shows(.launchAtLogin) {
+                            LaunchAtLoginRow(launch: launch, nav: nav)
+                                .blockMenu(menu(.launchAtLogin))
+                        }
+                        #if PEREKEY_VOICE
+                        if let voiceModes = actions.voiceModes, shows(.voiceMode), voiceModes.isOn() {
+                            VoiceModeMenuRow(menu: voiceModes, appModes: appModes, lit: nav.highlighted == "voice-mode")
+                                .menuItem("voice-mode", nav: nav, step: { voiceModes.step($0) }, run: { voiceModes.step(1) })
+                                .blockMenu(menu(.voiceMode))
+                        }
+                        #endif
                     }
-                    #endif
+                    .padding(.vertical, 6)
                 }
-                .padding(.vertical, 6)
-                PKDivider(leading: 12, trailing: 12)
+                if hasList {
+                    if hasTop || hasSwitches { PKDivider(leading: 12, trailing: 12).padding(.top, hasSwitches ? 0 : 10) }
+                    LayoutsList(sources: sources, nav: nav, onSelected: actions.close)
+                        .padding(.vertical, 6)
+                        .blockMenu(menu(.layoutsList))
+                }
+                if hasTop || hasSwitches || hasList { PKDivider(leading: 12, trailing: 12) }
                 commands
                     .padding(.vertical, 6)
-                if let usage, store.settings.statistics {
+                if let usage, store.settings.statistics, shows(.statistics) {
                     usageLine(usage)
+                        .blockMenu(menu(.statistics))
                 }
             }
         }
@@ -245,8 +311,11 @@ struct MenuContent: View {
             }
             #if PEREKEY_VOICE
             // Expired dictations go when the menu opens, at most once a day.
-            actions.dictation?.history.purgeIfDue()
-            actions.callRecording?.purgeIfDue()
+            // Only the live menu cleans: the preview in Settings has no side effects.
+            if editable {
+                actions.dictation?.history.purgeIfDue()
+                actions.callRecording?.purgeIfDue()
+            }
             #endif
         }
         .onChange(of: pause.current) { _, new in
@@ -255,10 +324,73 @@ struct MenuContent: View {
         .environment(nav)
     }
 
+    // MARK: Blocks
+
+    private func shows(_ block: MenuBlock) -> Bool { store.settings.menu.shows(block) }
+
+    private func rows(_ block: MenuBlock) -> Int { store.settings.menu.rows(of: block) }
+
+    /// A right click on a block: hide it, or open the settings of the menu.
+    private func menu(_ block: MenuBlock) -> BlockMenu? {
+        guard editable else { return nil }
+        return BlockMenu(hide: {
+            store.update { $0.menu.set(block, shown: false) }
+            // The lit row may be in the block that goes: the keyboard would be left on nothing.
+            if let lit = nav.highlighted, Self.owns(block, row: lit) { nav.highlighted = nil }
+        }, customize: actions.customizeMenu)
+    }
+
+    /// Whether a row id belongs to a block of the menu.
+    static func owns(_ block: MenuBlock, row id: String) -> Bool {
+        switch block {
+        case .modeCard: id == "mode"
+        case .recentCorrections: id.hasPrefix("fix-")
+        case .recentDictations: id.hasPrefix("dictation-")
+        case .pause: id == "pause"
+        case .voiceMode: id == "voice-mode"
+        case .transcripts: id == "transcripts" || id.hasPrefix("summary-")
+        case .transcribeFile: id == "transcribe-file"
+        case .callRecording: id == "call"
+        case .updates: id == "updates"
+        case .about: id == "about"
+        case .statistics: false
+        case .launchAtLogin: id == "launch"
+        case .howTo: id == "onboarding"
+        case .layoutsList: id.hasPrefix("layout-")
+        }
+    }
+
+    /// The card, the lists and the dictations: what stands above the switches.
+    private var hasTop: Bool {
+        var top = shows(.modeCard) || rows(.recentCorrections) > 0
+        #if PEREKEY_VOICE
+        if let dictation = actions.dictation, showsDictations(dictation) { top = true }
+        #endif
+        return top
+    }
+
+    private var hasSwitches: Bool {
+        var any = shows(.pause) || (launch != nil && shows(.launchAtLogin))
+        #if PEREKEY_VOICE
+        if let voiceModes = actions.voiceModes, shows(.voiceMode), voiceModes.isOn() { any = true }
+        #endif
+        return any
+    }
+
+    /// The layouts as a list in the body, with no chevron in the header.
+    private var hasList: Bool { shows(.layoutsList) && !sources.layouts.isEmpty }
+
+    #if PEREKEY_VOICE
+    /// An unsaved dictation shows while there is one, whatever the number of rows.
+    private func showsDictations(_ dictation: DictationMenu) -> Bool {
+        dictation.history.unsaved != nil || (rows(.recentDictations) > 0 && !dictation.history.entries.isEmpty)
+    }
+    #endif
+
     // MARK: Header
 
-    /// More than one layout: the header opens the list of them.
-    private var canExpandLayouts: Bool { sources.layouts.count > 1 }
+    /// More than one layout, and no list of them in the body: the header opens the list.
+    private var canExpandLayouts: Bool { sources.layouts.count > 1 && !shows(.layoutsList) }
 
     private var layoutName: String { sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout") }
 
@@ -415,15 +547,16 @@ struct MenuContent: View {
                     .padding(.vertical, 2)
             } else {
                 VStack(spacing: 4) {
-                    let latest = recents.log.latestStanding?.id
-                    ForEach(recents.log.entries) { entry in
+                    let entries = Array(recents.log.entries.prefix(rows(.recentCorrections)))
+                    let latest = entries.first { !$0.undone }?.id
+                    ForEach(entries) { entry in
                         CorrectionRow(entry: entry, isLatest: entry.id == latest, store: store, nav: nav,
                                       onReport: { word, reason in actions.report(word, reason) },
                                       explained: entry.id == explainedEntry)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                     }
                 }
-                .animation(reduceMotion ? .easeOut(duration: 0.15) : PK.Motion.easeOut(0.32), value: recents.log.entries)
+                .animation(reduceMotion ? .easeOut(duration: 0.15) : PK.Motion.easeOut(0.32), value: Array(recents.log.entries.prefix(rows(.recentCorrections))))
             }
         }
         .padding(.horizontal, 12)
@@ -453,9 +586,10 @@ struct MenuContent: View {
     private var commands: some View {
         VStack(alignment: .leading, spacing: 0) {
             #if PEREKEY_VOICE
-            if let transcripts = actions.transcripts, transcripts.isOn() {
+            if let transcripts = actions.transcripts, shows(.transcripts), transcripts.isOn() {
                 MenuCommandRow(id: "transcripts", title: "", label: voiceText("Transcripts…"), shortcut: nil, nav: nav,
                                run: { actions.close(); transcripts.open() })
+                    .blockMenu(menu(.transcripts))
             }
             if let summaries = actions.summaries {
                 // A run goes on with the window closed, and never unseen: one line each, a click stops it.
@@ -466,31 +600,45 @@ struct MenuContent: View {
                         .accessibilityHint(voiceText("Stops it"))
                 }
             }
-            if let transcribeFile = actions.transcribeFile, actions.canTranscribeFiles() {
+            if let transcribeFile = actions.transcribeFile, shows(.transcribeFile), actions.canTranscribeFiles() {
                 MenuCommandRow(id: "transcribe-file", title: "Transcribe File…", table: "Voice", nav: nav) {
+                    guard editable else { return }
                     actions.close()
                     transcribeFile()
                 }
+                .blockMenu(menu(.transcribeFile))
             }
-            if let call = actions.callRecording, call.isAvailable {
+            // A call being recorded keeps its «Stop Recording» in the menu, hidden or not.
+            if let call = actions.callRecording, call.isAvailable, call.isRecording || shows(.callRecording) {
                 if call.isRecording {
                     MenuCommandRow(id: "call", title: "Stop Recording", table: "Voice", nav: nav) {
+                        guard editable else { return }
                         actions.close()
                         call.menuAction()
                     }
                 } else {
                     MenuCommandRow(id: "call", title: "Record a Call…", table: "Voice", nav: nav) {
+                        guard editable else { return }
                         actions.close()
                         call.menuAction()
                     }
+                    .blockMenu(menu(.callRecording))
                 }
             }
             #endif
             MenuCommandRow(id: "settings", title: "Settings…", shortcut: "⌘,", nav: nav, run: actions.openSettings)
             if let updates {
-                UpdatesMenuRow(updates: updates, nav: nav, close: actions.close)
+                UpdatesMenuRow(updates: updates, nav: nav, checkShown: shows(.updates), blockMenu: menu(.updates),
+                               close: actions.close)
             }
-            MenuCommandRow(id: "about", title: "About Perekey", shortcut: nil, nav: nav, run: actions.showAbout)
+            if shows(.howTo) {
+                MenuCommandRow(id: "onboarding", title: "How to Use Perekey", shortcut: nil, nav: nav, run: actions.showOnboarding)
+                    .blockMenu(menu(.howTo))
+            }
+            if shows(.about) {
+                MenuCommandRow(id: "about", title: "About Perekey", shortcut: nil, nav: nav, run: actions.showAbout)
+                    .blockMenu(menu(.about))
+            }
             MenuCommandRow(id: "quit", title: "Quit Perekey", shortcut: "⌘Q", nav: nav, run: actions.quit)
         }
     }
@@ -526,6 +674,7 @@ private struct TopHeightKey: PreferenceKey {
 private struct MenuScroll<Content: View>: View {
     let nav: MenuNav
     let limit: CGFloat
+    var onOverflow: ((Bool) -> Void)?
     @ViewBuilder let content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let contentHeight = State(initialValue: CGFloat(0))
@@ -557,6 +706,9 @@ private struct MenuScroll<Content: View>: View {
             .scrollIndicators(.automatic)
             .frame(maxHeight: limit.isFinite ? max(limit, 0) : nil)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport.wrappedValue = $0 }
+            .onChange(of: contentHeight.wrappedValue > viewport.wrappedValue + 1, initial: true) { _, overflows in
+                onOverflow?(overflows)
+            }
             .mask { fadeMask(more) }
             .onChange(of: nav.scrollRequest) { _, request in
                 guard let request else { return }
@@ -675,6 +827,42 @@ struct SwitchLine: View {
     }
 }
 
+/// The "Launch at login" switch with the states `SMAppService` can be in.
+struct LaunchAtLoginRow: View {
+    let launch: LaunchAtLogin
+    let nav: MenuNav
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            SwitchLine(title: "Launch at login", isOn: Binding(get: { launch.isOn }, set: { launch.setEnabled($0) }))
+                .disabled(!launch.isAvailable)
+            if launch.status == .requiresApproval {
+                HStack(spacing: 6) {
+                    Text("Approve Perekey in Login Items.")
+                        .font(PK.Font.caption)
+                        .foregroundStyle(Color.pkInk2)
+                    Button("Open Settings") { launch.openSystemSettings() }
+                        .buttonStyle(.pkSmall)
+                }
+            } else if !launch.isAvailable {
+                Text("Works in the installed app only.")
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkInk2)
+            }
+            if let error = launch.lastError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(PK.Font.caption)
+                    .foregroundStyle(Color.pkWarn)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .modifier(LitRing(lit: nav.highlighted == "launch"))
+        .menuItem("launch", nav: nav) { if launch.isAvailable { launch.setEnabled(!launch.isOn) } }
+    }
+}
+
 /// A command: Solid Indigo Fill with white text when hovered or lit by the keyboard.
 struct MenuCommandRow: View {
     let id: String
@@ -726,6 +914,9 @@ struct MenuCommandRow: View {
 struct UpdatesMenuRow: View {
     let updates: Updates
     let nav: MenuNav
+    /// False hides «Check for Updates…»; the row of a found update stays.
+    var checkShown = true
+    var blockMenu: BlockMenu?
     let close: () -> Void
 
     var body: some View {
@@ -734,9 +925,10 @@ struct UpdatesMenuRow: View {
             if let version = updates.pendingVersion {
                 MenuCommandRow(id: "updates", title: "Install Update \(version)…", shortcut: nil, badge: true,
                                enabled: policy.canCheckNow, nav: nav, run: run)
-            } else {
+            } else if checkShown {
                 MenuCommandRow(id: "updates", title: "Check for Updates…", shortcut: nil,
                                enabled: policy.canCheckNow, nav: nav, run: run)
+                    .blockMenu(blockMenu)
             }
         }
     }

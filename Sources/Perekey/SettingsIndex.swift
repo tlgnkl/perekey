@@ -57,6 +57,35 @@ enum SettingsIndex {
             item(.general, "Menu bar", "general.menu-bar"),
             item(.general, "Icon", "general.menu-icon"),
             item(.general, "Show the icon", "general.menu-visibility"),
+            item(.general, "Menu", "general.menu"),
+            item(.general, "Automatic switching and mode", "general.menu-mode"),
+            item(.general, "Recent corrections", "general.menu-corrections"),
+        ]
+        #if PEREKEY_VOICE
+        list += [voiceItem(.general, "Recent dictations", "general.menu-dictations", .voiceOn)]
+        #endif
+        list += [
+            item(.general, "Pause for 1 hour", "general.menu-pause"),
+            item(.general, "Launch at login in the menu", "general.menu-launch"),
+        ]
+        #if PEREKEY_VOICE
+        list += [voiceItem(.general, "Voice mode", "general.menu-voice-mode", .voiceOn)]
+        #endif
+        list += [
+            item(.general, "Layouts as a list", "general.menu-layouts"),
+        ]
+        #if PEREKEY_VOICE
+        list += [
+            voiceItem(.general, "Transcripts", "general.menu-transcripts", .voiceOn),
+            voiceItem(.general, "Transcribe File", "general.menu-transcribe", .voiceOn),
+            voiceItem(.general, "Record a Call", "general.menu-call", .voiceOn),
+        ]
+        #endif
+        list += [
+            item(.general, "Check for Updates", "general.menu-updates"),
+            item(.general, "How to Use Perekey", "general.menu-how-to"),
+            item(.general, "About Perekey", "general.menu-about"),
+            item(.general, "Count for today", "general.menu-statistics", .usage),
             item(.general, "Sounds", "general.sounds"),
             item(.general, "Sound on layout switch", "general.sound-switch"),
             item(.general, "Sound on correction", "general.sound-correction"),

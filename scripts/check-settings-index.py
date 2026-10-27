@@ -9,7 +9,7 @@ INDEX = "Sources/Perekey/SettingsIndex.swift"
 SKIP = {"SettingsIndex.swift", "DebugSnapshot.swift", "DebugVoiceScenario.swift", "OnboardingView.swift", "ReportWordSheet.swift"}
 # A row or a group title written as a literal. `Text(verbatim:)` and interpolations are dynamic: no entry.
 TITLES = re.compile(
-    r'(?:\bPKRow\(\s*|\bPKGroup\(\s*header:\s*|\b(?:correctionRow|soundRow)\(\s*)(?:Text|voiceText)\("((?:[^"\\]|\\.)*)"')
+    r'(?:\bPKRow\(\s*|\bPKGroup\(\s*header:\s*|\b(?:correctionRow|soundRow|blockRow)\(\s*)(?:Text|voiceText)\("((?:[^"\\]|\\.)*)"')
 ENTRY = re.compile(r'\b(?:item|voiceItem)\(\.(\w+),\s*"((?:[^"\\]|\\.)*)",\s*"([^"]+)"(?:,\s*\.\w+)*\)')
 SKIP_MARK = "search: skip"
 # On an anchor's line: the title is a string of another file (TriggerText.swift names the shortcut rows).

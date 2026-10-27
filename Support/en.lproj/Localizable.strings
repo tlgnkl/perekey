@@ -49,6 +49,7 @@
 "It looks like a password, so Perekey leaves it alone" = "It looks like a password, so Perekey leaves it alone";
 "Karabiner-Elements is running. Its rules may override this." = "Karabiner-Elements is running. Its rules may override this.";
 "Key %lld" = "Key %lld";
+"Launch at login in the menu" = "Launch at login in the menu";
 "Launch at login" = "Launch at login";
 "Let Perekey see the keys" = "Let Perekey see the keys";
 "Like Alt+Shift on Windows" = "Like Alt+Shift on Windows";
@@ -263,6 +264,7 @@
 "This build has no update key and cannot update itself." = "This build has no update key and cannot update itself.";
 "Never" = "Never";
 "Install Update %@…" = "Install Update %@…";
+"Check for Updates" = "Check for Updates";
 "Check for Updates…" = "Check for Updates…";
 /* Stage 2: automatic switching */
 "Undo last correction" = "Undo last correction";
@@ -344,7 +346,7 @@
 "Undone share" = "Undone share";
 "Today: no corrections" = "Today: no corrections";
 "Privacy" = "Privacy";
-"Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory." = "Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts). Site counts stay in memory.";
+"Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts), learning-journal.json (the last 500 undos and answers about learning a word: kinds, app IDs and times, no words). Site counts stay in memory." = "Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts), learning-journal.json (the last 500 undos and answers about learning a word: kinds, app IDs and times, no words). Site counts stay in memory.";
 "Languages of apps" = "Languages of apps";
 "Forget the languages of apps" = "Forget the languages of apps";
 "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit." = "To guess the language of the next word, Perekey counts how many words in each language you type in an app. No words, only counts. Sites are counted only until you quit.";
@@ -401,3 +403,17 @@
 "Startup" = "Startup";
 "Help" = "Help";
 "Show" = "Show";
+
+/* Settings → General → Menu, and the menu's right-click */
+"Menu" = "Menu";
+"Automatic switching and mode" = "Automatic switching and mode";
+"Layouts as a list" = "Layouts as a list";
+"Instead of opening them from the header." = "Instead of opening them from the header.";
+"Count for today" = "Count for today";
+"Only while “Count corrections” is on in Privacy." = "Only while “Count corrections” is on in Privacy.";
+"Right-click a block in the menu to hide it. The layout, Settings and Quit always stay." = "Right-click a block in the menu to hide it. The layout, Settings and Quit always stay.";
+"Reset to Default" = "Reset to Default";
+"Fits on this screen" = "Fits on this screen";
+"Does not fit on this screen: it will scroll" = "Does not fit on this screen: it will scroll";
+"Hide from Menu" = "Hide from Menu";
+"Customize Menu…" = "Customize Menu…";

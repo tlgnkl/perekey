@@ -3,7 +3,7 @@
 /// The last automatic correction, while it can still be taken back, and what
 /// taking it back learns.
 ///
-/// Backspace right after a correction puts the word back (`Effect.learned`
+/// Backspace right after a correction puts the word back (`Effect.undoSettled`
 /// when the user wants Perekey to learn from that). The undo is a retype like
 /// any other: it reports only once posted, and when the caret check cancels
 /// it, the Backspace goes through as an ordinary one.
@@ -61,6 +61,13 @@ struct CorrectionUndo: Sendable {
         var isOpen: Bool
         /// The word to learn, if `Settings.learnFromUndos`.
         var learn: String?
+        var channel: UndoChannel
+        /// The evidence it takes to ask about the word (`LearningOptions.threshold`).
+        var threshold: Int
+        var facts: UndoFacts
+        /// The key that ended the word comes back after it ("jrtq "), so a
+        /// Backspace after the undo deletes that first (`UndoWatch`).
+        var boundaryLeft: Bool
         /// The word to take off "Всегда исправлять" (`Pending.alwaysFix`).
         var withdraw: String?
         /// The Backspace that asked for the undo is the first held event.
@@ -155,7 +162,10 @@ struct CorrectionUndo: Sendable {
     /// Takes the last correction back: the retype that puts the word in its
     /// layout, or nil when there is nothing to undo. Either way the
     /// correction can no longer be undone.
-    mutating func takeBack(layouts: LayoutState, learnFromUndos: Bool, heldKey: Bool) -> Plan? {
+    /// `frequentRank` is the classifier's `shortWordRank`, for the threshold.
+    mutating func takeBack(layouts: LayoutState, learnFromUndos: Bool, channel: UndoChannel,
+                           frequentRank: UInt8) -> Plan?
+    {
         guard let last else { return nil }
         self.last = nil
         let correction = last.correction
@@ -199,7 +209,12 @@ struct CorrectionUndo: Sendable {
         return Plan(keys: keys, expected: expected, deleteCount: deleteCount, source: source.id,
                     language: source.language, strokes: last.strokes,
                     inFlight: InFlight(seq: correction.seq, reported: last.reported, isOpen: last.isOpen,
-                                       learn: learn, withdraw: last.alwaysFix, heldKey: heldKey,
+                                       learn: learn, channel: channel,
+                                       threshold: LearningOptions().threshold(for: correction.decision,
+                                                                              frequentRank: frequentRank),
+                                       facts: UndoFacts(kind: correction.kind, decision: correction.decision),
+                                       boundaryLeft: last.strokes.count > last.wordLength,
+                                       withdraw: last.alwaysFix, heldKey: channel == .backspace,
                                        language: source.language))
     }
 

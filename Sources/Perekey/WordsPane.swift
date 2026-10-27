@@ -2,6 +2,8 @@
 
 import PerekeyCore
 import AppKit
+import os
+import PerekeyInput
 import SwiftUI
 
 /// Settings → Words: the user's word rules. "Don't touch: mine" are typed in
@@ -13,6 +15,9 @@ struct WordsPane: View {
     var layouts: [LayoutMap] = []
     /// Says whether a word is among the 1000 most frequent. The classifier model will provide it.
     var isFrequent: (String) -> Bool = { _ in false }
+
+    /// Where the answers given here are written, as `InputController.answer` writes them.
+    var learningJournal = LearningJournalFile()
 
     private let draft: State<String>
     private let alwaysDraft: State<String>
@@ -127,7 +132,29 @@ struct WordsPane: View {
 
     private func decide(_ item: LearningCandidate, _ answer: LearningAnswer) {
         let readings = readings(of: item.word)
-        store.update { $0.words.decide(item, answer, at: Date().timeIntervalSince1970, readings: readings) }
+        let now = Date().timeIntervalSince1970
+        let question = words.question(for: item)
+        var learned: LearnedWord?
+        store.update { learned = $0.words.decide(item, answer, at: now, readings: readings) }
+        journal(LearningJournal.Entry(answer: answer, to: question, learned: learned, at: now))
+    }
+
+    private func learnEverywhere(_ item: LearnedWord) {
+        let now = Date().timeIntervalSince1970
+        var learned: LearnedWord?
+        store.update { learned = $0.words.learnEverywhere(item.word, at: now) }
+        guard let learned else { return }
+        journal(LearningJournal.Entry(answer: .everywhere, to: LearningQuestion(word: item.word, app: item.app),
+                                      learned: learned, at: now))
+    }
+
+    private func journal(_ entry: LearningJournal.Entry) {
+        do {
+            try learningJournal.append(entry)
+        } catch {
+            Logger(subsystem: "app.perekey", category: "settings")
+                .error("Learning journal not written: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private var learnedSection: some View {
@@ -162,10 +189,8 @@ struct WordsPane: View {
                                     .font(PK.Font.caption)
                                     .foregroundStyle(Color.pkInk2)
                                 if item.app != nil {
-                                    Button("Everywhere") {
-                                        store.update { $0.words.learnEverywhere(item.word, at: Date().timeIntervalSince1970) }
-                                    }
-                                    .buttonStyle(.pkLink)
+                                    Button("Everywhere") { learnEverywhere(item) }
+                                        .buttonStyle(.pkLink)
                                 }
                                 Button("Forget") { store.update { $0.words.forget(item.word, app: item.app) } }
                                     .buttonStyle(.pkLink)

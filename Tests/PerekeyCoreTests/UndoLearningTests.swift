@@ -294,19 +294,62 @@ import Testing
         #expect(words.pendingCandidates.isEmpty && words.candidates.count == 1)
     }
 
-    @Test func paneAnswersACandidateBelowItsThreshold() throws {
+    @Test func candidateBelowItsThresholdIsNotListed() throws {
         var words = WordRules()
         Self.count(Self.report(.backspace, .continued, threshold: 3), in: &words)
-        let candidate = try #require(words.pendingCandidates.first)
-        #expect(!candidate.isRipe)
-        let learned = words.decide(candidate, .here, at: Self.day + 1)
-        #expect(learned?.app == Self.textEdit)
-        #expect(words.candidates.isEmpty && words.isLearned("jrtq", in: Self.textEdit))
+        #expect(words.candidates.count == 1 && words.pendingCandidates.isEmpty)
+        Self.count(Self.report(.button, threshold: 3), in: &words, at: Self.day + 1)
+        #expect(words.pendingCandidates.map(\.word) == ["jrtq"])
+    }
+
+    @Test func decideForAMissingCandidateIsNil() {
+        var words = WordRules()
+        let missing = LearningCandidate(word: "jrtq", app: Self.textEdit, evidence: 2, threshold: 2, undoCount: 1,
+                                       firstUndoneAt: Self.day, lastCountedDay: 20_000)
+        #expect(words.decide(missing, .here, at: Self.day) == nil)
+        #expect(words.decide(missing, .no, at: Self.day) == nil)
+        #expect(words.learned.isEmpty && words.candidates.isEmpty)
+    }
+
+    @Test func decideThatLearnsNothingLeavesTheEvidence() throws {
+        var words = WordRules()
+        Self.count(Self.report(.backspace, .continued, threshold: 3), in: &words)
+        let before = try #require(words.candidates.first)
+        // Not learnable: the word is on "Мои".
+        words.mine = ["jrtq"]
+        for answer in [LearningAnswer.here, .everywhere] {
+            #expect(words.decide(before, answer, at: Self.day + 1) == nil)
+            #expect(words.candidates.first?.evidence == before.evidence)
+        }
+        // Already learned everywhere.
+        words.mine = []
+        words.learned = [LearnedWord(word: "jrtq", learnedAt: Self.day, app: nil)]
+        for answer in [LearningAnswer.here, .everywhere] {
+            #expect(words.decide(before, answer, at: Self.day + 1) == nil)
+            #expect(words.candidates.first?.evidence == before.evidence)
+        }
+    }
+
+    @Test func learnEverywhereEdges() throws {
+        var words = WordRules()
+        #expect(words.learnEverywhere("jrtq", at: Self.day) == nil)
+        let question = try #require(Self.count(Self.report(), in: &words).question)
+        words.answer(question, .here, at: Self.day)
+        Self.count(Self.report(app: Self.notes), in: &words)
+        #expect(!words.candidates.filter { $0.word == "jrtq" }.isEmpty)
+        #expect(words.learnEverywhere("jrtq", at: Self.day + 1) != nil)
+        #expect(words.candidates.filter { $0.word == "jrtq" }.isEmpty)
+        #expect(words.learnEverywhere("jrtq", at: Self.day + 2) == nil)
+    }
+
+    @Test func questionWithoutAnAppOffersOnlyEverywhere() {
+        #expect(LearningQuestion(word: "jrtq", app: nil, reachedElsewhere: true).choices == [.everywhere, .no])
+        #expect(LearningQuestion(word: "jrtq", app: nil).choices == [.everywhere, .no])
     }
 
     @Test func paneEverywhereLearnsGlobally() throws {
         var words = WordRules()
-        Self.count(Self.report(.backspace, .continued), in: &words)
+        Self.count(Self.report(), in: &words)
         let candidate = try #require(words.pendingCandidates.first)
         #expect(words.decide(candidate, .everywhere, at: Self.day)?.app == nil)
         #expect(words.isLearned("jrtq", in: Self.notes))

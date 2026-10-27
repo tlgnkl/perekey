@@ -427,10 +427,12 @@ public struct WordRules: Hashable, Sendable {
         return entry
     }
 
-    /// The candidates that have evidence and no answer yet, for the Words
-    /// pane. A "Нет" starts the evidence over and takes the candidate off.
+    /// The candidates that reached their threshold (the question was asked)
+    /// and have no answer yet, for the Words pane. One accidental undo is not
+    /// listed: "Везде" there would turn it into a global rule. A "Нет" starts
+    /// the evidence over and takes the candidate off.
     public var pendingCandidates: [LearningCandidate] {
-        candidates.filter { $0.evidence > 0 }
+        candidates.filter(\.isRipe)
     }
 
     /// The question the pane would ask for `candidate`, to know what "Только здесь" means for it.
@@ -439,8 +441,8 @@ public struct WordRules: Hashable, Sendable {
                          reachedElsewhere: !otherApps(candidate.word, than: candidate.app).isEmpty)
     }
 
-    /// The user answers for a candidate in the Words pane, with or without
-    /// the question having been asked. "Не трогать здесь" and "Везде" learn
+    /// The user answers for a candidate in the Words pane (a ripe one, though
+    /// the answer does not depend on it). "Не трогать здесь" and "Везде" learn
     /// the word as `answer` does; "Убрать" (`.no`) drops the candidate with
     /// its evidence. Returns the entry learned, if any.
     @discardableResult

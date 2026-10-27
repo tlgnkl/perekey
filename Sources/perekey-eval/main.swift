@@ -14,7 +14,8 @@
 //   perekey-eval cyrillic --model <dir> --layouts <dir> [--cache <dir>] [--words N] [--margin M] [--languages ru,uk,be]
 //                         [--margin-sweep]
 //   perekey-eval slash --model <file> --layouts <dir> --tokens <file> [--lead] [--list N]
-//   perekey-eval hyphen --model <file> [--cache <dir>] [--list N] [--layouts <dir> --words <hyphen.txt>]
+//   perekey-eval hyphen --model <file> [--cache <dir>] [--list N] [--text <file> [--text-name <name>]]
+//                       [--layouts <dir> --words <hyphen.txt>]
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -44,7 +45,10 @@
 // `hyphen` measures the hyphen step on the Russian Tatoeba sentences
 // (`HyphenEvaluation`): every word with a hyphen typed merged and typed
 // with a space, how many come back, and every change of the clean text; `--list` prints the N most
-// frequent hyphenated words not on the list (default 30). A change of the
+// frequent hyphenated words not on the list (default 30). `--text` measures
+// a plain text file the same way, one or more sentences per line (the
+// Wikipedia shard, docs/corrections.md, «Дефис»). Both count by the shape
+// of the word too: по-, -то, a word twice, a prefix, -ка, -таки. A change of the
 // clean text is reported, not an error: the corpus has typos of its own.
 // With `--layouts` and `--words` every word of the list, typed merged on the
 // Russian layout, must stay as it is for the typo step (`TypoCorrector`),
@@ -328,6 +332,11 @@ do {
         let model = try ModelFile.load(modelPath, languages: ["ru"])
         let result = try HyphenEvaluation.measure(model, cache: cache)
         print(result.report(list: Int(flags["--list"] ?? "30") ?? 30))
+        if let text = flags["--text"] {
+            let lines = try String(contentsOfFile: text, encoding: .utf8).split(separator: "\n")
+            let other = HyphenEvaluation.measure(model, sentences: lines, name: flags["--text-name"] ?? text)
+            print(other.report(list: Int(flags["--list"] ?? "30") ?? 30))
+        }
         if let layouts = flags["--layouts"], let list = flags["--words"] {
             let words = try String(contentsOfFile: list, encoding: .utf8).split(separator: "\n")
                 .map { $0.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]

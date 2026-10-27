@@ -14,8 +14,9 @@ public struct ModelBuilder: Sendable {
     public static let bucketBits = 16
     /// Buckets of the "ё" table: it holds tens of thousands of forms, not millions.
     public static let yoBucketBits = 12
-    /// Buckets of the hyphen table: a few hundred words.
-    public static let hyphenBucketBits = 8
+    /// Buckets of the hyphen table: the hand list and the words derived by
+    /// rule, hundreds of thousands.
+    public static let hyphenBucketBits = 12
 
     /// Free text stored in the model: sources, licences, input hashes.
     public var meta = ""
@@ -90,13 +91,16 @@ public struct ModelBuilder: Sendable {
     /// letters than the alphabet. Throws `HyphenCollision`, adding nothing,
     /// when a spelling of it already takes another value: "всё-таки" and
     /// "все-таки" with only one of them marked `spaced`, or two fingerprints
-    /// that happen to be equal.
+    /// that happen to be equal. `byRule`: a rule derived the word, not the
+    /// hand list (`ModelFormat.hyphenByRule`).
     @discardableResult
-    public mutating func addHyphen(_ form: String, language: String, spaced: Bool = false) throws -> Bool {
+    public mutating func addHyphen(_ form: String, language: String, spaced: Bool = false,
+                                   byRule: Bool = false) throws -> Bool
+    {
         guard let index = languages.firstIndex(where: { $0.language == language }) else {
             preconditionFailure("unknown language \(language)")
         }
-        return try languages[index].addHyphen(form, spaced: spaced)
+        return try languages[index].addHyphen(form, spaced: spaced, byRule: byRule)
     }
 
     /// Two words of the hyphen table want different values for one merged spelling.
@@ -273,17 +277,17 @@ struct LanguageBuilder: Sendable {
         return true
     }
 
-    mutating func addHyphen(_ form: String, spaced: Bool) throws -> Bool {
+    mutating func addHyphen(_ form: String, spaced: Bool, byRule: Bool) throws -> Bool {
         let scalars = Array(form.unicodeScalars).map { ModelFormat.fold($0.value) }
         let hyphen: UInt32 = 0x2D
         guard let position = scalars.firstIndex(of: hyphen), position > 0, position < scalars.count - 1,
-              position < Int(ModelFormat.hyphenSpaced), scalars.lastIndex(of: hyphen) == position,
+              position < Int(ModelFormat.hyphenByRule), scalars.lastIndex(of: hyphen) == position,
               scalars.allSatisfy({ $0 == hyphen || symbols[$0] != nil })
         else { return false }
         let merged = scalars.filter { $0 != hyphen }
         var spellings = [merged]
         if merged.contains(0x451) { spellings.append(merged.map { $0 == 0x451 ? 0x435 : $0 }) }
-        let value = UInt8(position) | (spaced ? ModelFormat.hyphenSpaced : 0)
+        let value = UInt8(position) | (spaced ? ModelFormat.hyphenSpaced : 0) | (byRule ? ModelFormat.hyphenByRule : 0)
         let fingerprints = spellings.map { spelling in
             var fingerprint = ModelFormat.Fingerprint()
             for scalar in spelling { fingerprint.add(scalar) }

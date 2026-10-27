@@ -804,6 +804,7 @@ struct WordJudge: Sendable {
             characters.append(character)
         }
         var word = BoundaryWord(characters: characters, modifiers: strokes.map(\.modifiers), language: map.language)
+        word.sentenceStart = sentenceStart
         guard WordCorrections.run(&word, settings: settings, model: model), let kind = word.kind,
               let corrected = Self.strokes(for: word, typed: strokes, in: map)
         else { return fix }

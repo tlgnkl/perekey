@@ -431,6 +431,74 @@ extension Desk {
     }
 }
 
+@Suite struct HyphenRuleTests {
+    @Test(arguments: [("поновому ", "по-новому "), ("вообщето ", "вообще-то "), ("тихотихо ", "тихо-тихо "),
+                      ("давайка ", "давай-ка "), ("опятьтаки, ", "опять-таки, ")])
+    func everyRule(typed: String, expected: String) {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type(typed, on: Fixture.russian)
+        #expect(desk.text == expected)
+        #expect(desk.corrections.first?.kind == .hyphen)
+    }
+
+    @Test func caseStays() {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.typeWithCapsLock("поновому ", on: Fixture.russian)
+        #expect(desk.text == "ПО-НОВОМУ ")
+    }
+
+    @Test func aCapitalInsideASentenceIsAName() {
+        // A rule word with a capital: at the start of a sentence it is fixed,
+        // inside one it is a name. The hand list has no names.
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type("Поновому и Поновому и Чтото. Вообщето ", on: Fixture.russian)
+        #expect(desk.text == "По-новому и Поновому и Что-то. Вообще-то ")
+    }
+
+    @Test func undoLearnsTheTypedWord() {
+        var desk = Desk(only { $0.hyphen = true }, current: ru)
+        desk.type("поновому ", on: Fixture.russian)
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "поновому ")
+        #expect(desk.learned == ["поновому"])
+    }
+
+    /// A model with the forms the prefix rule reads.
+    static let model: LanguageModel = {
+        var builder = ModelBuilder()
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        for (form, rank) in [("мэр", 150), ("квартира", 140), ("ной", 130), ("штабной", 0), ("клав", 60),
+                             ("вицемэров", 40)] as [(String, UInt8)]
+        {
+            builder.addForm(form, language: "ru", rank: rank, weight: 1)
+        }
+        return try! LanguageModel(bytes: builder.build())
+    }()
+
+    static func prefix(_ text: String, sentenceStart: Bool = false) -> String {
+        var word = BoundaryWord(characters: Array(text), modifiers: Array(repeating: [], count: text.count),
+                                language: "ru")
+        word.sentenceStart = sentenceStart
+        HyphenStep().apply(to: &word, model: model)
+        return String(word.characters)
+    }
+
+    @Test func prefixBeforeAWord() {
+        #expect(Self.prefix("вицемэр") == "вице-мэр")
+        #expect(Self.prefix("ШТАБКВАРТИРА") == "ШТАБ-КВАРТИРА")
+        #expect(Self.prefix("Вицемэр", sentenceStart: true) == "Вице-мэр")
+        #expect(Self.prefix("Вицемэр") == "Вицемэр", "a name inside a sentence")
+    }
+
+    @Test(arguments: ["штабной", "вицемэров", "вицеклав", "вицекот", "вицемэ", "экспрезидент"])
+    func prefixGuards(word: String) {
+        // A word of the model ("штабной"), a merged spelling wordfreq knows
+        // ("вицемэров" here), a rare rest ("клав"), an unknown one ("кот"),
+        // a rest too short, a prefix that is out ("экс": "эксклав" is a word).
+        #expect(Self.prefix(word) == word)
+    }
+}
+
 @Suite struct SpacedHyphenTests {
     private static let settings = only { $0.hyphen = true }
 

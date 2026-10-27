@@ -40,6 +40,9 @@ enum ModelFixture {
         "чём-либо",
     ]
 
+    /// Words the builder derives by rule (`ModelFormat.hyphenByRule`): one per rule.
+    static let hyphenByRule = ["по-новому", "вообще-то", "тихо-тихо", "давай-ка", "опять-таки"]
+
     /// Words with a fixed case, and whether Perekey corrects to them.
     static let cased: [(String, Bool)] = [
         ("МВД", true), ("ВрИО", true), ("MP3", true), ("NASA", true), ("iPhone", false), ("ГОСТ", false),
@@ -103,6 +106,7 @@ enum ModelFixture {
     static func addCorrections(to builder: inout ModelBuilder) {
         for word in yo { builder.addYo(word, language: "ru") }
         for word in hyphen { try! builder.addHyphen(word, language: "ru", spaced: hyphenSpaced.contains(word)) }
+        for word in hyphenByRule { try! builder.addHyphen(word, language: "ru", byRule: true) }
         for (form, corrects) in cased { builder.addCasedForm(form, corrects: corrects) }
     }
 

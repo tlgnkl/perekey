@@ -16,6 +16,10 @@ struct GeneralPane: View {
     var sources: InputSources?
     var systemMenu: SystemInputMenu = .shared
     var voiceIsOn = false
+    /// «Launch at login»; nil hides the group (snapshots without one).
+    var launch: LaunchAtLogin?
+    /// The welcome tour again: «How to Use Perekey».
+    var showOnboarding: () -> Void = {}
 
     var body: some View {
         PKPane(title: Text("General")) {
@@ -26,7 +30,11 @@ struct GeneralPane: View {
             hintSection
             MenuBarGroup(store: store, sources: sources, systemMenu: systemMenu, voiceIsOn: voiceIsOn)
             soundsSection
+            if let launch {
+                startupSection(launch)
+            }
             updatesSection
+            helpSection
         }
     }
 
@@ -111,6 +119,45 @@ struct GeneralPane: View {
             PKDivider()
             soundRow(Text("Sound on correction"), anchor: "general.sound-correction", setting: store.settings.correctionSound) { change in
                 store.update { change(&$0.correctionSound) }
+            }
+        }
+    }
+
+    /// «Launch at login» with the states `SMAppService` can be in.
+    private func startupSection(_ launch: LaunchAtLogin) -> some View {
+        PKGroup(header: Text("Startup"), anchor: "general.startup") {
+            PKRow(Text("Launch at login"), detail: launchDetail(launch), anchor: "general.launch-at-login") {
+                HStack(spacing: 12) {
+                    if launch.status == .requiresApproval {
+                        Button("Open Settings") { launch.openSystemSettings() }
+                            .buttonStyle(.pkSmall)
+                    }
+                    Toggle(isOn: Binding(get: { launch.isOn }, set: { launch.setEnabled($0) })) {
+                        Text("Launch at login")
+                    }
+                    .labelsHidden()
+                    .toggleStyle(.pkSwitch)
+                    .disabled(!launch.isAvailable)
+                }
+            }
+            if let error = launch.lastError {
+                PKCallout(Text(verbatim: error))
+            }
+        }
+        .onAppear { launch.refresh() }
+    }
+
+    private func launchDetail(_ launch: LaunchAtLogin) -> Text? {
+        if launch.status == .requiresApproval { return Text("Approve Perekey in Login Items.") }
+        if !launch.isAvailable { return Text("Works in the installed app only.") }
+        return nil
+    }
+
+    private var helpSection: some View {
+        PKGroup(header: Text("Help"), anchor: "general.help") {
+            PKRow(Text("How to Use Perekey"), anchor: "general.how-to") {
+                Button("Show") { showOnboarding() }
+                    .buttonStyle(.pkSecondary)
             }
         }
     }

@@ -393,3 +393,11 @@
 "Search settings" = "Search settings";
 "Nothing found" = "Nothing found";
 "No matches" = "No matches";
+
+/* Menu header and General: layouts, startup, help */
+"Layouts" = "Layouts";
+"%@, expanded" = "%@, expanded";
+"%@, collapsed" = "%@, collapsed";
+"Startup" = "Startup";
+"Help" = "Help";
+"Show" = "Show";

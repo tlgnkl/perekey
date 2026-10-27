@@ -76,6 +76,10 @@ struct SettingsView: View {
     var hasAccess: @MainActor () -> Bool = { true }
     /// Opens the access step of onboarding: the banner's button.
     var openAccess: () -> Void = {}
+    /// «Launch at login» of General; nil hides it.
+    var launch: LaunchAtLogin?
+    /// «How to Use Perekey» of General.
+    var showOnboarding: () -> Void = {}
     #if PEREKEY_VOICE
     /// The speech models and the voice settings; the Voice tab is empty without it.
     var voiceController: VoiceModelsController?
@@ -209,9 +213,11 @@ struct SettingsView: View {
         case .general:
             #if PEREKEY_VOICE
             GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources,
-                        voiceIsOn: (voiceController?.settings.isOn ?? false) && (voiceController?.isSupported ?? false))
+                        voiceIsOn: (voiceController?.settings.isOn ?? false) && (voiceController?.isSupported ?? false),
+                        launch: launch, showOnboarding: showOnboarding)
             #else
-            GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources)
+            GeneralPane(store: store, updates: updates, layouts: sources.layouts, sources: sources,
+                        launch: launch, showOnboarding: showOnboarding)
             #endif
         case .shortcuts: ShortcutsPane(store: store, recording: recording, languages: LanguagePairs(layouts: sources.layouts).languages)
         #if PEREKEY_VOICE

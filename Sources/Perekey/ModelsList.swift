@@ -276,7 +276,10 @@ private struct ModelOption: View {
         case .ready: voiceText("Ready")
         case .absent: Text(verbatim: voiceString("Not downloaded, \(ModelSize.text(status.size))"))
         case let .partial(received): voiceText("Paused at \(percent(received))")
-        case let .downloading(received), let .waitingForNetwork(received): voiceText("Downloading \(percent(received))")
+        case let .downloading(received), let .waitingForNetwork(received):
+            isPending
+                ? Text(verbatim: voiceString("Downloading \(percent(received))") + ". " + voiceString("Perekey switches to it when it is downloaded."))
+                : voiceText("Downloading \(percent(received))")
         case .damaged: voiceText("Files are damaged or missing")
         }
     }

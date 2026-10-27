@@ -140,6 +140,8 @@ final class VoiceModelsController {
             return
         }
         guard canDownload || status.isDownloading else { return }
+        // A damaged model an engine holds is repaired when dictation is done, as its Repair says.
+        if case .damaged = status.state, status.isInUse { return }
         // The chosen model that is not on disk yet only needs the files.
         pendingChoice = settings.settings.model == id ? nil : id
         if !status.isDownloading { download(id) }
@@ -157,18 +159,28 @@ final class VoiceModelsController {
                 }
                 self?.onModelReady?(id)
             } catch is CancellationError {
+                // `cancel` has dropped the pending choice. A pick made since then
+                // found this task still running, so the download starts again here.
+                self?.downloads[id] = nil
+                if self?.pendingChoice == id { self?.download(id) }
+                return
             } catch let failure as VoiceModelFailure {
                 self?.errors[id] = failure
+                self?.dropPending(id)
             } catch {
                 self?.errors[id] = .network(error.localizedDescription)
+                self?.dropPending(id)
             }
-            if self?.pendingChoice == id { self?.pendingChoice = nil }
             self?.downloads[id] = nil
         }
     }
 
-    func cancel(_ id: String) {
+    private func dropPending(_ id: String) {
         if pendingChoice == id { pendingChoice = nil }
+    }
+
+    func cancel(_ id: String) {
+        dropPending(id)
         Task { [store] in await store.cancelDownload(id) }
     }
 

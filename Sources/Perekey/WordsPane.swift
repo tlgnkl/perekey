@@ -97,8 +97,8 @@ struct WordsPane: View {
         }
     }
 
-    /// Words undone but not answered yet: the question did not come (the hint
-    /// is off, or it went away), or the evidence is still short.
+    /// Words that reached their threshold but were not answered: the hint is
+    /// off, or the question went away.
     private var candidatesSection: some View {
         let pending = words.pendingCandidates
         return PKGroup(header: Text("Waiting for your answer") + Text(count(pending.count)).foregroundStyle(Color.pkInk3),

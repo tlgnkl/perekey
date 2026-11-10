@@ -190,6 +190,10 @@ public struct Classifier: Sendable {
 
     public let model: LanguageModel
     public var options: Options
+    /// `TypoCorrector.Options.contextWeight` of the corrector over this model
+    /// (`WordJudge` builds it from here). One number and not the options: a
+    /// `Classifier` is copied on the tap thread, and the options hold a set.
+    public var typoContextWeight = 0.0
 
     public init(model: LanguageModel, options: Options = Options()) {
         self.model = model

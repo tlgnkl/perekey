@@ -169,6 +169,8 @@ public struct Evaluation {
                                              prior: item.app.map { LanguagePrior(counts: $0) } ?? LanguagePrior())
             // Without a word before it the word starts the text: a capital is allowed.
             let sentenceStart = item.previous == nil
+            // The word before it for the corrector's context, as the machine reads it from the keys typed.
+            let before = Self.wordBefore(item.previousWords)
 
             let kept = classifier.classify(strokes, typed: own, other: other, context: context)
             category.keepWords += 1
@@ -191,7 +193,7 @@ public struct Evaluation {
                     category.typosThatAreWords += 1
                 }
                 let fix = keptInOwnLayout
-                    ? corrector.correct(strokes, in: own, sentenceStart: sentenceStart)?.text : nil
+                    ? corrector.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before)?.text : nil
                 if fix == item.expected {
                     category.typosFixed += 1
                 } else {
@@ -202,7 +204,9 @@ public struct Evaluation {
                 category.switchWords += 1
                 if wrong.verdict == .switch(to: own.id) {
                     category.switches += 1
-                    if corrector.correct(strokes, in: own, sentenceStart: sentenceStart)?.text == item.expected {
+                    if corrector.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before)?.text
+                        == item.expected
+                    {
                         category.typosFixedAfterSwitch += 1
                     }
                 }
@@ -213,7 +217,7 @@ public struct Evaluation {
             if keptInOwnLayout {
                 // A right word the corrector changes is a wrong correction.
                 category.checkedWords += 1
-                if let fix = corrector.correct(strokes, in: own, sentenceStart: sentenceStart) {
+                if let fix = corrector.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before) {
                     category.wrongCorrections += 1
                     record(item, typed: own.id, expectSwitch: false, decision: kept, correction: fix.text)
                 }
@@ -316,6 +320,24 @@ public struct Evaluation {
             }
         }
         return points
+    }
+
+    /// The fingerprint of the word before a corpus word: the start of a
+    /// sentence when no word comes before it, nil when the corpus does not say.
+    static func wordBefore(_ words: [String]?) -> UInt64? {
+        guard let words else { return nil }
+        guard let latest = words.first else { return ModelFormat.sentenceStart }
+        return PreviousWord.fingerprint(of: latest.unicodeScalars)
+    }
+
+    /// Runs the corpus at each weight of the word before the typo: the
+    /// points to pick `TypoCorrector.Options.contextWeight` from.
+    public func typoContextSweep(_ items: [CorpusItem], weights: [Double]) -> [Results] {
+        weights.map { weight in
+            var evaluation = self
+            evaluation.typoOptions.contextWeight = weight
+            return evaluation.run(items, maxErrors: 0)
+        }
     }
 
     /// Runs the corpus at every pair of typo options: the points to pick

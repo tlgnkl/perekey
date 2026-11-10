@@ -6,6 +6,7 @@
 //   perekey-eval run --model <file> --corpus <file> --layouts <dir> [--pair en-uk|en-be|en-kk [--uk-layout <name>]]
 //                    [--threshold T] [--sweep] [--errors N per category] [--json <file>]
 //                    [--typo-score S] [--typo-margin M] [--typo-sweep]
+//                    [--typo-context W] [--typo-context-sweep [--typo-weights 0,0.25,...]]
 //                    [--context-bonus B] [--context-decay D] [--context-sweep [--bonuses 3,4] [--decays 0,1]]
 //                    [--prior-scale S] [--prior-limit L] [--prior-sweep]
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
@@ -75,6 +76,11 @@
 // as `TypoCorrector.Options`; `--typo-sweep` prints the points over both.
 // Its targets (wrong < 0.1 % of words, fixed ≥ 60 %) are reported, not gated:
 // the feature ships off until they are met.
+// `--typo-context` sets `TypoCorrector.Options.contextWeight`, how much the
+// lift of a candidate after the word before it counts (the corpus names that
+// word; docs/corrections.md, «Опечатки с контекстом»); `--typo-context-sweep`
+// prints the wrong corrections of every category and the typos fixed over
+// the weights of `--typo-weights` (0 to 1.5 by default).
 // `--context-sweep` runs the corpus over the weight of the previous word and
 // how much each word before it counts (`Classifier.Options.contextBonus` and
 // `contextDecay`); `--prior-sweep` over the app prior's scale and limit. Both
@@ -98,7 +104,8 @@ else {
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
-    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep", "--lead"].contains(argument) {
+    if ["--sweep", "--typo-sweep", "--typo-context-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep",
+        "--lead"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -156,6 +163,7 @@ do {
         var typoOptions = TypoCorrector.Options()
         if let score = flags["--typo-score"].flatMap(Int.init) { typoOptions.minScore = score }
         if let margin = flags["--typo-margin"].flatMap(Int.init) { typoOptions.margin = margin }
+        if let weight = flags["--typo-context"].flatMap(Double.init) { typoOptions.contextWeight = weight }
         let cyrillic = (cyrillicCode, flags["--uk-layout"] ?? [
             "uk": "Ukrainian-PC", "be": "Byelorussian", "kk": "Kazakh",
         ][cyrillicCode] ?? "Russian")
@@ -197,6 +205,32 @@ do {
                  "typoWords": category.typoWords, "typosFixed": category.typosFixed]
             },
         ]
+        // Only a run that uses the word before says so: a run without it writes the file it always wrote.
+        if typoOptions.contextWeight != 0 { json["typoContextWeight"] = typoOptions.contextWeight }
+        if flags["--typo-context-sweep"] != nil {
+            let weights = flags["--typo-weights"].map { $0.split(separator: ",").compactMap { Double($0) } }
+                ?? [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5]
+            let points = evaluation.typoContextSweep(items, weights: weights)
+            let names = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos", "apps"]
+            print("\ntypo context sweep: weight, wrong corrections per category (" + names.joined(separator: " ")
+                + "), all, rate, typos fixed")
+            for point in points {
+                let counts = names.map { name in
+                    String(format: "%5d", point.categories.first { $0.name == name }?.wrongCorrections ?? 0)
+                }.joined(separator: " ")
+                print(String(format: "  %4.2f  %@ %6d  %7.3f%%  %6.2f%%", point.typoOptions.contextWeight,
+                             counts as NSString, point.total.wrongCorrections, point.total.wrongCorrectionRate * 100,
+                             point.total.fixedShare * 100))
+            }
+            json["typoContextSweep"] = points.map { point -> [String: Any] in
+                ["weight": point.typoOptions.contextWeight, "wrongCorrectionRate": point.total.wrongCorrectionRate,
+                 "typosFixed": point.total.fixedShare,
+                 "categories": point.categories.map { category -> [String: Any] in
+                     ["name": category.name, "wrongCorrections": category.wrongCorrections,
+                      "typosFixed": category.typosFixed, "typoWords": category.typoWords]
+                 }]
+            }
+        }
         if flags["--typo-sweep"] != nil {
             let scores = [48, 56, 64, 72, 80, 96, 112, 128]
             let margins = [16, 32, 40, 48, 56, 64]

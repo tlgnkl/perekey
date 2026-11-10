@@ -52,6 +52,16 @@ public struct TypoCorrector: Sendable {
         /// has no word-form dictionary and no measured recall: a rare valid
         /// form could be «fixed», so its typos stay as typed until measured.
         public var languages: Set<String> = ["ru", "en"]
+        /// Rank units one bit of lift is worth: 32 per unit of Zipf, a factor
+        /// of ten, and a bit is a factor of two (`32·log₁₀2`).
+        public static let rankUnitsPerBit = 32 * 0.301_029_995_663_981_2
+        /// How much of the lift of a candidate after the word before it
+        /// (the "pair" section of the model) counts in its score: the
+        /// candidate gets `contextWeight × lift` bits, in rank units. 0 is
+        /// the corrector without the word before it, byte for byte. Plan 8.2;
+        /// the value comes from `perekey-eval run --typo-context-sweep`
+        /// (docs/corrections.md, «Опечатки с контекстом»).
+        public var contextWeight = 0.0
 
         public init() {}
     }
@@ -96,23 +106,32 @@ public struct TypoCorrector: Sendable {
     /// The correction of a word typed with these strokes in `layout`, or nil
     /// when the word is fine, unknown in a way no single edit explains, or
     /// not one to touch. Trailing spaces are ignored.
-    /// - Parameter sentenceStart: the word starts a sentence, so a capital
-    ///   first letter is no name.
-    public func correct(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap, sentenceStart: Bool) -> Candidate? {
+    /// - Parameters:
+    ///   - sentenceStart: the word starts a sentence, so a capital first
+    ///     letter is no name.
+    ///   - previous: the fingerprint of the word before it
+    ///     (`PreviousWord.fingerprint(of:)`, `ModelFormat.sentenceStart` at the
+    ///     start of a sentence); nil when it is not known. Used only with
+    ///     `Options.contextWeight` above 0.
+    public func correct(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap, sentenceStart: Bool,
+                        previous: UInt64? = nil) -> Candidate?
+    {
         guard let code = layout.language, options.languages.contains(code) else { return nil }
-        return correct(strokes, inAllowed: layout, sentenceStart: sentenceStart)
+        return correct(strokes, inAllowed: layout, sentenceStart: sentenceStart, previous: previous)
     }
 
     /// `correct(_:in:sentenceStart:)` for a caller that knows the layout's
     /// language is allowed (`LayoutState.correctsTypos`): no set lookup on
     /// the per-word path.
-    func correct(_ strokes: some Collection<KeyStroke>, inAllowed layout: LayoutMap, sentenceStart: Bool) -> Candidate? {
+    func correct(_ strokes: some Collection<KeyStroke>, inAllowed layout: LayoutMap, sentenceStart: Bool,
+                 previous: UInt64? = nil) -> Candidate?
+    {
         guard let code = layout.language, let language = model.language(code) else { return nil }
         let capacity = options.maxLetters
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: capacity) { scalars in
             withUnsafeTemporaryAllocation(of: UInt16.self, capacity: capacity) { keyCodes in
                 withUnsafeTemporaryAllocation(of: UInt64.self, capacity: capacity + 1) { prefixes in
-                    correct(strokes, in: layout, language: language, sentenceStart: sentenceStart,
+                    correct(strokes, in: layout, language: language, sentenceStart: sentenceStart, previous: previous,
                             scalars: scalars, keyCodes: keyCodes, prefixes: prefixes)
                 }
             }
@@ -120,7 +139,7 @@ public struct TypoCorrector: Sendable {
     }
 
     private func correct(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap, language: LanguageModel.Language,
-                         sentenceStart: Bool, scalars: UnsafeMutableBufferPointer<UInt32>,
+                         sentenceStart: Bool, previous: UInt64?, scalars: UnsafeMutableBufferPointer<UInt32>,
                          keyCodes: UnsafeMutableBufferPointer<UInt16>,
                          prefixes: UnsafeMutableBufferPointer<UInt64>) -> Candidate?
     {
@@ -157,11 +176,17 @@ public struct TypoCorrector: Sendable {
         // A known form, however rare, is what the user meant.
         guard language.rank(of: fingerprint.value) == nil else { return nil }
 
+        // The word before counts only with a weight, a word known and a table in the model.
+        let context = options.contextWeight > 0 && language.hasPairTable ? previous : nil
+        let unitsPerEighth = options.contextWeight * Options.rankUnitsPerBit / 8
         var best: (fingerprint: UInt64, rank: UInt8, score: Int, edit: Edit)?
         var runnerUp = Int.min
         func consider(_ value: UInt64, _ edit: Edit, prior: Int) {
             guard let rank = language.rank(of: value) else { return }
-            let score = Int(rank) + prior
+            var score = Int(rank) + prior
+            if let context, let lift = language.pairLift(previous: context, word: value) {
+                score += Int((Double(lift) * unitsPerEighth).rounded())
+            }
             guard let current = best else {
                 best = (value, rank, score, edit)
                 return

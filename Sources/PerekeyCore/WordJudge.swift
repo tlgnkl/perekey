@@ -198,6 +198,10 @@ struct WordJudge: Sendable {
     private func inContextApp(_ focus: Focus?) -> Bool {
         languageContext.app != nil && focus?.bundleID == languageContext.app
     }
+    /// The word before the one being judged, for the typo corrector
+    /// (`wordBefore(_:layouts:)`); only set while a judgement runs, and only
+    /// when the corrector uses it.
+    private var previousForTypo: UInt64?
     /// The next word starts a sentence (after `. ! ?`, a line end or a focus
     /// change): a capital there is no name. Independent of the word itself.
     private(set) var sentenceStart = true
@@ -227,7 +231,11 @@ struct WordJudge: Sendable {
 
     mutating func setClassifier(_ newClassifier: Classifier?) {
         classifier = newClassifier
-        typoCorrector = newClassifier.map { TypoCorrector(model: $0.model) }
+        typoCorrector = newClassifier.map { classifier in
+            var options = TypoCorrector.Options()
+            options.contextWeight = classifier.typoContextWeight
+            return TypoCorrector(model: classifier.model, options: options)
+        }
         recent.removeAll()
     }
 
@@ -379,6 +387,7 @@ struct WordJudge: Sendable {
         judged = true
         counting = inContextApp(focus)
         contextAtJudge = context(focus: focus)
+        previousForTypo = wordBefore(buffer, layouts: layouts)
         // The word after this key starts a sentence after `. ! ?` or a line
         // end. The space after "hello." judges the word again: the period is
         // in the buffer then.
@@ -508,6 +517,21 @@ struct WordJudge: Sendable {
         else { return .keep }
         retype.decision = decision
         return .retype(retype)
+    }
+
+    /// The fingerprint of the word before the one in the buffer, for the
+    /// typo corrector: the previous word of the buffer's history, or the start
+    /// of a sentence when there is none and the word is the first of one. Nil
+    /// when the corrector does not weigh it (`TypoCorrector.Options.contextWeight`
+    /// is 0, the default: nothing is read) or the buffer does not know the
+    /// word before. The history is cleared by the events that clear
+    /// `recent`: the caret left the text, a click, a new field.
+    private func wordBefore(_ buffer: WordBuffer, layouts: LayoutState) -> UInt64? {
+        guard let corrector = typoCorrector, corrector.options.contextWeight > 0 else { return nil }
+        guard let before = buffer.previousWord else { return sentenceStart ? ModelFormat.sentenceStart : nil }
+        guard let first = before.first, let map = layouts[first.layout] else { return nil }
+        return PreviousWord.fingerprint(of: before.lazy.compactMap { map.text(for: $0.stroke) }
+            .flatMap(\.unicodeScalars))
     }
 
     /// What automatic switching decides about the word in the buffer, for the
@@ -797,7 +821,8 @@ struct WordJudge: Sendable {
     {
         var fix: WordFix?
         if settings.typoCorrection, let typoCorrector, layouts.correctsTypos(map.id),
-           let candidate = typoCorrector.correct(entries.lazy.map(\.stroke), inAllowed: map, sentenceStart: sentenceStart)
+           let candidate = typoCorrector.correct(entries.lazy.map(\.stroke), inAllowed: map, sentenceStart: sentenceStart,
+                                                 previous: previousForTypo)
         {
             fix = WordFix(strokes: candidate.strokes, kind: .typo, typoChange: candidate.change)
         }

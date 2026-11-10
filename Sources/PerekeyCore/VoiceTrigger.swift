@@ -213,6 +213,14 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.dictationLanguage.stringValue) }
     }
 
+    /// «Распознавать во время речи»: a dictation on this Mac is cut at its
+    /// pauses and recognized piece by piece while it is spoken, so only the
+    /// last piece is left after the stop (`SpeechSegmenter`). Off, the whole
+    /// recording is recognized after the stop, as before.
+    public var recognizesWhileSpeaking: Bool {
+        didSet { unreadableKeys.remove(CodingKeys.recognizesWhileSpeaking.stringValue) }
+    }
+
     /// Start and stop sounds.
     public var playsSounds: Bool {
         didSet { unreadableKeys.remove(CodingKeys.playsSounds.stringValue) }
@@ -278,7 +286,7 @@ public struct VoiceSettings: Hashable, Sendable {
                 introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .always,
                 includesRecordingsInBackup: Bool = false, callDiarize: Bool = true, callConsentShown: Bool = false,
                 insertion: [String: DictationInsertion] = [:],
-                dictationLanguage: DictationLanguageSetting = .auto)
+                dictationLanguage: DictationLanguageSetting = .auto, recognizesWhileSpeaking: Bool = false)
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
@@ -297,6 +305,7 @@ public struct VoiceSettings: Hashable, Sendable {
         self.includesRecordingsInBackup = includesRecordingsInBackup
         self.insertion = insertion
         self.dictationLanguage = dictationLanguage
+        self.recognizesWhileSpeaking = recognizesWhileSpeaking
     }
 
     /// How dictation goes into the app `bundleID`.
@@ -319,7 +328,7 @@ extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, transcriptionModel, switchesLayout,
              playsSounds, autoStop, unload, introAnswered, callAudioRetention, includesRecordingsInBackup,
-             callDiarize, callConsentShown, insertion, dictationLanguage
+             callDiarize, callConsentShown, insertion, dictationLanguage, recognizesWhileSpeaking
     }
 
     public init(from decoder: any Decoder) throws {
@@ -362,6 +371,7 @@ extension VoiceSettings: Codable {
         includesRecordingsInBackup = read(Bool.self, .includesRecordingsInBackup) ?? defaults.includesRecordingsInBackup
         insertion = read([String: DictationInsertion].self, .insertion) ?? defaults.insertion
         dictationLanguage = read(DictationLanguageSetting.self, .dictationLanguage) ?? defaults.dictationLanguage
+        recognizesWhileSpeaking = read(Bool.self, .recognizesWhileSpeaking) ?? defaults.recognizesWhileSpeaking
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -397,6 +407,9 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.dictationLanguage.stringValue) {
             try container.encode(dictationLanguage, forKey: .dictationLanguage)
+        }
+        if !unreadableKeys.contains(CodingKeys.recognizesWhileSpeaking.stringValue) {
+            try container.encode(recognizesWhileSpeaking, forKey: .recognizesWhileSpeaking)
         }
         if !unreadableKeys.contains(CodingKeys.playsSounds.stringValue) {
             try container.encode(playsSounds, forKey: .playsSounds)

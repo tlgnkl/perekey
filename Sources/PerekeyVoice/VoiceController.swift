@@ -139,8 +139,11 @@ public enum DictationFailure: Hashable, Sendable {
 ///
 /// The audio of a session goes into a `DictationAudio` made at its start.
 /// The model loads while the user speaks; recognition runs at
-/// `userInitiated` once the recording stops. The model unloads after the
-/// idle time of the settings (`ModelResidency`).
+/// `userInitiated` once the recording stops. With «Распознавать во время
+/// речи» a dictation on this Mac is cut at its pauses while it is spoken and
+/// its pieces are recognized meanwhile (`SegmentedRecognizer`): after the
+/// stop only the last piece is left. The model unloads after the idle time
+/// of the settings (`ModelResidency`).
 @MainActor
 @Observable
 public final class VoiceController {
@@ -240,6 +243,8 @@ public final class VoiceController {
     @ObservationIgnored private var lastLanguages = LastDictationLanguages()
     @ObservationIgnored private let sleep: Sleep
     @ObservationIgnored private let limitSeconds: Int
+    /// Where pieces are cut and what Whisper reads before each.
+    @ObservationIgnored private let pieceOptions: SegmentedRecognizer.Options
     @ObservationIgnored private var preferences: DictationPreferences
     /// A microphone chosen during a session, applied once it is over.
     @ObservationIgnored private var pendingMicrophone: String??
@@ -289,6 +294,16 @@ public final class VoiceController {
         var fallback: ModeFallback?
         /// The model of this Mac that heard it in the cloud's place.
         var heardHere: String?
+        /// The speech probabilities of the recording so far, one per
+        /// `VoiceActivity.chunk` from its start, as the speech check finds them.
+        var speech: [Float] = []
+        /// Cuts the recording at its pauses while it is spoken; nil when it is
+        /// recognized whole, and once it stopped.
+        var segmenter: SpeechSegmenter?
+        /// The pieces, from the first cut.
+        var pieces: SegmentedRecognizer?
+        /// The language hint the pieces were given, read at the first cut.
+        var piecesPlan: HintPlan?
 
         /// The speech model is in the cloud.
         var isCloud: Bool { model.map { CloudSpeechModel(id: $0.engine.id) != nil } ?? false }
@@ -307,11 +322,14 @@ public final class VoiceController {
         }
     }
 
-    /// - Parameter limitSeconds: the longest dictation (`DictationAudio.limitSeconds`).
+    /// - Parameters:
+    ///   - limitSeconds: the longest dictation (`DictationAudio.limitSeconds`).
+    ///   - pieces: where «Распознавать во время речи» cuts; the probe measures others.
     public init(preferences: DictationPreferences, microphone: any DictationMicrophone, paster: any DictationPaster,
                 secureInput: (any DictationSecureInputRules)?, detector: (any SpeechDetector)?,
                 makeEngine: @escaping (String) -> (any SpeechEngine)?, hooks: Hooks = Hooks(),
                 limitSeconds: Int = DictationAudio.limitSeconds,
+                pieces: SegmentedRecognizer.Options = .standard,
                 sleep: @escaping Sleep = taskSleep)
     {
         self.preferences = preferences
@@ -322,6 +340,7 @@ public final class VoiceController {
         self.makeEngine = makeEngine
         self.hooks = hooks
         self.limitSeconds = limitSeconds
+        pieceOptions = pieces
         self.sleep = sleep
         detectorResidency = detector.map { ModelResidency($0, unloadDelay: preferences.unloadAfter) }
         pendingMicrophone = .some(preferences.microphoneUID)
@@ -604,6 +623,12 @@ public final class VoiceController {
         let plan = modes?.plan()
         let work = Work(session: session, audio: audio, model: model(for: plan?.speechModel ?? preferences.modelID),
                         plan: plan)
+        // Pieces only on this Mac: a cloud model is paid and agreed to per request.
+        if preferences.recognizesWhileSpeaking, detector != nil, let engine = work.model?.engine,
+           CloudSpeechModel(id: engine.id) == nil
+        {
+            work.segmenter = SpeechSegmenter(options: pieceOptions.segments)
+        }
         current?.stopTimers()
         current = work
         handle(.refinesText(session, plan?.refine != nil))
@@ -643,6 +668,8 @@ public final class VoiceController {
     private func stop(_ session: DictationMachine.Session) {
         guard let work = current, work.session == session else { return }
         work.stopTimers()
+        // No piece after the stop: what is left is the last one.
+        work.segmenter = nil
         let microphone = self.microphone
         let subscription = work.subscription
         work.subscription = nil
@@ -655,6 +682,8 @@ public final class VoiceController {
         work.refining?.cancel()
         // A request to the cloud, unlike CoreML, can be stopped.
         if work.isCloud { work.recognition?.cancel() }
+        // No more pieces start; the one under way ends by itself.
+        if let pieces = work.pieces { Task { await pieces.cancel() } }
         current = nil
         // A recognition under way keeps its hold on the model until it ends:
         // CoreML is not stopped half way, and the model must not go under it.
@@ -662,6 +691,8 @@ public final class VoiceController {
     }
 
     /// The session lets go of the model and the detector; their timers start.
+    /// Once only, and after its last piece: CoreML is not stopped half way,
+    /// and the model must not go under it.
     private func release(_ work: Work) {
         guard !work.isReleased else { return }
         work.isReleased = true
@@ -669,7 +700,12 @@ public final class VoiceController {
         let residency = work.model?.residency
         let detecting = work.detecting
         let detectorResidency = self.detectorResidency
+        let pieces = work.pieces
         Task {
+            if let pieces {
+                await pieces.cancel()
+                await pieces.idle()
+            }
             if (try? await loading?.value) != nil { await residency?.end() }
             if await detecting?.value == true { await detectorResidency?.end() }
         }
@@ -702,8 +738,14 @@ public final class VoiceController {
             await work.stopping?.value
             let audio = AudioBuffer16k(work.audio.samples)
             // The app and the layout are read here, after the recording, not at its
-            // start: a switch of either during the speech changes the hint.
-            let plan = await hintPlan(for: work.target?.value, engine: work.model?.engine)
+            // start: a switch of either during the speech changes the hint. With
+            // pieces, at the first cut: all the pieces have the same hint.
+            let plan: HintPlan
+            if let piecesPlan = work.piecesPlan {
+                plan = piecesPlan
+            } else {
+                plan = await hintPlan(for: work.target?.value, engine: work.model?.engine)
+            }
             do {
                 guard let engine = work.model?.engine, let loading = work.loading else {
                     throw VoiceModelFailure.unknownModel(preferences.modelID)
@@ -737,8 +779,13 @@ public final class VoiceController {
                     }
                 } else {
                     try await loading.value
-                    outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting,
-                                                                       prompt: prompt, hint: plan.hint)
+                    // The pieces' text, or the whole recording if a piece failed.
+                    if let pieces = work.pieces, let joined = try await pieces.finish(upTo: audio.samples.count) {
+                        outcome = joined
+                    } else {
+                        outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting,
+                                                                           prompt: prompt, hint: plan.hint)
+                    }
                 }
                 remember(outcome, plan)
                 release(work)
@@ -1117,9 +1164,12 @@ public final class VoiceController {
                 self?.refreshHUD()
             }
         }
-        guard let silenceStop = preferences.silenceStop, let detector else { return }
-        let limit = silenceStop.components
-        var watch = SilenceWatch(limit: Double(limit.seconds) + Double(limit.attoseconds) / 1e18)
+        // The speech check: for the silence stop, and for the pieces' cuts.
+        guard preferences.silenceStop != nil || work.segmenter != nil, let detector else { return }
+        var watch = preferences.silenceStop.map { silenceStop in
+            let limit = silenceStop.components
+            return SilenceWatch(limit: Double(limit.seconds) + Double(limit.attoseconds) / 1e18)
+        }
         let session = work.session
         let audio = work.audio
         work.silence = Task { [weak self] in
@@ -1133,17 +1183,46 @@ public final class VoiceController {
                 // One chunk before the new ones, so the detector has context.
                 let samples = audio.samples(in: max(0, checked - chunk)..<heard)
                 guard let probabilities = try? await detector.speechProbabilities(samples) else { return }
-                let fresh = probabilities.suffix((heard - checked) / chunk)
+                let expected = (heard - checked) / chunk
+                let fresh = probabilities.suffix(expected)
+                // A chunk the detector gave no answer for counts as speech: no cut there.
+                work.speech += [Float](repeating: 1, count: expected - fresh.count) + fresh
                 for (index, probability) in fresh.enumerated() {
                     let end = Double(checked + (index + 1) * chunk) / VoiceCore.sampleRate
-                    if watch.observe(speech: probability >= VoiceActivity.threshold, upTo: end) {
+                    if watch?.observe(speech: probability >= VoiceActivity.threshold, upTo: end) == true {
                         handle(.captureEnded(session, .silence))
                         return
                     }
                 }
                 checked = heard
+                await cutPieces(work)
             }
         }
+    }
+
+    /// Hands the pieces the speech so far holds to the session's recognizer.
+    private func cutPieces(_ work: Work) async {
+        while current === work, let piece = work.segmenter?.next(work.speech) {
+            guard let pieces = await recognizer(for: work) else { return }
+            await pieces.add(piece)
+        }
+    }
+
+    /// The session's pieces, made at the first cut with the dictionary's
+    /// words and the language hint of the dictation's app. Nil once the
+    /// recording stopped (what is left is recognized whole) or without a model.
+    private func recognizer(for work: Work) async -> SegmentedRecognizer? {
+        if let pieces = work.pieces { return pieces }
+        guard let engine = work.model?.engine, let loading = work.loading else { return nil }
+        let dictionary = hooks.prompt()
+        let plan = hintPlan(for: await work.target?.value, engine: engine)
+        if let pieces = work.pieces { return pieces }
+        guard work.segmenter != nil, !work.isReleased else { return nil }
+        let pieces = SegmentedRecognizer(audio: work.audio, engine: engine, detector: detector, dictionary: dictionary,
+                                         hint: plan.hint, promptWords: pieceOptions.promptWords, ready: loading)
+        work.pieces = pieces
+        work.piecesPlan = plan
+        return pieces
     }
 
     private func refreshHUD() {

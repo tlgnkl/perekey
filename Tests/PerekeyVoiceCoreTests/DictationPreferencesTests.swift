@@ -30,6 +30,14 @@ struct DictationPreferencesTests {
         #expect(!DictationPreferences().languageFromApp)
     }
 
+    @Test func piecesAreRecognizedWhileSpeakingOnlyByTheSetting() {
+        #expect(!DictationPreferences(VoiceSettings()).recognizesWhileSpeaking)
+        var settings = VoiceSettings()
+        settings.recognizesWhileSpeaking = true
+        #expect(DictationPreferences(settings).recognizesWhileSpeaking)
+        #expect(!DictationPreferences().recognizesWhileSpeaking)
+    }
+
     @Test func offAndNever() {
         var settings = VoiceSettings()
         settings.autoStop = .off

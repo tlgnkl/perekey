@@ -5,7 +5,8 @@ import PerekeyCore
 import PerekeyVoice
 import PerekeyVoiceCore
 
-/// `dictate-set <id> <speech-dir> [--seconds s] [--runs n] [--instant]`:
+/// `dictate-set <id> <speech-dir> [--seconds s] [--runs n] [--instant]
+/// [--pieces | --both] [--minimum s] [--pause s] [--prompt-words n]`:
 /// the app's dictation path (as `dictate`) on the speech set
 /// (`scripts/fetch-data.sh speech`), its recordings of a language joined one
 /// after another into dictations of up to `s` seconds (60 by default), their
@@ -16,6 +17,13 @@ import PerekeyVoiceCore
 ///
 /// The audio is fed at its own pace, in blocks of 100 ms against the clock,
 /// as a microphone would; `--instant` hands it over at once.
+///
+/// - `--pieces`: with «Распознавать во время речи» (`SegmentedRecognizer`);
+///   without it, the whole recording after the stop.
+/// - `--both`: each dictation both ways, back to back and in alternating
+///   order, so a busy machine and a warm model touch both arms alike.
+/// - `--minimum`, `--pause`, `--prompt-words`: the pieces' options in place
+///   of `SegmentedRecognizer.Options.standard`.
 @MainActor
 enum DictateSetCommand {
     struct Dictation {
@@ -35,19 +43,29 @@ enum DictateSetCommand {
 
     static func run(_ arguments: [String]) async throws {
         guard arguments.count >= 2 else {
-            throw ProbeError.message("dictate-set <id> <speech-dir> [--seconds s] [--runs n] [--instant]")
+            throw ProbeError.message("""
+                dictate-set <id> <speech-dir> [--seconds s] [--runs n] [--instant] [--pieces | --both] \
+                [--minimum s] [--pause s] [--prompt-words n]
+                """)
         }
         let id = arguments[0]
         let folder = URL(filePath: arguments[1], directoryHint: .isDirectory)
         var seconds = 60.0
         var runs = 1
         var instant = false
+        var arms = [false]
+        var options = SegmentedRecognizer.Options.standard
         var rest = arguments.dropFirst(2)[...]
         while let argument = rest.popFirst() {
             switch argument {
             case "--seconds": seconds = Double(rest.popFirst() ?? "") ?? seconds
             case "--runs": runs = Int(rest.popFirst() ?? "") ?? 1
             case "--instant": instant = true
+            case "--pieces": arms = [true]
+            case "--both": arms = [false, true]
+            case "--minimum": options.segments.minimumPiece = Double(rest.popFirst() ?? "") ?? options.segments.minimumPiece
+            case "--pause": options.segments.pause = Double(rest.popFirst() ?? "") ?? options.segments.pause
+            case "--prompt-words": options.promptWords = Int(rest.popFirst() ?? "") ?? options.promptWords
             default: throw ProbeError.message("unknown option \(argument)")
             }
         }
@@ -66,12 +84,16 @@ enum DictateSetCommand {
 
         let microphone = FileMicrophone()
         let paster = PrintPaster()
-        let preferences = DictationPreferences(modelID: id, switchesLayout: false, playsSounds: false,
-                                               silenceStop: nil, unloadAfter: nil)
+        func preferences(pieces: Bool) -> DictationPreferences {
+            DictationPreferences(modelID: id, switchesLayout: false, playsSounds: false, silenceStop: nil,
+                                 unloadAfter: nil, recognizesWhileSpeaking: pieces)
+        }
         let controller = VoiceController(
-            preferences: preferences, microphone: microphone, paster: paster, secureInput: nil,
+            preferences: preferences(pieces: arms[0]), microphone: microphone, paster: paster, secureInput: nil,
             detector: SileroVAD(store: store), makeEngine: { VoiceEngines.make(model: $0, store: store) },
-            hooks: VoiceController.Hooks(play: { _ in }))
+            hooks: VoiceController.Hooks(play: { _ in }), pieces: options)
+        print("options\tminimum=\(options.segments.minimumPiece)\tpause=\(options.segments.pause)"
+            + "\tprompt_words=\(options.promptWords)")
 
         // Warm-up: the model loads and CoreML compiles; its time is not the model's.
         _ = try await dictate(first.samples, controller: controller, microphone: microphone, paster: paster,
@@ -79,18 +101,23 @@ enum DictateSetCommand {
         var rows: [Row] = []
         print("row\tarm\trun\tlanguage\tspeech_s\tstop_to_text_s\tfiles\treference\ttext")
         for run in 0..<runs {
-            for dictation in dictations {
-                let (stopToText, text) = try await dictate(dictation.samples, controller: controller,
-                                                           microphone: microphone, paster: paster, instant: instant)
-                let row = Row(arm: "whole", run: run, dictation: dictation, stopToText: stopToText, text: text)
-                rows.append(row)
-                print("row\t\(row.arm)\t\(run)\t\(dictation.language)\t"
-                    + String(format: "%.1f\t%.3f", Double(dictation.samples.count) / VoiceCore.sampleRate, stopToText)
-                    + "\t\(dictation.files.joined(separator: ","))\t\(dictation.reference)\t\(text)")
+            for (index, dictation) in dictations.enumerated() {
+                for pieces in (index + run) % 2 == 0 ? arms : arms.reversed() {
+                    controller.apply(preferences(pieces: pieces))
+                    let (stopToText, text) = try await dictate(dictation.samples, controller: controller,
+                                                               microphone: microphone, paster: paster, instant: instant)
+                    let row = Row(arm: pieces ? "pieces" : "whole", run: run, dictation: dictation,
+                                  stopToText: stopToText, text: text)
+                    rows.append(row)
+                    print("row\t\(row.arm)\t\(run)\t\(dictation.language)\t"
+                        + String(format: "%.1f\t%.3f", Double(dictation.samples.count) / VoiceCore.sampleRate, stopToText)
+                        + "\t\(dictation.files.joined(separator: ","))\t\(dictation.reference)\t\(text)")
+                    fflush(stdout)
+                }
             }
         }
         await controller.unloadModels()
-        summary(id: id, seconds: seconds, instant: instant, rows: rows)
+        summary(id: id, seconds: seconds, instant: instant, options: options, rows: rows)
     }
 
     /// The recordings of each language, in the order of `refs.tsv`, joined
@@ -166,10 +193,17 @@ enum DictateSetCommand {
 
     /// Per arm and language: the errors over all runs, and the stop-to-text
     /// time of a dictation as the median of its runs.
-    static func summary(id: String, seconds: Double, instant: Bool, rows: [Row]) {
+    static func summary(id: String, seconds: Double, instant: Bool, options: SegmentedRecognizer.Options,
+                        rows: [Row])
+    {
         for arm in Set(rows.map(\.arm)).sorted() {
             let mine = rows.filter { $0.arm == arm }
             var result: [String: Any] = ["model": id, "arm": arm, "seconds": seconds, "instant": instant]
+            if arm == "pieces" {
+                result["minimum"] = options.segments.minimumPiece
+                result["pause"] = options.segments.pause
+                result["prompt_words"] = options.promptWords
+            }
             var all = SpeechScore.Tally()
             var allTimes: [Double] = []
             for language in ["ru", "en"] {

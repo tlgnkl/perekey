@@ -25,6 +25,8 @@
 "Dictation language" = "Dictation language";
 "As in the app: when the app's language and the layout agree, the model is told it. Otherwise it finds the language itself." = "As in the app: when the app's language and the layout agree, the model is told it. Otherwise it finds the language itself.";
 "As in the app" = "As in the app";
+"Recognize while I speak" = "Recognize while I speak";
+"The text is ready sooner after a long dictation: Perekey recognizes it in pieces at your pauses while you speak. A cloud speech model always hears the whole recording." = "The text is ready sooner after a long dictation: Perekey recognizes it in pieces at your pauses while you speak. A cloud speech model always hears the whole recording.";
 "Sounds" = "Sounds";
 "Stop by itself after" = "Stop by itself after";
 "A long recording stops and is typed at this limit." = "A long recording stops and is typed at this limit.";

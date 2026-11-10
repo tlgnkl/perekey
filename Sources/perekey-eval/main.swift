@@ -16,6 +16,8 @@
 //   perekey-eval slash --model <file> --layouts <dir> --tokens <file> [--lead] [--list N]
 //   perekey-eval hyphen --model <file> [--cache <dir>] [--list N] [--text <file> [--text-name <name>]]
 //                       [--layouts <dir> --words <hyphen.txt>]
+//   perekey-eval replay check|words|compare <.pksession files> --model <dir> [--json <file>] [--show-words]
+//                       [--candidate-model <dir>] [--candidate-options <json or file>]
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -53,6 +55,12 @@
 // With `--layouts` and `--words` every word of the list, typed merged on the
 // Russian layout, must stay as it is for the typo step (`TypoCorrector`),
 // which runs before the hyphen step: exit status 1 for any that it changes.
+// `replay` runs recorded typing sessions through `InputMachine`
+// (`ReplayCommand`, docs/classifier.md, «Замер на живых сессиях»): `check`
+// replays them exactly and names the first answer that differs from the
+// recording (exit status 1); `words` prints the labelled words by outcome;
+// `compare` where a candidate model or `Classifier.Options` decides
+// otherwise. Typed words are printed only with `--show-words`.
 // `corpus` writes a TSV of words by category (about N words, default 50 000,
 // plus a tenth of typos).
 // `run` types every word in its own layout and in the other one and prints
@@ -80,11 +88,16 @@ func fail(_ message: String) -> Never {
     exit(2)
 }
 
+// `replay` takes files as well as flags: PerekeyModelKit's `ReplayCommand` parses its own.
+if CommandLine.arguments.dropFirst().first == "replay" {
+    exit(ReplayCommand.run(Array(CommandLine.arguments.dropFirst(2))) { print($0) })
+}
+
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
 guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen"]
     .contains(command)
 else {
-    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen ... (see the source header)")
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen|replay ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {

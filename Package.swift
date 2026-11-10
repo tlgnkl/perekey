@@ -66,9 +66,11 @@ var targets: [Target] = [
     .executableTarget(name: "perekey-model", dependencies: ["PerekeyCore", "PerekeyModelKit"]),
     // Measures the classifier on the held-out corpus; scripts/eval.sh.
     .executableTarget(name: "perekey-eval", dependencies: ["PerekeyCore", "PerekeyModelKit"]),
+    // PerekeyModelKit for the replay of recorded sessions: its tests record
+    // sessions on the test desk of these.
     .testTarget(
         name: "PerekeyCoreTests",
-        dependencies: ["PerekeyCore"],
+        dependencies: ["PerekeyCore", "PerekeyModelKit"],
         resources: [.copy("Fixtures")]
     ),
     .testTarget(name: "PerekeyInputTests", dependencies: ["PerekeyCore", "PerekeyInput", "PerekeyVoiceCore"]),

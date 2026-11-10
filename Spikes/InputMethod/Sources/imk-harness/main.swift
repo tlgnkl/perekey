@@ -103,6 +103,7 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
         switch target {
         case "textview":
             let view = NSTextView(frame: window.contentView!.bounds)
+            view.allowsUndo = true
             window.contentView = view
             textView = view
         case "secure":
@@ -338,8 +339,8 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
 
     /// ⌘Z after a switched word: how many undo steps bring back the field before the word.
     func undo(_ probe: (composer: Composer, client: InputClient), latin: LayoutMap) async {
-        await type("ghbdtn vbh ", on: latin, probe)
-        say("before_undo", await fieldText())
+        await type(options["text"] ?? "ghbdtn vbh ", on: latin, probe)
+        say("before_undo", "«\(await fieldText())»")
         let manager = responder?.undoManager
         say("undo_manager", manager != nil)
         for step in 1...12 {
@@ -369,16 +370,10 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
               }
             }); 0
             """)
-        await type("git", on: latin, probe)
-        say("after_git", "«\(await fieldText())» selection \(probe.client.selectedRange().map { NSStringFromRange($0) } ?? "nil")")
-        await type("hub", on: latin, probe)
-        say("after_github", "«\(await fieldText())»")
-        _ = try? await webView.evaluateJavaScript("f.value=''; 0")
-        await type("ghbdtn", on: cyrillic.id == probe.composer.current ? cyrillic : latin, probe)
-        say("after_ghbdtn", "«\(await fieldText())» selection \(probe.client.selectedRange().map { NSStringFromRange($0) } ?? "nil")")
-        if let stroke = latin.stroke(for: ".") { press(stroke, probe) }
+        // The keys of --text, typed on ABC keys.
+        await type(options["text"] ?? "git", on: latin, probe)
         try? await Task.sleep(for: .milliseconds(200))
-        say("after_boundary", "«\(await fieldText())»")
+        say("value", "«\(await fieldText())» selection \(probe.client.selectedRange().map { NSStringFromRange($0) } ?? "nil")")
         say("changes", changes.joined(separator: " | "))
         let stats = probe.composer.stats
         say("stats", "switched \(stats.switched) replaced \(stats.replaced) refused \(stats.refused) broken \(stats.broken)")

@@ -45,12 +45,33 @@ import Testing
         #expect(score.tokens[0].form == "edit")
     }
 
+    /// The glue rule only lines tokens up: a merged group is right only when
+    /// its text is equal by the folds or accepted (7.2, clarified 10.11.2026).
     @Test func aMergeOfTwoTokensGluedWithAHyphen() {
         let two = item("во первых")
-        #expect(outcomes(two, null: "во первых", out: "во-первых") == [.ok, .ok])
+        #expect(outcomes(two, null: "во первых", out: "во-первых") == [.harm, .harm])
+        let accepted = item("во первых", accept: ["во-первых"])
+        #expect(outcomes(accepted, null: "во первых", out: "во-первых") == [.ok, .ok])
         let ops = Aligner().align(want: ["во", "первых", "да"], out: ["во-первых", "да"],
                                   judge: Scorer.judge(want: ["во", "первых", "да"], fold: [], accept: { _ in [] }))
         #expect(ops == [.merge(w: 0, o: 0), .pair(w: 2, o: 1)])
+    }
+
+    @Test func aCutGluedWithAHyphenIsNotTheMeantToken() {
+        let hyphened = item("по-новому")
+        let score = scorer.score(hyphened, null: result("по новому"), out: result("по новому"))
+        #expect(score.tokens.map(\.outcome) == [.miss])
+        #expect(score.tokens[0].null == "по новому")
+        #expect(outcomes(hyphened, null: "по новому", out: "по-новому") == [.fixed])
+    }
+
+    /// An extra token after a merge belongs to the whole group: both tokens
+    /// are wrong and both carry it in their output.
+    @Test func anExtraTokenAfterAMergeMakesTheWholeGroupWrong() {
+        let two = item("во первых")
+        let score = scorer.score(two, null: result("во первых"), out: result("во-первых лишнее"))
+        #expect(score.tokens.map(\.outcome) == [.harm, .harm])
+        #expect(score.tokens.map(\.out) == ["во-первых лишнее", "во-первых лишнее"])
     }
 
     @Test func aCutOfOneToken() {
@@ -120,18 +141,19 @@ import Testing
         #expect(metrics.rates.harm == 800)
     }
 
-    @Test func aCaseScoredAsAWholeChecksTheTextAndTheChecks() {
+    /// The scorer reads the text alone (rule 2.7): the checks of a case are
+    /// a label the runner puts on it and change neither `exact` nor outcomes.
+    @Test func aCaseScoredAsAWholeComparesTheTextOnly() {
         let whole = Cases.make([.type("привет ", on: "Russian")], want: "привет", scoring: .case,
                                checks: [.layout("Russian"), .corrections(1)])
         var out = result("привет ")
+        #expect(scorer.score(whole, null: result("ghbdtn "), out: out).exact)
+        #expect(scorer.score(whole, null: result("ghbdtn "), out: out).failedChecks == [])
+        #expect(!scorer.score(whole, null: result(""), out: result("при вет")).exact)
+        #expect(Runner.failedChecks(whole, out, library: Repo.library) == [.layout("Russian"), .corrections(1)])
         out.layout = Repo.russian.id
         out.corrections = 1
-        #expect(scorer.score(whole, null: result("ghbdtn "), out: out).exact)
-        out.corrections = 0
-        let failed = scorer.score(whole, null: result("ghbdtn "), out: out)
-        #expect(!failed.exact)
-        #expect(failed.failedChecks == [.corrections(1)])
-        #expect(!scorer.score(whole, null: result(""), out: result("при вет")).exact)
+        #expect(Runner.failedChecks(whole, out, library: Repo.library) == [])
     }
 
     @Test func theOutcomeDoesNotDependOnTheTrace() {

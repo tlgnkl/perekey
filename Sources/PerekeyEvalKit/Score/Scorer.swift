@@ -83,9 +83,12 @@ public struct CaseScore: Hashable, Sendable {
     public var warmupTokens: Int
     /// Tokens of the measured part with a letter.
     public var words: Int
-    /// Every token right, and for `scoring: case` the text and the checks.
+    /// Every token right; for `scoring: case`, the text.
     public var exact: Bool
-    /// The checks that failed.
+    /// How many checks the case has.
+    public var checkCount = 0
+    /// The case's checks that failed. A label the runner puts on the case
+    /// (`Runner.failedChecks`): the scorer reads the text alone (rule 2.7).
     public var failedChecks: [Check]
     /// Tokens from the first token with a layout mistake to the first one
     /// that came out right; for `slip` and `stuck` scenarios.
@@ -93,6 +96,9 @@ public struct CaseScore: Hashable, Sendable {
     public var wantText: String
     public var nullText: String
     public var outText: String
+    /// The words of this case stay out of files and output: it is in the
+    /// test part, and the run does not reveal it (rule 2.8). Set by the runner.
+    public var hidden = false
 
     public var measured: [TokenScore] { tokens.filter(\.measured) }
 
@@ -121,7 +127,7 @@ public struct CaseScore: Hashable, Sendable {
 public struct Scorer: Sendable {
     /// The version of the scoring rules, written into every run. A change of
     /// meaning is a new version and a line in docs/eval.md, «История определений».
-    public static let version = 1
+    public static let version = 2
 
     public let aligner: Aligner
     public let library: LayoutLibrary
@@ -142,18 +148,19 @@ public struct Scorer: Sendable {
             words: measuredWords, exact: false, failedChecks: [], lag: nil, wantText: item.want, nullText: null.text,
             outText: out.text
         )
-        result.failedChecks = failedChecks(item, out)
-
+        result.checkCount = item.checks?.count ?? 0
         guard item.effectiveScoring == .token, let specs = item.tokens else {
-            result.exact = Self.normalize(out.text, fold) == Self.normalize(item.want, fold) && result.failedChecks.isEmpty
+            result.exact = Self.normalize(out.text, fold) == Self.normalize(item.want, fold)
             return result
         }
         func spec(_ index: Int) -> TokenSpec? {
             index >= warmupCount && index - warmupCount < specs.count ? specs[index - warmupCount] : nil
         }
-        let judge = Self.judge(want: wantTokens, fold: fold, accept: { spec($0)?.accept ?? [] })
-        let nullSide = side(want: wantTokens, out: Tokenizer.tokens(null.text), judge: judge)
-        let outSide = side(want: wantTokens, out: Tokenizer.tokens(out.text), judge: judge)
+        let accept = { (index: Int) in spec(index)?.accept ?? [] }
+        let judge = Self.judge(want: wantTokens, fold: fold, accept: accept)
+        let right = Self.groupRight(fold: fold, accept: accept)
+        let nullSide = side(want: wantTokens, out: Tokenizer.tokens(null.text), judge: judge, right: right)
+        let outSide = side(want: wantTokens, out: Tokenizer.tokens(out.text), judge: judge, right: right)
 
         let map = TokenMap(item, events: events)
         var traceByToken: [Int: [TraceEntry]] = [:]
@@ -214,8 +221,10 @@ public struct Scorer: Sendable {
         return fold(text, folds)
     }
 
-    /// When a group of `want` is right: equal by the folds, glued for a
-    /// merge or a cut, or one of the token's `accept` forms.
+    /// What the alignment prices: equal tokens by the folds or `accept`,
+    /// and the glue rule of merges and cuts (two tokens glued without a space
+    /// or with a hyphen give the one). The glue rule only lines tokens up;
+    /// whether a group is right is `groupRight`.
     static func judge(want: [String], fold folds: Set<EvalCase.Fold>, accept: @escaping (Int) -> [String])
         -> Aligner.Judge
     {
@@ -238,59 +247,65 @@ public struct Scorer: Sendable {
         )
     }
 
+    /// Whether a group of `want` is right (7.2, clarified 10.11.2026): the
+    /// output text given to it equals the group's text by the folds, or is
+    /// one of the `accept` forms of its first token. «во первых» for «во-первых»
+    /// is wrong, though the glue rule lines them up.
+    static func groupRight(fold folds: Set<EvalCase.Fold>, accept: @escaping (Int) -> [String])
+        -> (_ w: Int, _ group: String, _ out: String) -> Bool
+    {
+        { w, group, out in
+            let out = fold(out, folds)
+            return fold(group, folds) == out || accept(w).contains { fold($0, folds) == out }
+        }
+    }
+
     /// One side of the comparison: for each token of `want`, the output the
     /// alignment gave it and whether it is right.
-    private func side(want: [String], out: [String], judge: Aligner.Judge) -> (text: [String], right: [Bool]) {
+    private func side(want: [String], out: [String], judge: Aligner.Judge,
+                      right isRight: (Int, String, String) -> Bool) -> (text: [String], right: [Bool])
+    {
         var text = Array(repeating: "", count: want.count)
         var right = Array(repeating: false, count: want.count)
-        /// Extra tokens of the output, with the token of `want` on their
-        /// left, or the first one (`before`) when nothing is on the left.
-        var extras: [(o: Int, w: Int, before: Bool)] = []
-        var last: Int?
+        /// Extra tokens of the output, with the group of `want` on their
+        /// left, or the first token (`before`) when nothing is on the left.
+        var extras: [(o: Int, group: [Int], before: Bool)] = []
+        var last: [Int]?
         for op in aligner.align(want: want, out: out, judge: judge) {
             switch op {
             case let .pair(w, o):
                 text[w] = out[o]
-                right[w] = judge.same(w, out[o])
-                last = w
+                right[w] = isRight(w, want[w], out[o])
+                last = [w]
             case let .merge(w, o):
                 text[w] = out[o]
                 text[w + 1] = out[o]
-                right[w] = judge.merged(w, out[o])
+                right[w] = isRight(w, want[w] + " " + want[w + 1], out[o])
                 right[w + 1] = right[w]
-                last = w + 1
+                last = [w, w + 1]
             case let .split(w, o):
                 text[w] = out[o] + " " + out[o + 1]
-                right[w] = judge.cut(w, out[o], out[o + 1])
-                last = w
+                right[w] = isRight(w, want[w], text[w])
+                last = [w]
             case let .dropped(w):
                 right[w] = false
-                last = w
+                last = [w]
             case let .extra(o):
-                if !want.isEmpty { extras.append((o, last ?? 0, last == nil)) }
+                if !want.isEmpty { extras.append((o, last ?? [0], last == nil)) }
             }
         }
-        // An extra token makes its token of `want` wrong and joins its output.
+        // An extra token makes the whole group on its left wrong and joins its output.
         for extra in extras {
             let token = out[extra.o]
-            text[extra.w] = text[extra.w].isEmpty ? token
-                : extra.before ? token + " " + text[extra.w] : text[extra.w] + " " + token
-            right[extra.w] = false
+            for w in extra.group {
+                text[w] = text[w].isEmpty ? token : extra.before ? token + " " + text[w] : text[w] + " " + token
+                right[w] = false
+            }
         }
         return (text, right)
     }
 
-    // MARK: - Checks and lag
-
-    private func failedChecks(_ item: EvalCase, _ out: RunResult) -> [Check] {
-        (item.checks ?? []).filter { check in
-            switch check {
-            case let .layout(name): library[name]?.id != out.layout
-            case let .corrections(count): out.corrections != count
-            case let .undone(count): out.undone != count
-            }
-        }
-    }
+    // MARK: - Lag
 
     static func lag(_ measured: [TokenScore]) -> Int? {
         guard let first = measured.firstIndex(where: { $0.err == .layout }) else { return nil }

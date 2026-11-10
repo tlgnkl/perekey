@@ -135,11 +135,69 @@ import Testing
                               tokens: [TokenSpec(t: "привет", lang: "ru", err: .layout)], scenario: "slip.cold")
         let played = try Cases.play(item)
         let tsv = RunFiles.casesTSV([played.score])
-        #expect(tsv == "id\twords\twarmup\toutcomes\texact\tlag\n\(item.id)\t1\t0\tF\t1\t0\n")
+        #expect(tsv == "id\twords\twarmup\toutcomes\texact\tlag\tchecks\n\(item.id)\t1\t0\tF\t1\t0\t-\n")
+        var checked = item
+        checked.checks = [.layout("ABC")]
+        let failed = try Cases.play(checked)
+        #expect(failed.score.exact, "checks do not touch exact")
+        #expect(failed.score.failedChecks == [.layout("ABC")])
+        #expect(RunFiles.casesTSV([failed.score]).hasSuffix("\t1\t0\tfailed\n"))
+        #expect(Summary([failed.score]).total.checksFailed == 1)
         #expect(try RunFiles.eventsJSONL([played.score]).contains(#""outcome":"fixed""#))
         let summary = Summary([played.score])
         #expect(summary.groups.count == 1)
         #expect(summary.total.fixed == 1)
         #expect(summary.total.rates.missLayout == 0)
+    }
+}
+
+/// Rule 2.8: the words of the test part reach no file and no message
+/// without `--reveal-test`.
+@Suite struct TestPartPrivacyTests {
+    static let secret = "сокровенное"
+
+    func secretCase(split: EvalCase.Split = .test) -> EvalCase {
+        var item = EvalCase(suite: "privacy", scenario: "slip.cold", split: split, layouts: ["ABC", "Russian"],
+                            start: "ABC", script: [.type("\(Self.secret) ", on: "Russian")], want: Self.secret,
+                            tokens: [TokenSpec(t: Self.secret, lang: "ru", err: .layout)])
+        item = try! item.identified()
+        return item
+    }
+
+    func runFiles(_ item: EvalCase, reveal: Bool) throws -> String {
+        var config = Runner.Config()
+        config.classifier = Repo.classifier
+        config.revealTest = reveal
+        var runner = Runner(config: config, library: Repo.library)
+        let score = try runner.play(item).score
+        let info = RunFiles.Info(commit: "x", models: [:], system: "machine", files: [], split: "all",
+                                 testRevealed: reveal)
+        return try [RunFiles.casesTSV([score]), RunFiles.eventsJSONL([score]), RunFiles.summaryJSON([score]),
+                    RunFiles.runJSON(info)].joined()
+    }
+
+    @Test func runFilesHideTheWordsOfTheTestPart() throws {
+        let hidden = try runFiles(secretCase(), reveal: false)
+        #expect(!hidden.contains(Self.secret))
+        #expect(!hidden.contains("cjrhjdtyyjt"), "nor the keys typed in the other layout")
+        #expect(hidden.contains("(test)"))
+        #expect(hidden.contains(#""testRevealed" : false"#))
+        let revealed = try runFiles(secretCase(), reveal: true)
+        #expect(revealed.contains(Self.secret))
+        #expect(revealed.contains(#""testRevealed" : true"#))
+        let dev = try runFiles(secretCase(split: .dev), reveal: false)
+        #expect(dev.contains(Self.secret))
+    }
+
+    @Test func theCheckDoesNotQuoteTheTestPart() {
+        var broken = secretCase()
+        broken.tokens = [TokenSpec(t: Self.secret + "ы", lang: "ru", err: .layout)]
+        broken.script = [.type("\(Self.secret)© ", on: "Russian")]
+        let problems = CaseCheck.problems(broken, layouts: Repo.library)
+        #expect(!problems.isEmpty)
+        #expect(!problems.joined().contains(Self.secret))
+        #expect(!problems.joined().contains("©"))
+        let revealed = CaseCheck.problems(broken, layouts: Repo.library, reveal: true)
+        #expect(revealed.joined().contains(Self.secret))
     }
 }

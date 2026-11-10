@@ -6,9 +6,10 @@ import PerekeyCore
 /// caret, the layout the app types in, held keys, retypes, selection reads
 /// and deadlines (docs/eval.md, «Наборщик и стенд»).
 ///
-/// It follows the test `Desk` (Tests/PerekeyCoreTests/Desk.swift) and the
-/// driver of `perekey-bench`: the decision about an event first, its effects
-/// after; layout selections, retypes and selection reads wait until the desk
+/// It follows the test `Desk` (Tests/PerekeyCoreTests/Desk.swift), the
+/// driver of `perekey-bench` and `InputEngine`: the decision about an event
+/// first, its effects after. A retype alone is posted at once; a layout
+/// selection with its retype and a selection read wait until the desk
 /// catches up (`settle()`), the main thread of the app. When it catches up
 /// is the lag rule of `Setup.lag`.
 public struct EvalDesk: Sendable {
@@ -94,6 +95,19 @@ public struct EvalDesk: Sendable {
         public var layout: LayoutID
     }
 
+    /// What the main thread does when the desk catches up.
+    private enum MainWork: Sendable {
+        /// Select the layout, then post the retype that came with it.
+        case select(LayoutID, then: CheckedRetype?)
+        case readSelection(UInt32)
+    }
+
+    private struct CheckedRetype: Sendable {
+        var retype: Retype
+        /// The caret check failed when the retype was asked for.
+        var mismatch: Bool
+    }
+
     public let options: Options
     public private(set) var machine: InputMachine
     public private(set) var time: Double
@@ -112,9 +126,8 @@ public struct EvalDesk: Sendable {
     private let lag: Int
     private var mode: AppMode
     private var held: [KeyEvent] = []
-    private var selected: LayoutID?
-    private var retypes: [Retype] = []
-    private var selectionReads: [UInt32] = []
+    /// Work for the main thread, in order.
+    private var mainQueue: [MainWork] = []
     private var deadline: Double?
     /// Key downs since work for the main thread came up.
     private var keyDownsWaiting = 0
@@ -165,7 +178,7 @@ public struct EvalDesk: Sendable {
     }
 
     /// Whether the main thread has work waiting.
-    public var isBehind: Bool { selected != nil || !retypes.isEmpty || !selectionReads.isEmpty }
+    public var isBehind: Bool { !mainQueue.isEmpty }
 
     /// One event of the typist at the typist's `time`.
     public mutating func send(_ typed: TypistEvent, at eventTime: Double) {
@@ -307,14 +320,23 @@ public struct EvalDesk: Sendable {
         field.press(event.keyCode, flags: event.flags, in: maps[appLayout])
     }
 
+    /// The effects of one output, as `InputEngine.execute` carries them out:
+    /// a retype right after its layout selection waits for the main thread
+    /// with it; a retype alone is posted at once.
     private mutating func run(_ effects: [Effect]) {
-        for effect in effects {
+        var index = effects.startIndex
+        while index < effects.endIndex {
+            let effect = effects[index]
             switch effect {
             case let .selectLayout(id):
-                selected = id
+                var then: CheckedRetype?
+                if index + 1 < effects.endIndex, case let .retype(retype) = effects[index + 1] {
+                    then = checked(retype)
+                    index += 1
+                }
+                mainQueue.append(.select(id, then: then))
             case let .retype(retype):
-                requests[retype.seq] = event
-                retypes.append(retype)
+                post(checked(retype))
             case .releaseHeld:
                 let events = held
                 held.removeAll()
@@ -326,50 +348,67 @@ public struct EvalDesk: Sendable {
             case let .scheduleDeadline(at):
                 deadline = at
             case let .convertSelection(seq):
-                selectionReads.append(seq)
+                mainQueue.append(.readSelection(seq))
             case .capsLockOff:
                 capsLock = false
                 log.append(Logged(event: cause, effect: effect))
             default:
                 log.append(Logged(event: cause, effect: effect))
             }
+            index += 1
         }
     }
 
-    /// The main thread and the app catch up: selections are read, retypes
-    /// are posted and their synthetic keys pass the tap, the layout reaches
-    /// the app (`Desk.settle`).
+    /// The retype with the verdict of its caret check, taken when the machine
+    /// asks for it (`InputEngine.beginCheck`): the check runs beside the
+    /// layout selection, not after it. A retype of a selection deletes
+    /// nothing and has nothing to compare; a blind field cannot be read.
+    private mutating func checked(_ retype: Retype) -> CheckedRetype {
+        requests[retype.seq] = event
+        let mismatch = fieldKind == .plain && retype.deleteCount > 0 && !retype.expected.isEmpty
+            && !field.textBeforeCaret(endsWith: retype.expected)
+        return CheckedRetype(retype: retype, mismatch: mismatch)
+    }
+
+    /// `InputEngine.postIfPending`: a retype whose fence is gone is not
+    /// posted, and the machine hears `inputLost` (it believes the word was
+    /// retyped); a failed caret check cancels it; else Backspaces, the
+    /// text, `retypePosted` and the synthetic keys back through the tap.
+    private mutating func post(_ item: CheckedRetype) {
+        let retype = item.retype
+        guard machine.pendingRetypeSeq == retype.seq else {
+            send(.inputLost)
+            return
+        }
+        let outer = posting
+        posting = requests[retype.seq]
+        defer { posting = outer }
+        if item.mismatch {
+            cancelled.append(Cancelled(event: cause, seq: retype.seq, origin: retype.origin))
+            send(.retypeCancelled(seq: retype.seq))
+            return
+        }
+        field.deleteLeft(retype.deleteCount)
+        field.insert(retype.text)
+        time += options.retypeStep
+        send(.retypePosted(seq: retype.seq, time: time))
+        let count = retype.deleteCount + retype.keys.count
+        for index in 0..<count {
+            time += options.ownKeyStep
+            key(KeyEvent(.down, keyCode: 0, origin: .own(seq: retype.seq, last: index == count - 1)))
+        }
+    }
+
+    /// The main thread and the app catch up, in order: a selection is read;
+    /// a layout is selected, its retype posted, and the layout reaches the
+    /// app (`Desk.settle`).
     public mutating func settle() {
-        while isBehind {
-            if !selectionReads.isEmpty {
-                let seq = selectionReads.removeFirst()
+        while !mainQueue.isEmpty {
+            switch mainQueue.removeFirst() {
+            case let .readSelection(seq):
                 send(.selectionRead(seq: seq, text: field.selectedText))
-                continue
-            }
-            if !retypes.isEmpty {
-                let retype = retypes.removeFirst()
-                // The engine drops a retype whose fence is gone.
-                guard machine.pendingRetypeSeq == retype.seq else { continue }
-                posting = requests[retype.seq]
-                defer { posting = nil }
-                // A retype of a selection has nothing to compare: typing replaces it.
-                if fieldKind == .plain, retype.deleteCount > 0, !field.textBeforeCaret(endsWith: retype.expected) {
-                    cancelled.append(Cancelled(event: cause, seq: retype.seq, origin: retype.origin))
-                    send(.retypeCancelled(seq: retype.seq))
-                    continue
-                }
-                field.deleteLeft(retype.deleteCount)
-                field.insert(retype.text)
-                time += options.retypeStep
-                send(.retypePosted(seq: retype.seq, time: time))
-                let count = retype.deleteCount + retype.keys.count
-                for index in 0..<count {
-                    time += options.ownKeyStep
-                    key(KeyEvent(.down, keyCode: 0, origin: .own(seq: retype.seq, last: index == count - 1)))
-                }
-            }
-            if let id = selected {
-                selected = nil
+            case let .select(id, then):
+                if let then { post(then) }
                 appLayout = id
                 send(.layoutChanged(id))
             }

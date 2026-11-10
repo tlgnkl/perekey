@@ -34,32 +34,44 @@ public enum RunFiles {
 
     /// One line per case: id, words of the measured part, the outcome letter
     /// of every token (the warm-up first), how many of them are the
-    /// warm-up's, exact (1 or 0), lag (- when it does not apply).
+    /// warm-up's, exact (1 or 0), lag (- when it does not apply), checks
+    /// (`ok`, `failed`, - without checks).
     public static func casesTSV(_ scores: [CaseScore]) -> String {
-        var lines = ["id\twords\twarmup\toutcomes\texact\tlag"]
+        var lines = ["id\twords\twarmup\toutcomes\texact\tlag\tchecks"]
         for score in scores {
             let outcomes = score.scoring == .case ? "-" : score.outcomeString
             lines.append([score.id, String(score.words), String(score.warmupTokens), outcomes.isEmpty ? "-" : outcomes,
-                          score.exact ? "1" : "0", score.lag.map(String.init) ?? "-"].joined(separator: "\t"))
+                          score.exact ? "1" : "0", score.lag.map(String.init) ?? "-",
+                          score.checkCount == 0 ? "-" : score.failedChecks.isEmpty ? "ok" : "failed"]
+                .joined(separator: "\t"))
         }
         return lines.joined(separator: "\n") + "\n"
     }
 
-    /// One line per token that is not `ok`, and one per failed case scored as a whole.
+    /// What files say instead of a word of the hidden test part.
+    public static let hiddenText = "(test)"
+
+    /// One line per token that is not `ok`, one per case scored as a whole
+    /// whose text differs, and one per case whose checks failed. Words of a
+    /// hidden case read `(test)`.
     public static func eventsJSONL(_ scores: [CaseScore]) throws -> String {
         var lines: [String] = []
         for score in scores {
-            if score.scoring == .case {
-                guard !score.exact else { continue }
-                lines.append(try CaseCodec.json(CaseEvent(
-                    id: score.id, outcome: "fail", want: score.wantText, null: score.nullText, out: score.outText,
-                    checks: score.failedChecks.isEmpty ? nil : score.failedChecks
-                )))
-                continue
+            func shown(_ text: String) -> String { score.hidden ? hiddenText : text }
+            if score.scoring == .case || !score.failedChecks.isEmpty {
+                if !score.exact && score.scoring == .case || !score.failedChecks.isEmpty {
+                    lines.append(try CaseCodec.json(CaseEvent(
+                        id: score.id, outcome: score.exact ? "checks" : "fail", want: shown(score.wantText),
+                        null: shown(score.nullText), out: shown(score.outText),
+                        checks: score.failedChecks.isEmpty ? nil : score.failedChecks
+                    )))
+                }
+                if score.scoring == .case { continue }
             }
             for token in score.tokens where token.outcome != .ok {
                 lines.append(try CaseCodec.json(TokenEvent(
-                    id: score.id, index: token.index, want: token.want, null: token.null, out: token.out,
+                    id: score.id, index: token.index, want: shown(token.want), null: shown(token.null),
+                    out: shown(token.out),
                     outcome: token.outcome.rawValue, form: token.form, cascade: token.cascade ? true : nil,
                     features: token.features, trace: token.trace.isEmpty ? nil : token.trace
                 )))

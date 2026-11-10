@@ -60,7 +60,7 @@ public enum EvalCommands {
                 let lines = text.split(separator: "\n").map(String.init)
                 for (item, line) in zip(items, lines) {
                     count += 1
-                    var found = CaseCheck.problems(item, layouts: library)
+                    var found = CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
                     if try CaseCodec.line(item) != line { found.append("the line is not canonical: sorted keys, no spaces") }
                     for problem in found { print("\(file): \(item.id): \(problem)") }
                     problems += found.isEmpty ? 0 : 1
@@ -98,7 +98,7 @@ public enum EvalCommands {
             settings: runner.config.settings, options: runner.config.optionsJSON,
             files: try files.map { .init(path: $0, sha256: try Runner.sha256(file: $0)) },
             split: parsed.value("--split") ?? "all", only: parsed.value("--only")?.split(separator: ",").map(String.init),
-            tier: nil
+            tier: nil, testRevealed: runner.config.revealTest
         )
         try RunFiles.write(scores, info: info, to: out)
         print(Console.summary(Summary(scores)), terminator: "")
@@ -116,7 +116,8 @@ public enum EvalCommands {
         for (file, item) in try CaseFiles.read(files) {
             if let only, !only.contains(item.suite) { continue }
             if split != "all", item.split.rawValue != split { continue }
-            problems += CaseCheck.problems(item, layouts: library).map { "\(file): \(item.id): \($0)" }
+            problems += CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
+                .map { "\(file): \(item.id): \($0)" }
             items.append(item)
         }
         guard problems.isEmpty else {
@@ -137,7 +138,7 @@ public enum EvalCommands {
         if original.split == .test, !parsed.flag("--reveal-test") {
             throw EvalError.input("\(id) is in the test part: its words are shown only with --reveal-test")
         }
-        let problems = CaseCheck.problems(original, layouts: library)
+        let problems = CaseCheck.problems(original, layouts: library, reveal: true)
         guard problems.isEmpty else { throw EvalError.input(problems.joined(separator: "\n")) }
         var runner = Runner(config: try parsed.config(), library: library)
         let item = runner.prepared(original)
@@ -165,7 +166,8 @@ public enum EvalCommands {
             out = try runner.config.system.play(setup, events: events)
         }
         let null = try SystemName.null.play(setup, events: events)
-        let score = runner.scorer.score(item, null: null, out: out, events: events)
+        var score = runner.scorer.score(item, null: null, out: out, events: events)
+        score.failedChecks = Runner.failedChecks(item, out, library: library)
         print("null  \(null.text.debugDescription)")
         print("out   \(out.text.debugDescription)  layout \(out.layout)  corrections \(out.corrections)  undone \(out.undone)")
         if score.scoring == .token {
@@ -189,7 +191,7 @@ public enum EvalCommands {
         // 6. Every case passes the checks.
         var problems = 0
         for (file, item) in try CaseFiles.read(files) {
-            let found = CaseCheck.problems(item, layouts: library)
+            let found = CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
             for problem in found { failures.append("\(file): \(item.id): \(problem)") }
             problems += found.isEmpty ? 0 : 1
         }
@@ -237,8 +239,8 @@ public enum EvalCommands {
         }) {
             compared += 1
             if played.out.text != nullPlayed.out.text {
-                failures.append("machine off differs from null on \(played.item.id): "
-                    + "\(played.out.text.debugDescription) vs \(nullPlayed.out.text.debugDescription)")
+                failures.append("machine off differs from null on \(played.item.id)" + (played.score.hidden ? ""
+                        : ": \(played.out.text.debugDescription) vs \(nullPlayed.out.text.debugDescription)"))
             }
         }
         lines.append("3. machine off = null on \(compared) cases without shortcuts")
@@ -313,6 +315,7 @@ struct Arguments {
             config.options = try ClassifierOptions.parse(json)
             config.optionsJSON = json
         }
+        config.revealTest = flag("--reveal-test")
         if let preset = value("--settings") {
             guard EvalSettings.preset(preset) != nil else {
                 throw EvalError.input("--settings \(EvalSettings.names.joined(separator: "|"))")

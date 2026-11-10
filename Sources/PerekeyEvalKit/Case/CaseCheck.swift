@@ -71,7 +71,11 @@ public extension EvalCase {
 /// The checks of a case before it is played (docs/eval.md, «Проверка
 /// случая»). A case with problems is not played.
 public enum CaseCheck {
-    public static func problems(_ item: EvalCase, layouts: LayoutLibrary) -> [String] {
+    /// The problems of a case. Without `reveal`, a case of the test part is
+    /// described without its words (rule 2.8).
+    public static func problems(_ item: EvalCase, layouts: LayoutLibrary, reveal: Bool = false) -> [String] {
+        let hidden = item.split == .test && !reveal
+        func quote(_ text: some StringProtocol) -> String { hidden ? RunFiles.hiddenText : "\"\(text)\"" }
         var problems: [String] = []
         if item.v != EvalCase.version { problems.append("format version \(item.v)") }
         do {
@@ -103,7 +107,7 @@ public enum CaseCheck {
                     continue
                 }
                 for character in text where LayoutLibrary.printableStroke(character, in: map) == nil {
-                    problems.append("step \(index): \(on) does not type \"\(character)\" without ⌥")
+                    problems.append("step \(index): \(on) does not type \(quote(String(character))) without ⌥")
                 }
             case let .layout(name):
                 if !item.layouts.contains(name) { problems.append("step \(index): layout \(name) is not among the layouts") }
@@ -139,14 +143,14 @@ public enum CaseCheck {
                     let same = typed == spec.t
                     switch spec.err {
                     case .none, .layout:
-                        if !same { problems.append("token \(index): the steps give \"\(typed)\", not \"\(spec.t)\"") }
+                        if !same { problems.append("token \(index): the steps give \(quote(typed)), not \(quote(spec.t))") }
                     default:
                         if same { problems.append("token \(index): err \(spec.err.rawValue), but nothing differs") }
                     }
                 }
             }
             for (index, (meant, spec)) in zip(measuredWant, tokens).enumerated() where meant != spec.t {
-                problems.append("token \(index): want has \"\(meant)\", tokens has \"\(spec.t)\"")
+                problems.append("token \(index): want has \(quote(meant)), tokens has \(quote(spec.t))")
             }
             let joined = target.warmup + tokens.map(\.t).joined(separator: " ")
             if joined != item.want, Tokenizer.tokens(joined) != Tokenizer.tokens(item.want) {

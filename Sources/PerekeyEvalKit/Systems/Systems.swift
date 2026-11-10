@@ -63,45 +63,67 @@ public struct MachineSystem: TypingSystem {
 
 /// A field without a layout switcher: what the person gets without Perekey.
 /// Keys type in the layout in force; the person's own layout choices, the
-/// editing keys and clicks work. The `switchLayout` shortcut works too (the
-/// person switches with the system's shortcut instead); no other shortcut does.
+/// editing keys and clicks work. The `switchLayout` shortcut of the case's
+/// settings works too (the person switches with the system's shortcut
+/// instead); no other shortcut does.
+///
+/// Null is the constant base the outcomes count from, so its shortcut
+/// follows the machine's rules: none in the mode `off` (the app takes the
+/// shortcuts away, as `EvalDesk` does) and none under Secure Input; Caps
+/// Lock and keys break a chord in the machine's order (`InputMachine`,
+/// `Shortcuts`).
 public struct NullSystem: TypingSystem {
     private var field = TextField()
     private var layout: LayoutMap
     private let layouts: [LayoutMap]
     private var capsLock = false
+    private var mode: AppMode
+    private var secureInput: Bool
+    private let bindings: [HotkeyBinding]
     private var chords: ChordDetector<HotkeyAction>
-    private let keyTriggers: [(keyCode: UInt16, kinds: Set<ModifierKind>)]
 
     public init(setup: CaseSetup) throws {
         layout = setup.start
         layouts = setup.layouts
-        let bindings = setup.settings.hotkeys.filter { $0.action == .switchLayout }
-        chords = ChordDetector(bindings: bindings.compactMap { binding in
+        let env = setup.item.effectiveEnv
+        mode = env.effectiveMode
+        secureInput = env.secureInput ?? false
+        bindings = setup.settings.hotkeys.filter { $0.action == .switchLayout }
+        chords = Self.detector(bindings, mode: mode)
+    }
+
+    /// The chords in force: none in "off", as the app removes them.
+    private static func detector(_ bindings: [HotkeyBinding], mode: AppMode) -> ChordDetector<HotkeyAction> {
+        guard mode != .off else { return ChordDetector(bindings: []) }
+        return ChordDetector(bindings: bindings.compactMap { binding in
             if case let .modifiers(chord, taps) = binding.trigger {
                 ChordDetector.Binding(chord, taps: taps.rawValue, action: binding.action)
             } else {
                 nil
             }
         })
-        keyTriggers = bindings.compactMap { binding in
-            if case let .key(keyCode, kinds) = binding.trigger { (keyCode, kinds) } else { nil }
-        }
     }
 
     public mutating func send(_ event: TypistEvent, at time: Double) throws {
         switch event {
         case let .keyDown(keyCode, flags):
-            chords.otherInput(at: time)
-            let held = Set(ModifierKind.allCases.filter { flags & $0.independentFlag != 0 })
-            if keyTriggers.contains(where: { $0.keyCode == keyCode && $0.kinds == held }) {
-                switchLayout()
-                return
+            if !secureInput {
+                chords.otherInput(at: time)
+                // The kinds held, without fn, as `Shortcuts.keyDown` matches them.
+                let held = Set(ModifierKind.allCases.filter { $0 != .function && flags & $0.independentFlag != 0 })
+                if mode != .off, bindings.contains(where: {
+                    if case let .key(code, kinds) = $0.trigger { code == keyCode && kinds.subtracting([.function]) == held }
+                    else { false }
+                }) {
+                    switchLayout()
+                    return
+                }
             }
             field.press(keyCode, flags: capsLock ? flags | EventFlags.capsLock : flags, in: layout)
         case .keyUp:
-            chords.keyReleased()
+            if !secureInput { chords.keyReleased() }
         case let .flags(keyCode, flags):
+            guard !secureInput else { return }
             if keyCode == KeyCode.capsLock {
                 chords.otherInput(at: time)
             } else if chords.modifiersChanged(to: ModifierKey.pressed(inEventFlags: flags), at: time) == .switchLayout {
@@ -120,11 +142,21 @@ public struct NullSystem: TypingSystem {
         case .focus:
             field = TextField()
         case let .capsLock(on):
+            guard on != capsLock else { return }
             capsLock = on
-            chords.otherInput(at: time)
+            if !secureInput { chords.otherInput(at: time) }
         case let .select(chars):
+            // ⇧← keys: other input for the chords, as for the machine.
+            if !secureInput { chords.otherInput(at: time) }
             for _ in 0..<max(chars, 0) { field.extendLeft() }
-        case .mode, .secureInput, .undoButton, .idle:
+        case let .mode(newMode):
+            let wasOff = mode == .off
+            mode = newMode
+            if (newMode == .off) != wasOff { chords = Self.detector(bindings, mode: newMode) }
+        case let .secureInput(on):
+            secureInput = on
+            chords.reset()
+        case .undoButton, .idle:
             break
         }
     }

@@ -18,6 +18,8 @@ public struct Runner {
         public var optionsJSON: String?
         /// A preset over every case's own (`--settings`).
         public var settings: String?
+        /// Words of the test part may be shown (`--reveal-test`, rule 2.8).
+        public var revealTest = false
 
         public init() {}
     }
@@ -63,8 +65,23 @@ public struct Runner {
         let setup = try CaseSetup(item: item, library: library, classifier: classifier)
         let null = try SystemName.null.play(setup, events: events)
         let out = try config.system.play(setup, events: events)
-        return Played(item: item, events: events, null: null, out: out,
-                      score: scorer.score(item, null: null, out: out, events: events))
+        var score = scorer.score(item, null: null, out: out, events: events)
+        score.failedChecks = Self.failedChecks(item, out, library: library)
+        score.hidden = item.split == .test && !config.revealTest
+        return Played(item: item, events: events, null: null, out: out, score: score)
+    }
+
+    /// The case's `checks` over what the system reports of itself: the
+    /// layout at the end, corrections shown and undone. A label of the case,
+    /// apart from the scorer, which reads the text alone (rule 2.7).
+    public static func failedChecks(_ item: EvalCase, _ out: RunResult, library: LayoutLibrary) -> [Check] {
+        (item.checks ?? []).filter { check in
+            switch check {
+            case let .layout(name): library[name]?.id != out.layout
+            case let .corrections(count): out.corrections != count
+            case let .undone(count): out.undone != count
+            }
+        }
     }
 
     /// One classifier per set of languages, made once per run.

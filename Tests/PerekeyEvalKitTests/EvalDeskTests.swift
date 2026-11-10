@@ -53,13 +53,46 @@ import Testing
         #expect(played.out.undone == 1)
     }
 
-    @Test func aRetypeIsCancelledWhenTheTextBeforeTheCaretDiffers() throws {
-        // The desk is behind; the person clicks to the start before it catches up.
+    /// The caret check runs when the retype is asked for (`InputEngine.beginCheck`),
+    /// not when the main thread gets to it: a click after that does not cancel it,
+    /// and the retype lands at the caret, as in the app.
+    @Test func theCaretCheckIsTakenWhenTheRetypeIsAskedFor() throws {
         let played = try play([.type("хорошо ", on: "Russian"), .click(.start)], env: Env(pace: .burst, lag: 99))
-        // The held space goes where the caret is now.
-        #expect(played.out.text == " [jhjij")
-        #expect(played.out.corrections == 0)
-        #expect(played.out.trace.contains { $0.kind == .cancelled })
+        #expect(!played.out.trace.contains { $0.kind == .cancelled })
+        #expect(played.out.corrections == 1)
+        #expect(played.out.text == "хорошо [jhjij")
+    }
+
+    /// A retype that stays in its layout (no `selectLayout`) is posted at
+    /// once, as `InputEngine.execute` does; only a selection waits for the main thread.
+    @Test func aRetypeWithoutALayoutChangeIsPostedAtOnce() throws {
+        let item = Cases.make([.type("ПРивет мир", on: "Russian")], want: "-", start: "Russian",
+                              env: Env(pace: .burst, lag: 99), scoring: .case)
+        var desk = try recordingDesk(item)
+        let events = try Typist().events(for: item, layouts: Repo.library)
+        let space = try #require(events.firstIndex { $0.event == .keyDown(keyCode: KeyCode.space, flags: 0) })
+        for typed in events[...space] { desk.send(typed.event, at: typed.time) }
+        #expect(desk.text.hasPrefix("Привет"))
+        #expect(!desk.isBehind)
+    }
+
+    /// A retype the fence no longer waits for is not posted, and the machine
+    /// hears `inputLost`, as in `InputEngine.postIfPending`.
+    @Test func aLateRetypeIsLostInput() throws {
+        let item = Cases.make([.type("привет", on: "Russian"), .type(String(repeating: "f", count: 70), on: "ABC")],
+                              want: "-", env: Env(pace: .burst, lag: 999), scoring: .case)
+        var desk = try recordingDesk(item)
+        for typed in try Typist().events(for: item, layouts: Repo.library) { desk.send(typed.event, at: typed.time) }
+        desk.finish()
+        #expect(desk.records.contains { if case .inputLost = $0.input { true } else { false } })
+        #expect(!desk.records.contains { if case .retypePosted = $0.input { true } else { false } })
+    }
+
+    func recordingDesk(_ item: EvalCase) throws -> EvalDesk {
+        let setup = try CaseSetup(item: item, library: Repo.library, classifier: Repo.classifier)
+        var machine = try MachineSystem(setup: setup)
+        machine.recording = true
+        return machine.desk
     }
 
     @Test func aBlindFieldRetypesWithoutTheCheck() throws {
@@ -94,7 +127,15 @@ import Testing
         let played = try play([.type("привет ", on: "Russian"), .hotkey(.switchLayout)], env: Env(mode: .off))
         #expect(played.out.text == "ghbdtn ")
         #expect(played.out.layout == Repo.abc.id, "the app takes the shortcuts away in off")
-        #expect(played.null.layout == Repo.russian.id, "without Perekey the system's shortcut switches")
+        #expect(played.null.layout == Repo.abc.id, "Null takes the shortcuts away in off too: a constant base")
+    }
+
+    @Test func nullFollowsTheModeAndSecureInputLikeTheMachine() throws {
+        let off = try play([.mode(.off), .hotkey(.switchLayout), .mode(.auto), .hotkey(.switchLayout)])
+        #expect(off.null.layout == Repo.russian.id, "off takes the shortcut away, auto gives it back")
+        let secure = try play([.secureInput(true), .hotkey(.switchLayout)])
+        #expect(secure.null.layout == Repo.abc.id)
+        #expect(secure.out.layout == Repo.abc.id)
     }
 
     @Test(arguments: [AppMode.manualOnly])

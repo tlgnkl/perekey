@@ -8,6 +8,9 @@ public struct Metrics: Hashable, Sendable, Codable {
     /// Cases with every token right (`scoring: case`: the text and the checks).
     public var exact = 0
     public var fail = 0
+    /// Cases whose checks failed (layout at the end, corrections, undos):
+    /// a label of the case, apart from `exact`.
+    public var checksFailed = 0
     public var tokens = 0
     public var words = 0
     public var ok = 0
@@ -48,6 +51,7 @@ public struct Metrics: Hashable, Sendable, Codable {
     mutating func add(_ score: CaseScore) {
         cases += 1
         if score.exact { exact += 1 } else { fail += 1 }
+        if !score.failedChecks.isEmpty { checksFailed += 1 }
         words += score.words
         harmEvents += score.harmEvents
         for token in score.tokens {

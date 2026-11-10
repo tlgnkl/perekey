@@ -9,7 +9,13 @@
 #
 # Groups:
 #   lexicon   word lists and frequencies for the model (~26 MB)
-#   text      Wikipedia text for character n-grams (~1 GB)
+#   text      Wikipedia ru, en and uk, one file each, held out: the hyphen
+#             step is measured on them, and nothing trains on them
+#             (~0.5 GB). The n-grams come from wordfreq, not from here
+#   pairs     Wikipedia ru and en, other files of the same snapshot, to count
+#             which word follows which (~0.8 GB). Training text: no file of
+#             `text`, `wikifreq` or `heldout` is in it (perekey-model pairs
+#             checks it). Lands in wikipedia-pairs/, apart from `text`
 #   wikifreq  Wikipedia be and kk, the word counts of their models: CI builds
 #             and checks every model file, shipped or not
 #   model     lexicon + text + wikifreq (default)
@@ -20,7 +26,7 @@
 #   speech    FLEURS (Google, CC BY 4.0), ru and en, the dev split: 50 recordings
 #             with their reference text per language, for `perekey-voice-probe
 #             score`. Local measure only, not in CI, not in the app (~360 MB)
-#   all       model + heldout
+#   all       model + pairs + heldout
 #
 # Environment:
 #   PEREKEY_DATA_CACHE    cache directory (default: .build/data-cache)
@@ -69,6 +75,10 @@ lexicon|esdb/hunspell-en_US-large-$ESDB_VER.zip|https://github.com/en-wl/wordlis
 text|wikipedia/ru/train-00007-of-00021.parquet|$HF_WIKI.ru/train-00007-of-00021.parquet|39b59952cd92a148b301f4d2b3ae1fb71e4caab987c6abe278f0dbdf0b01bb88
 text|wikipedia/en/train-00028-of-00041.parquet|$HF_WIKI.en/train-00028-of-00041.parquet|10589a39188af404fa458da252df7dcf22c6f6395a1501d9243ef56ce4c3c148
 text|wikipedia/uk/train-00002-of-00010.parquet|$HF_WIKI.uk/train-00002-of-00010.parquet|11f25bf916b71e9030626104542acbe298b0ee1bfc394444928253d91a4095a2
+pairs|wikipedia-pairs/ru/train-00010-of-00021.parquet|$HF_WIKI.ru/train-00010-of-00021.parquet|f480c34cd725c63ce276a322ac2f06aa97c3b356c4574a94fb5a273a1501857b
+pairs|wikipedia-pairs/ru/train-00011-of-00021.parquet|$HF_WIKI.ru/train-00011-of-00021.parquet|30a2bd638e0556d1d09d459fd5ef5a4a7accbd54a7cc452798770bd80481dc5f
+pairs|wikipedia-pairs/en/train-00022-of-00041.parquet|$HF_WIKI.en/train-00022-of-00041.parquet|50ba80435bf2fd0b818533a1ca3118454a3ae275dc2250e0b68dc852dd03f3d2
+pairs|wikipedia-pairs/en/train-00023-of-00041.parquet|$HF_WIKI.en/train-00023-of-00041.parquet|b722b7e4039c65382286b6aa5a35f9a4c5d3536b758c346a94af7a2a692cc6bb
 wikifreq|wikipedia/be/train-00000-of-00002.parquet|$HF_WIKI.be/train-00000-of-00002.parquet|68048674aca99df6826cb3cc212a0c14eedd70ddf66aedd3833fb55aca7a8b39
 wikifreq|wikipedia/be/train-00001-of-00002.parquet|$HF_WIKI.be/train-00001-of-00002.parquet|d7930469968c695b232d005bbfb7857db3b0c14245887acf0fab374312d97d6f
 wikifreq|wikipedia/kk/train-00000-of-00001.parquet|$HF_WIKI.kk/train-00000-of-00001.parquet|7ecd6679b1635942941a67744eca1f677ec01fca9b60406253bda128ebf80dc4
@@ -115,10 +125,54 @@ hash_ok() { # file want
     esac
 }
 
-download() { # url dest
+curl_get() { # url dest
     curl --fail --location --silent --show-error \
         --retry 3 --retry-delay 2 --connect-timeout 30 \
         --output "$2" "$1"
+}
+
+# archive.org sends /download/ to one storage node, and a sick node answers 500.
+# The item metadata lists the replicas; each serves the same file at
+# https://<server><dir>/<file>. The caller checks the hash as for any source,
+# so a replica cannot swap the content.
+archive_replicas() { # url -> replica urls, one per line
+    local rest="${1#https://archive.org/download/}" item file meta
+    item="${rest%%/*}"
+    file="${rest#*/}"
+    meta="$(curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+        --connect-timeout 30 "https://archive.org/metadata/$item")" || return 0
+    printf '%s' "$meta" | python3 -I -c '
+import json, sys
+item, file = sys.argv[1], sys.argv[2]
+try:
+    m = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+servers = list(m.get("workable_servers") or [])
+servers += [m[k] for k in ("d1", "d2") if m.get(k)]
+d = m.get("dir")
+if not d:
+    sys.exit(0)
+seen = set()
+for s in servers:
+    if s not in seen:
+        seen.add(s)
+        print("https://%s%s/%s" % (s, d, file))
+' "$item" "$file" 2>/dev/null || true
+}
+
+download() { # url dest
+    curl_get "$1" "$2" && return 0
+    [[ "$1" == https://archive.org/download/*/* ]] || return 1
+    echo "retry   $1 failed, trying archive.org replicas" >&2
+    local replica
+    while IFS= read -r replica; do
+        [[ -z "$replica" ]] && continue
+        echo "retry   $replica" >&2
+        rm -f "$2"
+        curl_get "$replica" "$2" && return 0
+    done < <(archive_replicas "$1")
+    return 1
 }
 
 fetch() { # path url sha256
@@ -163,15 +217,15 @@ want_group() { # group
 
 GROUPS_WANTED=()
 if [[ $# -eq 0 ]]; then
-    GROUPS_WANTED=(lexicon text wikifreq)
+    GROUPS_WANTED=(lexicon text pairs wikifreq)
 fi
 for arg in "$@"; do
     case "$arg" in
-        lexicon|text|wikifreq|heldout|speech|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
-        model) GROUPS_WANTED+=(lexicon text wikifreq) ;;
-        all) GROUPS_WANTED+=(lexicon text wikifreq heldout) ;;
-        -h|--help) sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "unknown group: $arg (lexicon, text, wikifreq, model, heldout, speech, heavy, fallback, all)" ;;
+        lexicon|text|pairs|wikifreq|heldout|speech|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
+        model) GROUPS_WANTED+=(lexicon text pairs wikifreq) ;;
+        all) GROUPS_WANTED+=(lexicon text pairs wikifreq heldout) ;;
+        -h|--help) sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, speech, heavy, fallback, all)" ;;
     esac
 done
 

@@ -193,7 +193,7 @@ let typoWords: [(String, LayoutMap)] = [
 ]
 
 func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutMap)],
-                       layouts: [LayoutMap] = [abc, russian]) -> AutoswitchRun
+                       layouts: [LayoutMap] = [abc, russian], classifier: Classifier = classifier) -> AutoswitchRun
 {
     var run = AutoswitchRun()
     run.samples.reserveCapacity(rounds * 80)
@@ -341,12 +341,32 @@ if typos.corrections == 0 {
     failed = true
 }
 
+// The same session with the word before the typo weighed (weight above 0, the
+// off-by-default `typoContextWeight`): what turning it on would cost per
+// event. Compare with "typos" above; the cost is the read of the word before
+// at every judged word, the pair lookup only on a typo.
+var weighing = classifier
+weighing.typoContextWeight = 1
+var typosContext = correctionSession(rounds: 6000, settings: Settings(autoswitch: false, typoCorrection: true),
+                                     words: typoWords, classifier: weighing)
+typosContext.samples.sort()
+let typosContextMean = typosContext.samples.reduce(0, +) / Double(typosContext.samples.count)
+let typosContextP99 = typosContext.samples[typosContext.samples.count * 99 / 100]
+print(String(format: "typos with the word before (weight 1): %d events, %d corrections: mean %.0f ns, p99 %.0f ns, max %.0f ns",
+             typosContext.events, typosContext.corrections, typosContextMean, typosContextP99,
+             typosContext.samples.last!))
+if typosContextP99 > 1_000_000 {
+    print("FAIL: typo session with the word before: p99 exceeds the 1 ms tap callback budget")
+    failed = true
+}
+
 if arguments.count >= 3 {
     try JSONEncoder().encode(["mean": mean, "p99": p99, "classifier": classifierMean, "classifierP99": classifierP99,
                               "autoswitch": autoswitchMean, "autoswitchP99": autoswitchP99,
                               "autoswitch3": autoswitch3Mean, "autoswitch3P99": autoswitch3P99,
                               "corrector": correctorMean, "correctorP99": correctorP99,
-                              "typos": typosMean, "typosP99": typosP99])
+                              "typos": typosMean, "typosP99": typosP99,
+                              "typosContext": typosContextMean, "typosContextP99": typosContextP99])
         .write(to: URL(fileURLWithPath: arguments[2]))
 }
 exit(failed ? 1 : 0)

@@ -14,6 +14,10 @@ import PerekeyCore
 public struct ModelBuild {
     public struct Failure: Error, CustomStringConvertible {
         public let description: String
+
+        public init(description: String) {
+            self.description = description
+        }
     }
 
     public struct Report {
@@ -50,7 +54,18 @@ public struct ModelBuild {
         self.data = data
     }
 
-    public func run(languages: [String] = ModelBuild.languages) throws -> Report {
+    /// The languages with a pair table: the ones with a Wikipedia large
+    /// enough to count pairs in and a classifier that can use them.
+    public static let pairLanguages: Set = ["ru", "en"]
+
+    /// - Parameters:
+    ///   - pairs: whether a language of `pairLanguages` takes the table from
+    ///     `<cache>/pairs/<language>.tsv`, if the file is there
+    ///     (`scripts/build-pairs.sh`). `perekey-model pairs` builds without it:
+    ///     the table is counted against this dictionary.
+    ///   - inspect: called with each language's builder just before it is built.
+    public func run(languages: [String] = ModelBuild.languages, pairs: Bool = true,
+                    inspect: ((_ language: String, _ builder: ModelBuilder) throws -> Void)? = nil) throws -> Report {
         var report = Report()
         let mixed = try DataLists(directory: "\(data)/mixed")
         let manifest = (try? String(contentsOfFile: "\(cache)/MANIFEST.sha256", encoding: .utf8)) ?? ""
@@ -209,15 +224,39 @@ public struct ModelBuild {
                 builder.addCasedForm(word, corrects: false)
             }
 
+            // 4. The pairs of neighbouring words, if the training text was counted.
+            var pairNote: String?
+            if pairs, Self.pairLanguages.contains(language),
+               FileManager.default.fileExists(atPath: pairsPath(language))
+            {
+                let table = try PairTable.read(pairsPath(language))
+                let known = builder.knownForms(language: language, minimumRank: Classifier.Options().knownRank)
+                guard table.language == language, table.known == PairTable.known(known) else {
+                    throw Failure(description: "\(pairsPath(language)) was counted against another dictionary: run scripts/build-pairs.sh \(language)")
+                }
+                guard table.sources == Self.trainingFiles(manifest, language: language) else {
+                    throw Failure(description: "\(pairsPath(language)) was counted from other training files than the cache holds: run scripts/build-pairs.sh \(language)")
+                }
+                let chosen = table.chosen()
+                for pair in chosen {
+                    builder.addPair(previous: pair.entry.previous, word: pair.entry.word, lift: pair.lift,
+                                    language: language)
+                }
+                pairNote = "\(chosen.count) pairs of \(table.entries.count) counted in \(table.tokens) words"
+                report.notes.append("\(language): \(pairNote!)")
+            }
+            try inspect?(language, builder)
+
             // The inputs of this language only: a new source for another
             // language leaves this file's bytes and hash alone.
-            let inputs: [String] = switch language {
+            var inputs: [String] = switch language {
             case "ru": ["wordfreq/large_ru.", "hunspell-ru/"]
             case "en": ["wordfreq/large_en.", "esdb/"]
             case "be": ["wikipedia/be/", "hunspell-be/"]
             case "kk": ["wikipedia/kk/"]
             default: ["wordfreq/large_\(language)."]
             }
+            if pairNote != nil { inputs.append("wikipedia-pairs/\(language)/") }
             let formsNote = switch language {
             case "ru": "Word forms: modified from the dictionary by Alexander I. Lebedev (BSD-like licence)."
             case "en": "Word forms: SCOWL / ESDB."
@@ -229,7 +268,7 @@ public struct ModelBuild {
                 : "wordfreq data by Robyn Speer, CC BY-SA 4.0."
             builder.meta = """
             Perekey language model, \(language). Licence: CC BY-SA 4.0 (data/SOURCES.md).
-            Sources: \(sources.joined(separator: "; ")).
+            Sources: \(sources.joined(separator: "; "))\(pairNote.map { "; Wikipedia \(language) 20231101 word pairs (CC BY-SA 4.0 + GFDL): \($0)" } ?? "").
             \(frequencyNote) \(formsNote)
             Inputs:
             \(manifest.split(separator: "\n").filter { line in inputs.contains { line.contains($0) } }.joined(separator: "\n"))
@@ -237,6 +276,14 @@ public struct ModelBuild {
             report.files.append((language, builder.build()))
         }
         return report
+    }
+
+    func pairsPath(_ language: String) -> String { "\(cache)/pairs/\(language).tsv" }
+
+    /// The manifest lines of the training files of a language: what
+    /// `PairTable.sources` records.
+    public static func trainingFiles(_ manifest: String, language: String) -> [String] {
+        manifest.split(separator: "\n").filter { $0.contains("  wikipedia-pairs/\(language)/") }.map(String.init)
     }
 
     /// The Ukrainian apostrophes `’` and `ʼ` as `'`.

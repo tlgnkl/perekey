@@ -3,7 +3,7 @@
 #
 # Builds the language model files, one per language (ru.pklm, en.pklm,
 # uk.pklm, be.pklm, kk.pklm), from the data cache (scripts/fetch-data.sh
-# lexicon wikifreq) and checks each file's hash against data/model.sha256.
+# lexicon wikifreq pairs) and checks each file's hash against data/model.sha256.
 #
 # Usage: scripts/build-model.sh [--write] [--out <dir>] [--languages ru,en,uk,be,kk]
 #
@@ -15,7 +15,9 @@
 #             and kk count their words with scripts/wiki-freq.py, run here in
 #             .build/venv when the list is missing; its packages are pinned
 #             with hashes in scripts/wiki-freq.requirements.txt. The hashes
-#             are checked and recorded for the built languages only
+#             are checked and recorded for the built languages only. ru and en
+#             take their word pairs from scripts/build-pairs.sh, run here when
+#             <cache>/pairs/<language>.tsv is missing (minutes, once per cache)
 #
 # Environment:
 #   PEREKEY_DATA_CACHE   the data cache (default: .build/data-cache)
@@ -39,14 +41,14 @@ while [[ $# -gt 0 ]]; do
         --write) WRITE=1 ;;
         --out) OUT="$2"; shift ;;
         --languages) LANGUAGES="$2"; shift ;;
-        -h|--help) sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "build-model: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
 done
 
 [[ -f "$CACHE/wordfreq/large_ru.msgpack.gz" ]] || {
-    echo "build-model: no data cache in $CACHE; run scripts/fetch-data.sh lexicon wikifreq" >&2
+    echo "build-model: no data cache in $CACHE; run scripts/fetch-data.sh lexicon wikifreq pairs" >&2
     exit 1
 }
 
@@ -67,6 +69,12 @@ for language in $(tr , ' ' <<< "${LANGUAGES:-ru,en,uk,be,kk}"); do
             -r scripts/wiki-freq.requirements.txt
     fi
     "$venv/bin/python" scripts/wiki-freq.py --cache "$CACHE" "$language"
+done
+
+# The pair tables of ru and en: counted once per cache, a step of its own.
+for language in $(tr , ' ' <<< "${LANGUAGES:-ru,en,uk,be,kk}"); do
+    [[ "$language" == ru || "$language" == en ]] || continue
+    PEREKEY_DATA_CACHE="$CACHE" scripts/build-pairs.sh --if-missing "$language"
 done
 
 swift build -c release --product perekey-model >/dev/null

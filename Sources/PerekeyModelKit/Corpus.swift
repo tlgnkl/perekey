@@ -23,6 +23,12 @@ public struct CorpusItem: Hashable, Sendable {
     /// For the apps category: the words counted per language in the app the
     /// word is typed in (`LanguageStats`), so its prior.
     public var app: [String: Double]?
+    /// The text of the words before it in its sentence, the latest first, up
+    /// to `RecentLanguages.capacity`, as they were typed (marks included):
+    /// the context of `TypoCorrector`. Empty for the first word of a
+    /// sentence; nil for a word that is no part of a sentence (code, URLs,
+    /// passwords, captchas) and for a corpus file from before the words.
+    public var previousWords: [String]?
 
     /// The language of the word before it.
     public var previous: String? { recent.first ?? nil }
@@ -33,7 +39,7 @@ public struct CorpusItem: Hashable, Sendable {
     }
 
     public init(category: String, language: String, recent: [String?], text: String, expected: String? = nil,
-                app: [String: Double]? = nil)
+                app: [String: Double]? = nil, previousWords: [String]? = nil)
     {
         self.category = category
         self.language = language
@@ -41,6 +47,7 @@ public struct CorpusItem: Hashable, Sendable {
         self.text = text
         self.expected = expected
         self.app = app
+        self.previousWords = previousWords
     }
 }
 
@@ -163,7 +170,8 @@ public enum Corpus {
             guard let lang = language(of: word), let typo = Synthetic.typo(of: word, language: lang, random: &random)
             else { continue }
             let recent = tokens[max(0, index - RecentLanguages.capacity)..<index].reversed().map { language(of: $0) }
-            items.append(CorpusItem(category: "typos", language: lang, recent: recent, text: typo, expected: word))
+            items.append(CorpusItem(category: "typos", language: lang, recent: recent, text: typo, expected: word,
+                                    previousWords: wordsBefore(tokens, at: index)))
             count += 1
         }
 
@@ -194,22 +202,29 @@ public enum Corpus {
 
     /// Adds the words of a sentence; each word's language is its script.
     /// Returns how many words were added.
-    private static func add(_ tokens: [String], category: String, app: [String: Double]? = nil,
-                            to items: inout [CorpusItem]) -> Int
+    @discardableResult
+    static func add(_ tokens: [String], category: String, app: [String: Double]? = nil,
+                    to items: inout [CorpusItem]) -> Int
     {
         var recent: [String?] = []
         var added = 0
-        for token in tokens {
+        for (index, token) in tokens.enumerated() {
             let language = language(of: token)
             if let language {
                 items.append(CorpusItem(category: category, language: language, recent: recent, text: token,
-                                        app: app))
+                                        app: app, previousWords: wordsBefore(tokens, at: index)))
                 added += 1
             }
             recent.insert(language, at: 0)
             if recent.count > RecentLanguages.capacity { recent.removeLast() }
         }
         return added
+    }
+
+    /// The tokens before `index`, the latest first, as many as the context
+    /// reaches back (`RecentLanguages.capacity`); empty at the start.
+    static func wordsBefore(_ tokens: [String], at index: Int) -> [String] {
+        Array(tokens[max(0, index - RecentLanguages.capacity)..<index].reversed())
     }
 
     /// "ru" for a Cyrillic word, "en" for a Latin one, nil for anything else.
@@ -257,16 +272,21 @@ public enum Corpus {
 
     /// One word per line: category, language, the languages before it
     /// ("ru,-,en", latest first, "-" for none), the text, the word meant
-    /// ("-" for none) and the app's counts ("ru:120,en:30", "-" for none).
-    /// Files of four or five fields, from before the context, still read.
+    /// ("-" for none), the app's counts ("ru:120,en:30", "-" for none) and the
+    /// words before it ("-" when unknown, "^" at the start of a sentence,
+    /// else "=" and the words, latest first, one space apart: a token never
+    /// holds a space). Files of four to six fields, from before the context
+    /// and the words, still read.
     public static func write(_ items: [CorpusItem], to path: String) throws {
-        var text = "# category\tlanguage\trecent\ttext\texpected\tapp\n"
+        var text = "# category\tlanguage\trecent\ttext\texpected\tapp\tprevious\n"
         for item in items {
             let recent = item.recent.isEmpty ? "-" : item.recent.map { $0 ?? "-" }.joined(separator: ",")
             let app = item.app.map { counts in
                 counts.sorted { $0.key < $1.key }.map { "\($0.key):\(Int($0.value))" }.joined(separator: ",")
             } ?? "-"
-            text += "\(item.category)\t\(item.language)\t\(recent)\t\(item.text)\t\(item.expected ?? "-")\t\(app)\n"
+            let words = item.previousWords.map { $0.isEmpty ? "^" : "=" + $0.joined(separator: " ") } ?? "-"
+            text += "\(item.category)\t\(item.language)\t\(recent)\t\(item.text)\t\(item.expected ?? "-")\t\(app)"
+                + "\t\(words)\n"
         }
         try text.write(toFile: path, atomically: true, encoding: .utf8)
     }
@@ -276,11 +296,11 @@ public enum Corpus {
         var items: [CorpusItem] = []
         for line in text.split(separator: "\n") where !line.hasPrefix("#") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard (4...6).contains(fields.count) else { throw Failure(description: "bad corpus line: \(line)") }
+            guard (4...7).contains(fields.count) else { throw Failure(description: "bad corpus line: \(line)") }
             let recent: [String?] = fields[2] == "-" ? [] : fields[2].split(separator: ",").map { $0 == "-" ? nil : String($0) }
             let expected = fields.count >= 5 && fields[4] != "-" ? String(fields[4]) : nil
             var app: [String: Double]?
-            if fields.count == 6, fields[5] != "-" {
+            if fields.count >= 6, fields[5] != "-" {
                 var counts: [String: Double] = [:]
                 for pair in fields[5].split(separator: ",") {
                     let parts = pair.split(separator: ":")
@@ -291,8 +311,18 @@ public enum Corpus {
                 }
                 app = counts
             }
+            var words: [String]?
+            if fields.count == 7 {
+                switch fields[6] {
+                case "-": words = nil
+                case "^": words = []
+                default:
+                    guard fields[6].hasPrefix("=") else { throw Failure(description: "bad previous words: \(line)") }
+                    words = fields[6].dropFirst().split(separator: " ").map(String.init)
+                }
+            }
             items.append(CorpusItem(category: String(fields[0]), language: String(fields[1]), recent: recent,
-                                    text: String(fields[3]), expected: expected, app: app))
+                                    text: String(fields[3]), expected: expected, app: app, previousWords: words))
         }
         return items
     }

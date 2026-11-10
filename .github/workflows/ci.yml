@@ -66,10 +66,18 @@ jobs:
       - name: Cache the model and held-out data
         uses: actions/cache@v4
         with:
-          path: .build/data-cache
-          # The pinned revisions and hashes live in the script itself.
-          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
-      - run: scripts/fetch-data.sh lexicon wikifreq heldout
+          path: |
+            .build/data-cache
+            !.build/data-cache/pairs
+          # The pinned revisions and hashes live in the script itself. "full" holds heldout; release-build and release.yml fetch without it and use "model", so neither overwrites the other.
+          key: data-cache-full-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
+      - name: Cache the word-pair counts
+        uses: actions/cache@v4
+        with:
+          path: .build/data-cache/pairs
+          # The inputs of the count only: the text scripts, the dictionary lists (not data/*/hyphen.txt), the counter and the fingerprints. Not the model hashes, not the rest of the sources.
+          key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/ru/**', 'data/en/**', 'data/mixed/**', '!data/*/hyphen.txt', 'Sources/PerekeyModelKit/PairTable.swift', 'Sources/PerekeyModelKit/PairText.swift', 'Sources/PerekeyCore/ModelFormat.swift') }}
+      - run: scripts/fetch-data.sh lexicon wikifreq pairs heldout
       - name: Build the model files and check their hashes
         run: scripts/build-model.sh
       - name: Evaluate the classifier on the held-out sample
@@ -177,9 +185,17 @@ jobs:
       - name: Cache the model data
         uses: actions/cache@v4
         with:
-          path: .build/data-cache
-          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
-      - run: scripts/fetch-data.sh lexicon wikifreq
+          path: |
+            .build/data-cache
+            !.build/data-cache/pairs
+          key: data-cache-model-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
+      - name: Cache the word-pair counts
+        uses: actions/cache@v4
+        with:
+          path: .build/data-cache/pairs
+          # The inputs of the count only: the text scripts, the dictionary lists (not data/*/hyphen.txt), the counter and the fingerprints. Not the model hashes, not the rest of the sources.
+          key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/ru/**', 'data/en/**', 'data/mixed/**', '!data/*/hyphen.txt', 'Sources/PerekeyModelKit/PairTable.swift', 'Sources/PerekeyModelKit/PairText.swift', 'Sources/PerekeyCore/ModelFormat.swift') }}
+      - run: scripts/fetch-data.sh lexicon wikifreq pairs
       - run: scripts/build-model.sh --out .build/universal/model
       - run: scripts/check-voice-loaders.sh
       - run: scripts/voice-pins.sh use

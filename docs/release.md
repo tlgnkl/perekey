@@ -200,7 +200,7 @@ FluidAudio и WhisperKit, потому что SwiftPM не подключает 
 
    ```sh
    export PEREKEY_VOICE=1 VERSION=X.Y.Z BUILD=1 SIGN_IDENTITY=-
-   scripts/build-model.sh --out .build/universal/model   # один раз, нужен scripts/fetch-data.sh lexicon wikifreq
+   scripts/build-model.sh --out .build/universal/model   # один раз, нужен scripts/fetch-data.sh lexicon wikifreq pairs
    scripts/build-universal.sh
    scripts/check-release-app.sh
    scripts/dmg.sh .build/voice-universal/app/Perekey.app
@@ -214,6 +214,8 @@ FluidAudio и WhisperKit, потому что SwiftPM не подключает 
    подпись цела.
 2. Размер DMG записать в заметки. Порога нет, только замер (0.1.1 весил 25,7 МБ,
    0.2.0 — около 38,7 МБ: добавились библиотеки речи, модели в образ не входят).
+   С таблицей пар слов (L3a) `ru.pklm` растёт на 6,2 МБ, `en.pklm` на 7,5 МБ:
+   образ тяжелее примерно на 14 МБ до сжатия; точный размер записать по сборке.
 3. Проверить голос в выпускной сборке, подписанной «Perekey Release» (не в
    сборке из `swift build`): установить DMG, выдать «Мониторинг ввода»,
    «Универсальный доступ», «Микрофон»; скачать модель, продиктовать фразу в
@@ -286,7 +288,7 @@ SPARKLE_ED_PRIVATE_KEY=<закрытый> scripts/appcast.sh .build/dmg/Perekey-
 - В бандл идёт модель — файл на язык из `data/languages`: сейчас
   `Contents/Resources/ru.pklm`, `en.pklm`, `uk.pklm` и `be.pklm`. Приложение
   включает ровно те языки, файлы которых нашло в бандле. `release.yml`
-  собирает модели из кэша `scripts/fetch-data.sh lexicon wikifreq` отдельным
+  собирает модели из кэша `scripts/fetch-data.sh lexicon wikifreq pairs` отдельным
   шагом до импорта сертификата подписи: пакеты Python для
   `wiki-freq.py` ставятся с точными версиями и хэшами
   (`scripts/wiki-freq.requirements.txt`, `pip --require-hashes`), и ничего

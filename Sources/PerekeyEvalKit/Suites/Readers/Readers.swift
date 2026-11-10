@@ -19,9 +19,10 @@ public struct SourceUnit: Hashable, Sendable {
 /// A dump of a gigabyte is never held whole: `Archive.run` reads to the end,
 /// this reader keeps one chunk and one line.
 public enum LineStream {
-    /// Calls `body` for each line, without the line end (`\n` or `\r\n`),
-    /// until it returns false or the output ends. Throws if the tool fails.
-    public static func read(tool: String, arguments: [String], body: (Substring) throws -> Bool) throws {
+    /// Calls `body` for each line as bytes, without the line end (`\n` or
+    /// `\r\n`), until it returns false or the output ends. Throws if the
+    /// tool fails.
+    public static func read(tool: String, arguments: [String], body: ([UInt8]) throws -> Bool) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
@@ -30,31 +31,39 @@ public enum LineStream {
         process.standardError = FileHandle.standardError
         try process.run()
         let handle = output.fileHandleForReading
-        var pending = Data()
+        var buffer: [UInt8] = []
         var stopped = false
-        func emit(_ bytes: Data) throws {
-            var line = String(decoding: bytes, as: UTF8.self)[...]
-            if line.hasSuffix("\r") { line = line.dropLast() }
-            if try !body(line) { stopped = true }
+        func emit(_ line: ArraySlice<UInt8>) throws {
+            var line = line
+            if line.last == 0x0D { line = line.dropLast() }
+            if try !body(Array(line)) { stopped = true }
         }
         reading: while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            pending.append(chunk)
-            // Cut the lines by offset and drop the used part once per chunk:
-            // removing from the front of the buffer per line is quadratic.
-            var begin = pending.startIndex
-            while let newline = pending[begin...].firstIndex(of: 0x0A) {
-                try emit(pending[begin..<newline])
-                begin = pending.index(after: newline)
+            buffer.append(contentsOf: chunk)
+            // The line ends, found with memchr; the used part goes once per chunk.
+            var ends: [Int] = []
+            buffer.withUnsafeBufferPointer { bytes in
+                var from = 0
+                while from < bytes.count, let found = memchr(bytes.baseAddress! + from, 0x0A, bytes.count - from) {
+                    let end = bytes.baseAddress!.distance(to: found.assumingMemoryBound(to: UInt8.self))
+                    ends.append(end)
+                    from = end + 1
+                }
+            }
+            var begin = 0
+            for end in ends {
+                try emit(buffer[begin..<end])
+                begin = end + 1
                 if stopped { break reading }
             }
-            pending = Data(pending[begin...])
+            buffer.removeSubrange(0..<begin)
         }
         if stopped {
             process.terminate()
             process.waitUntilExit()
             return
         }
-        if !pending.isEmpty { try emit(pending) }
+        if !buffer.isEmpty { try emit(buffer[...]) }
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw EvalError.input("\(tool) \(arguments.joined(separator: " ")) failed: \(process.terminationStatus)")
@@ -62,12 +71,36 @@ public enum LineStream {
     }
 }
 
+/// A unit that is not made yet: the hash of its reference is known, the
+/// strings are built on demand. The builder keeps a unit only if its rank
+/// is among the first ones, and building two strings for each of millions
+/// of sentences would cost most of the read.
+public struct PendingUnit {
+    enum Storage {
+        case ready(SourceUnit)
+        /// The sentence at `range` of a paragraph of the post `prefix` ends with its `number`.
+        case sentence(prefix: [UInt8], number: Int, paragraph: [UInt8], range: Range<Int>)
+    }
+
+    let storage: Storage
+
+    public func make() -> SourceUnit {
+        switch storage {
+        case let .ready(unit): unit
+        case let .sentence(prefix, number, paragraph, range):
+            SourceUnit(ref: String(decoding: prefix, as: UTF8.self) + String(number),
+                       text: String(decoding: paragraph[range], as: UTF8.self))
+        }
+    }
+}
+
 /// Reads the units of a manifest's sources from the data cache.
 public enum SourceReader {
     /// Calls `body` for every unit of every source file, in file order, with
-    /// the number of the file among the manifest's sources.
+    /// the number of the file among the manifest's sources, the FNV-1a hash
+    /// of the unit's reference and a way to make the unit.
     public static func forEachUnit(_ manifest: SuiteManifest, cache: String,
-                                   body: (_ source: Int, _ unit: SourceUnit) throws -> Void) throws
+                                   body: (_ source: Int, _ refHash: UInt64, _ unit: PendingUnit) throws -> Void) throws
     {
         for (index, source) in manifest.sources.enumerated() {
             let path = (cache as NSString).appendingPathComponent(source)
@@ -75,8 +108,8 @@ public enum SourceReader {
                 throw EvalError.input("\(manifest.suite): no source file \(path); run scripts/fetch-data.sh heldout")
             }
             switch manifest.reader {
-            case .tatoeba: try TatoebaReader.forEachUnit(path: path) { try body(index, $0) }
-            case .stackexchange: try StackExchangeReader.forEachUnit(path: path) { try body(index, $0) }
+            case .tatoeba: try TatoebaReader.forEachLazyUnit(path: path) { try body(index, $0, $1) }
+            case .stackexchange: try StackExchangeReader.forEachLazyUnit(path: path) { try body(index, $0, $1) }
             }
         }
     }
@@ -84,11 +117,15 @@ public enum SourceReader {
 
 /// Tatoeba exports: `id`, `lang`, `text`, tab-separated, bzip2.
 public enum TatoebaReader {
-    public static func forEachUnit(path: String, body: (SourceUnit) throws -> Void) throws {
-        try LineStream.read(tool: "/usr/bin/bzip2", arguments: ["-dc", path]) { line in
-            if let unit = unit(fromLine: line) { try body(unit) }
+    public static func forEachLazyUnit(path: String, body: (UInt64, PendingUnit) throws -> Void) throws {
+        try LineStream.read(tool: "/usr/bin/bzip2", arguments: ["-dc", path]) { bytes in
+            if let unit = unit(fromLine: String(decoding: bytes, as: UTF8.self)[...]) { try body(FNV1a.hash64(unit.ref), PendingUnit(storage: .ready(unit))) }
             return true
         }
+    }
+
+    public static func forEachUnit(path: String, body: (SourceUnit) throws -> Void) throws {
+        try forEachLazyUnit(path: path) { _, pending in try body(pending.make()) }
     }
 
     /// `12345\trus\tПривет, мир.` to a unit; nil for a line of another shape.
@@ -102,51 +139,55 @@ public enum TatoebaReader {
 /// Stack Exchange dumps: `Posts.xml` of a `.7z`, read by the system `tar`
 /// as a stream.
 public enum StackExchangeReader {
-    public static func forEachUnit(path: String, body: (SourceUnit) throws -> Void) throws {
-        try LineStream.read(tool: "/usr/bin/tar", arguments: ["-xOf", path, "Posts.xml"]) { line in
-            for unit in units(fromRow: line) { try body(unit) }
+    public static func forEachLazyUnit(path: String, body: (UInt64, PendingUnit) throws -> Void) throws {
+        try LineStream.read(tool: "/usr/bin/tar", arguments: ["-xOf", path, "Posts.xml"]) { row in
+            try forEachSentence(inRow: row, body: body)
             return true
         }
+    }
+
+    public static func forEachUnit(path: String, body: (SourceUnit) throws -> Void) throws {
+        try forEachLazyUnit(path: path) { _, pending in try body(pending.make()) }
     }
 
     /// The sentences of the post a `<row …/>` line holds: the unit is a
     /// sentence, its reference `post:<Id>#<n>`, `n` the number of the
     /// sentence in the post, from 0.
     public static func units(fromRow line: Substring) -> [SourceUnit] {
-        guard let id = attribute("Id", in: line), let body = attribute("Body", in: line) else { return [] }
         var units: [SourceUnit] = []
-        for paragraph in SourceText.paragraphs(fromBody: body) {
-            for sentence in SourceText.sentences(of: paragraph) {
-                units.append(SourceUnit(ref: "post:\(id)#\(units.count)", text: sentence))
-            }
-        }
+        try? forEachSentence(inRow: Array(line.utf8)) { _, pending in units.append(pending.make()) }
         return units
     }
 
-    /// The raw value of ` Name="…"`. The space in front keeps `ParentId`
-    /// and `OwnerUserId` from passing for `Id`. Searches the bytes: the
-    /// rows of a dump are a gigabyte of text.
-    static func attribute(_ name: String, in line: Substring) -> String? {
-        let pattern = Array(" \(name)=\"".utf8)
-        let bytes = line.utf8
-        var index = bytes.startIndex
-        var match: String.Index?
-        search: while index < bytes.endIndex {
-            if bytes[index] == pattern[0] {
-                var probe = index
-                for byte in pattern {
-                    guard probe < bytes.endIndex, bytes[probe] == byte else {
-                        index = bytes.index(after: index)
-                        continue search
-                    }
-                    probe = bytes.index(after: probe)
-                }
-                match = probe
-                break
+    static func forEachSentence(inRow row: [UInt8], body: (UInt64, PendingUnit) throws -> Void) throws {
+        guard let id = attribute("Id", in: row), let value = attribute("Body", in: row) else { return }
+        let prefix = Array("post:".utf8) + id + Array("#".utf8)
+        var number = 0
+        for paragraph in SourceText.paragraphBytes(fromBody: value) {
+            for range in SourceText.sentenceRanges(in: paragraph) {
+                let n = number
+                number += 1
+                let hashed = FNV1a.hash64(prefix + Array(String(n).utf8))
+                try body(hashed, PendingUnit(storage: .sentence(prefix: prefix, number: n, paragraph: paragraph,
+                                                                 range: range)))
             }
-            index = bytes.index(after: index)
         }
-        guard let start = match, let end = bytes[start...].firstIndex(of: UInt8(ascii: "\"")) else { return nil }
-        return String(line[start..<end])
+    }
+
+    /// The raw bytes of ` Name="…"`. The space in front keeps `ParentId`
+    /// and `OwnerUserId` from passing for `Id`.
+    static func attribute(_ name: String, in row: [UInt8]) -> [UInt8]? {
+        let pattern = Array(" \(name)=\"".utf8)
+        guard row.count > pattern.count else { return nil }
+        var index = 0
+        while index <= row.count - pattern.count {
+            if row[index] == pattern[0], row[index..<(index + pattern.count)].elementsEqual(pattern) {
+                let start = index + pattern.count
+                guard let end = row[start...].firstIndex(of: UInt8(ascii: "\"")) else { return nil }
+                return Array(row[start..<end])
+            }
+            index += 1
+        }
+        return nil
     }
 }

@@ -174,7 +174,7 @@ enum SuiteFixtures {
 
     @Test func aMissingSourceNamesTheFile() throws {
         let manifest = try SuiteFixtures.manifest(source: "tatoeba/none.bz2")
-        #expect(throws: EvalError.self) { try SourceReader.forEachUnit(manifest, cache: "/nonexistent") { _, _ in } }
+        #expect(throws: EvalError.self) { try SourceReader.forEachUnit(manifest, cache: "/nonexistent") { _, _, _ in } }
     }
 }
 
@@ -340,6 +340,15 @@ extension Result where Failure == Drop {
         for scenario in SuiteManifest.scenarioNames {
             let played = try Cases.play(try build(scenario, warmup: try warmup()), system: .oracle)
             #expect(played.score.exact, "\(scenario)")
+        }
+    }
+
+    @Test func errIsWhereNullIsWrongAsTheScorerSaysIt() throws {
+        for scenario in SuiteManifest.scenarioNames {
+            let item = try build(scenario, "это USB-порт и zoom, потом git push", warmup: try warmup())
+            let played = try Cases.play(item, system: .null)
+            let wrong = played.score.measured.map { $0.outcome != .ok }
+            #expect(item.tokens?.map { $0.err == .layout } == wrong, "\(scenario)")
         }
     }
 

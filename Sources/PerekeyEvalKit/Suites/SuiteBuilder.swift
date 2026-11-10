@@ -52,7 +52,11 @@ public struct SuiteBuilder {
     /// The place of a unit in the order of the draw: `SplitMix64` seeded by
     /// the manifest's seed plus the epoch, and the unit's reference.
     public static func rank(ref: String, seed: Int, epoch: Int) -> UInt64 {
-        var generator = SplitMix64(seed: FNV1a.hash64(ref) ^ (UInt64(truncatingIfNeeded: seed + epoch) &* 0x9E37_79B9_7F4A_7C15))
+        rank(refHash: FNV1a.hash64(ref), seed: seed, epoch: epoch)
+    }
+
+    static func rank(refHash: UInt64, seed: Int, epoch: Int) -> UInt64 {
+        var generator = SplitMix64(seed: refHash ^ (UInt64(truncatingIfNeeded: seed + epoch) &* 0x9E37_79B9_7F4A_7C15))
         return generator.next()
     }
 
@@ -69,10 +73,11 @@ public struct SuiteBuilder {
         // of a Tatoeba suite weigh the same; the files are taken in turn.
         let capacity = budget * options.poolFactor
         var pools = manifest.sources.map { _ in BoundedPool<Pooled>(capacity: capacity) }
-        try SourceReader.forEachUnit(manifest, cache: cache) { source, unit in
+        try SourceReader.forEachUnit(manifest, cache: cache) { source, refHash, pending in
             report.units += 1
-            let rank = Self.rank(ref: unit.ref, seed: manifest.seed, epoch: manifest.epoch)
+            let rank = Self.rank(refHash: refHash, seed: manifest.seed, epoch: manifest.epoch)
             if let worst = pools[source].worstKept, rank > worst.rank { return }
+            let unit = pending.make()
             pools[source].insert(Pooled(rank: rank, ref: unit.ref, text: unit.text), by: Self.order)
         }
         let ordered = Self.interleaved(pools.map { $0.sorted(by: Self.order) })

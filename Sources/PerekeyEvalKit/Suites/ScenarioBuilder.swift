@@ -147,14 +147,34 @@ struct ScenarioBuilder {
         let events = try typist.events(for: item, layouts: library)
         let setup = try CaseSetup(item: item, library: library, classifier: nil)
         let null = try SystemName.null.play(setup, events: events)
-        let played = scorer.score(item, null: null, out: null, events: events)
         var wrong = false
-        for (index, token) in played.measured.enumerated() where token.outcome != .ok {
+        for index in wrongTokens(item, null: null) {
             item.tokens?[index].err = .layout
             wrong = true
         }
         if wrong, scenario.hasPrefix("clean") { return .failure(.nullWrongInClean) }
         return .success(item)
+    }
+
+    /// The measured tokens Null got wrong. With as many tokens as `want`
+    /// they stand on their own places (the cheapest alignment pairs them);
+    /// otherwise the scorer aligns them. Scoring every case through the
+    /// scorer took most of a build.
+    func wrongTokens(_ item: EvalCase, null: RunResult) -> [Int] {
+        Self.wrongTokens(item, null: null, scorer: scorer)
+    }
+
+    static func wrongTokens(_ item: EvalCase, null: RunResult, scorer: Scorer? = nil) -> [Int] {
+        let wanted = Tokenizer.tokens(item.want)
+        let typed = Tokenizer.tokens(null.text)
+        let measured = item.tokens?.count ?? 0
+        if typed.count == wanted.count {
+            let offset = wanted.count - measured
+            return (0..<measured).filter { typed[offset + $0] != wanted[offset + $0] }
+        }
+        guard let scorer else { return [] }
+        let played = scorer.score(item, null: null, out: null)
+        return played.measured.enumerated().filter { $0.element.outcome != .ok }.map(\.offset)
     }
 
     /// `dev` or `test` by the hash of the suite and the key of the unit

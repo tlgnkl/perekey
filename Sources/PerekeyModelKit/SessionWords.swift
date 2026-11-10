@@ -117,13 +117,17 @@ public enum SessionWords {
         case .keptThenRetyped, .keptThenRetypedAfterErasing:
             return (.miss, .strong)
         case let .actedThenUndone(channel, followUp):
-            if case .corrected = action { return (.wrongCorrection, .strong) }
+            // A switch and a correction are read alike: what the undo was
+            // for decides, not what was undone.
+            var wrong = ObservedWord.Label.falseSwitch
+            if case .corrected = action { wrong = .wrongCorrection }
             switch (channel, followUp) {
             case (.button?, _), (.shortcut?, _), (.backspace?, .continued?):
-                return (.falseSwitch, .strong)
+                return (wrong, .strong)
             case (.backspace?, .retyped?):
                 // Undone with Backspace and put back with the shortcut: the
-                // switch was what the user wanted (`UndoFollowUp.retyped`).
+                // switch or correction was what the user wanted
+                // (`UndoFollowUp.retyped`). `InputMachine` reads it the same way.
                 return (.right, .strong)
             default:
                 return (.unclear, nil)
@@ -140,8 +144,11 @@ public enum SessionWords {
                 // Cancelled: the text stays corrected.
                 guard let undoPosted = posted(run, seq: retype.seq, after: undoAt - 1) else { return .acted }
                 // The report comes with the undo, at the next key after a
-                // Backspace, or at the end of a word undone inside it.
-                for reportAt in undoPosted..<min(run.steps.count, next + 1) {
+                // Backspace, or at the end of a word undone inside it. An
+                // undo posted after that has no report in sight.
+                let end = min(run.steps.count, next + 1)
+                guard undoPosted < end else { return .actedThenUndone(nil, nil) }
+                for reportAt in undoPosted..<end {
                     for case let .undoSettled(report) in run.steps[reportAt].output.effects {
                         return .actedThenUndone(report.channel, report.followUp)
                     }

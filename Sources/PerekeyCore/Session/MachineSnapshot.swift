@@ -5,10 +5,21 @@
 /// retype in flight, no undo waiting. A session segment starts with one
 /// (`SessionSnapshot`), so a replay can start at any segment.
 ///
-/// No typed text: settings, layouts, the focus and the counts of languages,
-/// as the machine has them. The classifier is described apart
-/// (`ClassifierSpec`): its model is not recorded.
+/// A session file holds typed text. This snapshot carries the settings as
+/// they are, with the user's own words in them: the exceptions, the words
+/// learned per app, the always-fix spellings (`Settings`). Typed words are in
+/// the steps that follow (`OutputDigest` keeps the original and the
+/// replacement of a correction). Such a file is written only by the
+/// recording build (`PEREKEY_RECORD`), never by a release one; keeping the
+/// file safe is the recorder's lane (plan 6.3). Besides the settings the
+/// snapshot has the layouts, the focus and the counts of languages, as the
+/// machine has them. The classifier is described apart (`ClassifierSpec`):
+/// its model is not recorded.
 public struct MachineSnapshot: Hashable, Sendable, Codable {
+    /// How many unconfirmed layout selections the machine keeps (`Fence`);
+    /// the replay keeps as many.
+    public static var pendingSelectionLimit: Int { Fence.pendingSelectionLimit }
+
     public var settings: Settings
     /// The enabled layouts in the system's order.
     public var layouts: [LayoutMap]

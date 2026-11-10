@@ -26,8 +26,10 @@ public enum ReplayCommand {
         var description: String
     }
 
-    /// Runs the command; returns the exit status: 0, 1 when `check` found
-    /// a difference or a file was broken, 2 for a wrong command line.
+    /// Runs the command; returns the exit status: 0; 1 when `check` found a
+    /// difference, a file was broken or a model could not be loaded; 2 for a
+    /// wrong command line: no command, no files, no `--model`, a flag without
+    /// its value, a `--candidate-options` that is not `Classifier.Options`.
     public static func run(_ arguments: [String], print: (String) -> Void) -> Int32 {
         guard let command = arguments.first, ["check", "words", "compare"].contains(command) else {
             print(usage)
@@ -55,6 +57,15 @@ public enum ReplayCommand {
         }
         let showWords = flags["--show-words"] != nil
         let base = Models(directory: model, options: nil)
+        var options: Classifier.Options?
+        if let text = flags["--candidate-options"] {
+            do {
+                options = try candidateOptions(text)
+            } catch {
+                print("--candidate-options: \(error)\n\(usage)")
+                return 2
+            }
+        }
         do {
             switch command {
             case "check":
@@ -66,7 +77,6 @@ public enum ReplayCommand {
                     print("compare needs --candidate-model\n\(usage)")
                     return 2
                 }
-                let options = try flags["--candidate-options"].map(candidateOptions)
                 return try compare(files, base: base, candidate: Models(directory: candidate, options: options),
                                    json: flags["--json"], showWords: showWords, print: print)
             }
@@ -106,9 +116,21 @@ public enum ReplayCommand {
         }
     }
 
+    /// `Classifier.Options` from JSON text or a file. A key that is not an
+    /// option is an error: a misspelt one would otherwise leave the default
+    /// in place and the comparison would measure nothing.
     static func candidateOptions(_ text: String) throws -> Classifier.Options {
         let data = FileManager.default.fileExists(atPath: text)
             ? try Data(contentsOf: URL(fileURLWithPath: text)) : Data(text.utf8)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Failure(description: "expected a JSON object of Classifier.Options")
+        }
+        let known = Set(Classifier.Options.codingKeyNames)
+        let unknown = object.keys.filter { !known.contains($0) }.sorted()
+        guard unknown.isEmpty else {
+            throw Failure(description: "unknown options: \(unknown.joined(separator: ", ")); "
+                + "known: \(Classifier.Options.codingKeyNames.joined(separator: ", "))")
+        }
         return try JSONDecoder().decode(Classifier.Options.self, from: data)
     }
 
@@ -126,6 +148,7 @@ public enum ReplayCommand {
         var status: Int32 = 0
         for file in files {
             let session = try read(file, print: print)
+            if session.segments.isEmpty { print("\(file): 0 segments") }
             for (number, segment) in session.segments.enumerated() {
                 let run = SessionDriver.run(segment, mode: .exact, classifier: models.classifier)
                 try models.check()
@@ -177,12 +200,19 @@ public enum ReplayCommand {
         for file in files {
             let session = try read(file, print: print)
             for segment in session.segments {
-                let recorded = SessionWords.extract(SessionDriver.run(segment, mode: .exact, classifier: base.classifier))
+                // Both sides run in the same mode: the exact run answers with
+                // the recorded events of the machine's own, the simulated one
+                // makes them anew, and a difference of modes is not the
+                // candidate's. The exact run only calibrates (`Calibration`).
+                let exact = SessionWords.extract(SessionDriver.run(segment, mode: .exact, classifier: base.classifier))
+                try base.check()
+                let simulated = SessionDriver.run(segment, mode: .simulated, classifier: base.classifier)
                 try base.check()
                 let other = SessionDriver.run(segment, mode: .simulated, classifier: candidate.classifier)
                 try candidate.check()
                 var part = SessionComparison()
-                part.add(base: recorded, candidate: other)
+                part.add(base: SessionWords.extract(simulated), candidate: other)
+                part.calibrate(exact: exact, simulated: simulated)
                 comparison.add(part)
                 if showWords { listed.append(part.renderWords(layouts: segment.snapshot.machine.layouts)) }
             }
@@ -224,6 +254,8 @@ extension SessionComparison {
         strongBroken += other.strongBroken
         weakDiffer += other.weakDiffer
         unclearDiffer += other.unclearDiffer
+        calibration.words += other.calibration.words
+        calibration.differ += other.calibration.differ
         rows += other.rows
     }
 }

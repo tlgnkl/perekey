@@ -24,7 +24,8 @@ public struct ClassifierSpec: Hashable, Sendable, Codable {
 /// - `.classifierChanged` carries a memory-mapped model: recorded as its
 ///   languages and options (`.classifier`), or `.noClassifier`;
 /// - `.selectionRead` carries the selected text of someone's document: it is
-///   recorded as as many "x" as it has characters.
+///   recorded as as many "x" as it has characters (`Character`, the unit
+///   `SelectionConversion` counts and iterates in, not scalars or UTF-16).
 ///
 /// Every other case is recorded as it is. `init(_:)` switches over every
 /// case without `default`: an event added to `InputEvent` does not compile
@@ -41,7 +42,7 @@ public enum RecordedEvent: Hashable, Sendable, Codable {
     case settingsChanged(Settings)
     case retypePosted(seq: UInt32, time: Double)
     case retypeCancelled(seq: UInt32)
-    /// `text` is "x" as many times as the selection had characters.
+    /// `text` is "x" as many times as the selection had `Character`s.
     case selectionRead(seq: UInt32, text: String, viaAccessibility: Bool)
     case inputLost
     case dictationTyping(Bool)

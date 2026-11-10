@@ -100,11 +100,12 @@ public struct InputMachine: Sendable {
 
     /// Nothing is under way that `snapshot` leaves out: no word or phrase in
     /// the buffer, no retype in flight or key to come back, no undo or
-    /// shortcut half done. A focus change, a click and lost input make it so.
+    /// shortcut half done, no phrase the retype shortcut can go on with. A
+    /// focus change, a click and lost input make it so.
     public var isQuiet: Bool {
         buffer.isEmpty && buffer.history.isEmpty && !fence.isHolding && fence.returning == .nothing
             && undo.last == nil && undoWatch == nil && openUndo == nil && languageChoice == nil
-            && typingKeyUps.isEmpty && shortcuts.isIdle
+            && typingKeyUps.isEmpty && shortcuts.isIdle && manual.isIdle
     }
 
     /// The classifier automatic switching runs, if any.

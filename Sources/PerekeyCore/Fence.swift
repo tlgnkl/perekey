@@ -70,6 +70,12 @@ struct Fence: Sendable {
     /// Layouts Perekey selected that the system has not confirmed yet, oldest
     /// first. A late confirmation of an earlier one must not undo a later one.
     private(set) var pendingSelections: [LayoutID] = []
+    /// How many unconfirmed selections are kept; the oldest is dropped past
+    /// it. The machine selects at most once per word and the system confirms
+    /// within one turn of the main thread, so a longer queue means
+    /// confirmations that never come. The number was never measured; the
+    /// replay (`MachineSnapshot.pendingSelectionLimit`) follows it.
+    static let pendingSelectionLimit = 8
     /// The layout the system last reported as selected.
     private(set) var confirmedLayout: LayoutID?
 
@@ -95,7 +101,7 @@ struct Fence: Sendable {
 
     /// Perekey asked the system to select `id`.
     mutating func selected(_ id: LayoutID) {
-        if pendingSelections.count == 8 { pendingSelections.removeFirst() }
+        if pendingSelections.count == Self.pendingSelectionLimit { pendingSelections.removeFirst() }
         pendingSelections.append(id)
     }
 

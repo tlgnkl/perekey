@@ -911,10 +911,14 @@ struct Reading {
 /// reads a candidate's. A key left out keeps its default, so a candidate
 /// names only what it changes: `{"threshold": 12}`.
 extension Classifier.Options: Codable {
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank
     }
+
+    /// The keys the file format knows, one per stored property (a test holds
+    /// them to `Mirror`). `--candidate-options` rejects any other key.
+    public static var codingKeyNames: [String] { CodingKeys.allCases.map(\.rawValue) }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

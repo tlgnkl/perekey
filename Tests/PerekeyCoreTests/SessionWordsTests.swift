@@ -3,7 +3,7 @@
 import Foundation
 import Testing
 @testable import PerekeyCore
-import PerekeyModelKit
+@testable import PerekeyModelKit
 
 private let en = Fixture.abc.id
 private let ru = Fixture.russian.id
@@ -217,6 +217,99 @@ private let ru = Fixture.russian.id
         #expect(Self.words(&tape)[0].outcome == .kept)
     }
 
+    /// An undone correction is read by the same branches as an undone switch.
+    static let correctionUndos: [(UndoChannel, UndoFollowUp, ObservedWord.Label, ObservedWord.Strength?)] = [
+        (UndoChannel.button, UndoFollowUp.none, ObservedWord.Label.wrongCorrection, ObservedWord.Strength.strong),
+        (.shortcut, .none, .wrongCorrection, .strong),
+        (.backspace, .continued, .wrongCorrection, .strong),
+        (.backspace, .retyped, .right, .strong),
+        (.backspace, .punctuation, .unclear, nil),
+        (.backspace, .edited, .unclear, nil),
+        (.backspace, .unknown, .unclear, nil),
+    ]
+
+    @Test(arguments: SessionWordsTests.correctionUndos)
+    func undoneCorrectionIsReadByItsChannelAndFollowUp(channel: UndoChannel, followUp: UndoFollowUp,
+                                                       label: ObservedWord.Label, strength: ObservedWord.Strength?)
+    {
+        let got = SessionWords.label(.actedThenUndone(channel, followUp), action: .corrected(.typo))
+        #expect(got.0 == label && got.1 == strength)
+    }
+
+    @Test func undoneCorrectionWithoutReportIsUnclear() {
+        let got = SessionWords.label(.actedThenUndone(nil, nil), action: .corrected(.typo))
+        #expect(got.0 == .unclear && got.1 == nil)
+    }
+
+    @Test func switchLabelsStayTheSame() {
+        let action = JudgeTrace.Action.switched(to: ru, early: false)
+        #expect(SessionWords.label(.actedThenUndone(.backspace, .continued), action: action).0 == .falseSwitch)
+        #expect(SessionWords.label(.actedThenUndone(.backspace, .edited), action: action).0 == .unclear)
+        #expect(SessionWords.label(.actedThenUndone(nil, nil), action: action).0 == .unclear)
+    }
+
+    @Test func backspaceUndoOfACorrectionThenPunctuationIsUnclear() {
+        var tape = SessionTape(Settings(typoCorrection: true))
+        tape.desk.type("wrold ")
+        tape.desk.press(KeyCode.delete)
+        tape.desk.press(KeyCode.delete)
+        tape.desk.type(", hello ")
+        let words = Self.words(&tape)
+        #expect(words[0].trace.action == .corrected(.typo))
+        #expect(words[0].label == .unclear && words[0].strength == nil)
+    }
+
+    @Test func backspaceUndoOfACorrectionThenEditingIsUnclear() {
+        var tape = SessionTape(Settings(typoCorrection: true))
+        tape.desk.type("wrold ")
+        tape.desk.press(KeyCode.delete)
+        tape.desk.press(KeyCode.delete)
+        tape.desk.type("s hello ")
+        let words = Self.words(&tape)
+        #expect(words[0].trace.action == .corrected(.typo))
+        #expect(words[0].label == .unclear && words[0].strength == nil)
+    }
+
+    @Test func backspaceUndoOfACorrectionThenAClickIsUnclear() {
+        var tape = SessionTape(Settings(typoCorrection: true))
+        tape.desk.type("wrold ")
+        tape.desk.press(KeyCode.delete)
+        tape.desk.send(.click(time: tape.desk.time))
+        tape.desk.type("hello ")
+        let words = Self.words(&tape)
+        #expect(words[0].trace.action == .corrected(.typo))
+        #expect(words[0].label == .unclear && words[0].strength == nil)
+    }
+
+    /// The report of an undo can come after the next word's trace; it can
+    /// also come after the range the search looks in. No trap then.
+    @Test func undoPostedAfterTheNextWordEndsWithoutAReport() {
+        let key = KeyStroke(0)
+        let trace = { (serial: Int, action: JudgeTrace.Action, seq: UInt32?) in
+            JudgeTrace(serial: serial, keys: [key, key, key], layout: en, context: nil, decision: nil, app: nil,
+                       action: action, seq: seq)
+        }
+        let undo = Retype(deleteCount: 3, keys: [], target: en, expected: "", seq: 2, origin: .undo)
+        let filler = RecordedEvent.deadline(time: 1)
+        func step(_ event: RecordedEvent, _ trace: JudgeTrace? = nil, effects: [EffectDigest] = []) -> ReplayStep {
+            ReplayStep(recorded: nil, source: nil, event: event, output: OutputDigest(effects: effects), trace: trace,
+                       userLayoutChange: false, fenceExpired: false)
+        }
+        let run = ReplayRun(steps: [
+            step(filler, trace(1, .switched(to: ru, early: false), 1)),
+            step(.retypePosted(seq: 1, time: 1)),
+            step(filler, effects: [.retype(RetypeDigest(undo))]),
+            step(filler, trace(2, .kept, nil)),
+            step(filler),
+            step(filler),
+            step(.retypePosted(seq: 2, time: 2)),
+        ])
+        let words = SessionWords.extract(run)
+        #expect(words.count == 2)
+        #expect(words[0].outcome == .actedThenUndone(nil, nil))
+        #expect(words[0].label == .unclear)
+    }
+
     @Test func cancelledSwitchIsNoLabel() {
         var tape = SessionTape()
         tape.desk.cancelRetypes = true
@@ -419,6 +512,49 @@ private let ru = Fixture.russian.id
         #expect(output.contains("decided otherwise 0"))
     }
 
+    /// A session in which the recorded machine's own events do not fit the
+    /// simulated replay: the first switch is cancelled in the recording (the
+    /// caret check failed), the simulated field is blind and posts it.
+    static func cancelledFiles() throws -> (directory: URL, session: String, model: String) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("replay-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var tape = SessionTape()
+        tape.desk.cancelRetypes = true
+        tape.desk.type("[jhjij ")
+        tape.desk.cancelRetypes = false
+        tape.desk.type("hello [jhjij ghbdtn ")
+        tape.flush()
+        let session = directory.appendingPathComponent("cancelled.pksession")
+        try SessionFile.data(tape.lines).write(to: session)
+        let model = directory.appendingPathComponent("fixture.pklm")
+        try Data(ModelFixture.bytes).write(to: model)
+        return (directory, session.path, model.path)
+    }
+
+    @Test func compareOfAModelWithItselfFindsNothingAndShowsTheCalibration() throws {
+        let (directory, session, model) = try Self.cancelledFiles()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let json = directory.appendingPathComponent("compare.json").path
+        let (status, output) = Self.run(["compare", session, "--model", model, "--candidate-model", model,
+                                         "--json", json])
+        #expect(status == 0)
+        #expect(output.contains("decided otherwise 0"), "\(output)")
+        #expect(output.contains("calibration, simulated against exact on the same model"), "\(output)")
+        let written = try JSONDecoder().decode(SessionComparison.self, from: Data(contentsOf: URL(fileURLWithPath: json)))
+        #expect(written.differ == 0)
+        #expect(written.calibration.words == written.words)
+    }
+
+    @Test func calibrationCountsTheModeDifferenceNotTheCandidate() throws {
+        let (directory, session, model) = try Self.cancelledFiles()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let json = directory.appendingPathComponent("compare.json").path
+        _ = Self.run(["compare", session, "--model", model, "--candidate-model", model, "--json", json])
+        let written = try JSONDecoder().decode(SessionComparison.self, from: Data(contentsOf: URL(fileURLWithPath: json)))
+        #expect(written.calibration.differ > 0, "the cancelled retype makes the modes differ")
+        #expect(written.differ == 0, "and the candidate is not blamed for it")
+    }
+
     @Test func brokenFileFailsWithItsName() throws {
         let (directory, _, model) = try Self.files()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -429,8 +565,69 @@ private let ru = Fixture.russian.id
         #expect(output.contains("broken.pksession") && output.contains("line 1"))
     }
 
-    @Test func missingModelIsAUsageError() {
+    @Test func aCommandLineWithoutAModelOrACommandExitsWith2() {
         #expect(Self.run(["words", "a.pksession"]).status == 2)
         #expect(Self.run(["nothing"]).status == 2)
+        #expect(Self.run([]).status == 2)
+    }
+
+    @Test func noFilesExitsWith2() throws {
+        let (directory, _, model) = try Self.files()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for command in ["check", "words", "compare"] {
+            let (status, output) = Self.run([command, "--model", model])
+            #expect(status == 2, "\(command)")
+            #expect(output.contains("usage:"))
+        }
+    }
+
+    @Test(arguments: [
+        #"{"threshold": 10, "treshold": 12}"#, #"{"thresholds": 1}"#, "{not json", "[1, 2]", #"{"threshold": "high"}"#,
+    ])
+    func aCandidateOptionsThatAreNotOptionsExitWith2(text: String) throws {
+        let (directory, session, model) = try Self.files()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (status, output) = Self.run(["compare", session, "--model", model, "--candidate-model", model,
+                                         "--candidate-options", text])
+        #expect(status == 2, "\(output)")
+        #expect(output.contains("--candidate-options"))
+    }
+
+    @Test func anUnknownOptionIsNamed() throws {
+        let (directory, session, model) = try Self.files()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (_, output) = Self.run(["compare", session, "--model", model, "--candidate-model", model,
+                                    "--candidate-options", #"{"treshold": 12}"#])
+        #expect(output.contains("unknown options: treshold"))
+        #expect(output.contains("threshold"), "the known keys are listed")
+    }
+
+    @Test func candidateOptionsFromAFileAreRead() throws {
+        let (directory, session, model) = try Self.files()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("options.json")
+        try Data(#"{"threshold": 12}"#.utf8).write(to: file)
+        let (status, _) = Self.run(["compare", session, "--model", model, "--candidate-model", model,
+                                    "--candidate-options", file.path])
+        #expect(status == 0)
+    }
+
+    @Test func aSessionWithoutSegmentsPrintsZeroSegments() throws {
+        let (directory, _, model) = try Self.files()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let empty = directory.appendingPathComponent("empty.pksession")
+        try SessionFile.data([.header(SessionHeader(perekey: "0.2.0", build: "test", time: 1_762_780_000))])
+            .write(to: empty)
+        let (status, output) = Self.run(["check", empty.path, "--model", model])
+        #expect(status == 0)
+        #expect(output.contains("empty.pksession: 0 segments"), "\(output)")
+    }
+
+    @Test func aModelThatCannotBeLoadedExitsWith1() throws {
+        let (directory, session, _) = try Self.files()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (status, output) = Self.run(["check", session, "--model", directory.appendingPathComponent("none").path])
+        #expect(status == 1)
+        #expect(output.contains("cannot load the model"))
     }
 }

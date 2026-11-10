@@ -125,8 +125,8 @@ public struct EvalDesk: Sendable {
     public private(set) var records: [Record] = []
     public var recording = false
 
-    private let maps: [LayoutID: LayoutMap]
-    private let settings: Settings
+    private var maps: [LayoutID: LayoutMap]
+    private var settings: Settings
     private let fieldKind: FieldKind
     private let lag: Int
     private var mode: AppMode
@@ -209,6 +209,14 @@ public struct EvalDesk: Sendable {
             send(input)
         case let .appModeChanged(newMode):
             mode = newMode
+            send(input)
+        case let .layoutsChanged(layouts):
+            // The app types keys through these maps.
+            maps = Dictionary(layouts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            send(input)
+        case let .settingsChanged(newSettings):
+            // What the desk sends when the mode goes off or back on.
+            settings = newSettings
             send(input)
         default:
             send(input)

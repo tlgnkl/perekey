@@ -3,6 +3,7 @@
 import Foundation
 import Testing
 @testable import PerekeyCore
+import PerekeyModelKit
 
 private let en = Fixture.abc.id
 private let ru = Fixture.russian.id
@@ -209,6 +210,45 @@ private let ru = Fixture.russian.id
         desk.type("[jhjij ", settling: false)
         #expect(desk.machine.isHolding)
         #expect(!desk.machine.isQuiet, "a retype in flight")
+    }
+
+    /// The shortcut's next press goes on with the phrase (`ManualActions`);
+    /// a snapshot does not hold that. The machine is not quiet right after the
+    /// shortcut, and a click or a cancelled retype ends the phrase. The word
+    /// in the buffer already keeps the machine from being quiet; `isQuiet`
+    /// asks `manual.isIdle` too, so it stays true if the buffer ever empties
+    /// with the phrase left.
+    @Test func machineIsNotQuietRightAfterTheRetypeShortcut() {
+        var desk = Desk(Settings(corrections: TextCorrections(phraseRetype: true)))
+        desk.type("hello world ")
+        desk.tapOption()
+        #expect(!desk.machine.isQuiet, "the retype is posted, its word is in the buffer")
+        desk.send(.click(time: desk.time))
+        #expect(desk.machine.isQuiet)
+        desk.type("hello ")
+        desk.cancelRetypes = true
+        desk.tapOption()
+        #expect(desk.machine.isQuiet, "a cancelled retype ends the phrase and empties the buffer")
+    }
+
+    /// A segment that starts at the first quiet point after the shortcut goes
+    /// on as the recorded machine did.
+    @Test func segmentStartingAfterTheRetypeShortcutGoesOnAsTheOldMachine() {
+        var tape = SessionTape(Settings(corrections: TextCorrections(phraseRetype: true)))
+        tape.desk.type("hello ")
+        tape.desk.cancelRetypes = true
+        tape.desk.tapOption()
+        tape.desk.cancelRetypes = false
+        tape.desk.send(.click(time: tape.desk.time))
+        tape.startSegment()
+        tape.desk.type("hello ")
+        tape.desk.tapOption()
+        let session = tape.session
+        #expect(session.segments.count == 2)
+        for segment in session.segments {
+            let run = SessionDriver.run(segment, mode: .exact, classifier: SessionTape.classifier)
+            #expect(run.mismatch == nil)
+        }
     }
 
     @Test func snapshotCarriesTheRetypeNumbering() throws {

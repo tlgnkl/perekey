@@ -172,6 +172,63 @@ import Testing
     }
 }
 
+/// The desk of a replayed session follows the layouts and the settings the
+/// recording changes in the middle of a segment (`EvalDesk.replay`).
+@Suite struct EvalDeskReplayTests {
+    static func desk(_ settings: Settings = Settings(), layouts: [LayoutMap]) -> EvalDesk {
+        let machine = InputMachine(settings: settings, layouts: layouts, currentLayout: layouts[0].id,
+                                   classifier: nil)
+        return EvalDesk(machine: machine, settings: settings, layouts: layouts, mode: .auto)
+    }
+
+    static func type(_ keyCode: UInt16, on desk: inout EvalDesk, at time: Double) {
+        desk.replay(.key(KeyEvent(.down, keyCode: keyCode), time: time))
+        desk.replay(.key(KeyEvent(.up, keyCode: keyCode), time: time + 0.01))
+    }
+
+    @Test func aLayoutAddedInTheMiddleTypesIntoTheField() throws {
+        let ukrainian = try #require(Repo.library["Ukrainian"])
+        var desk = Self.desk(layouts: [Repo.abc, Repo.russian])
+        Self.type(0, on: &desk, at: 1)
+        #expect(desk.text == Repo.abc.text(for: KeyStroke(0)))
+        desk.replay(.layoutsChanged([Repo.abc, Repo.russian, ukrainian]))
+        desk.replay(.layoutChanged(ukrainian.id))
+        Self.type(0, on: &desk, at: 2)
+        let added = try #require(ukrainian.text(for: KeyStroke(0)))
+        #expect(desk.text.hasSuffix(added), "the field got \(desk.text)")
+        #expect(added != Repo.abc.text(for: KeyStroke(0)))
+    }
+
+    /// The system layout of one id changes under the segment: the same
+    /// stroke types another text.
+    @Test func aLayoutChangedInTheMiddleTypesWithTheNewMap() throws {
+        let stroke = KeyStroke(0)
+        let first = LayoutMap(id: Repo.abc.id, language: "en", table: [stroke: "a"])
+        let second = LayoutMap(id: Repo.abc.id, language: "en", table: [stroke: "z"])
+        var desk = Self.desk(layouts: [first])
+        Self.type(0, on: &desk, at: 1)
+        #expect(desk.text == "a")
+        desk.replay(.layoutsChanged([second]))
+        Self.type(0, on: &desk, at: 2)
+        #expect(desk.text == "az")
+    }
+
+    @Test func settingsChangedInTheMiddleReachTheDesksOwnUse() {
+        var desk = Self.desk(layouts: [Repo.abc, Repo.russian])
+        desk.recording = true
+        desk.replay(.settingsChanged(Settings(typoCorrection: true)))
+        let before = desk.records.count
+        desk.send(.mode(.off), at: 5)
+        // Off takes the shortcuts away and sends the settings the desk holds.
+        let sent = desk.records[before...].compactMap { record -> Settings? in
+            if case let .settingsChanged(settings) = record.input { settings } else { nil }
+        }
+        #expect(sent.count == 1)
+        #expect(sent.last?.typoCorrection == true, "the shortcuts go, the new settings stay")
+        #expect(sent.last?.hotkeys.isEmpty == true)
+    }
+}
+
 @Suite struct TextFieldTests {
     @Test func editing() {
         var field = TextField()

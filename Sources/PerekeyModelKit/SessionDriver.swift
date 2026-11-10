@@ -121,7 +121,7 @@ public enum SessionDriver {
         for (index, step) in segment.steps.enumerated() {
             defer {
                 for case let .selectLayout(id) in step.output.effects {
-                    if recordedSelections.count == 8 { recordedSelections.removeFirst() }
+                    if recordedSelections.count == MachineSnapshot.pendingSelectionLimit { recordedSelections.removeFirst() }
                     recordedSelections.append(id)
                 }
             }
@@ -230,7 +230,7 @@ public enum SessionDriver {
                 userLayoutChange = true
             }
             for case let .selectLayout(id) in digest.effects {
-                if pendingSelections.count == 8 { pendingSelections.removeFirst() }
+                if pendingSelections.count == MachineSnapshot.pendingSelectionLimit { pendingSelections.removeFirst() }
                 pendingSelections.append(id)
             }
             let released = change.pendingBefore != nil && change.pendingAfter != change.pendingBefore

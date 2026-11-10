@@ -4,8 +4,11 @@
 /// facts of each effect. A session file keeps it next to the event, and an
 /// exact replay (`perekey-eval replay check`) compares it with what the
 /// machine answers now. The decisions behind «why?» and the words of an undo
-/// report are left out; the original and the replacement of a correction are
-/// in, as the hint shows them.
+/// report are left out. The original and the replacement of a correction are
+/// in, as the hint shows them, and so are the words the user withdrew from
+/// always-fix: this is typed text. A session file holds it, and is written
+/// only by the recording build (`PEREKEY_RECORD`); the printed report and
+/// the `--json` files of `perekey-eval replay` show it only with `--show-words`.
 public struct OutputDigest: Hashable, Sendable, Codable {
     public var disposition: Disposition
     public var effects: [EffectDigest]
@@ -74,7 +77,7 @@ public enum EffectDigest: Hashable, Sendable, Codable {
     }
 }
 
-/// A `Retype` in short: no text.
+/// A `Retype` in short: the keys are counted, their text is left out.
 public struct RetypeDigest: Hashable, Sendable, Codable {
     public var seq: UInt32
     public var deleteCount: Int

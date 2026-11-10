@@ -181,3 +181,87 @@ import Testing
         #expect(!json.contains("jhjij"))
     }
 }
+
+/// `Classifier.Options` is coded by hand: a key per stored property.
+@Suite struct ClassifierOptionsCodingTests {
+    @Test func theKeysAreTheStoredProperties() {
+        let stored = Mirror(reflecting: Classifier.Options()).children.compactMap(\.label)
+        #expect(stored.count == Set(stored).count)
+        #expect(Set(stored) == Set(Classifier.Options.codingKeyNames), "a property added without its key")
+        #expect(Classifier.Options.codingKeyNames.count == Set(Classifier.Options.codingKeyNames).count)
+    }
+
+    @Test func everyPropertySurvivesJson() throws {
+        var options = Classifier.Options()
+        options.threshold += 1
+        options.readingMargin += 1
+        options.unknownWordExtra += 1
+        options.noiseCost += 1
+        options.unknownNoiseCost += 1
+        options.openerBonus += 1
+        options.dictionaryBonus += 1
+        options.rankBonus += 1
+        options.knownRank += 1
+        options.mixedCaseRank += 1
+        options.contextBonus += 1
+        options.contextDecay += 1
+        options.priorLimit += 1
+        options.priorScale += 1
+        options.shortWordRank += 1
+        let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(options))
+        #expect(read == options)
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any]
+        #expect(Set(json?.keys ?? [:].keys) == Set(Classifier.Options.codingKeyNames))
+    }
+
+    @Test func aMissingKeyKeepsTheDefault() throws {
+        let read = try JSONDecoder().decode(Classifier.Options.self, from: Data(#"{"threshold": 12}"#.utf8))
+        var expected = Classifier.Options()
+        expected.threshold = 12
+        #expect(read == expected)
+    }
+}
+
+/// What a recorded selection keeps of the text: its length in the unit the
+/// machine counts in.
+@Suite struct SelectionMaskTests {
+    static func masked(_ text: String) -> String {
+        guard case let .selectionRead(_, masked, _) = RecordedEvent(.selectionRead(seq: 1, text: text,
+                                                                                    viaAccessibility: false))
+        else { return "" }
+        return masked
+    }
+
+    @Test(arguments: [
+        "\u{1F44D}",                          // 👍: one Character, two UTF-16 units
+        "e\u{301}",                           // e and a combining acute: one Character, two scalars
+        "a\u{1F44D}e\u{301}b",
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", // a family: one Character, five scalars
+        "\u{1F1F7}\u{1F1FA}",                // a flag: one Character, two scalars
+        "при\u{306}вет",                      // Cyrillic with a combining breve
+    ])
+    func theMaskHasAsManyCharactersAsTheMachineCounts(text: String) {
+        let masked = Self.masked(text)
+        #expect(masked == String(repeating: "x", count: text.count))
+        #expect(masked.count == text.count)
+        #expect(masked.unicodeScalars.count == text.count, "only ASCII x")
+    }
+
+    @Test func theMaskHasNoTextOfTheSelection() {
+        let masked = Self.masked("секрет 👍 e\u{301}")
+        #expect(Set(masked) == ["x"])
+    }
+
+    /// The length limit of `SelectionConversion` counts `Character`s: a mask
+    /// of the same count stays inside it and one over stays out, however many
+    /// scalars the characters have.
+    @Test func theMaskKeepsTheSideOfTheLengthLimit() {
+        let limit = SelectionConversion.maxLength
+        for count in [limit, limit + 1] {
+            let text = String(repeating: "e\u{301}", count: count)
+            #expect(text.unicodeScalars.count == 2 * count)
+            #expect(SelectionConversion.isTypable(text) == (count <= limit))
+            #expect(SelectionConversion.isTypable(Self.masked(text)) == SelectionConversion.isTypable(text))
+        }
+    }
+}

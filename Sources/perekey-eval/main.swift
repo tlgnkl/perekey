@@ -18,6 +18,7 @@
 //                       [--layouts <dir> --words <hyphen.txt>]
 //   perekey-eval replay check|words|compare <.pksession files> --model <dir> [--json <file>] [--show-words]
 //                       [--candidate-model <dir>] [--candidate-options <json or file>]
+//   perekey-eval cases|play|case|selfcheck ...: the quality bench (docs/eval.md, PerekeyEvalKit)
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -81,7 +82,13 @@
 
 import Foundation
 import PerekeyCore
+import PerekeyEvalKit
 import PerekeyModelKit
+
+// The quality bench (docs/eval.md): cases, play, case, selfcheck.
+if let first = CommandLine.arguments.dropFirst().first, EvalCommands.names.contains(first) {
+    exit(EvalCommands.run(Array(CommandLine.arguments.dropFirst())))
+}
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("perekey-eval: \(message)\n".utf8))

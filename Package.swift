@@ -61,11 +61,21 @@ var targets: [Target] = [
     .executableTarget(name: "perekey-e2e"),
     // Readers of third-party data and corpora for the two tools below.
     // Foundation is fine here: nothing of it ships in the app.
-    .target(name: "PerekeyModelKit", dependencies: ["PerekeyCore"]),
+    // PerekeyDesk: a simulated replay of a recorded session runs on its desk.
+    .target(name: "PerekeyModelKit", dependencies: ["PerekeyCore", "PerekeyDesk"]),
     // Builds the language model from the data cache; scripts/build-model.sh.
     .executableTarget(name: "perekey-model", dependencies: ["PerekeyCore", "PerekeyModelKit"]),
-    // Measures the classifier on the held-out corpus; scripts/eval.sh.
-    .executableTarget(name: "perekey-eval", dependencies: ["PerekeyCore", "PerekeyModelKit"]),
+    // The system around InputMachine in memory: a text field with a caret,
+    // the layout the app types in, retypes and deadlines (docs/eval.md).
+    // No Foundation, like the core.
+    .target(name: "PerekeyDesk", dependencies: ["PerekeyCore"]),
+    // The quality bench: cases, the typist, the systems under test, scoring
+    // and the run files (docs/eval.md). Foundation is fine: nothing of it
+    // ships in the app.
+    .target(name: "PerekeyEvalKit", dependencies: ["PerekeyCore", "PerekeyDesk", "PerekeyModelKit"]),
+    // Measures the classifier on the held-out corpus (scripts/eval.sh) and
+    // plays the cases of the quality bench.
+    .executableTarget(name: "perekey-eval", dependencies: ["PerekeyCore", "PerekeyModelKit", "PerekeyEvalKit"]),
     // PerekeyModelKit for the replay of recorded sessions: its tests record
     // sessions on the test desk of these.
     .testTarget(
@@ -80,6 +90,11 @@ var targets: [Target] = [
         resources: [.copy("Fixtures")]
     ),
     .testTarget(name: "PerekeyVoiceCoreTests", dependencies: ["PerekeyCore", "PerekeyVoiceCore"]),
+    .testTarget(
+        name: "PerekeyEvalKitTests",
+        dependencies: ["PerekeyCore", "PerekeyDesk", "PerekeyEvalKit"],
+        resources: [.copy("Fixtures")]
+    ),
 ]
 
 if voice {

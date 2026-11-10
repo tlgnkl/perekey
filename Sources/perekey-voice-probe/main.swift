@@ -24,7 +24,7 @@ func usage() -> Never {
           net-control                 one HTTPS request, to test the sampler
           store <command> [id...]     the app's model store in $PEREKEY_VOICE_MODELS
           dictate <id> <audio>... [--realtime] [--runs n]  the app's dictation path, from files
-          score <id> <speech-dir> [--hint] [--head s] [--runs n]
+          score <id> <speech-dir> [--hint | --both] [--head s] [--runs n]
                                       word and character errors and time on the speech set
           speech                      Apple Speech locales
           compute-plan <mlmodelc>...  share of each model's work on ANE, GPU, CPU

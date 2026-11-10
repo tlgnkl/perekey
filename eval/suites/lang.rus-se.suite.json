@@ -1,0 +1,47 @@
+{
+ "about": "Questions and answers of rus.stackexchange.com: Russian about the Russian language",
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 40,
+  "minTokens": 3,
+  "requireScripts": [
+   "cyrillic"
+  ]
+ },
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "CC BY-SA 2.5/3.0/4.0 (by the post's ContentLicense)",
+ "normalize": "keyboard",
+ "reader": "stackexchange",
+ "sampling": "token",
+ "scenarios": [
+  "clean.cold",
+  "clean.warm",
+  "slip.cold",
+  "slip.warm",
+  "stuck",
+  "clean.toggle"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "stackexchange/rus.stackexchange.com.7z",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "lang.rus-se",
+ "tags": [
+  "language",
+  "natural"
+ ],
+ "tiers": {
+  "ci": 20000,
+  "full": 400000
+ },
+ "version": 1
+}

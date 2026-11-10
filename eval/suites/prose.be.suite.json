@@ -1,0 +1,42 @@
+{
+ "about": "Tatoeba sentences of 8 words and more, be and en, as written",
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 40,
+  "minTokens": 8
+ },
+ "layoutSets": [
+  [
+   "ABC",
+   "Byelorussian"
+  ]
+ ],
+ "license": "CC BY 2.0 FR (part CC0)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": [
+  "clean.cold",
+  "clean.warm",
+  "slip.cold",
+  "slip.warm"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/bel_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "prose.be",
+ "tags": [
+  "prose",
+  "natural"
+ ],
+ "tiers": {
+  "ci": 20000,
+  "full": 400000
+ },
+ "version": 1
+}

@@ -1,0 +1,46 @@
+{
+ "about": "Tatoeba sentences of 2 to 6 words, lower case, without marks: the shape of a chat line",
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 6,
+  "minTokens": 2
+ },
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "CC BY 2.0 FR (part CC0)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": [
+  "clean.cold",
+  "clean.warm",
+  "slip.cold",
+  "slip.warm"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "chat.tatoeba",
+ "tags": [
+  "chat",
+  "natural"
+ ],
+ "tiers": {
+  "ci": 20000,
+  "full": 400000
+ },
+ "transform": [
+  "lowercase",
+  "stripPunctuation"
+ ],
+ "version": 1
+}

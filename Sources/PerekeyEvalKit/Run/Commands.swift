@@ -8,11 +8,13 @@ import PerekeyDesk
 ///
 ///     perekey-eval cases check <files .jsonl>
 ///     perekey-eval cases list  <files .jsonl> [--suite X] [--scenario Y] [--split dev|test] [--reveal-test]
+///     perekey-eval cases build [--suites <dir>] [--cache <dir>] [--tier ci|full] [--out <dir>]
+///                              [--only <suite,...>] [--epoch <n>]
 ///     perekey-eval play   --cases <files or directory> --model <dir> --out <run dir>
 ///                         [--system machine|null|oracle] [--options <json>] [--settings <preset>]
 ///                         [--only <suite,...>] [--split dev|test|all]
 ///     perekey-eval case   --cases <files> --id <id> [--model <dir>] [--system ...] [--reveal-test]
-///     perekey-eval selfcheck --cases <files or directory> --model <dir>
+///     perekey-eval selfcheck --cases <files or directory> --model <dir> [--suites <dir> --cache <dir> --tier ci|full]
 ///
 /// Every command takes `--layouts <dir>` (default eval/layouts). Exit status:
 /// 0 success, 1 a self-check failed, 2 bad input.
@@ -40,6 +42,7 @@ public enum EvalCommands {
 
     static func cases(_ parsed: inout Arguments) throws -> Int32 {
         let sub = try parsed.command()
+        if sub == "build" { return try build(parsed) }
         let library = try parsed.library()
         let files = try CaseFiles.expand(parsed.positional)
         guard !files.isEmpty else { throw EvalError.input("cases \(sub): no files") }
@@ -79,7 +82,7 @@ public enum EvalCommands {
             }
             return 0
         default:
-            throw EvalError.input("unknown command cases \(sub): check or list")
+            throw EvalError.input("unknown command cases \(sub): check, list or build")
         }
     }
 
@@ -252,8 +255,24 @@ public enum EvalCommands {
         lines.append("4. machine twice: " + (same ? "cases.tsv and summary.json the same" : "DIFFERENT"))
         if !same { failures.append("two runs of the machine differ") }
 
-        // 5. Building the cases twice: there is no builder yet (`cases build`).
-        lines.append("5. cases built twice: skipped, no case builder yet")
+        // 5. Building the cases twice gives the same bytes.
+        if parsed.value("--suites") == nil {
+            lines.append("5. cases built twice: skipped, no --suites")
+        } else {
+            let settings = try BuildSettings(parsed)
+            var identical = 0
+            let manifests = try settings.manifests()
+            for manifest in manifests {
+                let first = try builtSuite(manifest, settings: settings, library: library)
+                let second = try builtSuite(manifest, settings: settings, library: library)
+                if first.sha256 == second.sha256, first.report == second.report {
+                    identical += 1
+                } else {
+                    failures.append("building \(manifest.suite) twice gives different bytes")
+                }
+            }
+            lines.append("5. cases built twice (\(settings.tier.rawValue)): \(identical) of \(manifests.count) suites identical")
+        }
         lines.append("6. cases pass the check: \(items.count)")
 
         for line in lines { print(line) }

@@ -246,3 +246,8 @@ public struct LanguageStats: Hashable, Sendable, Codable {
         apps = try container.decodeIfPresent([String: LanguageCounts].self, forKey: .apps) ?? [:]
     }
 }
+
+// For the session format (`RecordedEvent`, `MachineSnapshot`): the prior as
+// its bits, so a replay weighs the words as the recorded machine did.
+extension LanguagePrior: Codable {}
+extension LanguageContext: Codable {}

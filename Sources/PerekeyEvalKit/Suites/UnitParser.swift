@@ -207,6 +207,28 @@ enum UnitParser {
         return count
     }
 
+    /// The characters of a unit that the layouts of the set do not type, for
+    /// the build report. Runs the same steps as `parse` up to the check.
+    static func unprintableCharacters(_ text: String, manifest: SuiteManifest, set: LayoutSet, library: LayoutLibrary) -> [Character] {
+        var text = text
+        if manifest.effectiveNormalize == .keyboard { text = keyboard(text) }
+        for step in manifest.transform ?? [] {
+            switch step {
+            case .lowercase: text = text.lowercased()
+            case .stripPunctuation: text = stripPunctuation(text)
+            }
+        }
+        let unit = ParsedUnit(tokens: tokens(of: text), set: set)
+        var found: [Character] = []
+        for (token, row) in zip(unit.tokens, unit.aims) {
+            for (segment, name) in zip(token.segments, row) {
+                guard let map = library[name] else { continue }
+                found += segment.text.filter { LayoutLibrary.printableStroke($0, in: map) == nil }
+            }
+        }
+        return found
+    }
+
     /// The tokens of a text; the code marks are read and taken off.
     static func tokens(of text: String) -> [ParsedToken] {
         var tokens: [ParsedToken] = []

@@ -215,6 +215,12 @@ enum SuiteFixtures {
         #expect(try parse("tab\u{7F}x").isFailure(.unprintable))
     }
 
+    @Test func theReportNamesTheCharactersTheSetCannotType() throws {
+        let manifest = try SuiteFixtures.manifest(extra: ",\"normalize\":\"none\"")
+        #expect(UnitParser.unprintableCharacters("«Привет» é ok", manifest: manifest, set: set, library: Repo.library) == ["«", "»", "é"])
+        #expect(SuiteBuilder.describe("ʼ") == "ʼ U+02BC")
+    }
+
     @Test func theQuickCountNeverRejectsWhatTheFullCountKeeps() {
         for text in ["раз  два\tтри", "a\u{00A0}b c", "\u{E000}code\u{E001} x y", "- - слово", "  "] {
             #expect(UnitParser.quickTokenCount(text) >= UnitParser.tokens(of: UnitParser.keyboard(text)).count)

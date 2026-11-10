@@ -101,6 +101,13 @@ public struct SuiteBuilder {
             switch UnitParser.parse(entry.text, manifest: manifest, set: set, library: library) {
             case let .failure(drop):
                 report.drops[drop.rawValue, default: 0] += 1
+                if drop == .unprintable {
+                    for character in Set(UnitParser.unprintableCharacters(entry.text, manifest: manifest, set: set,
+                                                                          library: library))
+                    {
+                        report.unprintable[Self.describe(character), default: 0] += 1
+                    }
+                }
                 continue
             case let .success(unit):
                 guard texts.insert(FNV1a.hash64(unit.tokens.map(\.text).joined(separator: " "))).inserted else {
@@ -176,6 +183,11 @@ public struct SuiteBuilder {
         return result
     }
 
+    /// A character for the report: itself and its code point, `"ʼ U+02BC"`.
+    static func describe(_ character: Character) -> String {
+        "\(character) " + character.unicodeScalars.map { String(format: "U+%04X", $0.value) }.joined(separator: " ")
+    }
+
     static func order(_ a: Pooled, _ b: Pooled) -> Bool {
         a.rank != b.rank ? a.rank < b.rank : a.ref < b.ref
     }
@@ -243,6 +255,8 @@ public struct BuildReport: Hashable, Sendable, Codable {
     public var built = 0
     /// Sentences to warm up with, by script.
     public var warmupPool: [String: Int] = [:]
+    /// The characters behind `unprintable`: each with the number of examined units that have it.
+    public var unprintable: [String: Int] = [:]
     public var scenarios: [String: ScenarioStats] = [:]
 
     public struct ScenarioStats: Hashable, Sendable, Codable {

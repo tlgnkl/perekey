@@ -175,10 +175,15 @@ enum DiffRender {
         guard !changes.isEmpty else { return "\(title): нет\n" }
         var out = "\(title): \(changes.count)\n"
         for change in changes.prefix(list) {
-            out += "  \(change.id)" + (change.index.map { " #\($0)" } ?? "") + "  «\(change.want)»  было \(change.before) → стало \(change.after)\n"
+            out += "  \(change.id)" + (change.index.map { " #\($0)" } ?? "") + "  «\(visible(change.want))»  было \(change.before) → стало \(change.after)\n"
         }
         if changes.count > list { out += "  …и ещё \(changes.count - list)\n" }
         return out
+    }
+
+    /// A line break or tab in a word shows as its escape, so one change stays on one line.
+    private static func visible(_ text: String) -> String {
+        text.replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\t", with: "\\t")
     }
 
     private static func testLine(_ title: String, _ suites: [String: Int]) -> String {

@@ -398,3 +398,14 @@ enum RunDirectory {
         #expect(diff.common == 4 && diff.onlyA == 2 && diff.onlyB == 0)
     }
 }
+
+@Suite struct DiffTextTests {
+    @Test func aLineBreakInAWordStaysOnItsLine() {
+        let data = DiffData(a: "a", b: "b", common: 1, onlyA: 0, onlyB: 0, rows: [],
+                            broken: [TokenChange(id: "x", index: 0, want: "хорошо\n", before: "ok", after: "harm")],
+                            fixed: [], brokenTest: [:], fixedTest: [:], notes: [])
+        let text = DiffRender.text(data, list: 5)
+        #expect(text.contains("«хорошо\\n»"))
+        #expect(!text.contains("хорошо\n»"))
+    }
+}

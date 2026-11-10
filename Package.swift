@@ -77,7 +77,7 @@ var targets: [Target] = [
     .executableTarget(name: "perekey-eval", dependencies: ["PerekeyCore", "PerekeyModelKit", "PerekeyEvalKit"]),
     .testTarget(
         name: "PerekeyCoreTests",
-        dependencies: ["PerekeyCore"],
+        dependencies: ["PerekeyCore", "PerekeyModelKit"],
         resources: [.copy("Fixtures")]
     ),
     .testTarget(name: "PerekeyInputTests", dependencies: ["PerekeyCore", "PerekeyInput", "PerekeyVoiceCore"]),

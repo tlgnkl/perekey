@@ -43,6 +43,8 @@ public struct LanguageModel: @unchecked Sendable {
         let yo: FingerprintTable?
         /// Where the hyphen goes in a merged word (`ModelFormat.hyphenTag`); `nil` without the section.
         let hyphen: FingerprintTable?
+        /// How much a word is likelier after the word before it (`ModelFormat.pairTag`); `nil` without the section.
+        let pair: FingerprintTable?
     }
 
     /// The parts of a `Language` that are not plain pointers, behind one
@@ -81,6 +83,10 @@ public struct LanguageModel: @unchecked Sendable {
             bucketOffsets = section.baseAddress!.advanced(by: offsetsStart).assumingMemoryBound(to: UInt32.self)
             fingerprints = section.baseAddress!.advanced(by: fingerprintsStart).assumingMemoryBound(to: UInt32.self)
             values = section.baseAddress!.advanced(by: valuesStart).assumingMemoryBound(to: UInt8.self)
+            // The buckets cut the entries in order: from the first to the last, none left over.
+            guard bucketOffsets[0] == 0, Int(bucketOffsets[1 << bucketBits]) == count else {
+                throw Error.badSection(name)
+            }
             for bucket in 0..<(1 << bucketBits) {
                 guard bucketOffsets[bucket] <= bucketOffsets[bucket + 1], Int(bucketOffsets[bucket + 1]) <= count else {
                     throw Error.badSection(name)
@@ -213,6 +219,7 @@ public struct LanguageModel: @unchecked Sendable {
         var cased: CasedForms?
         var yo: [String: UnsafeRawBufferPointer] = [:]
         var hyphen: [String: UnsafeRawBufferPointer] = [:]
+        var pair: [String: UnsafeRawBufferPointer] = [:]
         var partial: [String: (ngram: UnsafeRawBufferPointer?, dict: UnsafeRawBufferPointer?,
                                prefix: UnsafeRawBufferPointer?)] = [:]
         var order: [String] = []
@@ -244,6 +251,8 @@ public struct LanguageModel: @unchecked Sendable {
                 yo[language] = body
             case ModelFormat.hyphenTag:
                 hyphen[language] = body
+            case ModelFormat.pairTag:
+                pair[language] = body
             case ModelFormat.ngramTag, ModelFormat.dictionaryTag, ModelFormat.prefixTag:
                 if partial[language] == nil {
                     partial[language] = (nil, nil, nil)
@@ -264,7 +273,8 @@ public struct LanguageModel: @unchecked Sendable {
             }
             return try Language(code: code, ngram: ngram, dictionary: dict, prefix: prefix,
                                 owner: owner, yo: yo[code].map { try FingerprintTable($0, name: "yo") },
-                                hyphen: hyphen[code].map { try FingerprintTable($0, name: "hyph") })
+                                hyphen: hyphen[code].map { try FingerprintTable($0, name: "hyph") },
+                                pair: pair[code].map { try FingerprintTable($0, name: "pair") })
         }
         self.init(files: [File(bytes: bytes, owner: owner, meta: meta, languages: languages, keepHashes: keep.0,
                                keepCount: keep.1, cased: cased)])
@@ -332,11 +342,12 @@ public struct LanguageModel: @unchecked Sendable {
 extension LanguageModel.Language {
     init(code: String, ngram: UnsafeRawBufferPointer, dictionary: UnsafeRawBufferPointer,
          prefix: UnsafeRawBufferPointer, owner: AnyObject, yo: LanguageModel.FingerprintTable? = nil,
-         hyphen: LanguageModel.FingerprintTable? = nil) throws
+         hyphen: LanguageModel.FingerprintTable? = nil, pair: LanguageModel.FingerprintTable? = nil) throws
     {
         self.code = code
         self.yo = yo
         self.hyphen = hyphen
+        self.pair = pair
         var reader = ByteReader(ngram)
         guard ngram.count >= 16 else { throw LanguageModel.Error.badSection("ngrm") }
         let order = Int(reader.u32())
@@ -466,6 +477,21 @@ extension LanguageModel.Language {
     public func spacedHyphenPosition(of fingerprint: UInt64) -> UInt8? {
         guard let value = hyphen?.value(of: fingerprint), value & ModelFormat.hyphenSpaced != 0 else { return nil }
         return value & ~(ModelFormat.hyphenSpaced | ModelFormat.hyphenByRule)
+    }
+
+    /// Whether the model has the pair table at all: a model built before the
+    /// pairs has none, and a lookup then says nothing about any pair.
+    public var hasPairTable: Bool { pair != nil }
+
+    /// How much likelier `word` is after `previous` than anywhere, in eighths
+    /// of a bit: `8 · (log₂ P(word | previous) − log₂ P(word))`, 255 at most.
+    /// Both are folded fingerprints (`ModelFormat.Fingerprint.of(_:folded:)`);
+    /// `previous` is `ModelFormat.sentenceStart` for the first word of a
+    /// sentence. `nil` is "no evidence": the pair is too rare to count, or
+    /// its lift is under a bit, or the model has no table. It never means
+    /// "impossible".
+    public func pairLift(previous: UInt64, word: UInt64) -> UInt8? {
+        pair?.value(of: ModelFormat.pairKey(previous: previous, word: word))
     }
 
     /// Whether some word of the language starts with these 3 or 4 symbols.

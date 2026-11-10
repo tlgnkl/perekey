@@ -51,6 +51,16 @@ public struct ModelBuilder: Sendable {
         return languages[index].add(form, rank: rank, weight: weight, prefixes: prefixes)
     }
 
+    /// The folded fingerprints of the forms of `language` the classifier
+    /// counts as known (`Classifier.Options.knownRank`: rank 0, or at least
+    /// `minimumRank`), sorted. The words a pair table may hold.
+    public func knownForms(language: String, minimumRank: UInt8) -> [UInt64] {
+        guard let index = languages.firstIndex(where: { $0.language == language }) else {
+            preconditionFailure("unknown language \(language)")
+        }
+        return languages[index].knownForms(minimumRank: minimumRank)
+    }
+
     /// Adds a string the classifier never switches, case-sensitive.
     public mutating func addKeep(_ text: String) {
         keep.insert(ModelFormat.Fingerprint.of(text.unicodeScalars, folded: false))
@@ -112,6 +122,62 @@ public struct ModelBuilder: Sendable {
         }
     }
 
+    /// Adds the lift of a word after the word before it
+    /// (`ModelFormat.pairTag`, `LanguageModel.Language.pairLift`): the folded
+    /// fingerprints of both (`ModelFormat.sentenceStart` for the start of a
+    /// sentence) and the lift in eighths of a bit. A pair added twice keeps
+    /// the larger lift, so the order of calls does not matter. The section
+    /// is not written for a language with no pair.
+    public mutating func addPair(previous: UInt64, word: UInt64, lift: UInt8, language: String) {
+        guard let index = languages.firstIndex(where: { $0.language == language }) else {
+            preconditionFailure("unknown language \(language)")
+        }
+        languages[index].addPair(previous: previous, word: word, lift: lift)
+    }
+
+    /// The lift of a word after another, in eighths of a bit and rounded:
+    /// `8 · (log₂ P(word | previous) − log₂ P(word))`. `P(word | previous)`
+    /// is `max(count − discount, 0) / previous`, absolute discounting, and
+    /// `P(word)` is `word / total`. Not clamped: it is negative for a pair
+    /// rarer than chance, and `nil` for a count the discount takes to zero.
+    /// The log is the series of `Double.log2()`, not the system's, so the
+    /// same counts give the same byte on every machine and system version.
+    /// - Parameters:
+    ///   - count: how often the pair occurs.
+    ///   - previous: how often the first word has a word after it.
+    ///   - word: how often the second word occurs after any word.
+    ///   - total: how many words the text has.
+    public static func pairLift(count: Int, previous: Int, word: Int, total: Int, discount: Double = 0.75) -> Int? {
+        guard previous > 0, word > 0, total > 0, Double(count) > discount else { return nil }
+        let conditional = (Double(count) - discount) / Double(previous)
+        let marginal = Double(word) / Double(total)
+        return Int((8 * (conditional / marginal).log2()).rounded())
+    }
+
+    /// How much a pair is worth a place in a section that is too small for
+    /// all: `lift · log₂(count)`. A strong pair seen often beats a strong
+    /// pair seen three times.
+    public static func pairScore(lift: UInt8, count: Int) -> Double {
+        Double(lift) * Double(max(count, 1)).log2()
+    }
+
+    /// The bucket bits of a "pair" section with `count` entries: about a
+    /// dozen entries to a bucket at most, so a lookup searches a few entries
+    /// and the bucket offsets stay under a tenth of the section.
+    public static func pairBucketBits(count: Int) -> Int {
+        var bits = 8
+        while bits < 24, count >> bits > 12 { bits += 1 }
+        return bits
+    }
+
+    /// The size in bytes of a "pair" section with `count` entries, padding
+    /// included: `u32 bits, u32 count, u64 0`, the bucket offsets, the
+    /// fingerprints, padding to 8, the values. It never falls as `count` grows.
+    public static func pairSectionSize(count: Int) -> Int {
+        let bits = pairBucketBits(count: count)
+        return (16 + ((1 << bits) + 1) * 4 + count * 4 + 7) / 8 * 8 + count
+    }
+
     public func build() -> [UInt8] {
         var sections: [(tag: UInt32, language: UInt32, body: [UInt8])] = []
         sections.append((ModelFormat.metaTag, 0, Self.metaSection(meta)))
@@ -122,6 +188,7 @@ public struct ModelBuilder: Sendable {
             sections.append((ModelFormat.prefixTag, code, language.prefixSection()))
             if let yo = language.yoSection() { sections.append((ModelFormat.yoTag, code, yo)) }
             if let hyphen = language.hyphenSection() { sections.append((ModelFormat.hyphenTag, code, hyphen)) }
+            if let pair = language.pairSection() { sections.append((ModelFormat.pairTag, code, pair)) }
         }
         sections.append((ModelFormat.keepTag, 0, Self.keepSection(keep)))
         if !cased.isEmpty { sections.append((ModelFormat.casedTag, 0, Self.casedSection(cased))) }
@@ -211,6 +278,8 @@ struct LanguageBuilder: Sendable {
     /// Folded fingerprint of the merged spelling → the letters before the
     /// hyphen, with `ModelFormat.hyphenSpaced` for a form fixed with a space too.
     private var hyphens: [UInt64: UInt8] = [:]
+    /// `ModelFormat.pairKey` of two words → the lift of the second after the first.
+    private var pairs: [UInt64: UInt8] = [:]
     private var prefixes3: [UInt64]
     private var prefixes4: [UInt64]
 
@@ -275,6 +344,15 @@ struct LanguageBuilder: Sendable {
         guard mask != 0 else { return false }
         yo[plain.value] = mask
         return true
+    }
+
+    func knownForms(minimumRank: UInt8) -> [UInt64] {
+        ranks.filter { $0.value == 0 || $0.value >= minimumRank }.map(\.key).sorted()
+    }
+
+    mutating func addPair(previous: UInt64, word: UInt64, lift: UInt8) {
+        let key = ModelFormat.pairKey(previous: previous, word: word)
+        pairs[key] = max(pairs[key] ?? 0, lift)
     }
 
     mutating func addHyphen(_ form: String, spaced: Bool, byRule: Bool) throws -> Bool {
@@ -401,6 +479,11 @@ struct LanguageBuilder: Sendable {
         hyphens.isEmpty ? nil : Self.fingerprintTable(hyphens, bits: ModelBuilder.hyphenBucketBits)
     }
 
+    /// The pair table in the dictionary's layout, `nil` when the language has none.
+    func pairSection() -> [UInt8]? {
+        pairs.isEmpty ? nil : Self.fingerprintTable(pairs, bits: ModelBuilder.pairBucketBits(count: pairs.count))
+    }
+
     /// `u32 bucket bits, u32 count, u64 0`, the bucket offsets, the 32-bit
     /// fingerprints, padding to 8, one value byte per entry.
     static func fingerprintTable(_ values: [UInt64: UInt8], bits: Int) -> [UInt8] {
@@ -409,7 +492,14 @@ struct LanguageBuilder: Sendable {
         func order(_ hash: UInt64) -> (Int, UInt32) {
             (Int(hash >> UInt64(64 - bits)), UInt32(truncatingIfNeeded: hash))
         }
-        let sorted = values.sorted { order($0.key) < order($1.key) }
+        // Two keys of one bucket may share their 32 bits, and a dictionary
+        // lists them in the order of its seed: the value, then the key, break
+        // the tie, so two builds give one file.
+        let sorted = values.sorted {
+            let (left, right) = (order($0.key), order($1.key))
+            if left != right { return left < right }
+            return $0.value != $1.value ? $0.value < $1.value : $0.key < $1.key
+        }
         var writer = ByteWriter()
         writer.u32(UInt32(bits))
         writer.u32(UInt32(sorted.count))

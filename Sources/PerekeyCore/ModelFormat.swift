@@ -55,6 +55,35 @@ public enum ModelFormat {
     /// inside a sentence it is a name and stays.
     public static let hyphenByRule: UInt8 = 0x40
 
+    /// Pairs of neighbouring words of one language: the "dict" layout by
+    /// `pairKey`, the value byte the lift of the second word after the first,
+    /// in eighths of a bit (`pairLift`). A pair that is not there has no
+    /// evidence either way. Optional: a model without it reads as before.
+    public static let pairTag = tag("pair")
+    /// The largest "pair" section in bytes, per language (decision Р4 of the
+    /// plan: the model grows by at most 8 MB a language).
+    public static let pairBudget = 8 << 20
+
+    /// The "word" before the first word of a sentence: the fingerprint of a
+    /// scalar no word holds (U+2029, the paragraph separator). It is the
+    /// previous word of a pair at the start of a sentence.
+    public static let sentenceStart: UInt64 = Fingerprint.of("\u{2029}".unicodeScalars, folded: false)
+
+    /// The key of the pair "`previous` `word`" in the "pair" section, from
+    /// the folded fingerprints of the two words (`Fingerprint.of(_:folded:)`,
+    /// `sentenceStart` for the start of a sentence). The order matters:
+    /// ("a", "b") and ("b", "a") are two keys. The same mixing as a word
+    /// fingerprint, so the top bits (the bucket) are as good as the bottom ones.
+    @inlinable
+    public static func pairKey(previous: UInt64, word: UInt64) -> UInt64 {
+        var fingerprint = Fingerprint()
+        fingerprint.add(UInt32(truncatingIfNeeded: previous))
+        fingerprint.add(UInt32(truncatingIfNeeded: previous >> 32))
+        fingerprint.add(UInt32(truncatingIfNeeded: word))
+        fingerprint.add(UInt32(truncatingIfNeeded: word >> 32))
+        return fingerprint.value
+    }
+
     /// Four ASCII bytes packed little-endian; shorter strings are zero-padded.
     public static func tag(_ text: String) -> UInt32 {
         var value: UInt32 = 0

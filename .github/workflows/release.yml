@@ -68,9 +68,17 @@ jobs:
       - name: Cache the model data
         uses: actions/cache@v4
         with:
-          path: .build/data-cache
+          path: |
+            .build/data-cache
+            !.build/data-cache/pairs
           key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
-      - run: scripts/fetch-data.sh lexicon wikifreq
+      - name: Cache the word-pair counts
+        uses: actions/cache@v4
+        with:
+          path: .build/data-cache/pairs
+          # The inputs of the count only: the text scripts, the dictionary lists (not data/*/hyphen.txt), the counter and the fingerprints. Not the model hashes, not the rest of the sources.
+          key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/ru/**', 'data/en/**', 'data/mixed/**', '!data/*/hyphen.txt', 'Sources/PerekeyModelKit/PairTable.swift', 'Sources/PerekeyModelKit/PairText.swift', 'Sources/PerekeyCore/ModelFormat.swift') }}
+      - run: scripts/fetch-data.sh lexicon wikifreq pairs
       # Everything that downloads or runs third-party build tools (the pinned
       # pip packages of scripts/wiki-freq.py) goes before the certificate is
       # in an unlocked keychain. scripts/build-universal.sh then finds the

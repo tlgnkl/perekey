@@ -16,6 +16,8 @@
 //   perekey-eval slash --model <file> --layouts <dir> --tokens <file> [--lead] [--list N]
 //   perekey-eval hyphen --model <file> [--cache <dir>] [--list N] [--text <file> [--text-name <name>]]
 //                       [--layouts <dir> --words <hyphen.txt>]
+//   perekey-eval pairs --model <file or dir> --language ru|en [--cache <dir>] [--wiki <file>]
+//                      [--tsv <file> --budgets 2,4,8,16]
 //   perekey-eval cases|play|case|selfcheck ...: the quality bench (docs/eval.md, PerekeyEvalKit)
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
@@ -54,6 +56,13 @@
 // With `--layouts` and `--words` every word of the list, typed merged on the
 // Russian layout, must stay as it is for the typo step (`TypoCorrector`),
 // which runs before the hyphen step: exit status 1 for any that it changes.
+// `pairs` measures the pair table of a model (docs/classifier.md, «Пары слов»)
+// on text it never saw: of the pairs of neighbouring known words in Tatoeba
+// prose and chat and in a held-out Wikipedia file (`--wiki`, one article per
+// line, scripts/wiki-text.py --held-out), how many have a lift in the table
+// and how large it is. With `--tsv` (the counts of `perekey-model pairs`) it
+// repeats the measure for each section size of `--budgets` in megabytes, from
+// the counts, without a model: the curve that picks the size.
 // `corpus` writes a TSV of words by category (about N words, default 50 000,
 // plus a tenth of typos).
 // `run` types every word in its own layout and in the other one and prints
@@ -88,10 +97,10 @@ func fail(_ message: String) -> Never {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen"]
+guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen", "pairs"]
     .contains(command)
 else {
-    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen ... (see the source header)")
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen|pairs ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
@@ -354,6 +363,48 @@ do {
             print("typo step on the \(words.count) merged words of the list: \(clashes.count) changed")
             for clash in clashes { print("  typo: \(clash)") }
             if !clashes.isEmpty { exit(1) }
+        }
+
+    case "pairs":
+        guard let modelPath = flags["--model"], let code = flags["--language"] else {
+            fail("--model and --language are required")
+        }
+        let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
+        let model = try ModelFile.load(modelPath, languages: [code])
+        guard let language = model.language(code) else { fail("no \(code) in \(modelPath)") }
+        let texts = try PairEvaluation.tatoeba(language: code, cache: cache)
+        var corpora = [("Tatoeba prose", texts.prose), ("Tatoeba chat", texts.chat)]
+        if let wiki = flags["--wiki"] {
+            var articles: [String] = []
+            try TextLines.forEach(path: wiki) { articles.append(String(decoding: $0, as: UTF8.self)) }
+            corpora.append(("Wikipedia (held out)", articles))
+        }
+        let known = Classifier.Options().knownRank
+        let isKnown: (UInt64) -> Bool = { fingerprint in
+            language.rank(of: fingerprint).map { $0 == 0 || $0 >= known } ?? false
+        }
+        func report(_ title: String, _ lift: @escaping (UInt64, UInt64) -> UInt8?) {
+            print(title)
+            for (name, sentences) in corpora {
+                print(PairEvaluation.measure(sentences, name: name, isKnown: isKnown, lift: lift).report)
+            }
+        }
+        report("\(code) pairs, model \(modelPath): table \(language.hasPairTable ? "present" : "absent")") {
+            language.pairLift(previous: $0, word: $1)
+        }
+        if let tsv = flags["--tsv"] {
+            let table = try PairTable.read(tsv)
+            for megabytes in (flags["--budgets"] ?? "2,4,8,16").split(separator: ",").compactMap({ Int($0) }) {
+                let chosen = table.chosen(budget: megabytes << 20)
+                var lifts: [UInt64: UInt8] = [:]
+                for pair in chosen {
+                    lifts[ModelFormat.pairKey(previous: pair.entry.previous, word: pair.entry.word)] = pair.lift
+                }
+                let size = ModelBuilder.pairSectionSize(count: chosen.count)
+                report("\(code) pairs, counts \(tsv), budget \(megabytes) MB: \(chosen.count) of \(table.entries.count) pairs, section \(String(format: "%.2f", Double(size) / 1_048_576)) MB") {
+                    lifts[ModelFormat.pairKey(previous: $0, word: $1)]
+                }
+            }
         }
 
     case "word":

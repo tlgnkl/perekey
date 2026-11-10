@@ -20,6 +20,9 @@ let package = Package(
         .executableTarget(
             name: "PerekeyIMSpike",
             dependencies: ["SpikeCore", "PerekeyCore", "PerekeyInput"],
+            // IMKInputController has no isolation annotations, and IMK calls it on
+            // the main thread only; Swift 6 cannot see that through `Any!` senders.
+            swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [.linkedFramework("InputMethodKit")]
         ),
         // Drives the input method through the real text system of its own
@@ -27,6 +30,7 @@ let package = Package(
         .executableTarget(
             name: "imk-harness",
             dependencies: ["SpikeCore", "PerekeyCore", "PerekeyInput"],
+            swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [.linkedFramework("WebKit")]
         ),
         .testTarget(name: "SpikeCoreTests", dependencies: ["SpikeCore", "PerekeyCore"]),

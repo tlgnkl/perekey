@@ -7,6 +7,7 @@ import PerekeyVoiceCore
 /// A speech engine without a model: says what it is told, counts its calls.
 actor FakeEngine: SpeechEngine {
     nonisolated let id: String
+    nonisolated let acceptsLanguageHint: Bool
     var text: String
     var prepareError: (any Error)?
     private(set) var prepares = 0
@@ -18,8 +19,9 @@ actor FakeEngine: SpeechEngine {
     /// What the model says when it is given the language, in place of `text`.
     var textByLanguage: [String: String] = [:]
 
-    init(id: String = "fake", text: String = "привет") {
+    init(id: String = "fake", text: String = "привет", acceptsLanguageHint: Bool = true) {
         self.id = id
+        self.acceptsLanguageHint = acceptsLanguageHint
         self.text = text
     }
 

@@ -37,6 +37,8 @@ public actor FluidAudioEngine: SpeechEngine {
         self.store = store
     }
 
+    public nonisolated var acceptsLanguageHint: Bool { false }
+
     private var version: AsrModelVersion { id == "parakeet-ultra" ? .ultra : .v3 }
 
     public func prepare() async throws {

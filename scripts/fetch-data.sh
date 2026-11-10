@@ -184,23 +184,47 @@ while IFS='|' read -r group path url sha; do
     fetch "$path" "$url" "$sha"
 done <<< "$SOURCES"
 
+# The cache counts as whole only if every file named in `refs.tsv` is there.
+speech_cache_whole() { # folder
+    [[ -s "$1/refs.tsv" ]] || return 1
+    local file
+    while IFS=$'\t' read -r file _; do
+        [[ -s "$1/$file" ]] || return 1
+    done < "$1/refs.tsv"
+}
+
 # The speech set: the first SPEECH_COUNT recordings of different sentences, in
 # the order of the split's table, with their reference text. The audio stays
 # in $CACHE/speech/<ru|en>/; `refs.tsv` there is "file<TAB>reference".
+# Extraction goes to a side folder that replaces the cache in one `mv`, with
+# `refs.tsv` written last: a failed `tar` leaves no half-filled cache.
 extract_speech() { # language code (ru, en), fleurs name (ru_ru, en_us)
     local lang="$1" name="$2" out="$CACHE/speech/$1"
     local table="$CACHE/fleurs/$name.dev.tsv" archive="$CACHE/fleurs/$name.dev.tar.gz"
-    if [[ -f "$out/refs.tsv" ]]; then
+    if speech_cache_whole "$out"; then
         echo "ok      speech/$lang ($(wc -l < "$out/refs.tsv" | tr -d ' ') recordings)"
         return
     fi
-    rm -rf "$out"
-    mkdir -p "$out"
+    local side="$out.new"
+    rm -rf "$out" "$side" "$side.refs" "$side.list"
+    mkdir -p "$side"
     # Column 1 is the sentence id, 2 the file, 3 the reference as written.
-    awk -F'\t' -v n="$SPEECH_COUNT" '!seen[$1]++ { print $2 "\t" $3; if (++k == n) exit }' "$table" > "$out/refs.tsv"
-    cut -f1 "$out/refs.tsv" | sed 's|^|dev/|' > "$out.list"
-    tar -xzf "$archive" -C "$out" --strip-components=1 -T "$out.list"
-    rm -f "$out.list"
+    awk -F'\t' -v n="$SPEECH_COUNT" '!seen[$1]++ { print $2 "\t" $3; if (++k == n) exit }' "$table" > "$side.refs"
+    # The archive holds dev/<file>; --strip-components=1 drops "dev/" (bsdtar and GNU tar alike).
+    cut -f1 "$side.refs" | sed 's|^|dev/|' > "$side.list"
+    if ! tar -xzf "$archive" -C "$side" --strip-components=1 -T "$side.list"; then
+        rm -rf "$side" "$side.list" "$side.refs"
+        echo "FAILED  speech/$lang: tar could not extract $archive" >&2
+        return 1
+    fi
+    mv "$side.refs" "$side/refs.tsv"
+    rm -f "$side.list"
+    if ! speech_cache_whole "$side"; then
+        rm -rf "$side"
+        echo "FAILED  speech/$lang: files named in the table are missing from $archive" >&2
+        return 1
+    fi
+    mv "$side" "$out"
     echo "get     speech/$lang ($(wc -l < "$out/refs.tsv" | tr -d ' ') recordings)"
 }
 if want_group speech; then

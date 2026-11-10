@@ -84,6 +84,15 @@ struct DictationLanguageHintTests {
         #expect(await engine.languages == ["ru"])
     }
 
+    @Test func anEngineThatIgnoresTheHintGetsNoneAndNoSecondRun() async throws {
+        let engine = FakeEngine(text: "Hello, world.", acceptsLanguageHint: false)
+        try await engine.prepare()
+        let hint = LanguageHint(language: "ru") { _ in "en" }
+        let outcome = try await DictationRecognition.recognize(audio(), engine: engine, detector: nil, hint: hint)
+        #expect(outcome == .text("Hello, world."))
+        #expect(await engine.languages == [nil])
+    }
+
     @Test func noHintLeavesTheEngineToFindTheLanguage() async throws {
         let engine = FakeEngine(text: "Привет, мир.")
         try await engine.prepare()

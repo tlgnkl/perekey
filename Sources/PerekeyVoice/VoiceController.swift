@@ -701,7 +701,9 @@ public final class VoiceController {
         work.recognition = Task(priority: .userInitiated) {
             await work.stopping?.value
             let audio = AudioBuffer16k(work.audio.samples)
-            let plan = await hintPlan(for: work.target?.value)
+            // The app and the layout are read here, after the recording, not at its
+            // start: a switch of either during the speech changes the hint.
+            let plan = await hintPlan(for: work.target?.value, engine: work.model?.engine)
             do {
                 guard let engine = work.model?.engine, let loading = work.loading else {
                     throw VoiceModelFailure.unknownModel(preferences.modelID)
@@ -800,7 +802,7 @@ public final class VoiceController {
         guard !isShutDown, machine.state == .idle, let retained, hud == .failed(.cloudSpeech) else { return }
         hud = .recognizing(preparingModel: false)
         let prompt = hooks.prompt()
-        let plan = hintPlan(for: retained.target)
+        let plan = hintPlan(for: retained.target, engine: retained.model.engine)
         retrying = Task {
             let privacy = currentPrivacy(of: retained.target)
             var model = retained.model.engine.id
@@ -871,8 +873,9 @@ public final class VoiceController {
     /// «Язык диктовки» is «как в программе», and only when the app's
     /// language, the layout's and the last dictation into the app agree
     /// (`DictationLanguageHint`).
-    private func hintPlan(for target: (any Sendable)?) -> HintPlan {
-        guard preferences.languageFromApp, let app = paster.application(of: target)?.bundleID,
+    /// None for an engine that ignores it (`acceptsLanguageHint`).
+    private func hintPlan(for target: (any Sendable)?, engine: (any SpeechEngine)?) -> HintPlan {
+        guard preferences.languageFromApp, engine?.acceptsLanguageHint ?? true, let app = paster.application(of: target)?.bundleID,
               let signs = hooks.languageSigns(app)
         else { return HintPlan() }
         let language = DictationLanguageHint.hint(

@@ -21,7 +21,8 @@ differently, what was fixed.
   app last time, nothing changes: the model finds the language itself. If the
   text still comes out in another language, Perekey recognizes it once more
   without the hint. The default is «Automatic», as before. Parakeet does not
-  take the hint, so it changes nothing for it.
+  take the hint: for it nothing is asked and nothing is recognized twice, so
+  it changes nothing.
 
 ## [0.2.0] - 2026-10-27
 

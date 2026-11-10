@@ -86,6 +86,7 @@ private final class FakeMicrophone: DictationMicrophone, @unchecked Sendable {
 /// A recognizer that answers when the test lets it.
 private actor FakeEngine: SpeechEngine {
     nonisolated let id: String
+    nonisolated let acceptsLanguageHint: Bool
     private var text: String
     private var gate: CheckedContinuation<Void, Never>?
     private var holds = false
@@ -94,8 +95,9 @@ private actor FakeEngine: SpeechEngine {
     private(set) var heard: [Int] = []
     private var prepared = false
 
-    init(id: String = "fake", text: String = "Привет, мир.") {
+    init(id: String = "fake", text: String = "Привет, мир.", acceptsLanguageHint: Bool = true) {
         self.id = id
+        self.acceptsLanguageHint = acceptsLanguageHint
         self.text = text
     }
 
@@ -272,7 +274,7 @@ private final class FakeSecureInput: DictationSecureInputRules {
 @MainActor
 private final class Rig {
     let microphone = FakeMicrophone()
-    let engine = FakeEngine()
+    let engine: FakeEngine
     let otherEngine = FakeEngine(id: "fake2", text: "Другая модель.")
     let cloud = FakeCloudEngine()
     let detector = FakeDetector()
@@ -300,8 +302,9 @@ private final class Rig {
     var signsAsked: [String] = []
 
     init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil),
-         limitSeconds: Int = DictationAudio.limitSeconds)
+         limitSeconds: Int = DictationAudio.limitSeconds, engineAcceptsHint: Bool = true)
     {
+        engine = FakeEngine(acceptsLanguageHint: engineAcceptsHint)
         let engines: [String: any SpeechEngine] = ["fake": engine, "fake2": otherEngine, cloud.id: cloud]
         controller = VoiceController(
             preferences: preferences, microphone: microphone, paster: paster, secureInput: secureInput,
@@ -1636,9 +1639,10 @@ struct VoiceControllerCloudSpeechTests {
     }
 
     private func hintRig(setting: Bool = true, signs: DictationLanguageSigns? = russianNotes(),
-                         model: String = "fake") -> Rig
+                         model: String = "fake", engineAcceptsHint: Bool = true) -> Rig
     {
-        let rig = Rig(preferences: DictationPreferences(modelID: model, silenceStop: nil, languageFromApp: setting))
+        let rig = Rig(preferences: DictationPreferences(modelID: model, silenceStop: nil, languageFromApp: setting),
+                      engineAcceptsHint: engineAcceptsHint)
         rig.paster.application = DictationApplication(bundleID: "com.apple.Notes", name: "Notes")
         rig.signs = signs
         return rig
@@ -1680,6 +1684,16 @@ struct VoiceControllerCloudSpeechTests {
     @Test func noAppToAskAboutMeansNoHint() async {
         let rig = hintRig()
         rig.paster.application = nil
+        await dictate(rig)
+        #expect(await rig.engine.languages == [nil])
+        #expect(rig.signsAsked.isEmpty)
+    }
+
+    @Test func anEngineThatIgnoresTheHintIsNotAskedForOneAndNotRunTwice() async {
+        // Parakeet: the text reads as English in a Russian app, but a second run
+        // would give the same text, so there is none, and no hint is built.
+        let rig = hintRig(signs: Self.russianNotes { _ in "en" }, engineAcceptsHint: false)
+        await rig.engine.set(text: "Hello there.")
         await dictate(rig)
         #expect(await rig.engine.languages == [nil])
         #expect(rig.signsAsked.isEmpty)

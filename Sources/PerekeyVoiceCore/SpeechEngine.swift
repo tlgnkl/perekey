@@ -18,6 +18,10 @@ public protocol SpeechEngine: VoiceModel {
     /// The model ends real speech with video sign-offs ("Продолжение
     /// следует…") it learned from subtitles: Whisper does.
     var addsSignOffs: Bool { get }
+    /// The engine uses the language of `transcribe(_:prompt:language:)`.
+    /// Parakeet does not: with no hint to check, nothing is built for it
+    /// and no second run is made.
+    var acceptsLanguageHint: Bool { get }
     /// One dictation, held in memory whole. Throws if not prepared.
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript
     /// The same, with words the model should spell as given (the user's
@@ -39,6 +43,7 @@ public protocol SpeechEngine: VoiceModel {
 
 extension SpeechEngine {
     public var addsSignOffs: Bool { false }
+    public var acceptsLanguageHint: Bool { true }
 
     public func transcribe(_ audio: AudioBuffer16k, prompt _: String?) async throws -> Transcript {
         try await transcribe(audio)

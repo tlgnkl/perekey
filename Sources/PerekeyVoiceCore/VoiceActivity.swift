@@ -54,7 +54,9 @@ public enum DictationRecognition {
     /// With a `hint`, the model is told the language. Its text is read by
     /// `hint.dominant`: if that finds another language, the hint was wrong
     /// and the audio is recognized once more with none, the model finding
-    /// the language as before. No more than that one retry.
+    /// the language as before. No more than that one retry. An engine that
+    /// does not take the hint (`acceptsLanguageHint`) gets none and is not
+    /// run again: the same input would give the same text.
     public static func recognize(_ audio: AudioBuffer16k, engine: any SpeechEngine,
                                  detector: (any SpeechDetector)?, prompt: String? = nil,
                                  hint: LanguageHint? = nil) async throws -> RecognitionOutcome
@@ -65,6 +67,7 @@ public enum DictationRecognition {
         {
             return .noSpeech
         }
+        let hint = engine.acceptsLanguageHint ? hint : nil
         var text = try await heard(audio, engine: engine, prompt: prompt, language: hint?.language)
         if let hint, !text.isEmpty, let found = hint.dominant(text), found != hint.language {
             text = try await heard(audio, engine: engine, prompt: prompt, language: nil)

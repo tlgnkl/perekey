@@ -6,22 +6,12 @@
   "maxTokens": 40,
   "minTokens": 8
  },
- "layoutSets": [
-  [
-   "ABC",
-   "Russian"
-  ]
- ],
+ "layoutSets": [["ABC", "Russian"]],
  "license": "CC BY 2.0 FR (part CC0)",
  "normalize": "keyboard",
  "reader": "tatoeba",
  "sampling": "token",
- "scenarios": [
-  "clean.cold",
-  "clean.warm",
-  "slip.cold",
-  "slip.warm"
- ],
+ "scenarios": ["clean.cold", "clean.warm", "slip.cold", "slip.warm"],
  "seed": 1,
  "settings": "default",
  "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
@@ -30,10 +20,7 @@
   "dev": 20
  },
  "suite": "prose.tatoeba",
- "tags": [
-  "prose",
-  "natural"
- ],
+ "tags": ["prose", "natural"],
  "tiers": {
   "ci": 20000,
   "full": 400000

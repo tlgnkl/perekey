@@ -1,0 +1,388 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import PerekeyCore
+
+/// `InputMachine` with the system around it, in memory: a text field with a
+/// caret, the layout the app types in, held keys, retypes, selection reads
+/// and deadlines (docs/eval.md, «Наборщик и стенд»).
+///
+/// It follows the test `Desk` (Tests/PerekeyCoreTests/Desk.swift) and the
+/// driver of `perekey-bench`: the decision about an event first, its effects
+/// after; layout selections, retypes and selection reads wait until the desk
+/// catches up (`settle()`), the main thread of the app. When it catches up
+/// is the lag rule of `Setup.lag`.
+public struct EvalDesk: Sendable {
+    /// Every number here is a model of the system, not a measurement: each
+    /// says where it comes from.
+    public struct Options: Hashable, Sendable {
+        /// Seconds between two held keys posted again: `Desk` (`.releaseHeld`).
+        public var replayStep = 0.0005
+        /// Seconds from a retype taken up to its posting: `Desk.settle`.
+        public var retypeStep = 0.001
+        /// Seconds between the synthetic keys of a retype: `Desk.settle`.
+        public var ownKeyStep = 0.0001
+        /// Without new key downs, the desk catches up once this much model
+        /// time passed between two events (docs/eval.md, «Отставание»).
+        public var catchUpGap = 0.05
+        /// Slack of time comparisons: times are sums of decimal steps.
+        public var epsilon = 1e-9
+
+        public init() {}
+    }
+
+    /// Whether the app lets the desk read the text before the caret.
+    public enum FieldKind: String, Hashable, Sendable, CaseIterable {
+        /// A field with accessibility: a retype whose expected text is not
+        /// before the caret is cancelled (`retypeCancelled`).
+        case plain
+        /// No accessibility (Electron, terminals): no check, every retype is posted.
+        case blind
+    }
+
+    public struct Setup: Sendable {
+        public var settings: Settings
+        public var layouts: [LayoutMap]
+        public var start: LayoutID
+        public var classifier: Classifier?
+        public var focus: Focus
+        public var mode: AppMode
+        public var prior: LanguagePrior?
+        public var secureInput: Bool
+        public var field: FieldKind
+        /// Key downs the typist sends before the desk carries out a layout
+        /// selection or a retype; 0 is at once.
+        public var lag: Int
+
+        public init(settings: Settings, layouts: [LayoutMap], start: LayoutID, classifier: Classifier?,
+                    focus: Focus, mode: AppMode = .auto, prior: LanguagePrior? = nil, secureInput: Bool = false,
+                    field: FieldKind = .plain, lag: Int = 0)
+        {
+            self.settings = settings
+            self.layouts = layouts
+            self.start = start
+            self.classifier = classifier
+            self.focus = focus
+            self.mode = mode
+            self.prior = prior
+            self.secureInput = secureInput
+            self.field = field
+            self.lag = lag
+        }
+    }
+
+    /// An effect for the app, with the index of the typist's event it came
+    /// from: for the effects of a retype, the event that asked for the retype.
+    public struct Logged: Hashable, Sendable {
+        public var event: Int
+        public var effect: Effect
+    }
+
+    /// A retype the desk did not carry out: the text before the caret was
+    /// not the expected one.
+    public struct Cancelled: Hashable, Sendable {
+        public var event: Int
+        public var seq: UInt32
+        public var origin: Retype.Origin
+    }
+
+    /// One call of the machine, for `perekey-eval case`.
+    public struct Record: Sendable {
+        public var event: Int
+        public var input: InputEvent
+        public var output: Output
+        public var text: String
+        public var layout: LayoutID
+    }
+
+    public let options: Options
+    public private(set) var machine: InputMachine
+    public private(set) var time: Double
+    public private(set) var field = TextField()
+    public private(set) var appLayout: LayoutID
+    public private(set) var capsLock = false
+    public private(set) var log: [Logged] = []
+    public private(set) var cancelled: [Cancelled] = []
+    /// Every call of the machine, when `recording` is on.
+    public private(set) var records: [Record] = []
+    public var recording = false
+
+    private let maps: [LayoutID: LayoutMap]
+    private let settings: Settings
+    private let fieldKind: FieldKind
+    private let lag: Int
+    private var mode: AppMode
+    private var held: [KeyEvent] = []
+    private var selected: LayoutID?
+    private var retypes: [Retype] = []
+    private var selectionReads: [UInt32] = []
+    private var deadline: Double?
+    /// Key downs since work for the main thread came up.
+    private var keyDownsWaiting = 0
+    /// The typist's time of the last event.
+    private var lastEventTime: Double?
+    /// The index of the typist's event being handled.
+    private var event = -1
+    /// The event that asked for each retype, by `seq`.
+    private var requests: [UInt32: Int] = [:]
+    /// The event the effects of the retype being posted belong to.
+    private var posting: Int?
+
+    /// The event effects are logged under now.
+    private var cause: Int { posting ?? event }
+
+    public init(_ setup: Setup, time: Double = 0, options: Options = Options()) {
+        self.options = options
+        self.time = time
+        settings = setup.settings
+        fieldKind = setup.field
+        lag = max(setup.lag, 0)
+        mode = setup.mode
+        appLayout = setup.start
+        maps = Dictionary(setup.layouts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        machine = InputMachine(settings: setup.settings, layouts: setup.layouts, currentLayout: setup.start,
+                               classifier: setup.classifier)
+        send(.focusChanged(setup.focus))
+        send(.appModeChanged(setup.mode))
+        // The app takes the shortcuts away in "off" (AppModeController,
+        // InputController.effectiveSettings): the machine only stays quiet.
+        if setup.mode == .off { send(.settingsChanged(withoutHotkeys)) }
+        if let prior = setup.prior {
+            send(.languageContextChanged(LanguageContext(app: setup.focus.bundleID, prior: prior)))
+        }
+        if setup.secureInput { send(.secureInputChanged(true)) }
+    }
+
+    public var text: String { field.text }
+
+    /// Corrections shown: one hint each.
+    public var corrections: [Correction] {
+        log.compactMap { if case let .corrected(correction) = $0.effect { correction } else { nil } }
+    }
+
+    /// The `seq`s of corrections undone.
+    public var undone: [UInt32] {
+        log.compactMap { if case let .correctionUndone(seq) = $0.effect { seq } else { nil } }
+    }
+
+    /// Whether the main thread has work waiting.
+    public var isBehind: Bool { selected != nil || !retypes.isEmpty || !selectionReads.isEmpty }
+
+    /// One event of the typist at the typist's `time`.
+    public mutating func send(_ typed: TypistEvent, at eventTime: Double) {
+        event += 1
+        let wasBehind = isBehind
+        if wasBehind, let last = lastEventTime, eventTime - last >= options.catchUpGap - options.epsilon {
+            settle()
+        }
+        lastEventTime = eventTime
+        time = max(time, eventTime)
+        if case let .idle(seconds) = typed {
+            settle()
+            time += seconds
+            deliverDeadlines(settling: true)
+            return
+        }
+        deliverDeadlines(settling: false)
+        let behindBefore = isBehind
+        handle(typed)
+        guard isBehind else {
+            keyDownsWaiting = 0
+            return
+        }
+        if !behindBefore {
+            keyDownsWaiting = 0
+        } else if typed.isKeyDown {
+            keyDownsWaiting += 1
+        }
+        if keyDownsWaiting >= lag { settle() }
+    }
+
+    /// Catches up and lets every deadline pass: the end of a case.
+    public mutating func finish() {
+        settle()
+        deliverDeadlines(settling: true)
+    }
+
+    // MARK: - Events
+
+    private mutating func handle(_ typed: TypistEvent) {
+        switch typed {
+        case let .keyDown(keyCode, flags):
+            key(KeyEvent(.down, keyCode: keyCode, flags: withCapsLock(flags)))
+        case let .keyUp(keyCode, flags):
+            key(KeyEvent(.up, keyCode: keyCode, flags: withCapsLock(flags)))
+        case let .flags(keyCode, flags):
+            // Modifiers are never held or posted again, whatever the answer (`Desk.tap`).
+            send(.flagsChanged(keyCode: keyCode, flags: withCapsLock(flags), origin: .user, time: time))
+        case let .userLayout(id):
+            appLayout = id
+            send(.layoutChanged(id))
+        case let .click(target):
+            switch target {
+            case .hint:
+                send(.click(time: time, onHint: true))
+                return
+            case .start: field.place(caret: 0)
+            case .end: field.placeAtEnd()
+            case let .position(position): field.place(caret: position)
+            }
+            send(.click(time: time))
+        case let .focus(focus):
+            field = TextField()
+            send(.focusChanged(focus))
+        case let .mode(newMode):
+            let wasOff = mode == .off
+            mode = newMode
+            send(.appModeChanged(newMode))
+            if newMode == .off, !wasOff {
+                send(.settingsChanged(withoutHotkeys))
+            } else if newMode != .off, wasOff {
+                send(.settingsChanged(settings))
+            }
+        case let .secureInput(on):
+            send(.secureInputChanged(on))
+        case let .capsLock(on):
+            guard on != capsLock else { return }
+            capsLock = on
+            send(.flagsChanged(keyCode: KeyCode.capsLock, flags: on ? EventFlags.capsLock : 0, origin: .user,
+                               time: time))
+        case let .select(chars):
+            let shift = EventFlags.shift | ModifierKey.leftShift.eventFlagMask
+            let leftShift: UInt16 = 56
+            send(.flagsChanged(keyCode: leftShift, flags: withCapsLock(shift), origin: .user, time: time))
+            for _ in 0..<max(chars, 0) {
+                key(KeyEvent(.down, keyCode: KeyCode.leftArrow, flags: withCapsLock(shift)))
+                key(KeyEvent(.up, keyCode: KeyCode.leftArrow, flags: withCapsLock(shift)))
+            }
+            send(.flagsChanged(keyCode: leftShift, flags: withCapsLock(0), origin: .user, time: time))
+        case .undoButton:
+            // The hint of the last correction; without one there is no button.
+            guard let last = corrections.last else { return }
+            send(.undoLastCorrection(seq: last.seq, time: time))
+        case .idle:
+            break
+        }
+    }
+
+    private var withoutHotkeys: Settings {
+        var settings = settings
+        settings.hotkeys = []
+        return settings
+    }
+
+    private func withCapsLock(_ flags: UInt64) -> UInt64 {
+        capsLock ? flags | EventFlags.capsLock : flags & ~EventFlags.capsLock
+    }
+
+    // MARK: - The machine
+
+    private mutating func send(_ input: InputEvent) {
+        let output = machine.handle(input)
+        record(input, output)
+        run(output.effects)
+    }
+
+    /// A key: the decision first (pass, hold, drop), then the effects, or a
+    /// `releaseHeld` of the same output would lose the key (`Desk.key`).
+    private mutating func key(_ event: KeyEvent) {
+        let output = machine.handle(.key(event, time: time))
+        switch output.disposition {
+        case .pass:
+            if event.phase == .down, !event.origin.isOwn { typeIntoField(event) }
+        case .hold:
+            held.append(event)
+        case .drop:
+            break
+        }
+        record(.key(event, time: time), output)
+        run(output.effects)
+    }
+
+    private mutating func record(_ input: InputEvent, _ output: Output) {
+        guard recording else { return }
+        records.append(Record(event: event, input: input, output: output, text: field.text, layout: appLayout))
+    }
+
+    private mutating func typeIntoField(_ event: KeyEvent) {
+        field.press(event.keyCode, flags: event.flags, in: maps[appLayout])
+    }
+
+    private mutating func run(_ effects: [Effect]) {
+        for effect in effects {
+            switch effect {
+            case let .selectLayout(id):
+                selected = id
+            case let .retype(retype):
+                requests[retype.seq] = event
+                retypes.append(retype)
+            case .releaseHeld:
+                let events = held
+                held.removeAll()
+                for var heldEvent in events {
+                    heldEvent.origin = .replayed
+                    time += options.replayStep
+                    key(heldEvent)
+                }
+            case let .scheduleDeadline(at):
+                deadline = at
+            case let .convertSelection(seq):
+                selectionReads.append(seq)
+            case .capsLockOff:
+                capsLock = false
+                log.append(Logged(event: cause, effect: effect))
+            default:
+                log.append(Logged(event: cause, effect: effect))
+            }
+        }
+    }
+
+    /// The main thread and the app catch up: selections are read, retypes
+    /// are posted and their synthetic keys pass the tap, the layout reaches
+    /// the app (`Desk.settle`).
+    public mutating func settle() {
+        while isBehind {
+            if !selectionReads.isEmpty {
+                let seq = selectionReads.removeFirst()
+                send(.selectionRead(seq: seq, text: field.selectedText))
+                continue
+            }
+            if !retypes.isEmpty {
+                let retype = retypes.removeFirst()
+                // The engine drops a retype whose fence is gone.
+                guard machine.pendingRetypeSeq == retype.seq else { continue }
+                posting = requests[retype.seq]
+                defer { posting = nil }
+                // A retype of a selection has nothing to compare: typing replaces it.
+                if fieldKind == .plain, retype.deleteCount > 0, !field.textBeforeCaret(endsWith: retype.expected) {
+                    cancelled.append(Cancelled(event: cause, seq: retype.seq, origin: retype.origin))
+                    send(.retypeCancelled(seq: retype.seq))
+                    continue
+                }
+                field.deleteLeft(retype.deleteCount)
+                field.insert(retype.text)
+                time += options.retypeStep
+                send(.retypePosted(seq: retype.seq, time: time))
+                let count = retype.deleteCount + retype.keys.count
+                for index in 0..<count {
+                    time += options.ownKeyStep
+                    key(KeyEvent(.down, keyCode: 0, origin: .own(seq: retype.seq, last: index == count - 1)))
+                }
+            }
+            if let id = selected {
+                selected = nil
+                appLayout = id
+                send(.layoutChanged(id))
+            }
+        }
+        keyDownsWaiting = 0
+    }
+
+    /// Sends every deadline that has come by `time`, the earliest first.
+    private mutating func deliverDeadlines(settling: Bool) {
+        while let due = deadline, due <= time + options.epsilon {
+            deadline = nil
+            send(.deadline(time: due))
+            if settling { settle() }
+        }
+    }
+}

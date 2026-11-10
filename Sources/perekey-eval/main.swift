@@ -73,7 +73,13 @@
 
 import Foundation
 import PerekeyCore
+import PerekeyEvalKit
 import PerekeyModelKit
+
+// The quality bench (docs/eval.md): cases, play, case, selfcheck.
+if let first = CommandLine.arguments.dropFirst().first, EvalCommands.names.contains(first) {
+    exit(EvalCommands.run(Array(CommandLine.arguments.dropFirst())))
+}
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("perekey-eval: \(message)\n".utf8))

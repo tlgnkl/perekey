@@ -86,13 +86,18 @@ public struct EvalDesk: Sendable {
         public var origin: Retype.Origin
     }
 
-    /// One call of the machine, for `perekey-eval case`.
+    /// One call of the machine, for `perekey-eval case` and the replay of
+    /// recorded sessions.
     public struct Record: Sendable {
         public var event: Int
         public var input: InputEvent
         public var output: Output
         public var text: String
         public var layout: LayoutID
+        /// `InputMachine.pendingRetypeSeq` after the call.
+        public var pendingRetypeSeq: UInt32?
+        /// `InputMachine.lastJudgement` after the call.
+        public var lastJudgement: JudgeTrace?
     }
 
     /// What the main thread does when the desk catches up.
@@ -163,6 +168,62 @@ public struct EvalDesk: Sendable {
             send(.languageContextChanged(LanguageContext(app: setup.focus.bundleID, prior: prior)))
         }
         if setup.secureInput { send(.secureInputChanged(true)) }
+    }
+
+    /// A desk around a machine made elsewhere: the replay of a recorded
+    /// session starts one from its snapshot (`InputMachine(snapshot:)`),
+    /// which already knows the focus, the mode and the layouts. The field
+    /// starts empty: what was typed before the recording is not known, so a
+    /// `.blind` field posts every retype.
+    public init(machine: InputMachine, settings: Settings, layouts: [LayoutMap], mode: AppMode,
+                field: FieldKind = .blind, time: Double = 0, options: Options = Options())
+    {
+        self.options = options
+        self.time = time
+        self.settings = settings
+        fieldKind = field
+        lag = 0
+        self.mode = mode
+        appLayout = machine.currentLayout ?? layouts.first?.id ?? LayoutID(rawValue: "")
+        maps = Dictionary(layouts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        self.machine = machine
+    }
+
+    /// One recorded event of the user or the environment, handed to the
+    /// machine as it is, at its own time; then the desk catches up. The
+    /// machine's own events, replays, retypes posted or cancelled, selections
+    /// and deadlines are the desk's to make, not to replay.
+    public mutating func replay(_ input: InputEvent) {
+        event += 1
+        if let eventTime = Self.time(of: input) { time = max(time, eventTime) }
+        lastEventTime = time
+        deliverDeadlines(settling: true)
+        switch input {
+        case let .key(key, _):
+            self.key(key)
+        case let .layoutChanged(id):
+            appLayout = id
+            send(input)
+        case .focusChanged:
+            field = TextField()
+            send(input)
+        case let .appModeChanged(newMode):
+            mode = newMode
+            send(input)
+        default:
+            send(input)
+        }
+        settle()
+    }
+
+    private static func time(of input: InputEvent) -> Double? {
+        switch input {
+        case let .key(_, time), let .flagsChanged(_, _, _, time, _), let .click(time, _), let .scroll(time),
+             let .retypePosted(_, time), let .deadline(time), let .undoLastCorrection(_, time):
+            time
+        default:
+            nil
+        }
     }
 
     public var text: String { field.text }
@@ -313,7 +374,8 @@ public struct EvalDesk: Sendable {
 
     private mutating func record(_ input: InputEvent, _ output: Output) {
         guard recording else { return }
-        records.append(Record(event: event, input: input, output: output, text: field.text, layout: appLayout))
+        records.append(Record(event: event, input: input, output: output, text: field.text, layout: appLayout,
+                              pendingRetypeSeq: machine.pendingRetypeSeq, lastJudgement: machine.lastJudgement))
     }
 
     private mutating func typeIntoField(_ event: KeyEvent) {

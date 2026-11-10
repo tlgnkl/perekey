@@ -125,10 +125,54 @@ hash_ok() { # file want
     esac
 }
 
-download() { # url dest
+curl_get() { # url dest
     curl --fail --location --silent --show-error \
         --retry 3 --retry-delay 2 --connect-timeout 30 \
         --output "$2" "$1"
+}
+
+# archive.org sends /download/ to one storage node, and a sick node answers 500.
+# The item metadata lists the replicas; each serves the same file at
+# https://<server><dir>/<file>. The caller checks the hash as for any source,
+# so a replica cannot swap the content.
+archive_replicas() { # url -> replica urls, one per line
+    local rest="${1#https://archive.org/download/}" item file meta
+    item="${rest%%/*}"
+    file="${rest#*/}"
+    meta="$(curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+        --connect-timeout 30 "https://archive.org/metadata/$item")" || return 0
+    printf '%s' "$meta" | python3 -I -c '
+import json, sys
+item, file = sys.argv[1], sys.argv[2]
+try:
+    m = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+servers = list(m.get("workable_servers") or [])
+servers += [m[k] for k in ("d1", "d2") if m.get(k)]
+d = m.get("dir")
+if not d:
+    sys.exit(0)
+seen = set()
+for s in servers:
+    if s not in seen:
+        seen.add(s)
+        print("https://%s%s/%s" % (s, d, file))
+' "$item" "$file" 2>/dev/null || true
+}
+
+download() { # url dest
+    curl_get "$1" "$2" && return 0
+    [[ "$1" == https://archive.org/download/*/* ]] || return 1
+    echo "retry   $1 failed, trying archive.org replicas" >&2
+    local replica
+    while IFS= read -r replica; do
+        [[ -z "$replica" ]] && continue
+        echo "retry   $replica" >&2
+        rm -f "$2"
+        curl_get "$replica" "$2" && return 0
+    done < <(archive_replicas "$1")
+    return 1
 }
 
 fetch() { # path url sha256

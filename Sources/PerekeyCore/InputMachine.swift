@@ -50,16 +50,72 @@ public struct InputMachine: Sendable {
     /// the typing ended and `.inputLost` reset the shortcuts.
     private var typingKeyUps: Set<UInt16> = []
 
+    /// `tracesJudgements`: keep a `JudgeTrace` of every word in
+    /// `lastJudgement`, for the replay of recorded sessions. Never on the tap
+    /// thread of the app: a traced word is classified twice.
     public init(settings: Settings = Settings(), layouts: [LayoutMap] = [], currentLayout: LayoutID? = nil,
-                classifier: Classifier? = nil)
+                classifier: Classifier? = nil, tracesJudgements: Bool = false)
     {
         self.settings = settings
         shortcuts = Shortcuts(settings.hotkeys, voice: settings.voice)
         self.layouts = LayoutState(layouts, current: currentLayout)
         fence = Fence(confirmedLayout: currentLayout)
         judge = WordJudge(classifier: classifier)
+        judge.tracing = tracesJudgements
+        self.tracesJudgements = tracesJudgements
         self.layouts.typoLanguages = judge.typoLanguages
     }
+
+    /// A machine that goes on where the one of `snapshot` was, at a quiet
+    /// point (`isQuiet`), with `classifier` for the one it had.
+    public init(snapshot: MachineSnapshot, classifier: Classifier?, tracesJudgements: Bool = false) {
+        self.init(settings: snapshot.settings, layouts: snapshot.layouts, currentLayout: snapshot.currentLayout,
+                  classifier: classifier, tracesJudgements: tracesJudgements)
+        layouts.restoreUsed(snapshot.usedLayouts)
+        fence.restore(nextSeq: snapshot.nextSeq, confirmedLayout: snapshot.confirmedLayout,
+                      pendingSelections: snapshot.pendingSelections)
+        focus = snapshot.focus
+        judge.appMode = snapshot.appMode
+        secureInput = snapshot.secureInput
+        voiceSession = snapshot.voiceSession
+        dictationTyping = snapshot.dictationTyping
+        judge.restore(languageContext: snapshot.languageContext, recent: RecentLanguages(snapshot.recentLanguages),
+                      sentenceStart: snapshot.sentenceStart, tally: snapshot.tally, tallied: snapshot.tallied)
+    }
+
+    /// The state for a fresh machine to go on from (`init(snapshot:)`).
+    /// Complete only while `isQuiet`.
+    public var snapshot: MachineSnapshot {
+        let recent = judge.recent
+        return MachineSnapshot(
+            settings: settings, layouts: layouts.order.compactMap { layouts[$0] }, currentLayout: layouts.current,
+            usedLayouts: layouts.used, confirmedLayout: fence.confirmedLayout,
+            pendingSelections: fence.pendingSelections, nextSeq: fence.nextSeq, focus: focus,
+            appMode: judge.appMode, secureInput: secureInput, voiceSession: voiceSession,
+            dictationTyping: dictationTyping, languageContext: judge.languageContext,
+            recentLanguages: (0..<recent.count).map { recent[$0] }, sentenceStart: judge.sentenceStart,
+            tally: judge.tallyCounts, tallied: judge.tallied
+        )
+    }
+
+    /// Nothing is under way that `snapshot` leaves out: no word or phrase in
+    /// the buffer, no retype in flight or key to come back, no undo or
+    /// shortcut half done. A focus change, a click and lost input make it so.
+    public var isQuiet: Bool {
+        buffer.isEmpty && buffer.history.isEmpty && !fence.isHolding && fence.returning == .nothing
+            && undo.last == nil && undoWatch == nil && openUndo == nil && languageChoice == nil
+            && typingKeyUps.isEmpty && shortcuts.isIdle
+    }
+
+    /// The classifier automatic switching runs, if any.
+    public var classifier: Classifier? { judge.classifier }
+
+    /// Whether `lastJudgement` is kept.
+    public let tracesJudgements: Bool
+
+    /// The last word judged, or not judged and why, while `tracesJudgements`.
+    /// Its `serial` tells a new one from the one before.
+    public var lastJudgement: JudgeTrace? { judge.lastTrace }
 
     /// The bundle ID of the focus, as the undos and the per-app exceptions see it.
     public var focusApp: String? { focus?.bundleID }
@@ -320,7 +376,12 @@ public struct InputMachine: Sendable {
             case .ends:
                 break
             }
-            if judge.gate.mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings) {
+            if !judge.gate.mayJudge(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings) {
+                if tracesJudgements {
+                    judge.traceUnjudged(endedBy: key, held: held, buffer: buffer, layouts: layouts, settings: settings,
+                                        focus: focus)
+                }
+            } else {
                 let ruling = judge.judge(endedBy: key, held: held, buffer: buffer, layouts: layouts,
                                          settings: settings, focus: focus, secureInput: secureInput)
                 let open = openUndo
@@ -336,7 +397,8 @@ public struct InputMachine: Sendable {
                 case let .withdraw(word):
                     effects.append(.alwaysFixWithdrawn(word))
                 case let .retype(retype):
-                    startCorrection(retype, at: time, effects: &effects)
+                    let seq = startCorrection(retype, at: time, effects: &effects)
+                    if tracesJudgements { judge.traceRetype(seq: seq) }
                     tallyIfFull(effects: &effects)
                     return .hold
                 }
@@ -355,7 +417,8 @@ public struct InputMachine: Sendable {
                   let retype = judge.insideWord(buffer: buffer, layouts: layouts, settings: settings, focus: focus,
                                                 secureInput: secureInput)
         {
-            startCorrection(retype, at: time, effects: &effects)
+            let seq = startCorrection(retype, at: time, effects: &effects)
+            if tracesJudgements { judge.traceRetype(seq: seq) }
             return .hold
         }
         return .pass
@@ -428,7 +491,10 @@ public struct InputMachine: Sendable {
 
     /// Retypes the word as the judge decided, behind the fence, with the
     /// correction to report once posted.
-    private mutating func startCorrection(_ retype: WordJudge.WordRetype, at time: Double, effects: inout [Effect]) {
+    @discardableResult
+    private mutating func startCorrection(_ retype: WordJudge.WordRetype, at time: Double,
+                                          effects: inout [Effect]) -> UInt32
+    {
         let seq = fence.takeSeq()
         var pending = retype.pending
         pending.correction.seq = seq
@@ -444,6 +510,7 @@ public struct InputMachine: Sendable {
         }
         fence.holdsBoundary(retype.held)
         undo.forget()
+        return seq
     }
 
     /// Puts back the last automatic correction through the fence. Returns

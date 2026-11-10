@@ -24,6 +24,9 @@ struct Desk {
     var log: [Effect] = []
     /// Answer the next retypes with `.retypeCancelled`, as a failed caret check.
     var cancelRetypes = false
+    /// Every event the machine handled and what it answered, while not nil:
+    /// a session as the recorder writes it (`SessionStep`).
+    var tape: [SessionStep]?
 
     static let classifier = Classifier(model: ModelFixture.model)
     static let textEdit = Focus(bundleID: "com.apple.TextEdit")
@@ -62,11 +65,17 @@ struct Desk {
     }
 
     mutating func send(_ event: InputEvent) {
-        run(machine.handle(event).effects)
+        run(handle(event).effects)
+    }
+
+    private mutating func handle(_ event: InputEvent) -> Output {
+        let output = machine.handle(event)
+        tape?.append(SessionStep(event: RecordedEvent(event), output: OutputDigest(output)))
+        return output
     }
 
     mutating func key(_ event: KeyEvent) {
-        let output = machine.handle(.key(event, time: time))
+        let output = handle(.key(event, time: time))
         switch output.disposition {
         case .pass:
             if event.phase == .down, !event.origin.isOwn { typeIntoApp(event) }

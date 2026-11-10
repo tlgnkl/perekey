@@ -50,8 +50,16 @@ public enum DictationRecognition {
     /// The steps after a recording: the speech gate, the model, the stop
     /// list. A detector that fails lets the audio through: losing a phrase
     /// is worse than a made-up one the stop list may still catch.
+    ///
+    /// With a `hint`, the model is told the language. Its text is read by
+    /// `hint.dominant`: if that finds another language, the hint was wrong
+    /// and the audio is recognized once more with none, the model finding
+    /// the language as before. No more than that one retry. An engine that
+    /// does not take the hint (`acceptsLanguageHint`) gets none and is not
+    /// run again: the same input would give the same text.
     public static func recognize(_ audio: AudioBuffer16k, engine: any SpeechEngine,
-                                 detector: (any SpeechDetector)?, prompt: String? = nil) async throws -> RecognitionOutcome
+                                 detector: (any SpeechDetector)?, prompt: String? = nil,
+                                 hint: LanguageHint? = nil) async throws -> RecognitionOutcome
     {
         guard !audio.samples.isEmpty else { return .noSpeech }
         if let detector, let probabilities = try? await detector.speechProbabilities(audio.samples),
@@ -59,8 +67,18 @@ public enum DictationRecognition {
         {
             return .noSpeech
         }
-        let transcript = try await engine.transcribe(audio, prompt: prompt)
-        let text = HallucinationFilter.clean(transcript.text, signOffTails: engine.addsSignOffs)
+        let hint = engine.acceptsLanguageHint ? hint : nil
+        var text = try await heard(audio, engine: engine, prompt: prompt, language: hint?.language)
+        if let hint, !text.isEmpty, let found = hint.dominant(text), found != hint.language {
+            text = try await heard(audio, engine: engine, prompt: prompt, language: nil)
+        }
         return text.isEmpty ? .nothingLeft : .text(text)
+    }
+
+    private static func heard(_ audio: AudioBuffer16k, engine: any SpeechEngine, prompt: String?,
+                              language: String?) async throws -> String
+    {
+        let transcript = try await engine.transcribe(audio, prompt: prompt, language: language)
+        return HallucinationFilter.clean(transcript.text, signOffTails: engine.addsSignOffs)
     }
 }

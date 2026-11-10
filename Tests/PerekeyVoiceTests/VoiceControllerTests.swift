@@ -86,6 +86,7 @@ private final class FakeMicrophone: DictationMicrophone, @unchecked Sendable {
 /// A recognizer that answers when the test lets it.
 private actor FakeEngine: SpeechEngine {
     nonisolated let id: String
+    nonisolated let acceptsLanguageHint: Bool
     private var text: String
     private var gate: CheckedContinuation<Void, Never>?
     private var holds = false
@@ -94,8 +95,9 @@ private actor FakeEngine: SpeechEngine {
     private(set) var heard: [Int] = []
     private var prepared = false
 
-    init(id: String = "fake", text: String = "Привет, мир.") {
+    init(id: String = "fake", text: String = "Привет, мир.", acceptsLanguageHint: Bool = true) {
         self.id = id
+        self.acceptsLanguageHint = acceptsLanguageHint
         self.text = text
     }
 
@@ -124,12 +126,19 @@ private actor FakeEngine: SpeechEngine {
         prepared = false
     }
 
-    /// The prompt of each transcription.
+    /// The prompt and the language hint of each transcription.
     private(set) var prompts: [String?] = []
+    private(set) var languages: [String?] = []
+    /// What the model says when it is told a language, in place of its text.
+    private var textByLanguage: [String: String] = [:]
 
-    func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript {
+    func set(textByLanguage: [String: String]) { self.textByLanguage = textByLanguage }
+
+    func transcribe(_ audio: AudioBuffer16k, prompt: String?, language: String?) async throws -> Transcript {
         prompts.append(prompt)
-        return try await transcribe(audio)
+        languages.append(language)
+        let transcript = try await transcribe(audio)
+        return language.flatMap { textByLanguage[$0] }.map { Transcript(text: $0) } ?? transcript
     }
 
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {
@@ -149,11 +158,13 @@ private actor FakeCloudEngine: SpeechEngine {
     private(set) var calls = 0
     private(set) var cancelled = 0
     private(set) var prompts: [String?] = []
+    private(set) var languages: [String?] = []
 
     func set(_ behavior: Behavior) { self.behavior = behavior }
 
-    func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript {
+    func transcribe(_ audio: AudioBuffer16k, prompt: String?, language: String?) async throws -> Transcript {
         prompts.append(prompt)
+        languages.append(language)
         return try await transcribe(audio)
     }
     func prepare() async throws {}
@@ -263,7 +274,7 @@ private final class FakeSecureInput: DictationSecureInputRules {
 @MainActor
 private final class Rig {
     let microphone = FakeMicrophone()
-    let engine = FakeEngine()
+    let engine: FakeEngine
     let otherEngine = FakeEngine(id: "fake2", text: "Другая модель.")
     let cloud = FakeCloudEngine()
     let detector = FakeDetector()
@@ -286,10 +297,14 @@ private final class Rig {
     var prompt: String?
     var dictionary: (String) -> String = { $0 }
     var records: [DictationRecord] = []
+    /// What the language hint reads, and the apps it was asked about.
+    var signs: DictationLanguageSigns?
+    var signsAsked: [String] = []
 
     init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil),
-         limitSeconds: Int = DictationAudio.limitSeconds)
+         limitSeconds: Int = DictationAudio.limitSeconds, engineAcceptsHint: Bool = true)
     {
+        engine = FakeEngine(acceptsLanguageHint: engineAcceptsHint)
         let engines: [String: any SpeechEngine] = ["fake": engine, "fake2": otherEngine, cloud.id: cloud]
         controller = VoiceController(
             preferences: preferences, microphone: microphone, paster: paster, secureInput: secureInput,
@@ -310,7 +325,11 @@ private final class Rig {
                 },
                 dictionary: { [weak self] in self?.dictionary($0) ?? $0 },
                 prompt: { [weak self] in self?.prompt },
-                record: { [weak self] in self?.records.append($0) }),
+                record: { [weak self] in self?.records.append($0) },
+                languageSigns: { [weak self] app in
+                    self?.signsAsked.append(app)
+                    return self?.signs
+                }),
             limitSeconds: limitSeconds,
             sleep: { [sleeps] _ in
                 sleeps.withLock { $0 += 1 }
@@ -1609,6 +1628,133 @@ struct VoiceControllerCloudSpeechTests {
         #expect(rig.controller.canRetry)
         await rig.controller.shutdown()
         #expect(!rig.controller.canRetry)
+    }
+
+    // MARK: The language hint
+
+    private static func russianNotes(dominant: @escaping @Sendable (String) -> String? = { _ in "ru" })
+        -> DictationLanguageSigns
+    {
+        DictationLanguageSigns(appLanguage: "ru", layoutLanguage: "ru", dominant: dominant)
+    }
+
+    private func hintRig(setting: Bool = true, signs: DictationLanguageSigns? = russianNotes(),
+                         model: String = "fake", engineAcceptsHint: Bool = true) -> Rig
+    {
+        let rig = Rig(preferences: DictationPreferences(modelID: model, silenceStop: nil, languageFromApp: setting),
+                      engineAcceptsHint: engineAcceptsHint)
+        rig.paster.application = DictationApplication(bundleID: "com.apple.Notes", name: "Notes")
+        rig.signs = signs
+        return rig
+    }
+
+    private func dictate(_ rig: Rig, expecting count: Int = 1) async {
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.records.count == count })
+        #expect(await rig.until { rig.state == .idle })
+    }
+
+    @Test func withTheSettingAutoTheEngineIsToldNoLanguageAndNothingIsAsked() async {
+        let rig = hintRig(setting: false)
+        await dictate(rig)
+        #expect(await rig.engine.languages == [nil])
+        #expect(rig.signsAsked.isEmpty)
+    }
+
+    @Test func whenTheAppAndTheLayoutAgreeTheEngineIsToldTheLanguage() async {
+        let rig = hintRig()
+        await dictate(rig)
+        #expect(await rig.engine.languages == ["ru"])
+        #expect(rig.signsAsked == ["com.apple.Notes"])
+    }
+
+    @Test func aLayoutOfAnotherLanguageLeavesTheEngineToFindIt() async {
+        let rig = hintRig(signs: DictationLanguageSigns(appLanguage: "ru", layoutLanguage: "en") { _ in "ru" })
+        await dictate(rig)
+        #expect(await rig.engine.languages == [nil])
+    }
+
+    @Test func anAppOfUnknownLanguageLeavesTheEngineToFindIt() async {
+        let rig = hintRig(signs: DictationLanguageSigns(appLanguage: nil, layoutLanguage: "ru") { _ in "ru" })
+        await dictate(rig)
+        #expect(await rig.engine.languages == [nil])
+    }
+
+    @Test func noAppToAskAboutMeansNoHint() async {
+        let rig = hintRig()
+        rig.paster.application = nil
+        await dictate(rig)
+        #expect(await rig.engine.languages == [nil])
+        #expect(rig.signsAsked.isEmpty)
+    }
+
+    @Test func anEngineThatIgnoresTheHintIsNotAskedForOneAndNotRunTwice() async {
+        // Parakeet: the text reads as English in a Russian app, but a second run
+        // would give the same text, so there is none, and no hint is built.
+        let rig = hintRig(signs: Self.russianNotes { _ in "en" }, engineAcceptsHint: false)
+        await rig.engine.set(text: "Hello there.")
+        await dictate(rig)
+        #expect(await rig.engine.languages == [nil])
+        #expect(rig.signsAsked.isEmpty)
+    }
+
+    @Test func aTextInAnotherLanguageIsRecognizedAgainWithoutTheHint() async {
+        let rig = hintRig(signs: Self.russianNotes { $0.contains("Hello") ? "en" : "ru" })
+        await rig.engine.set(text: "Hello there.")
+        await rig.engine.set(textByLanguage: ["ru": "Hello there, said as Russian."])
+        await dictate(rig)
+        #expect(await rig.engine.languages == ["ru", nil])
+        #expect(rig.records[0].text == "Hello there.")
+    }
+
+    @Test func aDictationInAnotherLanguageTakesTheNextHintInThatAppAway() async {
+        // The first dictation is English text in a Russian app; the second has no hint.
+        let rig = hintRig(signs: Self.russianNotes { $0.contains("Hello") ? "en" : "ru" })
+        await rig.engine.set(text: "Hello there.")
+        await dictate(rig)
+        await rig.engine.set(text: "Привет.")
+        await dictate(rig, expecting: 2)
+        #expect(await rig.engine.languages == ["ru", nil, nil])
+    }
+
+    @Test func aDictationInTheAppsLanguageKeepsTheHint() async {
+        let rig = hintRig()
+        await dictate(rig)
+        await dictate(rig, expecting: 2)
+        #expect(await rig.engine.languages == ["ru", "ru"])
+    }
+
+    @Test func theHintGoesToTheCloudToo() async {
+        let rig = hintRig()
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.cloud.set(.answer("Из облака."))
+        await dictate(rig)
+        #expect(await rig.cloud.languages == ["ru"])
+    }
+
+    @Test func aPasswordFieldKeepsTheHintOnThisMacsModel() async {
+        let rig = hintRig()
+        rig.paster.targetPrivacy = .secureField
+        rig.paster.result = .secureField
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(await rig.cloud.calls == 0)
+        #expect(await rig.engine.languages == ["ru"])
+    }
+
+    @Test func retryGetsTheSameHint() async {
+        let rig = hintRig(model: "not-downloaded")
+        rig.controller.modes = FakeModes(cloudPlan)
+        await rig.startRecording()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .failed(.cloudSpeech) })
+        await rig.cloud.set(.answer("Облако вернулось."))
+        rig.controller.retryLast()
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.cloud.languages == ["ru", "ru"])
     }
 
     // MARK: The history

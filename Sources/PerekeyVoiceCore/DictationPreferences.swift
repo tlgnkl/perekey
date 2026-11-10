@@ -22,10 +22,14 @@ public struct DictationPreferences: Hashable, Sendable {
     public var silenceStop: Duration?
     /// The model leaves memory after this long without dictation; nil never.
     public var unloadAfter: Duration?
+    /// «Язык диктовки: как в программе»: a dictation gets the language hint
+    /// of `DictationLanguageHint` when there is one. Off, the model finds
+    /// the language, as before.
+    public var languageFromApp: Bool
 
     public init(microphoneUID: String? = nil, modelID: String = DictationPreferences.defaultModel,
                 switchesLayout: Bool = true, playsSounds: Bool = true, silenceStop: Duration? = .seconds(30),
-                unloadAfter: Duration? = .seconds(60 * 60))
+                unloadAfter: Duration? = .seconds(60 * 60), languageFromApp: Bool = false)
     {
         self.microphoneUID = microphoneUID
         self.modelID = modelID
@@ -33,6 +37,7 @@ public struct DictationPreferences: Hashable, Sendable {
         self.playsSounds = playsSounds
         self.silenceStop = silenceStop
         self.unloadAfter = unloadAfter
+        self.languageFromApp = languageFromApp
     }
 }
 
@@ -42,6 +47,7 @@ extension DictationPreferences {
         self.init(microphoneUID: settings.microphoneUID, modelID: settings.model,
                   switchesLayout: settings.switchesLayout, playsSounds: settings.playsSounds,
                   silenceStop: settings.autoStop.seconds.map { .seconds($0) },
-                  unloadAfter: settings.unload.seconds.map { .seconds($0) })
+                  unloadAfter: settings.unload.seconds.map { .seconds($0) },
+                  languageFromApp: settings.dictationLanguage == .app)
     }
 }

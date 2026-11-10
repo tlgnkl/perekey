@@ -229,7 +229,10 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
         let reference = BufferClient()
         let referenceComposer = Composer(strategy: strategy, latin: latin, cyrillic: cyrillic,
                                          current: mode.hasSuffix(".ru") ? cyrillic.id : latin.id, decide: decide)
-        for stroke in strokes { _ = referenceComposer.key(stroke, command: false, client: reference) }
+        for stroke in strokes where !referenceComposer.key(stroke, command: false, client: reference) {
+            // The transparent strategy: the app types the key in the method's layout.
+            if let character = referenceComposer.layout.text(for: stroke) { reference.insert(character, replacing: nil) }
+        }
         say("model", Self.classifier != nil)
         say("keys", strokes.count)
 

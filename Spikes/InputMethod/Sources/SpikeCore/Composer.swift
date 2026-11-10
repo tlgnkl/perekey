@@ -11,6 +11,11 @@ public enum Strategy: String, Sendable, CaseIterable {
     /// B: every letter is committed at once; a word to switch is replaced
     /// over its range (`insertText(_:replacementRange:)`).
     case replace
+    /// B, transparent: the method passes every key on and the app types it
+    /// in the method's layout (`overrideKeyboard`); a word to switch is
+    /// replaced over its range at its end. Key events stay the app's own:
+    /// key-down handlers, one-key shortcuts and auto-repeat see plain typing.
+    case transparent
 }
 
 /// The word logic of the spike input method. It types keys through the
@@ -77,6 +82,7 @@ public final class Composer {
     /// Handles a key down. Returns false when the client should handle the key itself.
     public func key(_ stroke: KeyStroke, command: Bool, client: TextClient) -> Bool {
         if command { commit(client: client); last = nil; return false }
+        if strategy == .transparent { return pass(stroke, client: client) }
         switch stroke.keyCode {
         case KeyCode.delete:
             return backspace(client: client)
@@ -121,7 +127,7 @@ public final class Composer {
             }
             return true
         }
-        guard strategy == .replace, let last, !replacementBroken else { return false }
+        guard strategy != .marked, let last, !replacementBroken else { return false }
         // The word and the space after it, so the caret stays where it was.
         let typed = reading(last.strokes, in: layout) + last.trailing
         let other = reading(last.strokes, in: otherLayout)
@@ -141,6 +147,30 @@ public final class Composer {
     }
 
     // MARK: - Private
+
+    /// The transparent strategy: follow the keys the app types, act at the word's end.
+    private func pass(_ stroke: KeyStroke, client: TextClient) -> Bool {
+        switch stroke.keyCode {
+        case KeyCode.delete:
+            _ = backspace(client: client)
+        case KeyCode.space:
+            finish(client: client)
+            if let word = last, word.trailing.isEmpty { last?.trailing = " " } else { last = nil }
+        default:
+            if let text = layout.text(for: stroke), isLetter(stroke) {
+                if strokes.isEmpty {
+                    start = client.supportsDocumentAccess ? client.selectedRange()?.location : nil
+                    units = 0
+                }
+                strokes.append(stroke)
+                units += (text as NSString).length
+            } else {
+                finish(client: client)
+                last = nil
+            }
+        }
+        return false
+    }
 
     private func isLetter(_ stroke: KeyStroke) -> Bool {
         [layout, otherLayout].contains { map in
@@ -186,20 +216,27 @@ public final class Composer {
         let switching = decide(strokes, layout, otherLayout)
         let final = switching ? reading(strokes, in: otherLayout) : typed
         var wordStart = start
+        var switched = switching
         if marking {
             if let selection = client.selectedRange() { wordStart = selection.location }
             client.insert(final, replacing: nil)
-        } else if switching, let start {
-            _ = replace(NSRange(location: start, length: units), typed: typed, with: final, client: client)
+        } else if switching {
+            if let start {
+                switched = replace(NSRange(location: start, length: units), typed: typed, with: final, client: client)
+            } else {
+                stats.refused += 1
+                switched = false
+            }
         }
-        if switching {
+        if switched {
             stats.switched += 1
             swap(&layout, &otherLayout)
             onSwitch?(layout)
         }
         let finished = strokes
         reset()
-        last = wordStart.map { ($0, finished, (final as NSString).length, "") }
+        let written = switched ? final : typed
+        last = wordStart.map { ($0, finished, (written as NSString).length, "") }
     }
 
     /// Replaces `range`, which must hold `typed`, and checks that the client did.

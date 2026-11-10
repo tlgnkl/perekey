@@ -103,7 +103,14 @@ final class PerekeyIMController: IMKInputController {
             guard let client = sender as? any IMKTextInput & NSObjectProtocol, let layouts = Spike.layouts else { return }
             let composer = Composer(strategy: Spike.strategy, latin: layouts.latin, cyrillic: layouts.cyrillic,
                                     current: composer?.current ?? layouts.latin.id, decide: Spike.decide)
-            composer.onSwitch = { layout in client.selectMode(Spike.mode(of: layout)) }
+            // The mode in the menu bar follows the composer, and the keys it passes on
+            // (Return, shortcuts) and apps that bypass IMK type in the same layout.
+            composer.onSwitch = { layout in
+                client.selectMode(Spike.mode(of: layout))
+                client.overrideKeyboard(withKeyboardNamed: layout.id.rawValue)
+            }
+            let layout = composer.current == layouts.cyrillic.id ? layouts.cyrillic : layouts.latin
+            client.overrideKeyboard(withKeyboardNamed: layout.id.rawValue)
             self.composer = composer
             log.info("""
                 activate \(client.bundleIdentifier() ?? "?", privacy: .public) \
@@ -132,7 +139,9 @@ final class PerekeyIMController: IMKInputController {
         MainActor.assumeIsolated {
             guard tag == kTSMDocumentInputModePropertyTag, let mode = value as? String,
                   let client = sender as? any IMKTextInput & NSObjectProtocol, let layouts = Spike.layouts else { return }
-            composer?.select(mode == Spike.cyrillicMode ? layouts.cyrillic.id : layouts.latin.id, client: IMKClient(client))
+            let layout = mode == Spike.cyrillicMode ? layouts.cyrillic : layouts.latin
+            composer?.select(layout.id, client: IMKClient(client))
+            client.overrideKeyboard(withKeyboardNamed: layout.id.rawValue)
         }
     }
 

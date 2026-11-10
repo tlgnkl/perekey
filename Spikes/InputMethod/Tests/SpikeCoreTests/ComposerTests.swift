@@ -173,6 +173,62 @@ func type(_ text: String, on layout: LayoutMap, into composer: Composer, client:
     }
 }
 
+/// Types like an app with the input method in front: a key the method passes on
+/// types its own character in the method's layout.
+func typeThrough(_ text: String, on layout: LayoutMap, into composer: Composer, client: BufferClient) {
+    for stroke in layout.strokes(text) {
+        let typing = composer.layout
+        if !composer.key(stroke, command: false, client: client) {
+            if stroke.keyCode == KeyCode.delete {
+                client.deleteBackward()
+            } else if let character = typing.text(for: stroke) {
+                client.insert(character, replacing: nil)
+            }
+        }
+    }
+}
+
+@Suite struct TransparentStrategy {
+    @Test func theAppTypesTheLettersAndTheWordIsReplacedAtTheSpace() {
+        let client = BufferClient()
+        let composer = composer(.transparent)
+        typeThrough("ghbdtn", on: Fixture.abc, into: composer, client: client)
+        #expect(client.committed == "ghbdtn")
+        #expect(client.replacements == 0)
+        typeThrough(" ", on: Fixture.abc, into: composer, client: client)
+        #expect(client.committed == "привет ")
+        #expect(composer.stats.replaced == 1)
+        #expect(composer.current == Fixture.russian.id)
+    }
+
+    @Test func noLetterIsHandledByTheInputMethod() {
+        let client = BufferClient()
+        let composer = composer(.transparent)
+        for stroke in Fixture.abc.strokes("ghbdtn vbh ") {
+            #expect(!composer.key(stroke, command: false, client: client))
+            if let character = composer.layout.text(for: stroke) { client.insert(character, replacing: nil) }
+        }
+    }
+
+    @Test func backspaceIsTheApps() {
+        let client = BufferClient()
+        let composer = composer(.transparent)
+        typeThrough("ghbdtnn", on: Fixture.abc, into: composer, client: client)
+        #expect(!composer.key(KeyStroke(KeyCode.delete), command: false, client: client))
+        client.deleteBackward()
+        typeThrough(" ", on: Fixture.abc, into: composer, client: client)
+        #expect(client.committed == "привет ")
+    }
+
+    @Test func aClientWithoutDocumentAccessKeepsTheWordAsTyped() {
+        let client = BufferClient(documentAccess: false)
+        let composer = composer(.transparent)
+        typeThrough("ghbdtn ", on: Fixture.abc, into: composer, client: client)
+        #expect(client.committed == "ghbdtn ")
+        #expect(composer.stats.refused == 1)
+    }
+}
+
 /// The plan's "1000 words": no lost, doubled or swapped letter in either strategy.
 @Suite struct ThousandWords {
     static let russianWords = ["привет", "мир", "будет", "когда", "работа"]
@@ -195,7 +251,11 @@ func type(_ text: String, on layout: LayoutMap, into composer: Composer, client:
         let composer = composer(strategy)
         var expected = ""
         for (word, layout) in Self.script() {
-            type(word + " ", on: layout, into: composer, client: client)
+            if strategy == .transparent {
+                typeThrough(word + " ", on: layout, into: composer, client: client)
+            } else {
+                type(word + " ", on: layout, into: composer, client: client)
+            }
             expected += word + " "
         }
         #expect(client.committed == expected)

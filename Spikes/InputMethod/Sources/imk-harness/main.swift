@@ -17,6 +17,7 @@
 // only sets the reference, so pass the same value to both.
 
 import AppKit
+import Carbon
 import PerekeyCore
 import PerekeyInput
 import SpikeCore
@@ -92,6 +93,7 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
                           styleMask: [.titled], backing: .buffered, defer: false)
     var textView: NSTextView?
     var searchField: NSSearchField?
+    var secureField: NSSecureTextField?
     var webView: WKWebView?
     /// What a search-as-you-type field saw: the value at each change notification.
     var changes: [String] = []
@@ -103,6 +105,10 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
             let view = NSTextView(frame: window.contentView!.bounds)
             window.contentView = view
             textView = view
+        case "secure":
+            let field = NSSecureTextField(frame: NSRect(x: 10, y: 10, width: 600, height: 24))
+            window.contentView!.addSubview(field)
+            secureField = field
         case "searchfield":
             let field = NSSearchField(frame: NSRect(x: 10, y: 10, width: 600, height: 24))
             field.delegate = self
@@ -131,12 +137,14 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
     var responder: NSView? {
         if let textView { return textView }
         if let searchField { return searchField.currentEditor() as? NSTextView }
+        if let secureField { return secureField.currentEditor() as? NSTextView }
         return webView
     }
 
     func focus() {
         if let textView { window.makeFirstResponder(textView) }
         if let searchField { window.makeFirstResponder(searchField) }
+        if let secureField { window.makeFirstResponder(secureField) }
         if let webView { window.makeFirstResponder(webView) }
     }
 
@@ -147,6 +155,8 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
         guard let context else { return }
         say("sources", (context.keyboardInputSources ?? []).joined(separator: ","))
         say("selected", context.selectedKeyboardInputSource ?? "nil")
+        say("allowed_locales", (context.allowedInputSourceLocales ?? ["any"]).joined(separator: ","))
+        say("secure_event_input", IsSecureEventInputEnabled())
     }
 
     func fieldText() async -> String {
@@ -227,7 +237,7 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
         let start = ProcessInfo.processInfo.systemUptime
         for (index, stroke) in strokes.enumerated() {
             if let probe {
-                _ = probe.composer.key(stroke, command: false, client: probe.client)
+                press(stroke, probe)
             } else {
                 if let down = keyEvent(stroke, down: true, layout: latin) { responder?.keyDown(with: down) }
                 if let up = keyEvent(stroke, down: false, layout: latin) { responder?.keyUp(with: up) }
@@ -263,6 +273,11 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
                 + "broken \(stats.broken) fellBack \(stats.fellBack)")
             say("query_wait_ms_total", Int(probe.client.waited * 1000))
             say("query_timeouts", probe.client.timeouts)
+            let sorted = probe.client.latencies.sorted()
+            if !sorted.isEmpty {
+                func at(_ q: Double) -> String { String(format: "%.1f", sorted[min(sorted.count - 1, Int(Double(sorted.count) * q))] * 1000) }
+                say("query_ms", "n \(sorted.count) p50 \(at(0.5)) p95 \(at(0.95)) p99 \(at(0.99)) max \(at(1))")
+            }
         }
         say("result", difference.isEmpty ? "same" : "different")
     }
@@ -275,10 +290,21 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
         return false
     }
 
+    /// A key through the composer; a key it passes on is typed as the app
+    /// would type it, in the method's layout (the transparent strategy).
+    func press(_ stroke: KeyStroke, _ probe: (composer: Composer, client: InputClient)) {
+        guard !probe.composer.key(stroke, command: false, client: probe.client) else { return }
+        if stroke.keyCode == KeyCode.delete {
+            probe.client.view.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        } else if let character = probe.composer.layout.text(for: stroke) {
+            probe.client.view.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+    }
+
     func type(_ text: String, on layout: LayoutMap, _ probe: (composer: Composer, client: InputClient)) async {
         for character in text {
             guard let stroke = layout.stroke(for: character) else { continue }
-            _ = probe.composer.key(stroke, command: false, client: probe.client)
+            press(stroke, probe)
             try? await Task.sleep(for: .milliseconds(33))
         }
     }
@@ -350,7 +376,7 @@ final class Harness: NSObject, NSSearchFieldDelegate, WKScriptMessageHandler {
         _ = try? await webView.evaluateJavaScript("f.value=''; 0")
         await type("ghbdtn", on: cyrillic.id == probe.composer.current ? cyrillic : latin, probe)
         say("after_ghbdtn", "«\(await fieldText())» selection \(probe.client.selectedRange().map { NSStringFromRange($0) } ?? "nil")")
-        if let stroke = latin.stroke(for: ".") { _ = probe.composer.key(stroke, command: false, client: probe.client) }
+        if let stroke = latin.stroke(for: ".") { press(stroke, probe) }
         try? await Task.sleep(for: .milliseconds(200))
         say("after_boundary", "«\(await fieldText())»")
         say("changes", changes.joined(separator: " | "))
@@ -418,10 +444,12 @@ final class InputClient: @MainActor TextClient {
     /// WebKit answers queries only asynchronously; IMK's queries are synchronous
     /// for the input method. Spin the run loop until the answer, as a synchronous
     /// caller on the client's side must, up to `timeout`.
-    static let timeout = 0.1
+    static let timeout = (Double(options["query-timeout-ms"] ?? "100") ?? 100) / 1000
     /// How long the queries waited, in total, and how many timed out.
     var waited = 0.0
     var timeouts = 0
+    /// Every answered query's wait, in seconds.
+    var latencies: [Double] = []
 
     private var asyncView: AsyncTextInput? {
         (view as AnyObject).responds(to: #selector(AsyncTextInput.selectedRange(completionHandler:)))
@@ -436,8 +464,9 @@ final class InputClient: @MainActor TextClient {
         while !answered, ProcessInfo.processInfo.systemUptime - start < Self.timeout {
             RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
         }
-        waited += ProcessInfo.processInfo.systemUptime - start
-        if !answered { timeouts += 1 }
+        let took = ProcessInfo.processInfo.systemUptime - start
+        waited += took
+        if answered { latencies.append(took) } else { timeouts += 1 }
         return answer
     }
 }

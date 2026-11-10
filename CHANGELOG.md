@@ -11,6 +11,18 @@ differently, what was fixed.
 
 ## [Unreleased]
 
+### Added
+
+- **Dictation language: as in the app.** In Settings → Voice you can pick
+  «As in the app» for the dictation language. When the app you dictate into is
+  one you type in one language and your layout is that language too, the
+  speech model is told it and no longer has to guess, which helps short
+  phrases. When they disagree, or you dictated in another language into that
+  app last time, nothing changes: the model finds the language itself. If the
+  text still comes out in another language, Perekey recognizes it once more
+  without the hint. The default is «Automatic», as before. Parakeet does not
+  take the hint, so it changes nothing for it.
+
 ## [0.2.0] - 2026-10-27
 
 Perekey is now signed with its own certificate, the same for every release.

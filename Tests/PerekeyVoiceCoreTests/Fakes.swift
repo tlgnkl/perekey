@@ -13,6 +13,10 @@ actor FakeEngine: SpeechEngine {
     private(set) var unloads = 0
     private(set) var transcribed: [AudioBuffer16k] = []
     private(set) var isPrepared = false
+    /// The language hint of each transcription (nil: the model finds it).
+    private(set) var languages: [String?] = []
+    /// What the model says when it is given the language, in place of `text`.
+    var textByLanguage: [String: String] = [:]
 
     init(id: String = "fake", text: String = "привет") {
         self.id = id
@@ -44,10 +48,17 @@ actor FakeEngine: SpeechEngine {
         isPrepared = false
     }
 
+    func set(textByLanguage: [String: String]) { self.textByLanguage = textByLanguage }
+
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {
+        try await transcribe(audio, prompt: nil, language: nil)
+    }
+
+    func transcribe(_ audio: AudioBuffer16k, prompt _: String?, language: String?) async throws -> Transcript {
         guard isPrepared else { throw SpeechEngineError.notPrepared }
         transcribed.append(audio)
-        return Transcript(text: text)
+        languages.append(language)
+        return Transcript(text: language.flatMap { textByLanguage[$0] } ?? text)
     }
 }
 

@@ -22,6 +22,9 @@
 "Model" = "Model";
 "%@ (not downloaded)" = "%@ (not downloaded)";
 "Switch the layout to the language of the phrase" = "Switch the layout to the language of the phrase";
+"Dictation language" = "Dictation language";
+"As in the app: when the app's language and the layout agree, the model is told it. Otherwise it finds the language itself." = "As in the app: when the app's language and the layout agree, the model is told it. Otherwise it finds the language itself.";
+"As in the app" = "As in the app";
 "Sounds" = "Sounds";
 "Stop by itself after" = "Stop by itself after";
 "A long recording stops and is typed at this limit." = "A long recording stops and is typed at this limit.";

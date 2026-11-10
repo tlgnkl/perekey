@@ -111,6 +111,8 @@ struct VoicePane: View {
                 flag(\.switchesLayout, label: voiceText("Switch the layout to the language of the phrase"))
             }
             PKDivider()
+            dictationLanguageRow
+            PKDivider()
             PKRow(voiceText("Sounds"), anchor: "voice.sounds") { flag(\.playsSounds, label: voiceText("Sounds")) }
             PKDivider()
             autoStopRow
@@ -210,6 +212,24 @@ struct VoicePane: View {
         missingMicrophone == nil ? nil : voiceText("This microphone is not connected. Perekey uses the system one meanwhile.")
     }
 
+    /// «Язык диктовки»: the model finds it, or is told the app's.
+    private var dictationLanguageRow: some View {
+        PKRow(voiceText("Dictation language"),
+              detail: voiceText("As in the app: when the app's language and the layout agree, the model is told it. Otherwise it finds the language itself."),
+              anchor: "voice.dictation-language") {
+            Picker(selection: Binding(get: { settings.dictationLanguage },
+                                      set: { value in voice.update { $0.dictationLanguage = value } })) {
+                ForEach(DictationLanguageSetting.allCases, id: \.self) { value in
+                    Text(verbatim: value.title).tag(value)
+                }
+            } label: {
+                voiceText("Dictation language")
+            }
+            .labelsHidden()
+            .frame(width: 140)
+        }
+    }
+
     private var autoStopRow: some View {
         PKRow(voiceText("Stop by itself after"), detail: voiceText("A long recording stops and is typed at this limit."),
               anchor: "voice.auto-stop") {
@@ -278,6 +298,15 @@ private struct TranscriptionModelPicker: View {
     private func choose(_ id: String) {
         if TranscriptionModel.isCloud(id), controller.modes?.askConversationConsent(model: id) != true { return }
         controller.settings.update { $0.transcriptionModel = id.isEmpty ? nil : id }
+    }
+}
+
+extension DictationLanguageSetting {
+    var title: String {
+        switch self {
+        case .auto: voiceString("Automatic")
+        case .app: voiceString("As in the app")
+        }
     }
 }
 

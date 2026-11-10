@@ -127,7 +127,7 @@ public struct CaseScore: Hashable, Sendable {
 public struct Scorer: Sendable {
     /// The version of the scoring rules, written into every run. A change of
     /// meaning is a new version and a line in docs/eval.md, «История определений».
-    public static let version = 2
+    public static let version = 3
 
     public let aligner: Aligner
     public let library: LayoutLibrary

@@ -20,6 +20,21 @@ import Testing
         scorer.score(item, null: result(null), out: result(out)).tokens.map(\.outcome)
     }
 
+    @Test func aRunOfWrongTokensStaysOnItsPlaces() {
+        // Chat line typed on the wrong layout: nine tokens each side, five wrong. A split and
+        // a merge at 2.5 each (5.0) used to beat three 1:1 pairs (6.0).
+        let line = item("он не подаёт признаков жизни", err: .layout)
+        let wrong = "jy yt gjlf\\n ghbpyfrjd ;bpyb"
+        let score = scorer.score(line, null: result(wrong), out: result("jy не подаёт признаков жизни"))
+        #expect(score.tokens.map(\.null) == ["jy", "yt", "gjlf\\n", "ghbpyfrjd", ";bpyb"])
+        #expect(score.tokens.map(\.outcome) == [.miss, .fixed, .fixed, .fixed, .fixed])
+    }
+
+    @Test func aWrongMergeStillLinesUpAsOneGroup() {
+        let two = item("во первых")
+        #expect(outcomes(two, null: "во первых", out: "вопервых") == [.harm, .harm])
+    }
+
     @Test func rightWithoutRightWithIsOK() {
         #expect(outcomes(item(), null: "привет ", out: "привет ") == [.ok])
     }

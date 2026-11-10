@@ -17,6 +17,8 @@ public enum Outcome: String, Hashable, Sendable, Codable, CaseIterable {
     case botched
     /// A token of the warm-up came out wrong.
     case spill
+    /// Right without, wrong with, but the source's own typo mended (7.5): no harm.
+    case disputed
 
     /// The letter of `cases.tsv`.
     public var letter: Character {
@@ -27,6 +29,7 @@ public enum Outcome: String, Hashable, Sendable, Codable, CaseIterable {
         case .miss: "M"
         case .botched: "B"
         case .spill: "S"
+        case .disputed: "D"
         }
     }
 }
@@ -48,6 +51,13 @@ public struct TokenFeatures: Hashable, Sendable, Codable {
     public var margin: String?
     public var early: String?
     public var kind: String?
+    /// From the lexicon and the lists, when the run has them (plan, 7.6): the
+    /// model has the word form (`yes`/`no`), its Zipf range, whether the keys in
+    /// another layout of the case give a word, whether `data/` lists the word.
+    public var known: String?
+    public var zipf: String?
+    public var collision: String?
+    public var seen: String?
 }
 
 /// The score of one token of `want`.
@@ -68,6 +78,11 @@ public struct TokenScore: Hashable, Sendable {
     public var features: TokenFeatures?
     public var trace: [TraceEntry]
     public var err: TokenError
+    /// For harm and botched: the output is a word of the lexicon in its own
+    /// script, so the person does not notice it (plan, 7.3). Needs `Knowledge`.
+    public var silent = false
+    /// The weight of the token (`w` of the case, 1 by default).
+    public var weight = 1.0
 }
 
 /// The score of a case.
@@ -78,6 +93,8 @@ public struct CaseScore: Hashable, Sendable {
     public var split: EvalCase.Split
     public var scoring: EvalCase.Scoring
     public var status: String?
+    /// The epoch of the case's sample (plan, 9.5).
+    public var epoch = 1
     /// Every token of `want`, the warm-up first; empty for `scoring: case`.
     public var tokens: [TokenScore]
     public var warmupTokens: Int
@@ -127,17 +144,23 @@ public struct CaseScore: Hashable, Sendable {
 public struct Scorer: Sendable {
     /// The version of the scoring rules, written into every run. A change of
     /// meaning is a new version and a line in docs/eval.md, «История определений».
-    public static let version = 2
+    public static let version = 3
 
     public let aligner: Aligner
     public let library: LayoutLibrary
+    public let knowledge: Knowledge?
 
-    public init(library: LayoutLibrary, aligner: Aligner = Aligner()) {
+    public init(library: LayoutLibrary, aligner: Aligner = Aligner(), knowledge: Knowledge? = nil) {
         self.library = library
         self.aligner = aligner
+        self.knowledge = knowledge
     }
 
-    public func score(_ item: EvalCase, null: RunResult, out: RunResult, events: [TypedEvent] = []) -> CaseScore {
+    /// Scores a case. `model` is the language model the system played with, for
+    /// the feature `known`; without it the feature stays out.
+    public func score(_ item: EvalCase, null: RunResult, out: RunResult, events: [TypedEvent] = [],
+                      model: LanguageModel? = nil) -> CaseScore
+    {
         let fold = item.effectiveFold
         let wantTokens = Tokenizer.tokens(item.want)
         let warmupCount = item.warmupTokenCount
@@ -149,6 +172,7 @@ public struct Scorer: Sendable {
             outText: out.text
         )
         result.checkCount = item.checks?.count ?? 0
+        result.epoch = item.effectiveEpoch
         guard item.effectiveScoring == .token, let specs = item.tokens else {
             result.exact = Self.normalize(out.text, fold) == Self.normalize(item.want, fold)
             return result
@@ -156,7 +180,13 @@ public struct Scorer: Sendable {
         func spec(_ index: Int) -> TokenSpec? {
             index >= warmupCount && index - warmupCount < specs.count ? specs[index - warmupCount] : nil
         }
-        let accept = { (index: Int) in spec(index)?.accept ?? [] }
+        // The decisions about the source's noise (7.5), for the dev part only.
+        let decisions = knowledge?.noise.decisions(for: item) ?? [:]
+        let accept = { (index: Int) -> [String] in
+            var forms = spec(index)?.accept ?? []
+            if case let .sourceTypo(form)? = decisions[index] { forms.append(form) }
+            return forms
+        }
         let judge = Self.judge(want: wantTokens, fold: fold, accept: accept)
         let right = Self.groupRight(fold: fold, accept: accept)
         let nullSide = side(want: wantTokens, out: Tokenizer.tokens(null.text), judge: judge, right: right)
@@ -168,6 +198,7 @@ public struct Scorer: Sendable {
             if let token = map.token(ofEvent: entry.event) { traceByToken[token, default: []].append(entry) }
         }
         let languages = tokenLanguages(item, wantTokens, warmupCount: warmupCount)
+        let caseLanguages = Array(Set(item.layouts.compactMap { library[$0]?.language })).sorted()
         let ends = Tokenizer.tokensWithEnds(item.want)
 
         for index in wantTokens.indices {
@@ -194,9 +225,27 @@ public struct Scorer: Sendable {
                 token.form = isOtherLayout(token.want, typedAs: token.out, layouts: item.layouts) ? "layout" : "edit"
                 token.cascade = isCascade(index, trace: out.trace, map: map, events: events, own: trace)
             }
+            token.weight = spec(index)?.w ?? 1
+            if measured, let knowledge {
+                let language = languages[index]
+                // 7.5: a harm that mends the source's typo is disputed, unless a decision says harm.
+                if outcome == .harm, token.form == "edit", knowledge.disputes(suite: item.suite),
+                   decisions[index] != .harm,
+                   knowledge.isDisputed(want: token.want, out: token.out, language: language)
+                {
+                    token.outcome = .disputed
+                }
+                if token.outcome == .harm || token.outcome == .botched {
+                    token.silent = knowledge.isSilent(out: token.out, languages: caseLanguages)
+                }
+            }
             if measured {
                 token.features = features(index, tokens: wantTokens, languages: languages, spec: spec(index),
-                                          end: ends[index].end, trace: trace)
+                                          end: ends[index].end, trace: trace, tags: item.tags ?? [])
+                if let knowledge {
+                    addKnowledge(&token.features!, token: wantTokens[index], language: languages[index], item: item,
+                                 knowledge: knowledge, model: model)
+                }
             }
             result.tokens.append(token)
         }
@@ -359,8 +408,48 @@ public struct Scorer: Sendable {
         }
     }
 
+    /// The features that need the lexicon, the model or the lists (plan, 7.6).
+    private func addKnowledge(_ features: inout TokenFeatures, token: String, language: String, item: EvalCase,
+                              knowledge: Knowledge, model: LanguageModel?)
+    {
+        let core = Lexicon.core(token)
+        features.zipf = knowledge.zipfBucket(token, language: language)
+        features.seen = knowledge.seen.map { $0.contains(core) ? "yes" : "no" }
+        if language == "-" || core.isEmpty {
+            features.collision = "-"
+        } else {
+            features.collision = hasCollision(token, layouts: item.layouts, knowledge: knowledge) ? "yes" : "no"
+        }
+        if let model {
+            if language == "-" || core.isEmpty {
+                features.known = "-"
+            } else if let table = model.language(language) {
+                let fingerprint = ModelFormat.Fingerprint.of(core.unicodeScalars, folded: true)
+                features.known = table.rank(of: fingerprint) != nil ? "yes" : "no"
+            }
+        }
+    }
+
+    /// The keys of the token in another layout of the case give a word of that
+    /// layout's language with Zipf from 3 (plan, 7.6: «vs» and «мы»).
+    private func hasCollision(_ token: String, layouts names: [String], knowledge: Knowledge) -> Bool {
+        let maps = names.compactMap { library[$0] }
+        for source in maps where token.allSatisfy({ source.stroke(for: $0) != nil }) {
+            for target in maps where target.id != source.id {
+                guard let language = target.language else { continue }
+                let converted = Lexicon.core(target.convert(token, from: source))
+                if let zipf = knowledge.lexicon.zipf(of: converted, language: language),
+                   zipf >= knowledge.options.collisionMinZipf
+                {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     private func features(_ index: Int, tokens: [String], languages: [String], spec: TokenSpec?, end: Character?,
-                          trace: [TraceEntry]) -> TokenFeatures
+                          trace: [TraceEntry], tags: [String]) -> TokenFeatures
     {
         let token = tokens[index]
         let lang = languages[index]
@@ -388,7 +477,7 @@ public struct Scorer: Sendable {
         return TokenFeatures(
             lang: lang, len: len, pos: pos, ctx: ctx, cap: Self.capitals(letters), punct: Self.punctuation(token),
             digits: token.contains(where: \.isNumber) ? "yes" : "no", err: (spec?.err ?? .none).rawValue,
-            end: Self.end(token, end), tags: spec?.tags ?? [], reason: entry?.reason,
+            end: Self.end(token, end), tags: tags + (spec?.tags ?? []).filter { !tags.contains($0) }, reason: entry?.reason,
             margin: entry.flatMap { entry in
                 guard let score = entry.score, let margin = entry.margin, score.isFinite else { return nil }
                 let left = score - margin

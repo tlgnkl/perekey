@@ -21,6 +21,15 @@ public struct Metrics: Hashable, Sendable, Codable {
     public var miss = 0
     public var botched = 0
     public var spill = 0
+    /// Harms that mend a typo of the source (plan, 7.5): not in `harm`.
+    public var disputed = 0
+    /// Harmed and botched tokens whose output is a word of the lexicon (plan, 7.3, «тихая»).
+    public var silent = 0
+    /// The same counts with the weight `w` of the token (class suites, plan, 8.4).
+    public var weightedWords = 0.0
+    public var weightedHarm = 0.0
+    public var weightedLayoutErrors = 0.0
+    public var weightedMissLayout = 0.0
     /// Tokens the person typed in the wrong layout, and those left so.
     public var layoutErrors = 0
     public var missLayout = 0
@@ -46,6 +55,48 @@ public struct Metrics: Hashable, Sendable, Codable {
         public var restNull: Double?
         /// Share of exact cases, 0…1.
         public var exact: Double?
+        /// Т: harmed and botched tokens the person does not notice, per 1000 words.
+        public var silent: Double?
+        /// Disputed tokens per 1000 words.
+        public var disputed: Double?
+        /// В and П with the weights of the tokens; nil where every weight is 1.
+        public var harmWeighted: Double?
+        public var missLayoutWeighted: Double?
+    }
+
+    public init() {}
+
+    /// The counts of one case.
+    public init(_ score: CaseScore) {
+        add(score)
+    }
+
+    /// Adds the counts of another group (not its rates).
+    public mutating func merge(_ other: Metrics) {
+        cases += other.cases
+        exact += other.exact
+        fail += other.fail
+        checksFailed += other.checksFailed
+        tokens += other.tokens
+        words += other.words
+        ok += other.ok
+        fixed += other.fixed
+        harm += other.harm
+        harmEvents += other.harmEvents
+        miss += other.miss
+        botched += other.botched
+        spill += other.spill
+        disputed += other.disputed
+        silent += other.silent
+        weightedWords += other.weightedWords
+        weightedHarm += other.weightedHarm
+        weightedLayoutErrors += other.weightedLayoutErrors
+        weightedMissLayout += other.weightedMissLayout
+        layoutErrors += other.layoutErrors
+        missLayout += other.missLayout
+        errors += other.errors
+        wrong += other.wrong
+        wrongNull += other.wrongNull
     }
 
     mutating func add(_ score: CaseScore) {
@@ -60,6 +111,7 @@ public struct Metrics: Hashable, Sendable, Codable {
                 continue
             }
             tokens += 1
+            if Tokenizer.isWord(token.want) { weightedWords += token.weight }
             switch token.outcome {
             case .ok: ok += 1
             case .fixed: fixed += 1
@@ -67,10 +119,17 @@ public struct Metrics: Hashable, Sendable, Codable {
             case .miss: miss += 1
             case .botched: botched += 1
             case .spill: spill += 1
+            case .disputed: disputed += 1
             }
+            if token.outcome == .harm { weightedHarm += token.weight }
+            if token.silent { silent += 1 }
             if token.err == .layout {
                 layoutErrors += 1
-                if token.outcome == .miss { missLayout += 1 }
+                weightedLayoutErrors += token.weight
+                if token.outcome == .miss {
+                    missLayout += 1
+                    weightedMissLayout += token.weight
+                }
             }
             if token.err != .none { errors += 1 }
             if [.harm, .miss, .botched].contains(token.outcome) { wrong += 1 }
@@ -88,13 +147,20 @@ public struct Metrics: Hashable, Sendable, Codable {
         rates.botched = perMille(botched, errors)
         rates.rest = perMille(wrong, words)
         rates.restNull = perMille(wrongNull, words)
+        rates.silent = perMille(silent, words)
+        rates.disputed = perMille(disputed, words)
+        let weighted = abs(weightedWords - Double(words)) > 1e-9
+        if weighted, weightedWords > 0 { rates.harmWeighted = (weightedHarm * 1000 / weightedWords * 1000).rounded() / 1000 }
+        if weighted, weightedLayoutErrors > 0 {
+            rates.missLayoutWeighted = (weightedMissLayout * 1000 / weightedLayoutErrors * 1000).rounded() / 1000
+        }
         rates.exact = cases > 0 ? (Double(exact) / Double(cases) * 10000).rounded() / 10000 : nil
     }
 }
 
 /// `summary.json`: the metrics by suite and scenario, and the incidents.
 public struct Summary: Hashable, Sendable, Codable {
-    public static let schema = 1
+    public static let schema = 2
 
     public struct Group: Hashable, Sendable, Codable {
         public var suite: String
@@ -121,8 +187,9 @@ public struct Summary: Hashable, Sendable, Codable {
         var groups: [String: Group] = [:]
         for score in scores {
             let key = score.suite + "\u{1F}" + score.scenario
-            groups[key, default: Group(suite: score.suite, scenario: score.scenario, metrics: Metrics())].metrics.add(score)
-            total.add(score)
+            let counts = Metrics(score)
+            groups[key, default: Group(suite: score.suite, scenario: score.scenario, metrics: Metrics())].metrics.merge(counts)
+            total.merge(counts)
             switch score.status {
             case "fixed"?:
                 incidents.fixed += 1

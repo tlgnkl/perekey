@@ -20,6 +20,10 @@ public struct Runner {
         public var settings: String?
         /// Words of the test part may be shown (`--reveal-test`, rule 2.8).
         public var revealTest = false
+        /// The lexicon, the lists of `data/` and the decisions about the source's
+        /// noise; without it the scorer gives no `disputed`, `silent`, `known`, `zipf`,
+        /// `collision` or `seen`.
+        public var knowledge: Knowledge?
 
         public init() {}
     }
@@ -38,6 +42,7 @@ public struct Runner {
     public let typist: Typist
     public let scorer: Scorer
     private var classifiers: [String: Classifier] = [:]
+    private var models: [String: LanguageModel] = [:]
     /// SHA-256 of every model file loaded, by language.
     public private(set) var modelHashes: [String: String] = [:]
 
@@ -45,7 +50,7 @@ public struct Runner {
         self.config = config
         self.library = library
         self.typist = typist
-        scorer = Scorer(library: library)
+        scorer = Scorer(library: library, knowledge: config.knowledge)
     }
 
     /// The case as this run plays it: with the `--settings` preset.
@@ -62,10 +67,11 @@ public struct Runner {
         let item = prepared(original)
         let events = try typist.events(for: item, layouts: library)
         let classifier = config.system == .machine ? try classifier(for: item) : nil
+        let model = try languageModel(for: item)
         let setup = try CaseSetup(item: item, library: library, classifier: classifier)
         let null = try SystemName.null.play(setup, events: events)
         let out = try config.system.play(setup, events: events)
-        var score = scorer.score(item, null: null, out: out, events: events)
+        var score = scorer.score(item, null: null, out: out, events: events, model: model)
         score.failedChecks = Self.failedChecks(item, out, library: library)
         score.hidden = item.split == .test && !config.revealTest
         return Played(item: item, events: events, null: null, out: out, score: score)
@@ -93,8 +99,18 @@ public struct Runner {
         let loaded = try ModelFile.load(model, languages: languages)
         let classifier = Classifier(model: loaded, options: config.options)
         classifiers[key] = classifier
+        models[key] = loaded
         try recordHashes(model, languages: languages)
         return classifier
+    }
+
+    /// The model the case's languages play with, for the feature `known`; nil
+    /// when the run has no model or no lexicon to go with it.
+    mutating func languageModel(for item: EvalCase) throws -> LanguageModel? {
+        guard config.knowledge != nil, config.model != nil else { return nil }
+        _ = try classifier(for: item)
+        let languages = Array(Set(try library.maps(of: item).compactMap(\.language))).sorted()
+        return models[languages.joined(separator: ",")]
     }
 
     private mutating func recordHashes(_ model: String, languages: [String]) throws {

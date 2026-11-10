@@ -16,6 +16,7 @@
 //   perekey-eval slash --model <file> --layouts <dir> --tokens <file> [--lead] [--list N]
 //   perekey-eval hyphen --model <file> [--cache <dir>] [--list N] [--text <file> [--text-name <name>]]
 //                       [--layouts <dir> --words <hyphen.txt>]
+//   perekey-eval cases|play|case|selfcheck ...: the quality bench (docs/eval.md, PerekeyEvalKit)
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout

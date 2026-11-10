@@ -255,3 +255,51 @@ import Testing
         #expect(d("привет", "приветик") == 2)
     }
 }
+
+@Suite struct ReviewFixTests {
+    @Test func formsThatFoldTogetherKeepTheHigherZipfWhenRead() throws {
+        let path = NSTemporaryDirectory() + "fold-\(UUID().uuidString).tsv"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try "все\t6.00\nвсё\t5.50\n".write(toFile: path, atomically: true, encoding: .utf8)
+        #expect(try Lexicon.read(path)[Lexicon.key("все")] == 6.0)
+        try "всё\t5.50\nвсе\t6.00\n".write(toFile: path, atomically: true, encoding: .utf8)
+        #expect(try Lexicon.read(path)[Lexicon.key("все")] == 6.0, "the order of the lines does not matter")
+    }
+
+    @Test func aMissingHyphenPlusAnotherEditIsTwoEdits() {
+        let knowledge = Knowledge(lexicon: Lexicon(words: ["ru": [("абвгх", 4)]]))
+        // Raw distance 2 (the hyphen, then д→х); with the hyphen dropped first it would be 1 and wrongly disputed.
+        #expect(!knowledge.isDisputed(want: "аб-вгд", out: "абвгх", language: "ru"))
+        // A hyphen alone is free.
+        let free = Knowledge(lexicon: Lexicon(words: ["ru": [("абвгд", 4)]]))
+        #expect(free.isDisputed(want: "аб-вгд", out: "абвгд", language: "ru"))
+        // One raw edit counts.
+        #expect(knowledge.isDisputed(want: "абвгд", out: "абвгх", language: "ru"))
+    }
+
+    @Test func moreThan65536DistinctValuesDoNotOverflowTheIds() {
+        var scores: [CaseScore] = []
+        let item = Cases.make([.type("привет ", on: "Russian")], want: "привет")
+        var score = Scorer(library: Repo.library).score(item, null: result("привет"), out: result("привет"))
+        for index in 0..<70_000 {
+            var copy = score
+            copy.tokens[0].features?.tags = ["t\(index)"]
+            scores.append(copy)
+        }
+        score = scores[0]
+        let table = SliceTable(scores, pairSupport: 1)
+        #expect(table.features["tags"]?.count == 70_000)
+        #expect(table.features["tags"]?["t69999"]?.tokens == 1)
+    }
+
+    @Test func theRuleOfThreeIsNotForTheShareOfExactCases() {
+        var metrics = Metrics()
+        metrics.cases = 5
+        metrics.words = 10
+        let row = RunData.Row(id: "s/clean.cold/0", suite: "s", scenario: "clean.cold", split: "dev", epoch: 1, lag: nil, metrics: metrics)
+        let estimates = Estimator.estimates(of: [row])
+        #expect(estimates[.harm]?.upperIfNone == 3.0 / 10, "no harm in 10 words")
+        #expect(estimates[.exact]?.upperIfNone == nil, "no exact cases is not a rare event")
+        #expect(!Fmt.estimate(estimates[.exact]!, scale: 100).contains("≤"))
+    }
+}

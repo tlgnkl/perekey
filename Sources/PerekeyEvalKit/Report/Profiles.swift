@@ -98,7 +98,7 @@ enum ProfileEstimator {
                 }
             }
             return Estimate(value: weight > 0 ? weighted / weight : nil, low: intervals[0]?.low, high: intervals[0]?.high,
-                            events: events, of: of, upperIfNone: events == 0 ? Stats.ruleOfThree(of: of) : nil)
+                            events: events, of: of, upperIfNone: events == 0 && measure != .exact ? Stats.ruleOfThree(of: of) : nil)
         }
         let all: (String, [RunData.Row]) -> [RunData.Row] = { $1 }
         return ProfileRow(

@@ -123,7 +123,9 @@ public struct Lexicon: Sendable {
             guard let tab = line.firstIndex(of: "\t"), let zipf = Float(line[line.index(after: tab)...]) else {
                 throw EvalError.input("\(path): bad line \(line.debugDescription)")
             }
-            table[key(String(line[..<tab]))] = zipf
+            // Forms that fold together («все», «всё») keep the higher Zipf, as `init(words:)` does.
+            let folded = key(String(line[..<tab]))
+            table[folded] = max(table[folded] ?? zipf, zipf)
         }
         return table
     }

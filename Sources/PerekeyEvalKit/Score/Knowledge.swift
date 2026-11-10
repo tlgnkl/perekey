@@ -57,8 +57,10 @@ public struct Knowledge: Sendable {
               let zipf = lexicon.zipf(of: outCore, language: language), zipf >= options.disputedMinZipf
         else { return false }
         func plain(_ text: String) -> String { text.replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "ё", with: "е") }
+        // Plan, 7.5: one edit, or a difference of a hyphen or «ё» alone. The edit distance is of the words
+        // as they are: a hyphen left out is one edit, not free.
         if plain(wantCore) == plain(outCore) { return true }
-        return Self.distance(Array(plain(wantCore)), Array(plain(outCore))) <= options.disputedDistance
+        return Self.distance(Array(wantCore), Array(outCore)) <= options.disputedDistance
     }
 
     /// Plan, 7.3 («тихая»): the output is a word of the lexicon in a language

@@ -81,16 +81,16 @@ public struct SliceTable: Hashable, Sendable, Codable {
     public init(_ scores: [CaseScore], pairSupport: Int = SliceTable.storedPairSupport) {
         // Tokens with the same values and the same outcome count the same: group first.
         var names: [String] = []
-        var ids: [String: UInt16] = [:]
-        func id(_ feature: String, _ value: String) -> UInt16 {
+        var ids: [String: Int] = [:]
+        func id(_ feature: String, _ value: String) -> Int {
             let name = feature + "=" + value
             if let known = ids[name] { return known }
             names.append(name)
-            ids[name] = UInt16(names.count - 1)
-            return UInt16(names.count - 1)
+            ids[name] = names.count - 1
+            return names.count - 1
         }
         struct Signature: Hashable {
-            var values: [UInt16]
+            var values: [Int]
             var outcome: Outcome
             var silent: Bool
             var layoutError: Bool
@@ -100,15 +100,15 @@ public struct SliceTable: Hashable, Sendable, Codable {
         for score in scores {
             for token in score.tokens where token.measured {
                 guard let found = token.features else { continue }
-                var values: [UInt16] = []
+                var values: [Int] = []
                 for (feature, value) in Self.values(of: found) { values.append(id(feature, value)) }
                 let signature = Signature(values: values, outcome: token.outcome, silent: token.silent,
                                           layoutError: token.err == .layout, word: Tokenizer.isWord(token.want))
                 groups[signature, default: 0] += 1
             }
         }
-        var singles: [UInt16: SliceCounters] = [:]
-        var pairCounts: [UInt32: SliceCounters] = [:]
+        var singles: [Int: SliceCounters] = [:]
+        var pairCounts: [UInt64: SliceCounters] = [:]
         for (signature, count) in groups {
             let counters = Self.counters(of: signature.outcome, silent: signature.silent,
                                          layoutError: signature.layoutError, word: signature.word, times: count)
@@ -116,7 +116,7 @@ public struct SliceTable: Hashable, Sendable, Codable {
             let values = signature.values.sorted()
             for first in values.indices {
                 for second in values.indices where second > first {
-                    pairCounts[UInt32(values[first]) << 16 | UInt32(values[second]), default: SliceCounters()]
+                    pairCounts[UInt64(values[first]) << 32 | UInt64(values[second]), default: SliceCounters()]
                         .merge(counters)
                 }
             }
@@ -126,12 +126,12 @@ public struct SliceTable: Hashable, Sendable, Codable {
             return (String(parts[0]), String(parts[1]))
         }
         for (value, counters) in singles {
-            let (feature, name) = split(names[Int(value)])
+            let (feature, name) = split(names[value])
             features[feature, default: [:]][name] = counters
         }
         let order = Dictionary(uniqueKeysWithValues: Self.featureNames.enumerated().map { ($1, $0) })
         for (key, counters) in pairCounts where counters.words >= pairSupport {
-            let one = split(names[Int(key >> 16)]), two = split(names[Int(key & 0xFFFF)])
+            let one = split(names[Int(key >> 32)]), two = split(names[Int(key & 0xFFFF_FFFF)])
             if one.feature == two.feature { continue }
             let (first, second) = order[one.feature, default: 99] <= order[two.feature, default: 99] ? (one, two) : (two, one)
             pairs["\(first.feature)=\(first.value) & \(second.feature)=\(second.value)"] = counters

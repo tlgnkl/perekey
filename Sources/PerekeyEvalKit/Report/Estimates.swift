@@ -120,7 +120,7 @@ enum Estimator {
             let (events, of) = total.count(measure)
             result[measure] = Estimate(value: total.ratio(measure), low: interval?.low, high: interval?.high,
                                        events: events, of: of,
-                                       upperIfNone: events == 0 ? Stats.ruleOfThree(of: of) : nil)
+                                       upperIfNone: events == 0 && measure != .exact ? Stats.ruleOfThree(of: of) : nil)
         }
         return result
     }

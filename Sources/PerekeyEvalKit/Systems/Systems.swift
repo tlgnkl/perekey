@@ -146,9 +146,15 @@ public struct NullSystem: TypingSystem {
             capsLock = on
             if !secureInput { chords.otherInput(at: time) }
         case let .select(chars):
-            // ⇧← keys: other input for the chords, as for the machine.
-            if !secureInput { chords.otherInput(at: time) }
-            for _ in 0..<max(chars, 0) { field.extendLeft() }
+            // The events of the stand (`EvalDesk`): Shift down, the arrows
+            // (other input), Shift up. Without arrows the tap counts.
+            let shift: Set<ModifierKey> = [.leftShift]
+            if !secureInput { _ = chords.modifiersChanged(to: shift, at: time) }
+            for _ in 0..<max(chars, 0) {
+                if !secureInput { chords.otherInput(at: time) }
+                field.extendLeft()
+            }
+            if !secureInput, chords.modifiersChanged(to: [], at: time) == .switchLayout { switchLayout() }
         case let .mode(newMode):
             let wasOff = mode == .off
             mode = newMode

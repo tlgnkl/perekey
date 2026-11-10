@@ -194,3 +194,33 @@ import Testing
         #expect(field.text == " wo")
     }
 }
+
+/// The select step, for the chord detector: Shift down, the arrows, Shift up
+/// (`EvalDesk`); Null sees the same events.
+@Suite struct SelectStepChordTests {
+    func layouts(selecting chars: Int) throws -> (null: LayoutID, machine: LayoutID) {
+        let item = Cases.make([.select(chars)], want: "-", scoring: .case)
+        var setup = try CaseSetup(item: item, library: Repo.library, classifier: Repo.classifier)
+        let shift = ModifierChord([.shift: .either])
+        setup.settings.hotkeys = [HotkeyBinding(.modifiers(shift, taps: .single), action: .switchLayout)]
+        var null = try NullSystem(setup: setup)
+        var machine = try MachineSystem(setup: setup)
+        for typed in try Typist().events(for: item, layouts: Repo.library) {
+            try null.send(typed.event, at: typed.time)
+            try machine.send(typed.event, at: typed.time)
+        }
+        return (try null.finish().layout, try machine.finish().layout)
+    }
+
+    @Test func aShiftTapWithoutArrowsSwitchesBoth() throws {
+        let played = try layouts(selecting: 0)
+        #expect(played.null == played.machine)
+        #expect(played.null == Repo.russian.id)
+    }
+
+    @Test func arrowsBreakTheTapForBoth() throws {
+        let played = try layouts(selecting: 2)
+        #expect(played.null == played.machine)
+        #expect(played.null == Repo.abc.id)
+    }
+}

@@ -58,15 +58,18 @@ public enum RunFiles {
         var lines: [String] = []
         for score in scores {
             func shown(_ text: String) -> String { score.hidden ? hiddenText : text }
-            if score.scoring == .case || !score.failedChecks.isEmpty {
-                if !score.exact && score.scoring == .case || !score.failedChecks.isEmpty {
+            let wholeCase = score.scoring == .case
+            let textDiffers = wholeCase && !score.exact
+            let hasFailedChecks = !score.failedChecks.isEmpty
+            if wholeCase || hasFailedChecks {
+                if textDiffers || hasFailedChecks {
                     lines.append(try CaseCodec.json(CaseEvent(
                         id: score.id, outcome: score.exact ? "checks" : "fail", want: shown(score.wantText),
                         null: shown(score.nullText), out: shown(score.outText),
                         checks: score.failedChecks.isEmpty ? nil : score.failedChecks
                     )))
                 }
-                if score.scoring == .case { continue }
+                if wholeCase { continue }
             }
             for token in score.tokens where token.outcome != .ok {
                 lines.append(try CaseCodec.json(TokenEvent(

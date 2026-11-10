@@ -20,6 +20,14 @@ struct SpeechSegmenterTests {
         #expect(SpeechSegmenter.Options(minimumPiece: 5, pause: 0.6).pauseChunks == 3)
     }
 
+    @Test func theStandardCutsAtAQuarterSecondPauseAfterFiveSeconds() {
+        #expect(SpeechSegmenter.Options.standard.minimumChunks == 20)
+        #expect(SpeechSegmenter.Options.standard.pauseChunks == 1)
+        var segmenter = SpeechSegmenter()
+        let probabilities = [Float](repeating: 0.9, count: 24) + [0.05] + [Float](repeating: 0.9, count: 4)
+        #expect(segmenter.next(probabilities) == 0..<(24 * chunk + chunk / 2))
+    }
+
     @Test func aPauseBeforeTheMinimumLengthDoesNotCut() {
         var segmenter = SpeechSegmenter(options: options)
         #expect(segmenter.next(chunks([(true, 2), (false, 1), (true, 1.5)])) == nil)

@@ -15,17 +15,24 @@ public struct SpeechSegmenter: Sendable, Equatable {
         /// not cut. A recording shorter than this is recognized whole, as
         /// before. Whisper decodes any piece as a 30 s window (about 0,75 s
         /// even for 2 s of audio, stage 5 baseline `score --head 2`), and
-        /// short pieces lose the context of their words; longer ones leave a
-        /// longer last piece after the stop. Measured on the speech set
-        /// (`perekey-voice-probe dictate-set <id> .build/data-cache/speech
-        /// --both`), report of stage 5, L5b.
+        /// short pieces lose the context of their words. On the speech set
+        /// joined into dictations of up to 60 s, Whisper turbo with a pause of
+        /// 0,25 s: 5 s gave a median of 1,29 s from the stop to the text and
+        /// 9,5 % word errors, 3 s gave 1,64 s and 9,1 %
+        /// (`perekey-voice-probe dictate-set whisper-large-v3-turbo-632mb
+        /// .build/data-cache/speech --pieces --pause 0.25 [--minimum 3]`,
+        /// report of stage 5, L5b).
         public var minimumPiece: Double
         /// The shortest pause that cuts, seconds; counted in whole chunks of
-        /// the detector (0,256 s), so 0,5 s is two of them. A pause between
-        /// words is shorter than one chunk; one between phrases is longer.
+        /// the detector (0,256 s), so 0,25 s is one of them. With 0,5 s (two
+        /// chunks) Whisper cut only between the set's sentences and left the
+        /// last one whole: a median of 1,91 s from the stop to the text, 10,3 %
+        /// word errors (same command, `--both`). One chunk below the
+        /// threshold is a quarter of a second without speech: longer than the
+        /// stop inside a word.
         public var pause: Double
 
-        public static let standard = Options(minimumPiece: 5, pause: 0.5)
+        public static let standard = Options(minimumPiece: 5, pause: 0.25)
 
         public init(minimumPiece: Double, pause: Double) {
             self.minimumPiece = minimumPiece

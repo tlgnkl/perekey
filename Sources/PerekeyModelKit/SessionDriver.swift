@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import PerekeyCore
+import PerekeyDesk
 
 /// One event the replay handed to the machine, and what came of it.
 public struct ReplayStep: Sendable {
@@ -44,10 +45,11 @@ public struct ReplayRun: Sendable {
 /// - `exact`: every recorded event as it is, the machine's own and the
 ///   replayed ones too, and every answer compared with the recorded one. The
 ///   check that the recording is complete and the machine deterministic.
-/// - `simulated`: only the user's and the environment's events;
-///   `SimulatedSystem` plays the system layer. For a classifier or logic
-///   that decides otherwise than the recorded one: the recorded own events
-///   would no longer fit.
+/// - `simulated`: only the user's and the environment's events; `EvalDesk`
+///   plays the system layer (`EvalDesk.replay`): retypes are posted, their
+///   keys come back, selected layouts are confirmed, held events come back,
+///   deadlines pass. For a classifier or logic that decides otherwise than
+///   the recorded one: the recorded own events would no longer fit.
 public enum SessionDriver {
     public enum Mode: Sendable {
         case exact
@@ -90,8 +92,8 @@ public enum SessionDriver {
             let before = machine.pendingRetypeSeq
             let output = machine.handle(event)
             if output.disposition == .hold, step.event.isKeyOrFlags { heldSources.append(source) }
-            let change = SimulatedSystem.MachineChange(pendingBefore: before, pendingAfter: machine.pendingRetypeSeq,
-                                                       lastJudgement: machine.lastJudgement)
+            let change = ReplayChange(pendingBefore: before, pendingAfter: machine.pendingRetypeSeq,
+                                      lastJudgement: machine.lastJudgement)
             let digest = watch.observe(event, recorded: index, source: source, output: output, change: change)
             if watch.run.mismatch == nil, digest != step.output {
                 watch.run.mismatch = ReplayMismatch(step: index, line: segment.lines.indices.contains(index)
@@ -104,14 +106,18 @@ public enum SessionDriver {
     private static func simulated(_ segment: SessionSegment, machine: inout InputMachine, watch: inout Watch,
                                   classifier: ClassifierSource)
     {
-        let selections = segment.steps.compactMap { step -> Int? in
-            if case let .selectionRead(_, text, _) = step.event { text.count } else { nil }
-        }
-        var system = SimulatedSystem(selections: selections)
+        let snapshot = segment.snapshot.machine
+        var desk = EvalDesk(machine: machine, settings: snapshot.settings, layouts: snapshot.layouts,
+                            mode: snapshot.appMode,
+                            time: segment.steps.lazy.compactMap(\.event.time).first ?? 0)
+        desk.recording = true
+        var seen = 0
+        var pending = machine.pendingRetypeSeq
+        var heldSources: [Int?] = []
         // The layouts the recorded machine selected and the system has not
         // confirmed yet: a recorded `layoutChanged` to one of them is
-        // Perekey's, and the simulated system confirms its own.
-        var recordedSelections = segment.snapshot.machine.pendingSelections
+        // Perekey's, and the desk confirms its own.
+        var recordedSelections = snapshot.pendingSelections
         for (index, step) in segment.steps.enumerated() {
             defer {
                 for case let .selectLayout(id) in step.output.effects {
@@ -135,18 +141,56 @@ public enum SessionDriver {
                 recordedSelections.removeAll()
             case let .undoLastCorrection(_, time):
                 // The hint shows the correction the replayed machine made.
-                event = .undoLastCorrection(seq: system.lastCorrection ?? 0, time: time)
+                event = .undoLastCorrection(seq: desk.corrections.last?.seq ?? 0, time: time)
             default:
                 break
             }
-            // The first event handled is the recorded one; the rest the system made.
-            var first = true
-            system.send(event, source: index, to: &machine) { handled, source, output, change in
-                _ = watch.observe(handled, recorded: first ? index : nil, source: source, output: output,
+            desk.replay(event)
+            // The first call that is not a deadline is the recorded event;
+            // the rest the desk made.
+            var matched = false
+            for record in desk.records[seen...] {
+                var recorded: Int?
+                var source: Int?
+                let origin = Self.origin(of: record.input)
+                if origin == .replayed {
+                    source = heldSources.isEmpty ? nil : heldSources.removeFirst()
+                } else if origin?.isOwn != true, !matched, !Self.isDeadline(record.input) {
+                    matched = true
+                    recorded = index
+                    source = index
+                }
+                if record.output.disposition == .hold, origin != nil { heldSources.append(source) }
+                let change = ReplayChange(pendingBefore: pending, pendingAfter: record.pendingRetypeSeq,
+                                          lastJudgement: record.lastJudgement)
+                pending = record.pendingRetypeSeq
+                _ = watch.observe(record.input, recorded: recorded, source: source, output: record.output,
                                   change: change)
-                first = false
             }
+            seen = desk.records.count
         }
+        machine = desk.machine
+    }
+
+    private static func origin(of event: InputEvent) -> EventOrigin? {
+        switch event {
+        case let .key(key, _): key.origin
+        case let .flagsChanged(_, _, origin, _, _): origin
+        default: nil
+        }
+    }
+
+    private static func isDeadline(_ event: InputEvent) -> Bool {
+        if case .deadline = event { true } else { false }
+    }
+
+    /// What the watch learns of the machine around one event.
+    struct ReplayChange {
+        /// The retype the fence waited for, before the event and after it.
+        var pendingBefore: UInt32?
+        var pendingAfter: UInt32?
+        /// `InputMachine.lastJudgement` after the event.
+        var lastJudgement: JudgeTrace?
     }
 
     /// Watches the machine as events go in, and writes the steps down.
@@ -157,7 +201,7 @@ public enum SessionDriver {
         var lastSerial = 0
 
         mutating func observe(_ event: InputEvent, recorded: Int?, source: Int?, output: Output,
-                              change: SimulatedSystem.MachineChange) -> OutputDigest
+                              change: ReplayChange) -> OutputDigest
         {
             let recordedEvent = RecordedEvent(event)
             let digest = OutputDigest(output)

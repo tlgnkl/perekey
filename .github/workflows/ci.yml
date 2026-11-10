@@ -56,6 +56,13 @@ jobs:
           name: crash-reports-build
           path: .build/crash-reports
           if-no-files-found: ignore
+      # The pip pins in scripts/wiki-freq.requirements.txt have wheels only for
+      # the Python versions that existed when they were pinned; the runner's own
+      # python3 moves on (3.15 has no pyarrow 25.0.1 wheel). Keep it in step with
+      # the pins.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
       - name: Cache the model and held-out data
         uses: actions/cache@v4
         with:
@@ -160,6 +167,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select Command Line Tools
         run: sudo xcode-select -s /Library/Developer/CommandLineTools
+      # The pip pins in scripts/wiki-freq.requirements.txt have wheels only for
+      # the Python versions that existed when they were pinned; the runner's own
+      # python3 moves on (3.15 has no pyarrow 25.0.1 wheel). Keep it in step with
+      # the pins.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
       - name: Cache the model data
         uses: actions/cache@v4
         with:

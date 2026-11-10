@@ -24,6 +24,8 @@ func usage() -> Never {
           net-control                 one HTTPS request, to test the sampler
           store <command> [id...]     the app's model store in $PEREKEY_VOICE_MODELS
           dictate <id> <audio>... [--realtime] [--runs n]  the app's dictation path, from files
+          score <id> <speech-dir> [--hint] [--head s] [--runs n]
+                                      word and character errors and time on the speech set
           speech                      Apple Speech locales
           compute-plan <mlmodelc>...  share of each model's work on ANE, GPU, CPU
           energy [s]                  average SoC power over s seconds (IOReport)
@@ -82,6 +84,8 @@ do {
         try await StoreCommand.run(rest)
     case "dictate":
         try await DictateCommand.run(rest)
+    case "score":
+        try await ScoreCommand.run(rest)
     case "speech":
         await Commands.appleSpeech()
     case "energy":

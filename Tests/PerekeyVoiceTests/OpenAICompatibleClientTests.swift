@@ -204,6 +204,19 @@ struct OpenAICompatibleClientTests {
         await #expect(throws: CloudSTTEngine.Failure.unavailable) { try await gone.transcribe(AudioBuffer16k([0])) }
     }
 
+    /// The language hint goes as the request's `language` field; none, no field.
+    @Test func cloudSpeechEngineSendsTheLanguageHint() async throws {
+        let fake = try await FakeOpenAI(FakeOpenAI.answer("Облако."))
+        let address = fake.address
+        let engine = CloudSTTEngine(model: CloudSpeechModel(endpoint: "groq", model: "whisper-large-v3-turbo"),
+                                    client: fake.client()) { .init(address: address, key: "k") }
+        _ = try await engine.transcribe(AudioBuffer16k([0, 0.1]), prompt: nil, language: "ru")
+        _ = try await engine.transcribe(AudioBuffer16k([0, 0.1]), prompt: nil, language: nil)
+        let bodies = fake.server.requests.map { String(decoding: $0.body, as: UTF8.self) }
+        #expect(bodies[0].contains("name=\"language\"\r\n\r\nru\r\n"))
+        #expect(!bodies[1].contains("name=\"language\""))
+    }
+
     /// Files: Whisper's phrases keep their timings; a gpt-4o answer without
     /// them is one phrase from the start of the piece.
     @Test func timedTranscription() async throws {

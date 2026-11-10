@@ -120,6 +120,7 @@ enum SettingsIndex {
             voiceItem(.voice, "Dictation", "voice.dictation", .voiceActive),
             voiceItem(.voice, "Microphone", "voice.microphone", .voiceActive),
             voiceItem(.voice, "Switch the layout to the language of the phrase", "voice.switch-layout", .voiceActive),
+            voiceItem(.voice, "Dictation language", "voice.dictation-language", .voiceActive),
             voiceItem(.voice, "Sounds", "voice.sounds", .voiceActive),
             voiceItem(.voice, "Stop by itself after", "voice.auto-stop", .voiceActive),
             voiceItem(.voice, "Text", "voice.text", .voiceText),

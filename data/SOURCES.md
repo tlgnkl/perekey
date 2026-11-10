@@ -185,6 +185,7 @@ n-граммы считаются по списку wordfreq с весом √(�
 | Проза | Задумано: Википедия, статьи с `id % 20 == 0`. Сейчас проза — предложения Tatoeba от 8 слов (docs/classifier.md, «Метрика») | CC BY-SA 4.0 | Да, пока не используется |
 | Чат, короткие фразы | [Tatoeba](https://tatoeba.org/en/terms_of_use): `sentences_CC0` и `rus/eng/ukr_sentences` | CC0; остальные CC BY 2.0 FR | Да. В репозиторий — только CC0. У uk в CC0 всего 393 предложения из 188 837, поэтому основа — `ukr_sentences` |
 | Смешанный ru+en, код | Дампы Stack Exchange 2024-04 на [archive.org](https://archive.org/details/stackexchange): `russian.stackexchange`, `rus.stackexchange`, `ukrainian.stackexchange` (9,5 МБ); `ru.stackoverflow` (1 ГБ) — в `heavy`. Ukrainian Stack Overflow не существует | CC BY-SA 2.5/3.0/4.0, по посту в `ContentLicense` | Да, только локально и в CI, не в репозиторий |
+| Речь, замер голоса | [FLEURS](https://huggingface.co/datasets/google/fleurs) (Google): `ru_ru` и `en_us`, раздел `dev`, по 50 записей разных предложений с эталонным текстом. Ревизия `70bb2e8` закреплена, таблицы и архивы — хэшами в `scripts/fetch-data.sh` (группа `speech`) | CC BY 4.0 | Да, только локально (`perekey-voice-probe score`), не в CI, не в репозиторий, не в приложение. Атрибуция нужна, только если мы публикуем записи или тексты |
 | Имена, топонимы | [GeoNames](https://www.geonames.org/export/) `cities15000` | CC BY 4.0 | Да |
 | Код | Исходники Perekey (наши, GPL-3.0-or-later) + блоки кода из Stack Exchange | — | Да |
 | URL, email, пути | Синтетика с фиксированным seed | — | Да |

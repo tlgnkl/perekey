@@ -391,6 +391,28 @@ private extension Output {
         #expect(settings.playsSounds)
         #expect(settings.autoStop == .seconds30)
         #expect(settings.unload == .minutes60)
+        #expect(settings.dictationLanguage == .auto, "a file without the key keeps the model finding the language")
+        #expect(settings.unreadableKeys.isEmpty)
+    }
+
+    @Test func theDictationLanguageIsAutoByDefaultAndRoundTrips() throws {
+        #expect(VoiceSettings().dictationLanguage == .auto)
+        var settings = VoiceSettings()
+        settings.dictationLanguage = .app
+        let data = try JSONEncoder().encode(settings)
+        #expect(try JSONDecoder().decode(VoiceSettings.self, from: data).dictationLanguage == .app)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["dictationLanguage"] as? String == "app")
+    }
+
+    @Test func anUnreadableDictationLanguageStaysAutoAndKeepsItsValueOnDisk() throws {
+        let data = Data(#"{"isEnabled":true,"dictationLanguage":"klingon"}"#.utf8)
+        var settings = try JSONDecoder().decode(VoiceSettings.self, from: data)
+        #expect(settings.dictationLanguage == .auto)
+        #expect(settings.unreadableKeys == ["dictationLanguage"])
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        #expect(object["dictationLanguage"] == nil)
+        settings.dictationLanguage = .app
         #expect(settings.unreadableKeys.isEmpty)
     }
 

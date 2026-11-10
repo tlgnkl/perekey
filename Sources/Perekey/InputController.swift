@@ -260,6 +260,18 @@ final class InputController {
         else { return }
         _ = sources.select(id)
     }
+
+    /// What the dictation's language hint reads for text going into `app`:
+    /// the language most typed there, the language of the layout selected
+    /// now, and a check of the language a text is written in.
+    func dictationLanguageSigns(app: String) -> DictationLanguageSigns {
+        let layouts = sources.layouts
+        let model = model
+        return DictationLanguageSigns(
+            appLanguage: languages.dominantLanguage(app: app),
+            layoutLanguage: layouts.first { $0.id == sources.currentLayout }?.language,
+            dominant: { DictationLanguage.dominant(in: $0, layouts: layouts, model: model) })
+    }
     #endif
 
     /// Undoes the automatic switch the hint shows, as its Undo button does.

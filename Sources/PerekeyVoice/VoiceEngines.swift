@@ -37,6 +37,8 @@ public actor FluidAudioEngine: SpeechEngine {
         self.store = store
     }
 
+    public nonisolated var acceptsLanguageHint: Bool { false }
+
     private var version: AsrModelVersion { id == "parakeet-ultra" ? .ultra : .v3 }
 
     public func prepare() async throws {
@@ -54,6 +56,9 @@ public actor FluidAudioEngine: SpeechEngine {
         }
     }
 
+    /// Parakeet ignores the language hint: FluidAudio's `language` filters the
+    /// script of the tokens and would drop English words from Russian speech
+    /// (the default `transcribe(_:prompt:language:)` does not pass it on).
     public func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {
         guard let manager else { throw SpeechEngineError.notPrepared }
         var state = TdtDecoderState.make(decoderLayers: await manager.decoderLayerCount)
@@ -141,16 +146,22 @@ public actor WhisperKitEngine: SpeechEngine {
     }
 
     public func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {
-        try await transcribe(audio, prompt: nil)
+        try await transcribe(audio, prompt: nil, language: nil)
+    }
+
+    public func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript {
+        try await transcribe(audio, prompt: prompt, language: nil)
     }
 
     /// The prompt is the user's dictionary words, as Whisper reads text that
-    /// came before: it spells them so. Special tokens never go in.
-    public func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript {
+    /// came before: it spells them so. Special tokens never go in. Given the
+    /// language, Whisper skips its detection and decodes in it; without,
+    /// it detects.
+    public func transcribe(_ audio: AudioBuffer16k, prompt: String?, language: String?) async throws -> Transcript {
         guard let kit else { throw SpeechEngineError.notPrepared }
         let options = DecodingOptions(
-            task: .transcribe, language: nil, detectLanguage: true, skipSpecialTokens: true, withoutTimestamps: true,
-            promptTokens: promptTokens(prompt, kit: kit))
+            task: .transcribe, language: language, detectLanguage: language == nil, skipSpecialTokens: true,
+            withoutTimestamps: true, promptTokens: promptTokens(prompt, kit: kit))
         let results = try await kit.transcribe(audioArray: audio.samples, decodeOptions: options)
         let text = results.map(\.text).joined(separator: " ")
         return Transcript(text: text.trimmingCharacters(in: .whitespacesAndNewlines))

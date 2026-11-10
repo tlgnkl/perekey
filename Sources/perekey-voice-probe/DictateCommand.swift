@@ -95,7 +95,7 @@ enum DictateCommand {
 }
 
 /// The microphone, from a file: the command pushes the samples.
-private final class FileMicrophone: DictationMicrophone, @unchecked Sendable {
+final class FileMicrophone: DictationMicrophone, @unchecked Sendable {
     private let lock = NSLock()
     private var audio: DictationAudio?
 
@@ -115,7 +115,7 @@ private final class FileMicrophone: DictationMicrophone, @unchecked Sendable {
 }
 
 @MainActor
-private final class PrintPaster: DictationPaster {
+final class PrintPaster: DictationPaster {
     private(set) var last: String?
 
     func captureTarget() async -> (any Sendable)? { nil }

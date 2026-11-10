@@ -71,7 +71,7 @@ jobs:
           path: |
             .build/data-cache
             !.build/data-cache/pairs
-          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
+          key: data-cache-model-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
       - name: Cache the word-pair counts
         uses: actions/cache@v4
         with:

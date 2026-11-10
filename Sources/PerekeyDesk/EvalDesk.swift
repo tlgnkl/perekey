@@ -408,8 +408,8 @@ public struct EvalDesk: Sendable {
             case let .readSelection(seq):
                 send(.selectionRead(seq: seq, text: field.selectedText))
             case let .select(id, then):
-                if let then { post(then) }
                 appLayout = id
+                if let then { post(then) }
                 send(.layoutChanged(id))
             }
         }

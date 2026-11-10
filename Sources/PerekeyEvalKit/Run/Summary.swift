@@ -5,7 +5,7 @@
 /// tokens with a letter, except where the denominator is named.
 public struct Metrics: Hashable, Sendable, Codable {
     public var cases = 0
-    /// Cases with every token right (`scoring: case`: the text and the checks).
+    /// Cases with every token right (`scoring: case`: the text alone; the checks are a label).
     public var exact = 0
     public var fail = 0
     /// Cases whose checks failed (layout at the end, corrections, undos):

@@ -63,13 +63,13 @@ jobs:
             .build/data-cache
             !.build/data-cache/pairs
           # The pinned revisions and hashes live in the script itself.
-          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py', 'scripts/wiki-text.py') }}
+          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
       - name: Cache the word-pair counts
         uses: actions/cache@v4
         with:
           path: .build/data-cache/pairs
-          # Counted against the dictionary: the sources of the counts and of the dictionary are in the key.
-          key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/**', 'Sources/PerekeyModelKit/**', 'Sources/PerekeyCore/Model*.swift', 'Sources/PerekeyCore/LanguageModel.swift', 'Sources/PerekeyCore/Classifier.swift') }}
+          # The inputs of the count only: the text scripts, the dictionary lists (not data/*/hyphen.txt), the counter and the fingerprints. Not the model hashes, not the rest of the sources.
+          key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/ru/**', 'data/en/**', 'data/mixed/**', '!data/*/hyphen.txt', 'Sources/PerekeyModelKit/PairTable.swift', 'Sources/PerekeyModelKit/PairText.swift', 'Sources/PerekeyCore/ModelFormat.swift') }}
       - run: scripts/fetch-data.sh lexicon wikifreq pairs heldout
       - name: Build the model files and check their hashes
         run: scripts/build-model.sh
@@ -174,13 +174,13 @@ jobs:
           path: |
             .build/data-cache
             !.build/data-cache/pairs
-          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py', 'scripts/wiki-text.py') }}
+          key: data-cache-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-freq.py') }}
       - name: Cache the word-pair counts
         uses: actions/cache@v4
         with:
           path: .build/data-cache/pairs
-          # Counted against the dictionary: the sources of the counts and of the dictionary are in the key.
-          key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/**', 'Sources/PerekeyModelKit/**', 'Sources/PerekeyCore/Model*.swift', 'Sources/PerekeyCore/LanguageModel.swift', 'Sources/PerekeyCore/Classifier.swift') }}
+          # The inputs of the count only: the text scripts, the dictionary lists (not data/*/hyphen.txt), the counter and the fingerprints. Not the model hashes, not the rest of the sources.
+          key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/ru/**', 'data/en/**', 'data/mixed/**', '!data/*/hyphen.txt', 'Sources/PerekeyModelKit/PairTable.swift', 'Sources/PerekeyModelKit/PairText.swift', 'Sources/PerekeyCore/ModelFormat.swift') }}
       - run: scripts/fetch-data.sh lexicon wikifreq pairs
       - run: scripts/build-model.sh --out .build/universal/model
       - run: scripts/check-voice-loaders.sh

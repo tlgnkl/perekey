@@ -26,9 +26,11 @@ public struct PairTable: Sendable {
         public var discount = 0.75
         /// The pass-1 sketch has `2^sketchBits` one-byte counters: pairs that
         /// cannot reach `minCount` are not counted in pass 2. 2²⁷ is 128 MB,
-        /// the peak of memory with the dictionaries; a smaller sketch lets more
-        /// rare pairs through and costs memory in pass 2, never changes the
-        /// result. Check: `/usr/bin/time -l perekey-model pairs`.
+        /// the sketch alone; the peak of the whole run is about 0.8 GB (the
+        /// sketch, the dictionaries, the exact counts of pass 2). A smaller
+        /// sketch lets more rare pairs through and costs memory in pass 2,
+        /// never changes the result. Check: `/usr/bin/time -l perekey-model
+        /// pairs`, "maximum resident set size".
         public var sketchBits = 27
         /// The largest "pair" section in bytes. Decision Р4 of the plan.
         public var budget = ModelFormat.pairBudget
@@ -183,12 +185,33 @@ public struct PairTable: Sendable {
     public func tsv() -> String {
         var text = "# perekey pairs \(Self.formatVersion)\n# language \(language)\n# tokens \(tokens)\n"
         text += "# known \(known)\n"
+        // The count of the lines below: a file cut at a line end is still whole lines.
+        text += "# entries \(entries.count)\n"
         for source in sources { text += "# source \(source)\n" }
         text.reserveCapacity(text.utf8.count + entries.count * 60)
         for entry in entries {
             text += Self.hex(entry.previous) + "\t" + Self.hex(entry.word) + "\t\(entry.count)\t\(entry.previousTotal)\t\(entry.wordTotal)\n"
         }
         return text
+    }
+
+    /// Writes `tsv()` to `path`: first to `path.part`, then in place of `path`
+    /// in one step, so a stopped run leaves the old file or none, never half.
+    /// The target may be missing (the first run in a cache).
+    public func write(to path: String) throws {
+        let fileManager = FileManager.default
+        let part = path + ".part"
+        try tsv().write(toFile: part, atomically: false, encoding: .utf8)
+        do {
+            if fileManager.fileExists(atPath: path) {
+                _ = try fileManager.replaceItemAt(URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: part))
+            } else {
+                try fileManager.moveItem(atPath: part, toPath: path)
+            }
+        } catch {
+            try? fileManager.removeItem(atPath: part)
+            throw error
+        }
     }
 
     private static func hex(_ value: UInt64) -> String {
@@ -199,7 +222,7 @@ public struct PairTable: Sendable {
     public static func read(_ path: String) throws -> PairTable {
         let text = try String(contentsOfFile: path, encoding: .utf8)
         var language = "", known = ""
-        var tokens = -1, version = -1
+        var tokens = -1, version = -1, declared = -1
         var sources: [String] = []
         var entries: [Entry] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -212,6 +235,7 @@ public struct PairTable: Sendable {
                 case "language": language = value
                 case "tokens": tokens = Int(value) ?? -1
                 case "known": known = value
+                case "entries": declared = Int(value) ?? -1
                 case "source": sources.append(value)
                 default: break
                 }
@@ -226,6 +250,9 @@ public struct PairTable: Sendable {
         }
         guard version == formatVersion, tokens > 0, !language.isEmpty, !known.isEmpty else {
             throw Failure(description: "\(path): not a pairs file of this version (run scripts/build-pairs.sh)")
+        }
+        guard declared == entries.count else {
+            throw Failure(description: "\(path): the file says \(declared) pairs and holds \(entries.count): cut or damaged (run scripts/build-pairs.sh)")
         }
         return PairTable(language: language, tokens: tokens, known: known, sources: sources, entries: entries)
     }

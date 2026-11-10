@@ -71,8 +71,7 @@ if pairsCommand {
             try TextLines.forEach(path: text, line)
         }
         let path = "\(cache)/pairs/\(language).tsv"
-        try table.tsv().write(toFile: path + ".part", atomically: false, encoding: .utf8)
-        _ = try FileManager.default.replaceItemAt(URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: path + ".part"))
+        try table.write(to: path)
         let seconds = (ContinuousClock.now - start).components.seconds
         print("pairs \(language): \(table.tokens) words, \(known.count) known forms, \(table.entries.count) pairs with count and lift enough, \(table.chosen().count) in the model, in \(seconds) s")
         print("wrote \(path)")
@@ -90,6 +89,12 @@ do {
     var hashes: [String] = []
     for file in report.files {
         let name = "\(file.language).pklm"
+        // The reader of the app must take the file: its checks are strict (every section's buckets
+        // cut the entries from the first to the last), and a file it refuses is no build.
+        let reader = try LanguageModel(bytes: file.bytes)
+        guard reader.language(file.language) != nil else {
+            throw ModelBuild.Failure(description: "\(name): the reader finds no \(file.language) in it")
+        }
         try Data(file.bytes).write(to: directory.appendingPathComponent(name))
         let digest = SHA256.hash(data: Data(file.bytes)).map { String(format: "%02x", $0) }.joined()
         print("wrote \(name): \(file.bytes.count / 1024) KB")

@@ -188,6 +188,54 @@ import Testing
         #expect(throws: PairTable.Failure.self) { try PairTable.read(other) }
     }
 
+    @Test func aCutFileIsAnErrorAndNotAShorterTable() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pairs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var options = PairTable.Options()
+        options.minCount = 1
+        options.minLift = -1000
+        let table = try Self.count(options: options)
+        #expect(table.entries.count > 2)
+        let text = table.tsv()
+        #expect(text.contains("# entries \(table.entries.count)\n"))
+        let path = directory.appendingPathComponent("cut.tsv").path
+
+        // Cut at a line end, the way a full disk or a killed process leaves a file: every line is whole.
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+        try (lines.dropLast().joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+        #expect(throws: PairTable.Failure.self) { try PairTable.read(path) }
+        // Longer than it says is as wrong.
+        try (text + lines.last! + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+        #expect(throws: PairTable.Failure.self) { try PairTable.read(path) }
+        // A file with no count line is not of this format.
+        try text.replacingOccurrences(of: "# entries \(table.entries.count)\n", with: "")
+            .write(toFile: path, atomically: true, encoding: .utf8)
+        #expect(throws: PairTable.Failure.self) { try PairTable.read(path) }
+        // And the whole file reads.
+        try text.write(toFile: path, atomically: true, encoding: .utf8)
+        #expect(try PairTable.read(path).entries == table.entries)
+    }
+
+    @Test func writingTakesTheFileOverWhetherOrNotOneIsThere() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pairs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let table = try Self.count()
+        let path = directory.appendingPathComponent("ru.tsv").path
+
+        // No tsv yet: the first run in a cache.
+        try table.write(to: path)
+        #expect(try PairTable.read(path).entries == table.entries)
+        // A tsv from an earlier run is replaced.
+        try "old\n".write(toFile: path, atomically: true, encoding: .utf8)
+        try table.write(to: path)
+        #expect(try PairTable.read(path).entries == table.entries)
+        // The partial file does not stay.
+        #expect(!FileManager.default.fileExists(atPath: path + ".part"))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["ru.tsv"])
+    }
+
     @Test func aChangedDictionaryChangesTheStamp() {
         #expect(PairTable.known([1, 2, 3]) == PairTable.known([1, 2, 3]))
         #expect(PairTable.known([1, 2, 3]) != PairTable.known([1, 2, 4]))

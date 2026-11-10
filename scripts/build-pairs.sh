@@ -65,8 +65,13 @@ fi
 
 swift build -c release --product perekey-model >/dev/null
 bin="$(swift build -c release --show-bin-path)/perekey-model"
+# The text file is large: it goes away when a step fails, too.
+text=""
+trap '[[ -z "$text" ]] || rm -f "$text"' EXIT
 for language in "${todo[@]}"; do
+    text="$CACHE/pairs/$language.txt"
     "$venv/bin/python" scripts/wiki-text.py --cache "$CACHE" "$language"
     "$bin" pairs --cache "$CACHE" --data "$PWD/data" --language "$language" --sources scripts/fetch-data.sh
-    rm -f "$CACHE/pairs/$language.txt"
+    rm -f "$text"
 done
+text=""

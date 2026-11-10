@@ -39,15 +39,20 @@ def write_text(files, path):
     articles = 0
     os.makedirs(os.path.dirname(path), exist_ok=True)
     part = path + ".part"
-    with open(part, "w", encoding="utf-8", newline="\n") as out:
-        for source in files:
-            for batch in pq.ParquetFile(source).iter_batches(columns=["text"], batch_size=1000):
-                for text in batch.column("text").to_pylist():
-                    line = article_line(text or "")
-                    if line:
-                        out.write(line + "\n")
-                        articles += 1
-    os.replace(part, path)
+    try:
+        with open(part, "w", encoding="utf-8", newline="\n") as out:
+            for source in files:
+                for batch in pq.ParquetFile(source).iter_batches(columns=["text"], batch_size=1000):
+                    for text in batch.column("text").to_pylist():
+                        line = article_line(text or "")
+                        if line:
+                            out.write(line + "\n")
+                            articles += 1
+        os.replace(part, path)
+    finally:
+        # After a failure (not after the replace) the half-written file goes away.
+        if os.path.exists(part):
+            os.remove(part)
     return articles
 
 

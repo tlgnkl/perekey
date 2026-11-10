@@ -58,6 +58,13 @@ jobs:
           scripts/release-notes.sh "$VERSION" >/dev/null
           grep -qE "^## \[${VERSION//./\\.}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md \
             || { echo "::error::Put the release date on \"## [$VERSION]\" in CHANGELOG.md"; exit 1; }
+      # The pip pins in scripts/wiki-freq.requirements.txt have wheels only for
+      # the Python versions that existed when they were pinned; the runner's own
+      # python3 moves on (3.15 has no pyarrow 25.0.1 wheel). Keep it in step with
+      # the pins.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
       - name: Cache the model data
         uses: actions/cache@v4
         with:

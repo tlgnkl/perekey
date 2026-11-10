@@ -170,7 +170,12 @@ do {
         var typoOptions = TypoCorrector.Options()
         if let score = flags["--typo-score"].flatMap(Int.init) { typoOptions.minScore = score }
         if let margin = flags["--typo-margin"].flatMap(Int.init) { typoOptions.margin = margin }
-        if let weight = flags["--typo-context"].flatMap(Double.init) { typoOptions.contextWeight = weight }
+        if let text = flags["--typo-context"] {
+            guard let weight = Double(text), weight.isFinite, weight >= 0 else {
+                fail("--typo-context: \"\(text)\" is not a weight (a number from 0 up, e.g. 0.5)")
+            }
+            typoOptions.contextWeight = weight
+        }
         let cyrillic = (cyrillicCode, flags["--uk-layout"] ?? [
             "uk": "Ukrainian-PC", "be": "Byelorussian", "kk": "Kazakh",
         ][cyrillicCode] ?? "Russian")
@@ -215,8 +220,14 @@ do {
         // Only a run that uses the word before says so: a run without it writes the file it always wrote.
         if typoOptions.contextWeight != 0 { json["typoContextWeight"] = typoOptions.contextWeight }
         if flags["--typo-context-sweep"] != nil {
-            let weights = flags["--typo-weights"].map { $0.split(separator: ",").compactMap { Double($0) } }
-                ?? [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5]
+            let weights = flags["--typo-weights"].map { list in
+                list.split(separator: ",").map { part in
+                    guard let weight = Double(part), weight.isFinite, weight >= 0 else {
+                        fail("--typo-weights: \"\(part)\" is not a weight (a number from 0 up, e.g. 0,0.5,1)")
+                    }
+                    return weight
+                }
+            } ?? [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5]
             let points = evaluation.typoContextSweep(items, weights: weights)
             let names = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos", "apps"]
             print("\ntypo context sweep: weight, wrong corrections per category (" + names.joined(separator: " ")

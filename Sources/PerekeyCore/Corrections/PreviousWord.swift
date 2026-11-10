@@ -5,42 +5,49 @@
 ///
 /// Reads the text of the previous word with the marks typed after it
 /// ("hello." with its period) the way the training text was read
-/// (`PairText` in `PerekeyModelKit`, which `PreviousWordTests` compares this
-/// with): a word is letters and digits with apostrophes and hyphens inside,
+/// (`PairText` in `PerekeyModelKit`; `PreviousWordAgreementTests` compares
+/// this with it): a word is letters and digits with apostrophes and hyphens inside,
 /// none at the ends; `. ! ? …` after the last word end the sentence, and the
 /// next word is the first of one. Commas, brackets and quotes do not.
 ///
 /// A single pass over the scalars, no allocation: it runs at the boundary of
-/// a word on the tap thread.
+/// a word on the tap thread. `Reader` takes the scalars one by one, so the
+/// caller needs no sequence of them (and no `String` for the text of a key).
 public enum PreviousWord {
     /// The fingerprint of the last word of `text`, `ModelFormat.sentenceStart`
     /// when a sentence ended after it, and nil when the text has no word.
     public static func fingerprint(of text: some Sequence<Unicode.Scalar>) -> UInt64? {
-        var word = ModelFormat.Fingerprint()
-        var last: UInt64?
-        var inWord = false
-        var ended = false
+        var reader = Reader()
+        for scalar in text { reader.add(scalar) }
+        return reader.result
+    }
+
+    /// The most joiners ("'", "-") kept between two letters: "a----b" is no
+    /// word of any language, and the fifth joiner ends the token. The same
+    /// limit as `PairText`'s.
+    static let joinerLimit = 4
+
+    /// The pass over the scalars of a text, one at a time.
+    public struct Reader {
+        private var word = ModelFormat.Fingerprint()
+        private var last: UInt64?
+        private var inWord = false
+        private var ended = false
         // Joiners after the last letter: part of the word when a letter follows.
-        var joiners: (UInt32, UInt32, UInt32, UInt32) = (0, 0, 0, 0)
-        var joinerCount = 0
+        private var joiners: (UInt32, UInt32, UInt32, UInt32) = (0, 0, 0, 0)
+        private var joinerCount = 0
 
-        func finishWord() {
-            guard inWord else { return }
-            last = word.value
-            word = ModelFormat.Fingerprint()
-            inWord = false
-            joinerCount = 0
-        }
-        func flushJoiners() {
-            for index in 0..<joinerCount {
-                let scalar = index == 0 ? joiners.0 : index == 1 ? joiners.1 : index == 2 ? joiners.2 : joiners.3
-                word.add(scalar == 0x2019 ? 0x27 : ModelFormat.fold(scalar))
-            }
-            joinerCount = 0
+        public init() {}
+
+        /// The fingerprint of the last word, the sentence start or nil, as of the scalars added so far.
+        public var result: UInt64? {
+            var copy = self
+            copy.finishWord()
+            return copy.ended ? ModelFormat.sentenceStart : copy.last
         }
 
-        for scalar in text {
-            switch kind(of: scalar.value) {
+        public mutating func add(_ scalar: Unicode.Scalar) {
+            switch PreviousWord.kind(of: scalar.value) {
             case .letter:
                 if inWord { flushJoiners() }
                 inWord = true
@@ -48,11 +55,10 @@ public enum PreviousWord {
                 ended = false
                 word.add(ModelFormat.fold(scalar.value))
             case .joiner:
-                guard inWord else { continue }
-                if joinerCount == 4 {
-                    // "a-----b" is no word of any language: end the token here.
+                guard inWord else { return }
+                if joinerCount == PreviousWord.joinerLimit {
                     finishWord()
-                    continue
+                    return
                 }
                 switch joinerCount {
                 case 0: joiners.0 = scalar.value
@@ -68,8 +74,22 @@ public enum PreviousWord {
                 if last != nil { ended = true }
             }
         }
-        finishWord()
-        return ended ? ModelFormat.sentenceStart : last
+
+        private mutating func finishWord() {
+            guard inWord else { return }
+            last = word.value
+            word = ModelFormat.Fingerprint()
+            inWord = false
+            joinerCount = 0
+        }
+
+        private mutating func flushJoiners() {
+            for index in 0..<joinerCount {
+                let scalar = index == 0 ? joiners.0 : index == 1 ? joiners.1 : index == 2 ? joiners.2 : joiners.3
+                word.add(scalar == 0x2019 ? 0x27 : ModelFormat.fold(scalar))
+            }
+            joinerCount = 0
+        }
     }
 
     private enum Kind {

@@ -200,8 +200,10 @@ struct WordJudge: Sendable {
     }
     /// The word before the one being judged, for the typo corrector
     /// (`wordBefore(_:layouts:)`); only set while a judgement runs, and only
-    /// when the corrector uses it.
-    private var previousForTypo: UInt64?
+    /// when the corrector uses it. Nil between judgements: the judgement
+    /// clears it on the way out and `forgetContext` clears it too, so no
+    /// word before outlives the text it was read from.
+    var previousForTypo: UInt64?
     /// The next word starts a sentence (after `. ! ?`, a line end or a focus
     /// change): a capital there is no name. Independent of the word itself.
     private(set) var sentenceStart = true
@@ -291,6 +293,7 @@ struct WordJudge: Sendable {
     /// The text before the caret is unknown now.
     mutating func forgetContext(newField: Bool) {
         recent.removeAll()
+        previousForTypo = nil
         languageRecorded = false
         if newField { sentenceStart = true }
     }
@@ -388,6 +391,7 @@ struct WordJudge: Sendable {
         counting = inContextApp(focus)
         contextAtJudge = context(focus: focus)
         previousForTypo = wordBefore(buffer, layouts: layouts)
+        defer { previousForTypo = nil }
         // The word after this key starts a sentence after `. ! ?` or a line
         // end. The space after "hello." judges the word again: the period is
         // in the buffer then.
@@ -530,8 +534,13 @@ struct WordJudge: Sendable {
         guard let corrector = typoCorrector, corrector.options.contextWeight > 0 else { return nil }
         guard let before = buffer.previousWord else { return sentenceStart ? ModelFormat.sentenceStart : nil }
         guard let first = before.first, let map = layouts[first.layout] else { return nil }
-        return PreviousWord.fingerprint(of: before.lazy.compactMap { map.text(for: $0.stroke) }
-            .flatMap(\.unicodeScalars))
+        var reader = PreviousWord.Reader()
+        for entry in before {
+            // One key types a short text: a `String` held inline, no heap.
+            guard let text = map.text(for: entry.stroke) else { continue }
+            for scalar in text.unicodeScalars { reader.add(scalar) }
+        }
+        return reader.result
     }
 
     /// What automatic switching decides about the word in the buffer, for the

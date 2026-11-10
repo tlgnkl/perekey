@@ -38,10 +38,14 @@ while [[ $# -gt 0 ]]; do
         --sweep) SWEEP+=(--sweep) ;;
         --typo-sweep) SWEEP+=(--typo-sweep) ;;
         --typo-context-sweep) SWEEP+=(--typo-context-sweep) ;;
-        --typo-context) SWEEP+=(--typo-context "$2"); shift ;;
+        --typo-context)
+            [[ $# -ge 2 && "$2" != --* ]] || { echo "eval: --typo-context needs a weight, e.g. --typo-context 0.5" >&2; exit 2; }
+            SWEEP+=(--typo-context "$2"); shift ;;
         --context-sweep) SWEEP+=(--context-sweep) ;;
         --prior-sweep) SWEEP+=(--prior-sweep) ;;
-        --model) MODEL="$2"; shift ;;
+        --model)
+            [[ $# -ge 2 ]] || { echo "eval: --model needs a file or a directory" >&2; exit 2; }
+            MODEL="$2"; shift ;;
         -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "eval: unknown argument $1" >&2; exit 2 ;;
     esac

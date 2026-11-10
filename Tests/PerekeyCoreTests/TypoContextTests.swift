@@ -261,4 +261,42 @@ private func fingerprint(_ text: String) -> UInt64 { ModelFixture.fingerprint(te
         desk.type("thenm ")
         #expect(desk.text == "привет thenm ")
     }
+
+    @Test func aClickForgetsTheWordBefore() {
+        var desk = Self.desk(weight: 1)
+        desk.type("to ")
+        desk.send(.click(time: desk.time))
+        desk.type("thenm ")
+        // Remembered, ("to", "then") would make "then"; forgotten, "then" and "them" tie and nothing is fixed.
+        #expect(desk.text == "to thenm ")
+    }
+
+    @Test func aClickEmptiesTheHistoryOfTheBuffer() {
+        var desk = Self.desk(weight: 1)
+        desk.type("of to ")
+        #expect(desk.machine.buffer.historyCount > 0)
+        desk.send(.click(time: desk.time))
+        #expect(desk.machine.buffer.historyCount == 0)
+        #expect(desk.machine.buffer.history.isEmpty)
+    }
+
+    @Test func aClickOnTheHintForgetsTheWordBeforeToo() {
+        var desk = Self.desk(weight: 1)
+        desk.type("of to ")
+        desk.send(.click(time: desk.time, onHint: true))
+        #expect(desk.machine.buffer.historyCount == 0)
+    }
+
+    @Test func noWordBeforeStaysBetweenJudgements() {
+        var desk = Self.desk(weight: 1)
+        desk.type("of thenm ")
+        #expect(desk.machine.judge.previousForTypo == nil)
+    }
+
+    @Test func forgettingTheContextDropsTheWordBefore() {
+        var judge = WordJudge(classifier: Desk.classifier)
+        judge.previousForTypo = TypoContextCorrectorTests.of
+        judge.forgetContext(newField: false)
+        #expect(judge.previousForTypo == nil)
+    }
 }

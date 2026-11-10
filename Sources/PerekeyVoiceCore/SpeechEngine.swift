@@ -18,11 +18,21 @@ public protocol SpeechEngine: VoiceModel {
     /// The model ends real speech with video sign-offs ("Продолжение
     /// следует…") it learned from subtitles: Whisper does.
     var addsSignOffs: Bool { get }
+    /// The engine uses the language of `transcribe(_:prompt:language:)`.
+    /// Parakeet does not: with no hint to check, nothing is built for it
+    /// and no second run is made.
+    var acceptsLanguageHint: Bool { get }
     /// One dictation, held in memory whole. Throws if not prepared.
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript
     /// The same, with words the model should spell as given (the user's
     /// dictionary). An engine without a prompt ignores it; Whisper reads it.
     func transcribe(_ audio: AudioBuffer16k, prompt: String?) async throws -> Transcript
+    /// The same, with the language of the speech when it is known (`code`,
+    /// "ru"): the model need not find it. nil lets the model find it. An
+    /// engine that cannot be told the language ignores it (Parakeet: its
+    /// `language` filters the script and would drop English words from
+    /// Russian speech).
+    func transcribe(_ audio: AudioBuffer16k, prompt: String?, language: String?) async throws -> Transcript
     /// One window of long audio (`FileTranscriber` cuts it), with timings
     /// from the window's start. `language` is the one found in the track's
     /// first window: Whisper otherwise detects it again in every window and
@@ -33,9 +43,14 @@ public protocol SpeechEngine: VoiceModel {
 
 extension SpeechEngine {
     public var addsSignOffs: Bool { false }
+    public var acceptsLanguageHint: Bool { true }
 
     public func transcribe(_ audio: AudioBuffer16k, prompt _: String?) async throws -> Transcript {
         try await transcribe(audio)
+    }
+
+    public func transcribe(_ audio: AudioBuffer16k, prompt: String?, language _: String?) async throws -> Transcript {
+        try await transcribe(audio, prompt: prompt)
     }
 
     /// An engine without timings cannot transcribe files.

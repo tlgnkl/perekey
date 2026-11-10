@@ -88,6 +88,14 @@ public enum VoiceAutoStop: Int, Hashable, Sendable, CaseIterable, Codable {
     public var seconds: Int? { self == .off ? nil : rawValue }
 }
 
+/// Where dictation takes its language from: «Язык диктовки».
+public enum DictationLanguageSetting: String, Hashable, Sendable, CaseIterable, Codable {
+    /// The model finds the language in every dictation.
+    case auto
+    /// The language of the app and the layout, when they agree; else as `auto`.
+    case app
+}
+
 /// How long the audio of a recorded call stays on disk: «Хранить звук созвонов».
 /// The raw values are those of `RecordingMeta.AudioRetention`.
 public enum CallAudioRetention: String, Hashable, Sendable, CaseIterable, Codable {
@@ -199,6 +207,12 @@ public struct VoiceSettings: Hashable, Sendable {
         didSet { unreadableKeys.remove(CodingKeys.switchesLayout.stringValue) }
     }
 
+    /// «Язык диктовки»: left to the model, or given to it from the app's
+    /// language when that and the layout agree (`DictationLanguageHint`).
+    public var dictationLanguage: DictationLanguageSetting {
+        didSet { unreadableKeys.remove(CodingKeys.dictationLanguage.stringValue) }
+    }
+
     /// Start and stop sounds.
     public var playsSounds: Bool {
         didSet { unreadableKeys.remove(CodingKeys.playsSounds.stringValue) }
@@ -263,7 +277,8 @@ public struct VoiceSettings: Hashable, Sendable {
                 autoStop: VoiceAutoStop = .seconds30, unload: VoiceUnload = .minutes60,
                 introAnswered: Bool = false, callAudioRetention: CallAudioRetention = .always,
                 includesRecordingsInBackup: Bool = false, callDiarize: Bool = true, callConsentShown: Bool = false,
-                insertion: [String: DictationInsertion] = [:])
+                insertion: [String: DictationInsertion] = [:],
+                dictationLanguage: DictationLanguageSetting = .auto)
     {
         self.isEnabled = isEnabled
         self.trigger = trigger
@@ -281,6 +296,7 @@ public struct VoiceSettings: Hashable, Sendable {
         self.callConsentShown = callConsentShown
         self.includesRecordingsInBackup = includesRecordingsInBackup
         self.insertion = insertion
+        self.dictationLanguage = dictationLanguage
     }
 
     /// How dictation goes into the app `bundleID`.
@@ -303,7 +319,7 @@ extension VoiceSettings: Codable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion, isEnabled, trigger, microphoneUID, microphoneName, model, transcriptionModel, switchesLayout,
              playsSounds, autoStop, unload, introAnswered, callAudioRetention, includesRecordingsInBackup,
-             callDiarize, callConsentShown, insertion
+             callDiarize, callConsentShown, insertion, dictationLanguage
     }
 
     public init(from decoder: any Decoder) throws {
@@ -345,6 +361,7 @@ extension VoiceSettings: Codable {
         callConsentShown = read(Bool.self, .callConsentShown) ?? defaults.callConsentShown
         includesRecordingsInBackup = read(Bool.self, .includesRecordingsInBackup) ?? defaults.includesRecordingsInBackup
         insertion = read([String: DictationInsertion].self, .insertion) ?? defaults.insertion
+        dictationLanguage = read(DictationLanguageSetting.self, .dictationLanguage) ?? defaults.dictationLanguage
         if let version = try? container.decodeIfPresent(Int.self, forKey: .schemaVersion), version > Self.schemaVersion {
             newerSchemaVersion = version
         }
@@ -377,6 +394,9 @@ extension VoiceSettings: Codable {
         }
         if !unreadableKeys.contains(CodingKeys.switchesLayout.stringValue) {
             try container.encode(switchesLayout, forKey: .switchesLayout)
+        }
+        if !unreadableKeys.contains(CodingKeys.dictationLanguage.stringValue) {
+            try container.encode(dictationLanguage, forKey: .dictationLanguage)
         }
         if !unreadableKeys.contains(CodingKeys.playsSounds.stringValue) {
             try container.encode(playsSounds, forKey: .playsSounds)

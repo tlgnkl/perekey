@@ -22,6 +22,14 @@ struct DictationPreferencesTests {
             playsSounds: false, silenceStop: .seconds(15), unloadAfter: .seconds(600)))
     }
 
+    @Test func theLanguageFollowsTheAppOnlyByTheSetting() {
+        #expect(!DictationPreferences(VoiceSettings()).languageFromApp)
+        var settings = VoiceSettings()
+        settings.dictationLanguage = .app
+        #expect(DictationPreferences(settings).languageFromApp)
+        #expect(!DictationPreferences().languageFromApp)
+    }
+
     @Test func offAndNever() {
         var settings = VoiceSettings()
         settings.autoStop = .off

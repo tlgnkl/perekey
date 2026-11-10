@@ -23,6 +23,9 @@
 #   heavy     large optional held-out source: ru.stackoverflow.com (~1 GB)
 #   fallback  needs a legal decision before use: OpenCorpora (ru), Wiktionary
 #             forms (uk, ~300 MB)
+#   speech    FLEURS (Google, CC BY 4.0), ru and en, the dev split: 50 recordings
+#             with their reference text per language, for `perekey-voice-probe
+#             score`. Local measure only, not in CI, not in the app (~360 MB)
 #   all       model + pairs + heldout
 #
 # Environment:
@@ -47,10 +50,13 @@ ESDB_REL=rel-2026.02.25                                 # en-wl/wordlist (SCOWL 
 ESDB_VER=2026.02.25
 WIKI_REV=b04c8d1ceb2f5cd4588862100d08de323dccfbaa       # huggingface wikimedia/wikipedia
 WIKI_SNAPSHOT=20231101
+FLEURS_REV=70bb2e84b976b7e960aa89f1c648e09c59f894dd     # huggingface google/fleurs, CC BY 4.0
+SPEECH_COUNT=50                                         # recordings kept per language
 
 GH_RAW=https://raw.githubusercontent.com
 HF_WIKI="https://huggingface.co/datasets/wikimedia/wikipedia/resolve/$WIKI_REV/$WIKI_SNAPSHOT"
 IA_SE=https://archive.org/download/stackexchange
+HF_FLEURS="https://huggingface.co/datasets/google/fleurs/resolve/$FLEURS_REV/data"
 
 # group|path in cache|url|sha256 ("-" = rolling source, not pinned)
 SOURCES="
@@ -87,6 +93,10 @@ heldout|stackexchange/rus.stackexchange.com.7z|$IA_SE/rus.stackexchange.com.7z|f
 heldout|stackexchange/ukrainian.stackexchange.com.7z|$IA_SE/ukrainian.stackexchange.com.7z|8cf51f9d9e69ed9e05870002a440628cccc99074ebc842aeec7439b7ec21636c
 heldout|stackexchange/license.txt|$IA_SE/license.txt|d36393108ad6b64f97a7b17dd873fe670ace6aa948975ef546a744481678e545
 heldout|geonames/cities15000.zip|https://download.geonames.org/export/dump/cities15000.zip|-
+speech|fleurs/ru_ru.dev.tsv|$HF_FLEURS/ru_ru/dev.tsv|25d9dc88a7533fc0f303354a8e6d3c8186c557229c9a0024487090a11226171e
+speech|fleurs/en_us.dev.tsv|$HF_FLEURS/en_us/dev.tsv|9d57ee7e91e9d4c92edb39f6bbea668ef8dc2a3ff96eb510d5580b2ad05d17ec
+speech|fleurs/ru_ru.dev.tar.gz|$HF_FLEURS/ru_ru/audio/dev.tar.gz|4dc533cd0f312f749bd6d0fe968f3183288d938e07ed97dc141d9f10570457f9
+speech|fleurs/en_us.dev.tar.gz|$HF_FLEURS/en_us/audio/dev.tar.gz|2658fda72f199e12676ecac9415094667a4e14e149b146e568ea00b2a2f0954c
 heavy|stackexchange/ru.stackoverflow.com.7z|$IA_SE/ru.stackoverflow.com.7z|sha1:32a8897c021e9c943b93f8fd70dfafb180925451
 fallback|opencorpora/dict.opcorpora.xml.bz2|https://opencorpora.org/files/export/dict/dict.opcorpora.xml.bz2|-
 fallback|wiktionary/kaikki-uk.jsonl|https://kaikki.org/dictionary/Ukrainian/kaikki.org-dictionary-Ukrainian.jsonl|-
@@ -167,11 +177,11 @@ if [[ $# -eq 0 ]]; then
 fi
 for arg in "$@"; do
     case "$arg" in
-        lexicon|text|pairs|wikifreq|heldout|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
+        lexicon|text|pairs|wikifreq|heldout|speech|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
         model) GROUPS_WANTED+=(lexicon text pairs wikifreq) ;;
         all) GROUPS_WANTED+=(lexicon text pairs wikifreq heldout) ;;
-        -h|--help) sed -n '3,35p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, heavy, fallback, all)" ;;
+        -h|--help) sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, speech, heavy, fallback, all)" ;;
     esac
 done
 
@@ -183,6 +193,54 @@ while IFS='|' read -r group path url sha; do
     want_group "$group" || continue
     fetch "$path" "$url" "$sha"
 done <<< "$SOURCES"
+
+# The cache counts as whole only if every file named in `refs.tsv` is there.
+speech_cache_whole() { # folder
+    [[ -s "$1/refs.tsv" ]] || return 1
+    local file
+    while IFS=$'\t' read -r file _; do
+        [[ -s "$1/$file" ]] || return 1
+    done < "$1/refs.tsv"
+}
+
+# The speech set: the first SPEECH_COUNT recordings of different sentences, in
+# the order of the split's table, with their reference text. The audio stays
+# in $CACHE/speech/<ru|en>/; `refs.tsv` there is "file<TAB>reference".
+# Extraction goes to a side folder that replaces the cache in one `mv`, with
+# `refs.tsv` written last: a failed `tar` leaves no half-filled cache.
+extract_speech() { # language code (ru, en), fleurs name (ru_ru, en_us)
+    local lang="$1" name="$2" out="$CACHE/speech/$1"
+    local table="$CACHE/fleurs/$name.dev.tsv" archive="$CACHE/fleurs/$name.dev.tar.gz"
+    if speech_cache_whole "$out"; then
+        echo "ok      speech/$lang ($(wc -l < "$out/refs.tsv" | tr -d ' ') recordings)"
+        return
+    fi
+    local side="$out.new"
+    rm -rf "$out" "$side" "$side.refs" "$side.list"
+    mkdir -p "$side"
+    # Column 1 is the sentence id, 2 the file, 3 the reference as written.
+    awk -F'\t' -v n="$SPEECH_COUNT" '!seen[$1]++ { print $2 "\t" $3; if (++k == n) exit }' "$table" > "$side.refs"
+    # The archive holds dev/<file>; --strip-components=1 drops "dev/" (bsdtar and GNU tar alike).
+    cut -f1 "$side.refs" | sed 's|^|dev/|' > "$side.list"
+    if ! tar -xzf "$archive" -C "$side" --strip-components=1 -T "$side.list"; then
+        rm -rf "$side" "$side.list" "$side.refs"
+        echo "FAILED  speech/$lang: tar could not extract $archive" >&2
+        return 1
+    fi
+    mv "$side.refs" "$side/refs.tsv"
+    rm -f "$side.list"
+    if ! speech_cache_whole "$side"; then
+        rm -rf "$side"
+        echo "FAILED  speech/$lang: files named in the table are missing from $archive" >&2
+        return 1
+    fi
+    mv "$side" "$out"
+    echo "get     speech/$lang ($(wc -l < "$out/refs.tsv" | tr -d ' ') recordings)"
+}
+if want_group speech; then
+    extract_speech ru ru_ru
+    extract_speech en en_us
+fi
 
 # Hashes of everything in the cache, pinned and rolling, for the model builder.
 (

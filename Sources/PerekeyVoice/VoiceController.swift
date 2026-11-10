@@ -182,6 +182,10 @@ public final class VoiceController {
         public var prompt: @MainActor () -> String?
         /// A finished dictation, for the history and the statistics. Never logged.
         public var record: @MainActor (DictationRecord) -> Void
+        /// What the language hint reads outside the controller, for a
+        /// dictation into the app `bundleID`; nil when nothing is known.
+        /// Asked only while «Язык диктовки» is «как в программе».
+        public var languageSigns: @MainActor (_ bundleID: String) -> DictationLanguageSigns?
 
         public init(sessionChanged: @escaping @MainActor (Bool) -> Void = { _ in },
                     holdIsDown: @escaping @MainActor () -> Bool = { true },
@@ -191,7 +195,8 @@ public final class VoiceController {
                     edit: @escaping @MainActor (String, String?, Bool?) -> String = { text, _, _ in text },
                     dictionary: @escaping @MainActor (String) -> String = { $0 },
                     prompt: @escaping @MainActor () -> String? = { nil },
-                    record: @escaping @MainActor (DictationRecord) -> Void = { _ in })
+                    record: @escaping @MainActor (DictationRecord) -> Void = { _ in },
+                    languageSigns: @escaping @MainActor (String) -> DictationLanguageSigns? = { _ in nil })
         {
             self.sessionChanged = sessionChanged
             self.holdIsDown = holdIsDown
@@ -202,7 +207,15 @@ public final class VoiceController {
             self.dictionary = dictionary
             self.prompt = prompt
             self.record = record
+            self.languageSigns = languageSigns
         }
+    }
+
+    /// The hint for one dictation, and what is needed to remember its language.
+    private struct HintPlan {
+        var hint: LanguageHint?
+        var app: String?
+        var dominant: (@Sendable (String) -> String?)?
     }
 
     public typealias Sleep = @Sendable (Duration) async throws -> Void
@@ -223,6 +236,8 @@ public final class VoiceController {
     @ObservationIgnored private let secureInput: (any DictationSecureInputRules)?
     @ObservationIgnored private let makeEngine: (String) -> (any SpeechEngine)?
     @ObservationIgnored private let hooks: Hooks
+    /// The language of the last dictation into each app, in this run only.
+    @ObservationIgnored private var lastLanguages = LastDictationLanguages()
     @ObservationIgnored private let sleep: Sleep
     @ObservationIgnored private let limitSeconds: Int
     @ObservationIgnored private var preferences: DictationPreferences
@@ -686,6 +701,9 @@ public final class VoiceController {
         work.recognition = Task(priority: .userInitiated) {
             await work.stopping?.value
             let audio = AudioBuffer16k(work.audio.samples)
+            // The app and the layout are read here, after the recording, not at its
+            // start: a switch of either during the speech changes the hint.
+            let plan = await hintPlan(for: work.target?.value, engine: work.model?.engine)
             do {
                 guard let engine = work.model?.engine, let loading = work.loading else {
                     throw VoiceModelFailure.unknownModel(preferences.modelID)
@@ -694,17 +712,17 @@ public final class VoiceController {
                 let outcome: RecognitionOutcome
                 if work.isCloud, await keepsAudioHere(work) {
                     // A password field or Secure Input: the audio stays on this Mac.
-                    outcome = try await recognizeHere(audio, detector: detecting, prompt: prompt)
+                    outcome = try await recognizeHere(audio, detector: detecting, prompt: prompt, hint: plan.hint)
                     work.heardHere = preferences.modelID
                 } else if work.isCloud {
                     do {
                         try await loading.value
                         outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting,
-                                                                           prompt: prompt)
+                                                                           prompt: prompt, hint: plan.hint)
                     } catch where !Task.isCancelled && !(error is CancellationError) {
                         log.error("cloud speech: \(String(describing: error), privacy: .public)")
                         do {
-                            outcome = try await recognizeHere(audio, detector: detecting, prompt: prompt)
+                            outcome = try await recognizeHere(audio, detector: detecting, prompt: prompt, hint: plan.hint)
                             work.heardHere = preferences.modelID
                             work.fallback = .cloudSpeechFailed
                         } catch {
@@ -720,8 +738,9 @@ public final class VoiceController {
                 } else {
                     try await loading.value
                     outcome = try await DictationRecognition.recognize(audio, engine: engine, detector: detecting,
-                                                                       prompt: prompt)
+                                                                       prompt: prompt, hint: plan.hint)
                 }
+                remember(outcome, plan)
                 release(work)
                 handle(.recognized(session, outcome))
             } catch {
@@ -766,22 +785,13 @@ public final class VoiceController {
     }
 
     /// The dictation by the model of the voice settings, on this Mac.
-    private func recognizeHere(_ audio: AudioBuffer16k, detector: (any SpeechDetector)?, prompt: String?) async throws
-        -> RecognitionOutcome
+    private func recognizeHere(_ audio: AudioBuffer16k, detector: (any SpeechDetector)?, prompt: String?,
+                               hint: LanguageHint?) async throws -> RecognitionOutcome
     {
         guard CloudSpeechModel(id: preferences.modelID) == nil, let local = model(for: preferences.modelID) else {
             throw VoiceModelFailure.unknownModel(preferences.modelID)
         }
-        try await local.residency.begin()
-        do {
-            let outcome = try await DictationRecognition.recognize(audio, engine: local.engine, detector: detector,
-                                                                   prompt: prompt)
-            await local.residency.end()
-            return outcome
-        } catch {
-            await local.residency.end()
-            throw error
-        }
+        return try await recognize(audio, by: local, detector: detector, prompt: prompt, hint: hint)
     }
 
     /// "Повторить" in the HUD: the audio of the last dictation, whose cloud
@@ -792,6 +802,7 @@ public final class VoiceController {
         guard !isShutDown, machine.state == .idle, let retained, hud == .failed(.cloudSpeech) else { return }
         hud = .recognizing(preparingModel: false)
         let prompt = hooks.prompt()
+        let plan = hintPlan(for: retained.target, engine: retained.model.engine)
         retrying = Task {
             let privacy = currentPrivacy(of: retained.target)
             var model = retained.model.engine.id
@@ -799,7 +810,7 @@ public final class VoiceController {
                 let outcome: RecognitionOutcome
                 if privacy.isPrivate {
                     do {
-                        outcome = try await recognizeHere(retained.audio, detector: nil, prompt: prompt)
+                        outcome = try await recognizeHere(retained.audio, detector: nil, prompt: prompt, hint: plan.hint)
                         model = preferences.modelID
                     } catch {
                         // No model here, and the cloud may not hear a password.
@@ -810,10 +821,12 @@ public final class VoiceController {
                         return
                     }
                 } else {
-                    outcome = try await recognize(retained.audio, by: retained.model, prompt: prompt)
+                    outcome = try await recognize(retained.audio, by: retained.model, detector: nil, prompt: prompt,
+                                                  hint: plan.hint)
                 }
                 guard isCurrentRetry else { return }
                 self.retained = nil
+                remember(outcome, plan)
                 guard case let .text(text) = outcome else {
                     hud = .nothingHeard
                     return
@@ -838,20 +851,43 @@ public final class VoiceController {
     /// or by voice going off.
     private var isCurrentRetry: Bool { !Task.isCancelled && !isShutDown && machine.state == .idle }
 
-    /// `audio` by `model`, holding it in memory meanwhile.
-    private func recognize(_ audio: AudioBuffer16k, by model: Model, prompt: String?) async throws
-        -> RecognitionOutcome
+    /// `audio` by `model`, holding it in memory meanwhile: the one place that
+    /// pairs the residency's `begin()` and `end()` for a recognition outside
+    /// the session's own load.
+    private func recognize(_ audio: AudioBuffer16k, by model: Model, detector: (any SpeechDetector)?, prompt: String?,
+                           hint: LanguageHint?) async throws -> RecognitionOutcome
     {
         try await model.residency.begin()
         do {
-            let outcome = try await DictationRecognition.recognize(audio, engine: model.engine, detector: nil,
-                                                                   prompt: prompt)
+            let outcome = try await DictationRecognition.recognize(audio, engine: model.engine, detector: detector,
+                                                                   prompt: prompt, hint: hint)
             await model.residency.end()
             return outcome
         } catch {
             await model.residency.end()
             throw error
         }
+    }
+
+    /// The language hint for a dictation into `target`'s app: only while
+    /// «Язык диктовки» is «как в программе», and only when the app's
+    /// language, the layout's and the last dictation into the app agree
+    /// (`DictationLanguageHint`).
+    /// None for an engine that ignores it (`acceptsLanguageHint`).
+    private func hintPlan(for target: (any Sendable)?, engine: (any SpeechEngine)?) -> HintPlan {
+        guard preferences.languageFromApp, engine?.acceptsLanguageHint ?? true, let app = paster.application(of: target)?.bundleID,
+              let signs = hooks.languageSigns(app)
+        else { return HintPlan() }
+        let language = DictationLanguageHint.hint(
+            appLanguage: signs.appLanguage, layoutLanguage: signs.layoutLanguage, previous: lastLanguages.language(app: app))
+        return HintPlan(hint: language.map { LanguageHint(language: $0, dominant: signs.dominant) }, app: app,
+                        dominant: signs.dominant)
+    }
+
+    /// Keeps the language of a dictation into the app, for the next hint.
+    private func remember(_ outcome: RecognitionOutcome, _ plan: HintPlan) {
+        guard let app = plan.app, let dominant = plan.dominant, case let .text(text) = outcome else { return }
+        lastLanguages.record(language: dominant(text), app: app)
     }
 
     /// Whether "Повторить" has audio to send.

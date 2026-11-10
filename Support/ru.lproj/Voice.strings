@@ -22,6 +22,9 @@
 "Model" = "Модель";
 "%@ (not downloaded)" = "%@ (не скачана)";
 "Switch the layout to the language of the phrase" = "Переключать раскладку на язык фразы";
+"Dictation language" = "Язык диктовки";
+"As in the app: when the app's language and the layout agree, the model is told it. Otherwise it finds the language itself." = "Как в программе: если язык программы и раскладка совпадают, модель получает этот язык. Иначе она определяет язык сама.";
+"As in the app" = "Как в программе";
 "Sounds" = "Звуки";
 "Stop by itself after" = "Останавливать запись через";
 "A long recording stops and is typed at this limit." = "Долгая запись остановится и напечатается, когда выйдет это время.";

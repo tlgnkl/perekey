@@ -360,13 +360,32 @@ if typosContextP99 > 1_000_000 {
     failed = true
 }
 
+// The same session with words that are words looked for (`corrections.realWords`,
+// off by default): every judged word reads the word before it and looks the
+// typed pair up; a dictionary word with no pair tries its swaps and neighbouring keys.
+var typosRealWords = correctionSession(
+    rounds: 6000, settings: Settings(autoswitch: false, corrections: TextCorrections(realWords: true),
+                                     typoCorrection: true),
+    words: typoWords)
+typosRealWords.samples.sort()
+let typosRealWordsMean = typosRealWords.samples.reduce(0, +) / Double(typosRealWords.samples.count)
+let typosRealWordsP99 = typosRealWords.samples[typosRealWords.samples.count * 99 / 100]
+print(String(format: "typos with words that are words: %d events, %d corrections: mean %.0f ns, p99 %.0f ns, max %.0f ns",
+             typosRealWords.events, typosRealWords.corrections, typosRealWordsMean, typosRealWordsP99,
+             typosRealWords.samples.last!))
+if typosRealWordsP99 > 1_000_000 {
+    print("FAIL: typo session with words that are words: p99 exceeds the 1 ms tap callback budget")
+    failed = true
+}
+
 if arguments.count >= 3 {
     try JSONEncoder().encode(["mean": mean, "p99": p99, "classifier": classifierMean, "classifierP99": classifierP99,
                               "autoswitch": autoswitchMean, "autoswitchP99": autoswitchP99,
                               "autoswitch3": autoswitch3Mean, "autoswitch3P99": autoswitch3P99,
                               "corrector": correctorMean, "correctorP99": correctorP99,
                               "typos": typosMean, "typosP99": typosP99,
-                              "typosContext": typosContextMean, "typosContextP99": typosContextP99])
+                              "typosContext": typosContextMean, "typosContextP99": typosContextP99,
+                              "typosRealWords": typosRealWordsMean, "typosRealWordsP99": typosRealWordsP99])
         .write(to: URL(fileURLWithPath: arguments[2]))
 }
 exit(failed ? 1 : 0)

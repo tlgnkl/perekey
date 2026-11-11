@@ -42,7 +42,7 @@ import Testing
     static let addedSince0_1_1: Set<String> = ["menuBarIcon", "menuBarVisibility", "menu"]
 
     /// Keys of `corrections` that a later version added.
-    static let addedToCorrectionsSince0_1_1: Set<String> = ["hyphen"]
+    static let addedToCorrectionsSince0_1_1: Set<String> = ["hyphen", "realWords"]
 
     /// Keys of `words` that a later version added, and of its learned words.
     static let addedToWordsSince0_1_1: Set<String> = ["candidates", "learning"]
@@ -117,6 +117,16 @@ import Testing
         let resaved = try Self.encode(legacy)
         // 0.1.1 reads the file without error and writes back everything it knows;
         // the stand-in keeps the new switch because it shares `TextCorrections`.
+        #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true))
+        #expect(try JSONDecoder().decode(AppSettings.self, from: resaved) == settings)
+    }
+
+    @Test func realWordsSwitchSurvivesSavingIn0_1_1() throws {
+        var settings = Self.filled
+        settings.corrections.realWords = true
+        let saved = try Self.encode(settings)
+        let legacy = try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: saved)
+        let resaved = try Self.encode(legacy)
         #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true))
         #expect(try JSONDecoder().decode(AppSettings.self, from: resaved) == settings)
     }

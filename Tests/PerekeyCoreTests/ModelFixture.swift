@@ -93,8 +93,16 @@ enum ModelFixture {
         try! LanguageModel(bytes: build(englishPairs: pairs))
     }
 
+    /// The fixture plus English words with their ranks and pairs of English words.
+    static func model(withEnglishWords words: [(String, UInt8)],
+                      pairs: [(String, String, UInt8)]) -> LanguageModel
+    {
+        try! LanguageModel(bytes: build(englishWords: words, englishPairs: pairs))
+    }
+
     private static func build(rareEnglish: [String] = [], russianForms: [String] = [],
                               russianWords: [(String, UInt8)] = [], hyphenByRule extra: [String] = [],
+                              englishWords: [(String, UInt8)] = [],
                               englishPairs: [(String, String, UInt8)] = []) -> [UInt8]
     {
         var builder = ModelBuilder()
@@ -104,7 +112,7 @@ enum ModelFixture {
         for (word, rank) in russian + russianWords {
             builder.addForm(word, language: "ru", rank: rank, weight: Double(rank))
         }
-        for (word, rank) in english {
+        for (word, rank) in english + englishWords {
             builder.addForm(word, language: "en", rank: rank, weight: Double(rank))
         }
         for word in russianForms { builder.addForm(word, language: "ru", rank: 104, weight: 0) }

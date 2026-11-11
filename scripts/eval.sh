@@ -4,7 +4,8 @@
 # Measures the classifier on the held-out corpus (docs/classifier.md).
 #
 # Usage: scripts/eval.sh [--full] [--sweep] [--typo-sweep] [--typo-context-sweep] [--typo-context <weight>]
-#                       [--context-sweep] [--prior-sweep] [--model <file or dir>]
+#                       [--real-words] [--real-word-sweep] [--context-sweep] [--prior-sweep]
+#                       [--model <file or dir>]
 #
 #   --full    the full corpus (about 1 M words) instead of the 50 k CI sample
 #   --sweep   print the ROC points over thresholds too
@@ -12,6 +13,10 @@
 #   --typo-context-sweep  print the typo points over the weight of the word
 #             before the typo too (docs/corrections.md)
 #   --typo-context  run the typo correction with that weight of the word before
+#   --real-words  add the category realword (words typed as other words, a tenth of the
+#             sample) and let the corrector replace words of the dictionary too
+#             (docs/classifier.md, «Опечатки-слова»)
+#   --real-word-sweep  the same, with the points over the lift bar and the rank slack too
 #   --context-sweep  print the points over the context weights too
 #   --prior-sweep    print the points over the app prior's scale and limit too
 #   --model   a model file or a directory of them (default: builds them with
@@ -32,6 +37,7 @@ CACHE="${PEREKEY_DATA_CACHE:-$PWD/.build/data-cache}"
 WORDS=50000
 SWEEP=()
 MODEL=""
+REAL_WORDS=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --full) WORDS=1000000 ;;
@@ -41,12 +47,14 @@ while [[ $# -gt 0 ]]; do
         --typo-context)
             [[ $# -ge 2 && "$2" != --* ]] || { echo "eval: --typo-context needs a weight, e.g. --typo-context 0.5" >&2; exit 2; }
             SWEEP+=(--typo-context "$2"); shift ;;
+        --real-words) REAL_WORDS=1; SWEEP+=(--real-words) ;;
+        --real-word-sweep) REAL_WORDS=1; SWEEP+=(--real-word-sweep) ;;
         --context-sweep) SWEEP+=(--context-sweep) ;;
         --prior-sweep) SWEEP+=(--prior-sweep) ;;
         --model)
             [[ $# -ge 2 ]] || { echo "eval: --model needs a file or a directory" >&2; exit 2; }
             MODEL="$2"; shift ;;
-        -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "eval: unknown argument $1" >&2; exit 2 ;;
     esac
     shift
@@ -67,8 +75,14 @@ bin="$(swift build -c release --show-bin-path)/perekey-eval"
 mkdir -p .build/eval
 # The name changes with the corpus format: an old file has no context.
 corpus=".build/eval/corpus-$WORDS-seed1-words.tsv"
+REAL_ARGS=()
+if [[ "$REAL_WORDS" == 1 ]]; then
+    # The same words and, after all of them, the category realword.
+    corpus=".build/eval/corpus-$WORDS-seed1-words-realword.tsv"
+    REAL_ARGS=(--real-word-items $((WORDS / 10)) --model "$MODEL")
+fi
 if [[ ! -f "$corpus" ]]; then
-    "$bin" corpus --cache "$CACHE" --code "$PWD/Sources" --out "$corpus" --words "$WORDS" --seed 1
+    "$bin" corpus --cache "$CACHE" --code "$PWD/Sources" --out "$corpus" --words "$WORDS" --seed 1 ${REAL_ARGS[@]+"${REAL_ARGS[@]}"}
 fi
 "$bin" run --model "$MODEL" --corpus "$corpus" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" \
     --json ".build/eval/result-$WORDS.json" ${SWEEP[@]+"${SWEEP[@]}"}

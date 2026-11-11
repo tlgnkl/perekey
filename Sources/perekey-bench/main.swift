@@ -198,8 +198,9 @@ let typoWords: [(String, LayoutMap)] = [
 #if PEREKEY_RECORD
 /// The typing recorder's buffer, while a session runs with it
 /// (PEREKEY_RECORD): each event goes into it right after the machine, as in
-/// the engine, inside the timed span. A full batch is taken and counted as
-/// written at once: memory only, no disk, as the tap thread has it.
+/// the engine, inside the timed span. A full batch is taken in the span (the
+/// tap thread's part) and given back emptied, as the recorder's queue does,
+/// after it: memory only, no disk.
 var recordingBuffer: RecordingBuffer?
 var recordedEntries = 0
 #endif
@@ -217,7 +218,8 @@ func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutM
     _ = machine.handle(.focusChanged(Focus(bundleID: "app.perekey.bench")))
     #if PEREKEY_RECORD
     // The recording starts at a quiet point, as in the app: this one.
-    _ = recordingBuffer?.record(.focusChanged(Focus(bundleID: "app.perekey.bench")), Output(), machine: { machine })
+    _ = recordingBuffer?.record(.focusChanged(Focus(bundleID: "app.perekey.bench")), Output(),
+                                quiet: { machine.isQuiet }, snapshot: { (machine.snapshot, machine.classifier) })
     #endif
     var time = 0.0
     var held: [KeyEvent] = []
@@ -228,12 +230,21 @@ func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutM
         let start = clock.now
         let output = machine.handle(event)
         #if PEREKEY_RECORD
-        if recordingBuffer?.record(event, output, machine: { machine }) == true, let batch = recordingBuffer?.take() {
-            recordedEntries += batch.count
-            recordingBuffer?.written(batch.count, newDay: false)
+        var batch: [RecordingBuffer.Entry] = []
+        if recordingBuffer?.record(event, output, quiet: { machine.isQuiet },
+                                   snapshot: { (machine.snapshot, machine.classifier) }) == true
+        {
+            batch = recordingBuffer?.take() ?? []
         }
         #endif
         run.samples.append(nanoseconds(clock.now - start))
+        #if PEREKEY_RECORD
+        if !batch.isEmpty {
+            recordedEntries += batch.count
+            batch.removeAll(keepingCapacity: true)
+            recordingBuffer?.written(batch, newDay: false)
+        }
+        #endif
         run.events += 1
         for effect in output.effects {
             switch effect {

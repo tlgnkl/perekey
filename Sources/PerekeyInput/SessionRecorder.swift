@@ -95,9 +95,14 @@ public struct SessionFolder: Sendable {
 /// serial queue of its own at utility QoS. Nothing here runs on the tap thread.
 ///
 /// A file starts with its header and a snapshot. Steps and gaps that come
-/// while no file is open (after erasing) are dropped: the buffer starts a new
-/// segment, and its snapshot starts the file. A new file starts at each
-/// launch, and on the first quiet point of a new day.
+/// while no file is open (after erasing, or when it could not be created or
+/// written) are dropped: the buffer starts a new segment, and its snapshot
+/// starts the file. A new file starts at each launch, and on the first quiet
+/// point of a new day. A batch that could not be written is answered with
+/// `failed`, so that the buffer (and the badge in the menu bar) know.
+///
+/// A file lives 30 days (`SessionFolder.lifetime`): the old ones go at launch
+/// and again when the day changes while the app runs.
 ///
 /// Nothing typed goes to the log: it gets counts and error codes only.
 ///
@@ -120,6 +125,22 @@ public final class SessionRecorder: @unchecked Sendable {
     // On `queue`
     private var handle: FileHandle?
     private var day: String?
+    /// The day the folder was last swept of old files.
+    private var sweptDay: String?
+    /// The batch being written could not be created or written to a file.
+    private var failed = false
+
+    /// The recorder's answer about a batch.
+    public struct Written: Sendable {
+        /// The array of the batch, empty and with its room: for the buffer to reuse.
+        public var batch: [RecordingBuffer.Entry]
+        /// How many entries it held.
+        public var count: Int
+        /// The day of the file is over.
+        public var newDay: Bool
+        /// A file could not be created, or writing to it failed.
+        public var failed: Bool
+    }
 
     /// - Parameters:
     ///   - perekey: the version of Perekey, for the header.
@@ -142,17 +163,39 @@ public final class SessionRecorder: @unchecked Sendable {
     }
 
     /// Writes a batch on the recorder's queue, then calls `done` there with
-    /// how many entries it took and whether the day of the file is over.
-    /// `close`: the recording stops; the file is closed after the batch.
+    /// the answer (`Written`). `close`: the recording stops; the file is closed
+    /// after the batch.
+    ///
+    /// The one hop to the queue per batch is all the tap thread pays here: a
+    /// closure the size of a few pointers, once for 256 entries or a second.
     public func write(_ batch: [RecordingBuffer.Entry], close: Bool = false,
-                      done: @escaping @Sendable (_ count: Int, _ newDay: Bool) -> Void)
+                      done: @escaping @Sendable (Written) -> Void)
     {
         queue.async { [self] in
-            append(batch)
-            if close { closeFile() }
-            let newDay = day.map { $0 != dayName(now()) } ?? false
-            done(batch.count, newDay)
+            done(perform(batch, close: close))
         }
+    }
+
+    /// Writes the last batch and closes the file before it returns: for the
+    /// quit of the app, which must not leave the batch to a queue that dies
+    /// with the process. Never on the tap thread's hot path.
+    @discardableResult
+    public func finish(_ batch: [RecordingBuffer.Entry]) -> Written {
+        queue.sync { perform(batch, close: true) }
+    }
+
+    private func perform(_ batch: [RecordingBuffer.Entry], close: Bool) -> Written {
+        failed = false
+        append(batch)
+        if close { closeFile() }
+        let today = dayName(now())
+        let newDay = day.map { $0 != today } ?? false
+        sweepIfNewDay(today)
+        // The array goes back for reuse, emptied here: the snapshots in it
+        // are released on this queue, not on the tap thread.
+        var used = batch
+        used.removeAll(keepingCapacity: true)
+        return Written(batch: used, count: batch.count, newDay: newDay, failed: failed)
     }
 
     /// Closes the file and removes every recording, after the batches
@@ -165,12 +208,20 @@ public final class SessionRecorder: @unchecked Sendable {
         }
     }
 
-    /// Removes the recordings older than `SessionFolder.lifetime`.
+    /// Removes the recordings older than `SessionFolder.lifetime`. The
+    /// recorder does it again by itself when the day changes.
     public func removeExpired() {
-        queue.async { [self] in
-            let removed = folder.removeExpired(now: now())
-            if removed > 0 { log.info("Removed \(removed, privacy: .public) old recordings") }
-        }
+        queue.async { [self] in sweep(dayName(now())) }
+    }
+
+    private func sweepIfNewDay(_ today: String) {
+        if sweptDay != today { sweep(today) }
+    }
+
+    private func sweep(_ today: String) {
+        sweptDay = today
+        let removed = folder.removeExpired(now: now())
+        if removed > 0 { log.info("Removed \(removed, privacy: .public) old recordings") }
     }
 
     /// Waits for the batches handed over so far (tests).
@@ -195,7 +246,7 @@ public final class SessionRecorder: @unchecked Sendable {
             case let .gap(reason):
                 line = .gap(reason)
             }
-            // Outside a file (erased, or it could not be opened) the lines go nowhere.
+            // Outside a file (erased, or it could not be opened: `failed`) the lines go nowhere.
             guard handle != nil else { continue }
             do {
                 data.append(try encoder.encode(line))
@@ -212,7 +263,8 @@ public final class SessionRecorder: @unchecked Sendable {
         do {
             try handle.write(contentsOf: data)
         } catch {
-            log.error("Writing the recording failed: \((error as NSError).code, privacy: .public); it stops until the next segment")
+            log.error("Writing the recording failed: \((error as NSError).code, privacy: .public); it stops until the next file")
+            failed = true
             closeFile()
         }
         data.removeAll(keepingCapacity: true)
@@ -229,6 +281,7 @@ public final class SessionRecorder: @unchecked Sendable {
             day = name
         } catch {
             log.error("A recording file could not be created: \((error as NSError).code, privacy: .public)")
+            failed = true
         }
     }
 

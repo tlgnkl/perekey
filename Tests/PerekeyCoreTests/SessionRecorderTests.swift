@@ -12,13 +12,21 @@ import Testing
 /// `SessionRecorder` on its queue), driven by the test desk the way the
 /// engine drives it: every event the machine handled, then the machine.
 /// The files it writes are read back by `perekey-eval replay`'s reader.
+extension RecordingBuffer {
+    /// For tests that have the machine itself at hand: what the engine passes
+    /// as two closures, so that no copy of the machine is made.
+    mutating func record(_ event: InputEvent, _ output: Output, machine: InputMachine) -> Bool {
+        record(event, output, quiet: { machine.isQuiet }, snapshot: { (machine.snapshot, machine.classifier) })
+    }
+}
+
 final class RecorderHarness {
     var buffer: RecordingBuffer
     let recorder: SessionRecorder
     let directory: URL
     /// The recorder's answers, applied on the test's thread as the engine
     /// applies them on the tap thread.
-    private let answers = OSAllocatedUnfairLock(initialState: [(count: Int, newDay: Bool)]())
+    private let answers = OSAllocatedUnfairLock(initialState: [SessionRecorder.Written]())
 
     init(options: RecordingBuffer.Options = RecordingBuffer.Options(),
          excludedApps: Set<String> = RecordingBuffer.passwordManagers,
@@ -37,16 +45,20 @@ final class RecorderHarness {
     /// Watches the desk from now on.
     func attach(_ desk: inout Desk) {
         desk.watcher = { [unowned self] event, output, machine in
-            if self.buffer.record(event, output, machine: { machine }) { self.handOver() }
+            if self.buffer.record(event, output, machine: machine) { self.handOver() }
         }
     }
 
     /// What the engine's timer and `stopRecording` do: the entries go to the
     /// recorder, and its answers come back.
     func handOver(close: Bool = false) {
-        let batch = buffer.take()
-        recorder.write(batch, close: close) { [answers] count, newDay in
-            answers.withLock { $0.append((count, newDay)) }
+        write(buffer.take(), close: close)
+    }
+
+    /// Writes `batch` and applies the recorder's answer.
+    func write(_ batch: [RecordingBuffer.Entry], close: Bool = false) {
+        recorder.write(batch, close: close) { [answers] written in
+            answers.withLock { $0.append(written) }
         }
         settle()
     }
@@ -55,7 +67,7 @@ final class RecorderHarness {
     func settle() {
         recorder.drain()
         for answer in answers.withLock({ list in defer { list.removeAll() }; return list }) {
-            buffer.written(answer.count, newDay: answer.newDay)
+            buffer.written(answer.batch, newDay: answer.newDay, failed: answer.failed)
         }
     }
 
@@ -248,8 +260,8 @@ extension Session {
     @Test func overflowMakesAGapAndTypingGoesOn() throws {
         var options = RecordingBuffer.Options()
         options.batch = 8
-        options.limit = 24
-        options.resume = 12
+        options.buffers = 3
+        options.resume = 2
         let harness = RecorderHarness(options: options)
         var desk = Desk()
         var plain = Desk()
@@ -259,23 +271,23 @@ extension Session {
         // The recorder never answers: the disk is stuck.
         var stuck: [[RecordingBuffer.Entry]] = []
         desk.watcher = { [unowned harness] event, output, machine in
-            if harness.buffer.record(event, output, machine: { machine }) { stuck.append(harness.buffer.take()) }
+            if harness.buffer.record(event, output, machine: machine) {
+                let batch = harness.buffer.take()
+                if !batch.isEmpty { stuck.append(batch) }
+            }
         }
         desk.type("[jhjij hello ghbdtn ")
         plain.type("[jhjij hello ghbdtn ")
         #expect(desk.text == plain.text)
-        let lines = stuck.joined()
+        // The gap is in the array that is full and cannot leave.
+        let lines = Array(stuck.joined()) + harness.buffer.entries
         let gaps = lines.filter { if case .gap(.overflow) = $0 { true } else { false } }
         #expect(gaps.count == 1)
-        #expect(lines.count + harness.buffer.entries.count <= options.limit)
+        #expect(lines.count <= options.buffers * options.batch)
 
         // The disk catches up: written, then a quiet point starts a segment.
         harness.attach(&desk)
-        for batch in stuck {
-            harness.recorder.write(batch) { _, _ in }
-            harness.buffer.written(batch.count, newDay: false)
-        }
-        harness.recorder.drain()
+        for batch in stuck { harness.write(batch) }
         desk.send(.click(time: desk.time, onHint: false))
         desk.type("hello ")
         harness.handOver(close: true)
@@ -287,8 +299,8 @@ extension Session {
     @Test func theBufferStaysSmall() {
         let options = RecordingBuffer.Options()
         let stride = MemoryLayout<RecordingBuffer.Entry>.stride
-        #expect(stride * options.limit < 4 << 20, "\(stride) bytes an entry")
-        #expect(options.batch < options.resume && options.resume < options.limit)
+        #expect(stride * options.batch * options.buffers < 4 << 20, "\(stride) bytes an entry")
+        #expect(options.resume < options.buffers)
     }
 
     /// A new day starts a file at the next quiet point; each file reads alone.
@@ -355,6 +367,205 @@ extension Session {
         #expect(harness.files.count == 1)
         #expect(session.keyTimes.allSatisfy { $0 > start })
         #expect(session.firstMismatch() == nil)
+    }
+
+    // MARK: - Unknown focus
+
+    /// The focus the machine does not know — right after an app switch, or
+    /// when accessibility does not answer — may be a password field: no key
+    /// of it reaches the file.
+    @Test func unknownFocusMakesAGapAndNoKeyIsInTheFile() throws {
+        let harness = RecorderHarness()
+        var desk = Desk()
+        harness.attach(&desk)
+        desk.send(.focusChanged(Desk.textEdit))
+        desk.type("hello ")
+        desk.send(.focusChanged(.unknown(bundleID: "com.apple.Safari")))
+        let start = desk.time
+        desk.type("hunter2 ctrhtn ")
+        let end = desk.time
+        // The focus becomes known again: the recording goes on in a new segment.
+        desk.send(.focusChanged(Desk.textEdit, .resolved))
+        desk.type("ghbdtn ")
+        harness.handOver(close: true)
+
+        let session = try #require(try harness.sessions().first)
+        #expect(session.segments.map(\.gap) == [.unknownFocus, nil])
+        #expect(session.keyTimes.allSatisfy { $0 <= start || $0 > end })
+        #expect(session.keyTimes.count == 2 * ("hello ".count + "ghbdtn ".count))
+        #expect(session.firstMismatch() == nil)
+    }
+
+    /// A machine that has had no focus event yet has no focus at all.
+    @Test func noFocusYetRecordsNothing() throws {
+        let harness = RecorderHarness()
+        var desk = Desk(focus: nil)
+        harness.attach(&desk)
+        desk.send(.click(time: desk.time, onHint: false))
+        desk.type("hunter2 ")
+        #expect(harness.buffer.entries.isEmpty)
+        #expect(harness.buffer.status == .waiting)
+        desk.send(.focusChanged(Desk.textEdit))
+        desk.type("hello ")
+        harness.handOver(close: true)
+        let session = try #require(try harness.sessions().first)
+        #expect(session.segments.count == 1)
+        #expect(session.keyTimes.count == 2 * "hello ".count)
+    }
+
+    // MARK: - A buffer from a pool
+
+    /// The tap thread makes no array: the batches go back and forth between
+    /// the buffer and the recorder, and the buffer never grows past its room.
+    @Test func batchesComeFromAPoolAndGoBack() throws {
+        var options = RecordingBuffer.Options()
+        options.batch = 8
+        options.buffers = 3
+        options.resume = 2
+        let harness = RecorderHarness(options: options)
+        var desk = Desk()
+        harness.attach(&desk)
+        desk.send(.focusChanged(Desk.textEdit))
+        let capacity = harness.buffer.entries.capacity
+        #expect(capacity >= options.batch)
+        for _ in 0..<12 {
+            desk.type("hello ")
+            #expect(harness.buffer.entries.capacity == capacity)
+            #expect(harness.buffer.spareBuffers <= options.buffers - 1)
+        }
+        harness.handOver()
+        // The recorder gave the used array back, empty and with its room.
+        #expect(harness.buffer.spareBuffers == options.buffers - 1)
+        #expect(harness.buffer.entries.capacity == capacity)
+        harness.handOver(close: true)
+        #expect(try harness.sessions().first?.firstMismatch() == nil)
+    }
+
+    /// Without a spare array a full buffer does not grow: it ends the
+    /// segment with `gap(overflow)`.
+    @Test func aFullBufferWithNoSpareDoesNotGrow() {
+        var options = RecordingBuffer.Options()
+        options.batch = 4
+        options.buffers = 2
+        options.resume = 1
+        var buffer = RecordingBuffer(options: options)
+        var desk = Desk()
+        var handed: [[RecordingBuffer.Entry]] = []
+        desk.watcher = { event, output, machine in
+            if buffer.record(event, output, machine: machine) {
+                let batch = buffer.take()
+                if !batch.isEmpty { handed.append(batch) }
+            }
+        }
+        desk.send(.focusChanged(Desk.textEdit))
+        desk.type("hello world ")
+        #expect(handed.count == 1)
+        // The gap that ends the segment is in the array that cannot leave.
+        #expect(buffer.entries.contains { if case .gap(.overflow) = $0 { true } else { false } })
+        #expect(buffer.entries.count <= options.batch)
+        #expect(buffer.entries.capacity < 2 * options.batch)
+        #expect(buffer.status == .waiting)
+    }
+
+    // MARK: - The machine is not touched
+
+    /// Between segments the buffer asks only the cheap question; the snapshot
+    /// is made when a segment opens, not on every event of a stretch of typing
+    /// that is not quiet.
+    @Test func theSnapshotIsMadeOnlyWhenASegmentOpens() {
+        var buffer = RecordingBuffer()
+        var snapshots = 0
+        var quiet = false
+        let output = Output()
+        var machine = InputMachine()
+        _ = machine.handle(.focusChanged(Desk.textEdit))
+        let known = machine.snapshot
+        for _ in 0..<50 {
+            _ = buffer.record(.focusChanged(Desk.textEdit, .moved), output, quiet: { quiet }, snapshot: {
+                snapshots += 1
+                return (known, nil)
+            })
+        }
+        #expect(snapshots == 0)
+        quiet = true
+        _ = buffer.record(.focusChanged(Desk.textEdit, .moved), output, quiet: { quiet }, snapshot: {
+            snapshots += 1
+            return (known, nil)
+        })
+        #expect(snapshots == 1)
+        #expect(buffer.status == .recording)
+        // Open: neither is asked while typing goes on (the file is started).
+        for _ in 0..<20 {
+            _ = buffer.record(.deadline(time: 1), output, quiet: { true }, snapshot: {
+                snapshots += 1
+                return (known, nil)
+            })
+        }
+        #expect(snapshots == 1)
+    }
+
+    // MARK: - A file that cannot be written
+
+    /// The buffer ends the segment when the recorder says the batch did not
+    /// reach a file, and starts a new file at a quiet point a little later.
+    @Test func aFailedWriteEndsTheSegmentAndANewFileFollows() {
+        var options = RecordingBuffer.Options()
+        options.retry = 5
+        var buffer = RecordingBuffer(options: options)
+        var desk = Desk()
+        var handed: [[RecordingBuffer.Entry]] = []
+        desk.watcher = { event, output, machine in
+            if buffer.record(event, output, machine: machine) { handed.append(buffer.take()) }
+        }
+        desk.send(.focusChanged(Desk.textEdit))
+        desk.type("hello ")
+        #expect(buffer.status == .recording)
+        let first = buffer.take()
+        // The disk is full: the batch did not reach a file.
+        buffer.written(first, newDay: false, failed: true)
+        #expect(buffer.status == .failed)
+        let before = buffer.entries.count
+        desk.type("one ")
+        // Nothing is kept while it is closed, and the first retry is not yet.
+        #expect(buffer.entries.count == before)
+        #expect(buffer.status == .failed)
+        // After the retry, at a quiet point: a snapshot that starts a file.
+        desk.send(.click(time: desk.time, onHint: false))
+        desk.type("two ")
+        #expect(buffer.status == .recording)
+        let snapshots = buffer.entries.compactMap { entry -> Bool? in
+            if case let .snapshot(_, _, newFile) = entry { newFile } else { nil }
+        }
+        #expect(snapshots == [true])
+    }
+
+    /// A folder that cannot be made: the file is not created, the badge says
+    /// so; once the folder can be made, the next segment is in a file of its own.
+    @Test func aFileThatIsNotCreatedIsToldToTheBuffer() throws {
+        var options = RecordingBuffer.Options()
+        options.retry = 4
+        let harness = RecorderHarness(options: options)
+        // A file where the folder should be.
+        #expect(FileManager.default.createFile(atPath: harness.directory.path, contents: Data()))
+        var desk = Desk()
+        harness.attach(&desk)
+        desk.send(.focusChanged(Desk.textEdit))
+        desk.type("lost ")
+        harness.handOver()
+        #expect(harness.buffer.status == .failed)
+
+        try FileManager.default.removeItem(at: harness.directory)
+        desk.send(.click(time: desk.time, onHint: false))
+        desk.type("hello ")
+        desk.send(.click(time: desk.time, onHint: false))
+        desk.type("ghbdtn ")
+        harness.handOver(close: true)
+        let session = try #require(try harness.sessions().first)
+        #expect(harness.files.count == 1)
+        #expect(session.firstMismatch() == nil)
+        // What was typed while the file could not be made is not in the new one.
+        #expect(session.keyTimes.count < 2 * "lost hello ghbdtn ".count)
+        #expect(!session.keyTimes.isEmpty)
     }
 }
 #endif

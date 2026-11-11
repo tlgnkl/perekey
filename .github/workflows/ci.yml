@@ -180,6 +180,18 @@ jobs:
             echo "::error::scripts/check-no-recorder.sh gave $status on a build with PEREKEY_RECORD=1, not 1 (recorder found)"
             exit 1
           fi
+      # The same on an optimized build, which is what a release is: the
+      # optimizer must not take the markers out of the binary.
+      - name: The release check fails on an optimized build with the recorder
+        run: |
+          swift build -c release --product Perekey --scratch-path .build/record-release
+          bin="$(swift build -c release --scratch-path .build/record-release --show-bin-path)/Perekey"
+          status=0
+          scripts/check-no-recorder.sh "$bin" || status=$?
+          if [[ $status -ne 1 ]]; then
+            echo "::error::scripts/check-no-recorder.sh gave $status on a release build with PEREKEY_RECORD=1, not 1 (recorder found)"
+            exit 1
+          fi
       # The machine with the recorder's buffer on keeps the 1 ms budget.
       - run: scripts/bench.sh
       # A test process that dies on a signal prints little; its crash report

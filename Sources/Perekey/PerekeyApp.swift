@@ -282,6 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The history writes off the main thread: let the last one land.
         voiceText.history.flush()
         #endif
+        #if PEREKEY_RECORD
+        // The recorder's queue would die with the process: write the rest and close the file here.
+        shell.recording.finish()
+        #endif
         // The Caps Lock remap would outlive the app until logout.
         CapsLockRemapper.apply(.untouched)
     }
@@ -422,7 +426,7 @@ final class MenuBarShell {
                                           menu: menu, call: call, drop: drop, accepts: acceptsDrop)
         #if PEREKEY_RECORD
         let item = statusItem
-        item?.setRecording(recording.isOn)
+        item?.setRecording(recording.status)
         recording.onChange = { [weak item] in item?.setRecording($0) }
         #endif
     }

@@ -9,6 +9,10 @@ import PerekeyCore
 /// What the engine reports to the main thread.
 public enum EngineMessage: Sendable {
     case tapState(TapState)
+    #if PEREKEY_RECORD
+    /// What the typing recording is doing, for the badge; nil when it is off.
+    case recordingStatus(TypingRecordingStatus?)
+    #endif
     /// Select this layout on the main thread (Text Input Sources are main-only),
     /// then hand `then` back with `InputEngine.post(_:)`.
     case select(LayoutID, then: Retype?)
@@ -114,16 +118,9 @@ public final class InputEngine: @unchecked Sendable {
     private var hintButton: CGRect?
     #if PEREKEY_RECORD
     /// The typing recording, while it runs (`startRecording`).
-    private var recording: Recording?
+    private var recording: RecordingPipeline?
     private var recordings = 0
     private var recordingTimer: CFRunLoopTimer?
-
-    private struct Recording {
-        var buffer: RecordingBuffer
-        let recorder: SessionRecorder
-        /// Tells the answers of the recorder for an earlier recording apart.
-        let number: Int
-    }
     #endif
 
     /// The pre-Backspace check of the retype with `seq`.
@@ -237,16 +234,29 @@ public final class InputEngine: @unchecked Sendable {
         perform { $0.endRecording() }
     }
 
+    /// Stops the recording and returns after what it holds is written and its
+    /// file closed. For the quit of the app (`applicationWillTerminate`),
+    /// where nothing queued would still run. Gives up after two seconds.
+    public func finishRecording() {
+        guard runLoop != nil else { return }
+        let done = DispatchSemaphore(value: 0)
+        perform { engine in
+            engine.endRecording(waiting: true)
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 2)
+    }
+
     /// The apps nothing is recorded in.
     public func setRecordingExclusions(_ apps: Set<String>) {
-        perform { $0.recording?.buffer.excludedApps = apps }
+        perform { $0.recording?.excludedApps = apps }
     }
 
     /// Removes every recording. A recording that runs goes on in a new file
     /// that starts with a snapshot.
     public func eraseRecordings(_ recorder: SessionRecorder) {
         recorder.eraseAll { [weak self] in
-            self?.perform { $0.recording?.buffer.restart() }
+            self?.perform { $0.recording?.restart() }
         }
     }
     #endif
@@ -592,7 +602,9 @@ public final class InputEngine: @unchecked Sendable {
         let output = machine.handle(event)
         #if PEREKEY_RECORD
         // Memory only: the buffer hands a full batch to the recorder's queue.
-        if recording?.buffer.record(event, output, machine: { machine }) == true { handOver() }
+        // Per event one cheap question; the machine is copied only when a segment opens.
+        recording?.record(event, output, quiet: { machine.isQuiet },
+                          snapshot: { (machine.snapshot, machine.classifier) })
         #endif
         return output
     }
@@ -601,36 +613,27 @@ public final class InputEngine: @unchecked Sendable {
     private func beginRecording(_ recorder: SessionRecorder, excludedApps: Set<String>) {
         endRecording()
         recordings += 1
-        recording = Recording(buffer: RecordingBuffer(excludedApps: excludedApps), recorder: recorder,
-                              number: recordings)
+        recording = RecordingPipeline(
+            recorder: recorder, excludedApps: excludedApps, number: recordings,
+            hop: { [weak self] block in self?.perform { block($0.recording) } },
+            report: { [weak self] status in self?.toMain(.recordingStatus(status)) }
+        )
         // Hands over what typing left in the buffer, once a second.
         let timer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 1, 1, 0, 0) {
-            [self] _ in handOver()
+            [self] _ in recording?.tick()
         }
         recordingTimer = timer
         CFRunLoopAddTimer(runLoop, timer, .commonModes)
     }
 
-    private func endRecording() {
+    /// `waiting`: the last batch is written before this returns.
+    private func endRecording(waiting: Bool = false) {
         if let recordingTimer { CFRunLoopTimerInvalidate(recordingTimer) }
         recordingTimer = nil
-        handOver(close: true)
+        guard let ending = recording else { return }
         recording = nil
-    }
-
-    /// Hands the buffer's entries to the recorder's queue. Its answer comes
-    /// back to this thread: the entries are written, the day may be over.
-    private func handOver(close: Bool = false) {
-        guard let recorder = recording?.recorder, let number = recording?.number,
-              close || recording?.buffer.entries.isEmpty == false
-        else { return }
-        let batch = recording?.buffer.take() ?? []
-        recorder.write(batch, close: close) { [weak self] count, newDay in
-            self?.perform { engine in
-                guard engine.recording?.number == number else { return }
-                engine.recording?.buffer.written(count, newDay: newDay)
-            }
-        }
+        if waiting { ending.finish() } else { ending.stop() }
+        toMain(.recordingStatus(nil))
     }
     #endif
 

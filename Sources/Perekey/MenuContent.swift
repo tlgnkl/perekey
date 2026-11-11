@@ -656,7 +656,8 @@ struct MenuContent: View {
     /// The typing recording of the dev build: the switch, «not here» for the
     /// app in front, erase and the folder. Not in a release.
     @ViewBuilder private func recordingRows(_ recording: SessionRecording) -> some View {
-        switchRow(id: "record", title: "Typing recording (dev)", subtitle: nil,
+        switchRow(id: "record", title: "Typing recording (dev)",
+                  subtitle: String(localized: "The file holds what you type and the words from your settings (exceptions, always-fix). It exists only in this developer build."),
                   isOn: Binding(get: { recording.isOn }, set: { recording.setOn($0) }))
         if recording.isOn, let app = appModes.frontmost, recording.canChange(app.bundleID) {
             switchRow(id: "record-app", title: "Do not record here", subtitle: app.name,

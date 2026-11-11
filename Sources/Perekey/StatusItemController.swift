@@ -37,8 +37,9 @@ final class CallIndicatorModel {
 final class StatusItemModel {
     var pressed = false
     #if PEREKEY_RECORD
-    /// The typing recording of the dev build runs: the badge shows.
-    var recording = false
+    /// What the typing recording of the dev build is doing; nil while it is off.
+    /// The badge shows whenever it is on.
+    var recording: TypingRecordingStatus?
     #endif
 }
 
@@ -63,8 +64,8 @@ private struct StatusCapsuleView: View {
                 CallBadge(call: call)
             }
             #if PEREKEY_RECORD
-            if state.recording {
-                RecordingBadge()
+            if let recording = state.recording {
+                RecordingBadge(status: recording)
             }
             #endif
             if style == .capsule {
@@ -267,7 +268,7 @@ final class StatusItemController {
         let visible = withObservationTracking {
             #if PEREKEY_RECORD
             // The typing recording is never hidden: the badge shows while it runs.
-            if state.recording { return true }
+            if state.recording != nil { return true }
             #endif
             return MenuBarPolicy.isVisible(store.settings.menuBarVisibility, MenuBarSituation(
                 paused: pause.current != nil, autoswitchOff: !store.settings.autoswitch,
@@ -280,9 +281,9 @@ final class StatusItemController {
     }
 
     #if PEREKEY_RECORD
-    /// Shows the badge of the typing recording, or takes it away.
-    func setRecording(_ on: Bool) {
-        state.recording = on
+    /// Shows the badge of the typing recording in its state, or takes it away (nil).
+    func setRecording(_ status: TypingRecordingStatus?) {
+        state.recording = status
     }
     #endif
 
@@ -323,7 +324,12 @@ final class StatusItemController {
             var parts = [sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout")]
             if !input.hasAccess { parts.insert(String(localized: "No access to Accessibility; Perekey does not work"), at: 0) }
             #if PEREKEY_RECORD
-            if state.recording { parts.append(String(localized: "Typing is being recorded")) }
+            switch state.recording {
+            case .recording: parts.append(String(localized: "Typing is being recorded"))
+            case .waiting: parts.append(String(localized: "Typing recording is waiting"))
+            case .failed: parts.append(String(localized: "Typing recording failed: the file cannot be written"))
+            case nil: break
+            }
             #endif
             if call.timeline != nil {
                 parts.append(call.paused ? String(localized: "Call recording paused", table: "Voice")

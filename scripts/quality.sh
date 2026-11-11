@@ -103,67 +103,7 @@ if [[ -z "$MODEL" ]]; then
     MODEL="$ROOT/.build/model"
 fi
 
-stage "build the cases ($TIER)"
-mkdir -p "$CASES" "$OUT/parts/$TIER"
-rm -f "$CASES"/*.jsonl "$CASES/build.json"
-if [[ "$TIER" == ci ]]; then
-    suites=("${CI_SUITES[@]}" "${OPTIONAL_SUITES[@]}")
-else
-    suites=()
-    for manifest in eval/suites/*.suite.json; do
-        name="$(basename "$manifest" .suite.json)"
-        suites+=("$name")
-    done
-fi
-# One process per suite: reading a source takes most of the time, and the suites are independent.
-JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
-build_suite() {
-    local part="$OUT/parts/$TIER/$1"
-    rm -f "$part"/*.jsonl "$part/build.json" "$part/failed"
-    mkdir -p "$part"
-    "$bin" cases build --tier "$TIER" --cache "$CACHE" --skip-missing --only "$1" --out "$part" >"$part/log.txt" 2>&1 \
-        || touch "$part/failed"
-}
-for suite in "${suites[@]}"; do
-    while [[ "$(jobs -r | wc -l)" -ge "$JOBS" ]]; do sleep 0.5; done
-    build_suite "$suite" &
-done
-wait
-: >"$OUT/build.txt"
-for suite in "${suites[@]}"; do
-    part="$OUT/parts/$TIER/$suite"
-    tee -a "$OUT/build.txt" <"$part/log.txt"
-    if [[ -e "$part/failed" ]]; then
-        if [[ " ${OPTIONAL_SUITES[*]} " == *" $suite "* ]] && grep -q "no source file" "$part/log.txt"; then
-            echo "$suite: пропущен, нет источника (heavy)"
-            continue
-        fi
-        echo "quality: the cases of $suite did not build" >&2; exit 2
-    fi
-    [[ ! -f "$part/$suite.jsonl" ]] || mv "$part/$suite.jsonl" "$CASES/$suite.jsonl"
-done
-python3 - "$OUT/parts/$TIER" "$CASES" "${suites[@]}" <<'PY'
-import json, os, sys
-parts, out, names = sys.argv[1], sys.argv[2], sys.argv[3:]
-merged = {"tier": None, "suites": []}
-for name in names:
-    path = os.path.join(parts, name, "build.json")
-    if os.path.exists(path):
-        data = json.load(open(path))
-        merged["tier"] = data["tier"]
-        merged["suites"] += data["suites"]
-json.dump(merged, open(os.path.join(out, "build.json"), "w"), separators=(",", ":"))
-PY
-if [[ "${GITHUB_ACTIONS:-}" == true && "$TIER" == ci ]]; then
-    for suite in "${CI_SUITES[@]}"; do
-        [[ -s "$CASES/$suite.jsonl" ]] || { echo "quality: the required suite $suite is missing (no source)" >&2; exit 2; }
-    done
-fi
-ls "$CASES"/*.jsonl >/dev/null 2>&1 || { echo "quality: no suite was built: no source in $CACHE" >&2; exit 2; }
-
-failed=0
-
-# The base builds in the background while the head is checked and played.
+# The base builds in the background from the start, while the cases are built and the head is checked and played.
 base_run=""
 base_note="QUALITY_BASE is not set: the bars noWorse are not checked."
 base_pid=""
@@ -205,6 +145,70 @@ if [[ -n "${QUALITY_BASE:-}" ]]; then
         fi
     fi
 fi
+
+stage "build the cases ($TIER)"
+mkdir -p "$CASES" "$OUT/parts/$TIER"
+rm -f "$CASES"/*.jsonl "$CASES/build.json"
+if [[ "$TIER" == ci ]]; then
+    suites=("${CI_SUITES[@]}" "${OPTIONAL_SUITES[@]}")
+else
+    suites=()
+    for manifest in eval/suites/*.suite.json; do
+        name="$(basename "$manifest" .suite.json)"
+        suites+=("$name")
+    done
+fi
+# One process per suite: reading a source takes most of the time, and the suites are independent.
+JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+build_suite() {
+    local part="$OUT/parts/$TIER/$1"
+    rm -f "$part"/*.jsonl "$part/build.json" "$part/failed"
+    mkdir -p "$part"
+    "$bin" cases build --tier "$TIER" --cache "$CACHE" --skip-missing --only "$1" --out "$part" >"$part/log.txt" 2>&1 \
+        || touch "$part/failed"
+}
+build_pids=()
+for suite in "${suites[@]}"; do
+    while [[ "$(jobs -r | wc -l)" -ge "$JOBS" ]]; do sleep 0.5; done
+    build_suite "$suite" &
+    build_pids+=($!)
+done
+# Only the case builds: a bare `wait` would also reap the base build, which is awaited later.
+wait "${build_pids[@]}"
+: >"$OUT/build.txt"
+for suite in "${suites[@]}"; do
+    part="$OUT/parts/$TIER/$suite"
+    tee -a "$OUT/build.txt" <"$part/log.txt"
+    if [[ -e "$part/failed" ]]; then
+        if [[ " ${OPTIONAL_SUITES[*]} " == *" $suite "* ]] && grep -q "no source file" "$part/log.txt"; then
+            echo "$suite: пропущен, нет источника (heavy)"
+            continue
+        fi
+        echo "quality: the cases of $suite did not build" >&2; exit 2
+    fi
+    [[ ! -f "$part/$suite.jsonl" ]] || mv "$part/$suite.jsonl" "$CASES/$suite.jsonl"
+done
+python3 - "$OUT/parts/$TIER" "$CASES" "${suites[@]}" <<'PY'
+import json, os, sys
+parts, out, names = sys.argv[1], sys.argv[2], sys.argv[3:]
+merged = {"tier": None, "suites": []}
+for name in names:
+    path = os.path.join(parts, name, "build.json")
+    if os.path.exists(path):
+        data = json.load(open(path))
+        merged["tier"] = data["tier"]
+        merged["suites"] += data["suites"]
+json.dump(merged, open(os.path.join(out, "build.json"), "w"), separators=(",", ":"))
+PY
+if [[ "${GITHUB_ACTIONS:-}" == true && "$TIER" == ci ]]; then
+    for suite in "${CI_SUITES[@]}"; do
+        [[ -s "$CASES/$suite.jsonl" ]] || { echo "quality: the required suite $suite is missing (no source)" >&2; exit 2; }
+    done
+fi
+ls "$CASES"/*.jsonl >/dev/null 2>&1 || { echo "quality: no suite was built: no source in $CACHE" >&2; exit 2; }
+
+failed=0
+
 
 stage "self-check and the head, together"
 selfargs=(selfcheck --cases eval/cases "$CASES" --split dev --model "$MODEL" --cache "$CACHE"

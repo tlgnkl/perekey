@@ -592,7 +592,7 @@ public final class InputEngine: @unchecked Sendable {
         let output = machine.handle(event)
         #if PEREKEY_RECORD
         // Memory only: the buffer hands a full batch to the recorder's queue.
-        if recording?.buffer.record(event, output, machine: machine) == true { handOver() }
+        if recording?.buffer.record(event, output, machine: { machine }) == true { handOver() }
         #endif
         return output
     }

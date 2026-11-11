@@ -116,9 +116,11 @@ public struct RecordingBuffer {
     }
 
     /// What the machine just did: `event` and the `output` it answered.
-    /// Call it right after `machine.handle(event)`, with that machine.
+    /// Call it right after `machine.handle(event)`; `machine` gives that
+    /// machine, and is called only when a segment may start: while the
+    /// recording runs, a step touches nothing of the machine.
     /// Returns true when a batch is ready for `take()`.
-    public mutating func record(_ event: InputEvent, _ output: Output, machine: borrowing InputMachine) -> Bool {
+    public mutating func record(_ event: InputEvent, _ output: Output, machine: () -> InputMachine) -> Bool {
         switch event {
         case let .focusChanged(focus, _):
             self.focus = focus
@@ -135,10 +137,15 @@ public struct RecordingBuffer {
                 state = .closed(reason)
             } else {
                 entries.append(.step(event, output))
-                if newFile, machine.isQuiet { startSegment(machine.snapshot, machine.classifier) }
+                if newFile {
+                    let machine = machine()
+                    if machine.isQuiet { startSegment(machine.snapshot, machine.classifier) }
+                }
             }
         case .starting:
-            guard machine.isQuiet, waiting < options.limit else { break }
+            guard waiting < options.limit else { break }
+            let machine = machine()
+            guard machine.isQuiet else { break }
             let snapshot = machine.snapshot
             focus = snapshot.focus
             focusBlocks = Self.blocks(snapshot.focus, excludedApps)
@@ -150,7 +157,9 @@ public struct RecordingBuffer {
             }
         case let .closed(reason):
             let room = reason == .overflow ? options.resume : options.limit - 1
-            guard blocked == nil, waiting <= room, machine.isQuiet else { break }
+            guard blocked == nil, waiting <= room else { break }
+            let machine = machine()
+            guard machine.isQuiet else { break }
             startSegment(machine.snapshot, machine.classifier)
         }
         return entries.count >= options.batch

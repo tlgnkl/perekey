@@ -37,7 +37,7 @@ final class RecorderHarness {
     /// Watches the desk from now on.
     func attach(_ desk: inout Desk) {
         desk.watcher = { [unowned self] event, output, machine in
-            if self.buffer.record(event, output, machine: machine) { self.handOver() }
+            if self.buffer.record(event, output, machine: { machine }) { self.handOver() }
         }
     }
 
@@ -259,7 +259,7 @@ extension Session {
         // The recorder never answers: the disk is stuck.
         var stuck: [[RecordingBuffer.Entry]] = []
         desk.watcher = { [unowned harness] event, output, machine in
-            if harness.buffer.record(event, output, machine: machine) { stuck.append(harness.buffer.take()) }
+            if harness.buffer.record(event, output, machine: { machine }) { stuck.append(harness.buffer.take()) }
         }
         desk.type("[jhjij hello ghbdtn ")
         plain.type("[jhjij hello ghbdtn ")

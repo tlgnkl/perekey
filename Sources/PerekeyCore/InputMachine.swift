@@ -80,7 +80,8 @@ public struct InputMachine: Sendable {
         voiceSession = snapshot.voiceSession
         dictationTyping = snapshot.dictationTyping
         judge.restore(languageContext: snapshot.languageContext, recent: RecentLanguages(snapshot.recentLanguages),
-                      sentenceStart: snapshot.sentenceStart, tally: snapshot.tally, tallied: snapshot.tallied)
+                      sentenceStart: snapshot.sentenceStart, tally: snapshot.tally, tallied: snapshot.tallied,
+                      personal: snapshot.personalLexicon ?? .off, kept: snapshot.personalKept ?? [])
     }
 
     /// The state for a fresh machine to go on from (`init(snapshot:)`).
@@ -94,7 +95,9 @@ public struct InputMachine: Sendable {
             appMode: judge.appMode, secureInput: secureInput, voiceSession: voiceSession,
             dictationTyping: dictationTyping, languageContext: judge.languageContext,
             recentLanguages: (0..<recent.count).map { recent[$0] }, sentenceStart: judge.sentenceStart,
-            tally: judge.tallyCounts, tallied: judge.tallied
+            tally: judge.tallyCounts, tallied: judge.tallied,
+            personalLexicon: judge.personal.isOn ? judge.personal : nil,
+            personalKept: judge.keptCount > 0 ? judge.keptObservations : nil
         )
     }
 
@@ -106,6 +109,10 @@ public struct InputMachine: Sendable {
         buffer.isEmpty && buffer.history.isEmpty && !fence.isHolding && fence.returning == .nothing
             && undo.last == nil && undoWatch == nil && openUndo == nil && languageChoice == nil
             && typingKeyUps.isEmpty && shortcuts.isIdle && manual.isIdle
+            // A word waiting for the next one is state the snapshot does not carry
+            // (`MachineSnapshot` has the confirmed observations only): a recording
+            // that began here would miss it and its replay would differ.
+            && judge.pendingObservation == nil
     }
 
     /// The classifier automatic switching runs, if any.
@@ -117,6 +124,11 @@ public struct InputMachine: Sendable {
     /// The last word judged, or not judged and why, while `tracesJudgements`.
     /// Its `serial` tells a new one from the one before.
     public var lastJudgement: JudgeTrace? { judge.lastTrace }
+
+    /// How many buffers for the words kept for the personal lexicon the
+    /// machine waits for (`InputEvent.personalRoomReturned`): 2 when the
+    /// lexicon was just turned on, 1 after a batch left, 0 when it is off.
+    public var personalRoomsWanted: Int { judge.personalRoomsWanted }
 
     /// The bundle ID of the focus, as the undos and the per-app exceptions see it.
     public var focusApp: String? { focus?.bundleID }
@@ -253,6 +265,13 @@ public struct InputMachine: Sendable {
 
         case let .languageContextChanged(context):
             if let tally = judge.languageContextChanged(context) { effects.append(.languagesCounted(tally)) }
+            if let kept = judge.takeKept() { effects.append(.wordsKept(kept)) }
+
+        case let .personalLexiconChanged(lexicon):
+            judge.setPersonalLexicon(lexicon)
+
+        case let .personalRoomReturned(room):
+            judge.takePersonalRoom(room)
 
         case .voiceHoldLost:
             if let signal = shortcuts.holdLost() { effects.append(.voice(signal)) }
@@ -450,6 +469,13 @@ public struct InputMachine: Sendable {
             || focus?.isSecureField == true
         {
             // The caret may have moved: the word and the words before it go.
+            // A line that ends, with the word before it kept as typed, takes
+            // its observation first (the word was judged at its space).
+            if held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit) == 0, WordJudge.endsLine(key),
+               focus?.isSecureField != true
+            {
+                judge.lineEnded()
+            }
             buffer.clear()
             judge.forgetContext(newField: false)
             return
@@ -470,7 +496,18 @@ public struct InputMachine: Sendable {
             buffer.abandonWord()
         } else if map.text(for: stroke) != nil {
             if stroke.keyCode != KeyCode.space {
-                judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isGap == true)
+                let startsWord = buffer.isEmpty || buffer.entries.last?.isGap == true
+                var confirms = false
+                var drops = false
+                // The letter matters only to an observation waiting for the next
+                // word: on every other key it is not even looked at.
+                if judge.pendingObservation != nil {
+                    let inLetters = !startsWord && WordJudge.hasLetter(buffer.entries, layouts: layouts)
+                    let isLetter = map.text(for: stroke)?.unicodeScalars.first.map(WordJudge.isLetter) == true
+                    confirms = isLetter && !inLetters
+                    drops = inLetters
+                }
+                judge.typed(startsWord: startsWord, confirms: confirms, drops: drops)
             }
             // The part stays whole when it is no word where it ended up:
             // "github.com/" kept in ABC is code, and so is the rest of it.
@@ -484,10 +521,18 @@ public struct InputMachine: Sendable {
 
     // MARK: - Corrections
 
-    /// Hands the language counts to the app layer every `WordJudge.tallySize` words.
+    /// Hands the language counts to the app layer every `WordJudge.tallySize`
+    /// words, and the words kept for the personal lexicon with them or when
+    /// a batch of them is full.
     private mutating func tallyIfFull(effects: inout [Effect]) {
-        guard judge.tallied >= WordJudge.tallySize, let tally = judge.takeTally() else { return }
-        effects.append(.languagesCounted(tally))
+        var counted = false
+        if judge.tallied >= WordJudge.tallySize, let tally = judge.takeTally() {
+            effects.append(.languagesCounted(tally))
+            counted = true
+        }
+        if counted || judge.keptCount >= WordJudge.tallySize, let kept = judge.takeKept() {
+            effects.append(.wordsKept(kept))
+        }
     }
 
     /// Retypes the word as the judge decided, behind the fence, with the

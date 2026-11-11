@@ -109,7 +109,7 @@ speech|fleurs/ru_ru.dev.tar.gz|$HF_FLEURS/ru_ru/audio/dev.tar.gz|4dc533cd0f312f7
 speech|fleurs/en_us.dev.tar.gz|$HF_FLEURS/en_us/audio/dev.tar.gz|2658fda72f199e12676ecac9415094667a4e14e149b146e568ea00b2a2f0954c
 bench|wikipedia-misspellings/for-machines.txt|$WM_RAW|3b6a9290e5aaad968da7ec769a5174adb45247688ef7ae097fd2dd80237a3050
 heavy|stackexchange/ru.stackoverflow.com.7z|$IA_SE/ru.stackoverflow.com.7z|sha1:32a8897c021e9c943b93f8fd70dfafb180925451
-bench|tldr/tldr-pages.en.zip|https://github.com/tldr-pages/tldr/releases/download/$TLDR_REL/tldr-pages.en.zip|88c262ac45a55f2eb773ae4505bfcc71cf4204c639afb2dd5c59865883624127
+bench|tldr/tldr-pages.en.zip|https://github.com/tldr-pages/tldr/releases/download/$TLDR_REL/tldr-pages.en.zip|da659656ec5bdff54b6319692e4f9b6391294090d9814932869b4c92c7b65657
 bench|code/swift-swift-argument-parser.tar.gz|$GH_CODE/apple/swift-argument-parser/tar.gz/38ca4eceb349155836701b88da3e0986eb9d1e1c|c978c43927b9238b7d50fc19b5e18235e76095ff27ced35a397a0589a3b6e6aa
 bench|code/python-requests.tar.gz|$GH_CODE/psf/requests/tar.gz/3c7baaa05ab4aa49cc819ce3a819d260de19c157|53195693070a892c284d7a60b0f4e762348b36b57427576985338f12b082cff2
 bench|code/js-express.tar.gz|$GH_CODE/expressjs/express/tar.gz/43fca52d28a422c8be48fd489cbd4f2d6152bab6|0907a1731d24be4424787c250d90b9178a60bacc9e4cf331e56ba0e84a032a76

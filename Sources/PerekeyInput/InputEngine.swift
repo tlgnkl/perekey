@@ -701,6 +701,12 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.capsLockOff)
             case let .languagesCounted(tally):
                 toMain(.languagesCounted(tally))
+            case .wordsKept:
+                // The app sends no personal lexicon (`.personalLexiconChanged`)
+                // and the machine observes nothing without one: the store
+                // that counts these comes with the setting (docs/classifier.md,
+                // «Личный словарь»).
+                break
             case let .refused(refusal):
                 toMain(.refused(refusal))
             case let .convertSelection(seq):

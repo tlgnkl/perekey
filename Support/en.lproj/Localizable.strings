@@ -160,6 +160,7 @@
 "— revert" = "— revert";
 "“%@” cannot start a word %@" = "“%@” cannot start a word %@";
 "“%@” is a common word %@" = "“%@” is a common word %@";
+"“%@” is a word you often type" = "“%@” is a word you often type";
 "“%@” is a rare word %@" = "“%@” is a rare word %@";
 "“%@” is not a word" = "“%@” is not a word";
 "“%@” is not a word %@" = "“%@” is not a word %@";

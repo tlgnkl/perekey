@@ -262,6 +262,8 @@ public struct BuildReport: Hashable, Sendable, Codable {
     /// The characters behind `unprintable`: each with the number of examined units that have it.
     public var unprintable: [String: Int] = [:]
     public var scenarios: [String: ScenarioStats] = [:]
+    /// What the rule of a class suite did; absent for a corpus suite.
+    public var classes: ClassReport?
 
     public struct ScenarioStats: Hashable, Sendable, Codable {
         public var cases = 0

@@ -108,7 +108,7 @@ public enum SourceReader {
                 throw EvalError.input("\(manifest.suite): no source file \(path); run scripts/fetch-data.sh heldout")
             }
             switch manifest.reader {
-            case .tatoeba: try TatoebaReader.forEachLazyUnit(path: path) { try body(index, $0, $1) }
+            case .tatoeba, .class: try TatoebaReader.forEachLazyUnit(path: path) { try body(index, $0, $1) }
             case .stackexchange: try StackExchangeReader.forEachLazyUnit(path: path) { try body(index, $0, $1) }
             }
         }

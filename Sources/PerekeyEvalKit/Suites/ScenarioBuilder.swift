@@ -186,6 +186,7 @@ struct ScenarioBuilder {
     static func sourceName(_ manifest: SuiteManifest) -> String {
         switch manifest.reader {
         case .tatoeba: "tatoeba"
+        case .class: "class.\(manifest.classSpec?.rule.rawValue ?? "?")"
         case .stackexchange:
             ((manifest.sources.first ?? "") as NSString).lastPathComponent.replacingOccurrences(of: ".7z", with: "")
         }

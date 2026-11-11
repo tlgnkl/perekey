@@ -66,7 +66,7 @@ enum SuiteFixtures {
 @Suite struct SuiteManifestTests {
     @Test func theManifestsOfTheRepositoryRead() throws {
         let manifests = try SuiteManifestFiles.read(directory: Repo.path("eval/suites"))
-        #expect(manifests.map(\.suite).sorted() == [
+        #expect(manifests.filter { $0.reader != .class }.map(\.suite).sorted() == [
             "chat.tatoeba", "lang.rus-se", "lang.russian-se", "mixed.uk-se", "prose.be", "prose.kk", "prose.tatoeba",
             "prose.uk", "tech.ruso",
         ])

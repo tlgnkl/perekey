@@ -5,7 +5,7 @@ import Foundation
 /// `perekey-eval cases build` (docs/eval.md, «Команды»):
 ///
 ///     perekey-eval cases build [--suites <dir>] [--cache <dir>] [--tier ci|full] [--out <dir>]
-///                              [--only <suite,...>] [--epoch <n>] [--layouts <dir>]
+///                              [--only <suite,...>] [--epoch <n>] [--layouts <dir>] [--lexicon <dir>] [--classes <dir>]
 ///
 /// Writes `<out>/<suite>.jsonl` for each manifest and `<out>/build.json`
 /// with the counts and the SHA-256 of every file. Nothing in `build.json`
@@ -18,11 +18,15 @@ extension EvalCommands {
         var tier: SuiteManifest.Tier
         var epoch: Int?
         var only: Set<String>?
+        /// What the class suites share: the lexicon, the dictionaries, the corpora already read.
+        let classContext: ClassContext
 
         init(_ parsed: Arguments) throws {
             suites = parsed.value("--suites") ?? "eval/suites"
             cache = parsed.value("--cache") ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"]
                 ?? ".build/data-cache"
+            classContext = ClassContext(cache: cache, lexiconDirectory: parsed.value("--lexicon") ?? ".build/quality",
+                                        classesDirectory: parsed.value("--classes") ?? "eval/classes")
             guard let tier = SuiteManifest.Tier(rawValue: parsed.value("--tier") ?? "ci") else {
                 throw EvalError.input("--tier ci|full")
             }
@@ -57,8 +61,13 @@ extension EvalCommands {
     }
 
     static func builtSuite(_ manifest: SuiteManifest, settings: BuildSettings, library: LayoutLibrary) throws -> BuiltSuite {
-        let output = try SuiteBuilder(manifest: manifest, library: library)
-            .build(tier: settings.tier, cache: settings.cache)
+        let output: SuiteBuilder.Output
+        if manifest.reader == .class {
+            output = try ClassSuiteBuilder(manifest: manifest, library: library, context: settings.classContext)
+                .build(tier: settings.tier)
+        } else {
+            output = try SuiteBuilder(manifest: manifest, library: library).build(tier: settings.tier, cache: settings.cache)
+        }
         let bytes = Data(try CaseCodec.write(output.cases).utf8)
         return BuiltSuite(report: output.report, bytes: bytes, sha256: Runner.sha256(bytes))
     }

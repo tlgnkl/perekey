@@ -52,11 +52,23 @@ import Testing
         #expect(PersonalKey(bytes: [UInt8](repeating: 1, count: 15)) == nil)
     }
 
-    @Test func fourBytesLittleEndianAreFourBytes() {
+    @Test(arguments: 0..<9)
+    func fourBytesLittleEndianAreFourBytes(offset: Int) {
+        // A word after any number of bytes, so every place in a block is crossed.
         var bytes = SipHash24(k0: Self.k0, k1: Self.k1)
-        for byte: UInt8 in [0x04, 0x03, 0x02, 0x01] { bytes.append(byte) }
         var word = SipHash24(k0: Self.k0, k1: Self.k1)
-        word.append(littleEndian: 0x0102_0304)
+        for index in 0..<offset {
+            bytes.append(UInt8(index))
+            word.append(UInt8(index))
+        }
+        for value: UInt32 in [0x0102_0304, 0xFFEE_DDCC, 0x0000_0435] {
+            var rest = value
+            for _ in 0..<4 {
+                bytes.append(UInt8(truncatingIfNeeded: rest))
+                rest >>= 8
+            }
+            word.append(littleEndian: value)
+        }
         #expect(bytes.finalize() == word.finalize())
     }
 }

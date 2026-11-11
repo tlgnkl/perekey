@@ -17,6 +17,8 @@ public struct SipHash24: Sendable {
     private var v3: UInt64
     /// Bytes not yet compressed, little-endian, the first in the low byte.
     private var tail: UInt64 = 0
+    /// How many bytes `tail` holds, 0 to 7.
+    private var tailBytes: UInt64 = 0
     /// Bytes taken so far: its low byte goes into the last block.
     private var length: UInt64 = 0
 
@@ -66,22 +68,33 @@ public struct SipHash24: Sendable {
     }
 
     /// Takes one byte.
+    @inline(__always)
     public mutating func append(_ byte: UInt8) {
-        let position = length & 7
-        tail |= UInt64(byte) << (position * 8)
+        tail |= UInt64(byte) << (tailBytes &* 8)
+        tailBytes &+= 1
         length &+= 1
-        if position == 7 {
+        if tailBytes == 8 {
             compress(tail)
             tail = 0
+            tailBytes = 0
         }
     }
 
-    /// Takes the four bytes of `value`, little-endian.
+    /// Takes the four bytes of `value`, little-endian: the same as four
+    /// `append(_:)` of its bytes, a word at a time.
+    @inline(__always)
     public mutating func append(littleEndian value: UInt32) {
-        var value = value
-        for _ in 0..<4 {
-            append(UInt8(truncatingIfNeeded: value))
-            value >>= 8
+        let word = UInt64(value)
+        length &+= 4
+        // The bytes that fit go in; the shift drops the ones that do not.
+        tail |= word << (tailBytes &* 8)
+        if tailBytes < 4 {
+            tailBytes &+= 4
+        } else {
+            compress(tail)
+            let fitted = 8 &- tailBytes
+            tail = fitted == 4 ? 0 : word >> (fitted &* 8)
+            tailBytes = 4 &- fitted
         }
     }
 

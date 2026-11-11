@@ -36,10 +36,11 @@ ROOT="$PWD"
 unset PEREKEY_VOICE
 
 # The suites of the `ci` level. Their sources are what CI already downloads
-# (`fetch-data.sh heldout`); tech.ruso needs a gigabyte and stays on `--full`, and
+# (`fetch-data.sh heldout bench`); tech.ruso needs a gigabyte and stays on `--full`, and
 # lang.rus-se and lang.russian-se take its place. Every suite costs the time of
 # reading its source (about 6 s each); the budget of the step is 5 minutes (RE9).
-CI_SUITES=(prose.tatoeba chat.tatoeba lang.rus-se lang.russian-se mixed.uk-se prose.uk)
+CI_SUITES=(prose.tatoeba chat.tatoeba lang.rus-se lang.russian-se mixed.uk-se prose.uk
+           typos.none typos.real.en typos.synth.equal typos.synth.neighbor typos.synth.swap hyphen yo doublecap)
 # The suites the self-check builds a second time on the `ci` level: their sources read fast.
 REBUILD_SUITES=(lang.russian-se mixed.uk-se)
 
@@ -95,12 +96,42 @@ if [[ -z "$MODEL" ]]; then
 fi
 
 stage "build the cases ($TIER)"
-mkdir -p "$CASES"
+mkdir -p "$CASES" "$OUT/parts/$TIER"
 rm -f "$CASES"/*.jsonl "$CASES/build.json"
-only=()
-if [[ "$TIER" == ci ]]; then only=(--only "$(join "${CI_SUITES[@]}")"); fi
-"$bin" cases build --tier "$TIER" --cache "$CACHE" --skip-missing ${only[@]+"${only[@]}"} --out "$CASES" \
-    | tee "$OUT/build.txt" || { echo "quality: the cases did not build" >&2; exit 2; }
+if [[ "$TIER" == ci ]]; then
+    suites=("${CI_SUITES[@]}")
+else
+    suites=()
+    for manifest in eval/suites/*.suite.json; do
+        name="$(basename "$manifest" .suite.json)"
+        suites+=("$name")
+    done
+fi
+# One process per suite: reading a source takes most of the time, and the suites are independent.
+JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+printf '%s\n' "${suites[@]}" | xargs -P "$JOBS" -I{} sh -c '
+    part="$1/{}"; rm -f "$part"/*.jsonl "$part/build.json" "$part/failed"; mkdir -p "$part"
+    "$2" cases build --tier "$3" --cache "$4" --skip-missing --only "{}" --out "$part" >"$part/log.txt" 2>&1 || touch "$part/failed"
+' sh "$OUT/parts/$TIER" "$bin" "$TIER" "$CACHE"
+: >"$OUT/build.txt"
+for suite in "${suites[@]}"; do
+    part="$OUT/parts/$TIER/$suite"
+    tee -a "$OUT/build.txt" <"$part/log.txt"
+    [[ ! -e "$part/failed" ]] || { echo "quality: the cases of $suite did not build" >&2; exit 2; }
+    [[ ! -f "$part/$suite.jsonl" ]] || mv "$part/$suite.jsonl" "$CASES/$suite.jsonl"
+done
+python3 - "$OUT/parts/$TIER" "$CASES" "${suites[@]}" <<'PY'
+import json, os, sys
+parts, out, names = sys.argv[1], sys.argv[2], sys.argv[3:]
+merged = {"tier": None, "suites": []}
+for name in names:
+    path = os.path.join(parts, name, "build.json")
+    if os.path.exists(path):
+        data = json.load(open(path))
+        merged["tier"] = data["tier"]
+        merged["suites"] += data["suites"]
+json.dump(merged, open(os.path.join(out, "build.json"), "w"), separators=(",", ":"))
+PY
 if [[ "${GITHUB_ACTIONS:-}" == true && "$TIER" == ci ]]; then
     for suite in "${CI_SUITES[@]}"; do
         [[ -s "$CASES/$suite.jsonl" ]] || { echo "quality: the required suite $suite is missing (no source)" >&2; exit 2; }
@@ -110,19 +141,10 @@ ls "$CASES"/*.jsonl >/dev/null 2>&1 || { echo "quality: no suite was built: no s
 
 failed=0
 
-stage "self-check"
-selfargs=(selfcheck --cases eval/cases "$CASES" --split dev --model "$MODEL" --cache "$CACHE"
-          --suites eval/suites --tier "$TIER" --built "$CASES" --skip-missing)
-if [[ "$TIER" == ci ]]; then selfargs+=(--rebuild "$(join "${REBUILD_SUITES[@]}")"); fi
-if [[ "$SELF_CHECK" == 1 ]]; then selfargs+=(--mutants); fi
-"$bin" "${selfargs[@]}" | tee "$OUT/selfcheck.txt" || failed=1
-
-stage "play the head"
-"$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" --out "$OUT/run-head" >"$OUT/play-head.txt"
-
-# The base: a worktree of QUALITY_BASE with the bench of this tree over it.
+# The base builds in the background while the head is checked and played.
 base_run=""
 base_note="QUALITY_BASE is not set: the bars noWorse are not checked."
+base_pid=""
 if [[ -n "${QUALITY_BASE:-}" ]]; then
     if ! git rev-parse --verify --quiet "$QUALITY_BASE^{commit}" >/dev/null; then
         base_note="Base $QUALITY_BASE is not a commit here: nothing to compare with."
@@ -132,36 +154,57 @@ if [[ -n "${QUALITY_BASE:-}" ]]; then
         if [[ ! -d "$base_tree/Sources/PerekeyEvalKit" ]]; then
             base_note="Base $QUALITY_BASE has no bench: nothing to compare with."
         else
-            stage "build the base ${QUALITY_BASE:0:9}"
-            for dir in Sources/PerekeyEvalKit Sources/PerekeyDesk Sources/perekey-eval eval; do
-                rsync -a --delete "$dir/" "$base_tree/$dir/"
-            done
-            grep -q 'PerekeyEvalKit' "$base_tree/Package.swift" || cp Package.swift "$base_tree/Package.swift"
-            base_stand="the bench of this tree"
-            if ! (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null); then
-                echo "quality: the base does not build with this bench; building it with its own"
-                git -C "$base_tree" checkout -q -- .
-                git -C "$base_tree" clean -fdq
-                base_stand="the bench of the base"
-                (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null) \
-                    || { echo "quality: the base does not build" >&2; exit 1; }
-            fi
-            # One model when nothing that makes it differs; the base's own otherwise.
-            base_model="$MODEL"
-            if ! git diff --quiet "$QUALITY_BASE" -- data scripts/build-model.sh scripts/fetch-data.sh scripts/wiki-freq.py \
-                scripts/build-pairs.sh scripts/wiki-text.py Sources/perekey-model Sources/PerekeyModelKit Sources/PerekeyCore/ModelFormat.swift; then
-                stage "build the model of the base"
-                (cd "$base_tree" && PEREKEY_DATA_CACHE="$CACHE" scripts/build-model.sh --out "$tmp/base-model" >/dev/null)
-                base_model="$tmp/base-model"
-            fi
-            stage "play the base"
-            (cd "$base_tree" && "$tmp/base-build/release/perekey-eval" play --cases "$ROOT/eval/cases" "$CASES" \
-                --model "$base_model" --cache "$CACHE" --data "$ROOT/data" --noise "$ROOT/eval/noise" \
-                --layouts "$ROOT/eval/layouts" --lexicon "$OUT" --out "$OUT/run-base" >"$OUT/play-base.txt")
-            base_run="$OUT/run-base"
-            base_note="Compared with ${QUALITY_BASE:0:9}, played with $base_stand."
+            (
+                # The bench of this tree over the base, so that only the core differs.
+                for dir in Sources/PerekeyEvalKit Sources/PerekeyDesk Sources/perekey-eval eval; do
+                    rsync -a --delete "$dir/" "$base_tree/$dir/"
+                done
+                grep -q 'PerekeyEvalKit' "$base_tree/Package.swift" || cp Package.swift "$base_tree/Package.swift"
+                stand="the bench of this tree"
+                if ! (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null); then
+                    echo "quality: the base does not build with this bench; building it with its own"
+                    git -C "$base_tree" checkout -q -- .
+                    git -C "$base_tree" clean -fdq
+                    stand="the bench of the base"
+                    (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null) \
+                        || { echo "quality: the base does not build" >&2; exit 1; }
+                fi
+                base_model="$MODEL"
+                # One model when nothing that makes it differs; the base's own otherwise.
+                if ! git diff --quiet "$QUALITY_BASE" -- data scripts/build-model.sh scripts/fetch-data.sh scripts/wiki-freq.py \
+                    scripts/build-pairs.sh scripts/wiki-text.py Sources/perekey-model Sources/PerekeyModelKit Sources/PerekeyCore/ModelFormat.swift; then
+                    (cd "$base_tree" && PEREKEY_DATA_CACHE="$CACHE" scripts/build-model.sh --out "$tmp/base-model" >/dev/null)
+                    base_model="$tmp/base-model"
+                fi
+                echo "$base_model" >"$tmp/base-model-path"
+                echo "Compared with ${QUALITY_BASE:0:9}, played with $stand." >"$tmp/base-note"
+            ) &
+            base_pid=$!
         fi
     fi
+fi
+
+stage "self-check and the head, together"
+selfargs=(selfcheck --cases eval/cases "$CASES" --split dev --model "$MODEL" --cache "$CACHE"
+          --suites eval/suites --tier "$TIER" --built "$CASES" --skip-missing)
+if [[ "$TIER" == ci ]]; then selfargs+=(--rebuild "$(join "${REBUILD_SUITES[@]}")"); fi
+if [[ "$SELF_CHECK" == 1 ]]; then selfargs+=(--mutants); fi
+"$bin" "${selfargs[@]}" >"$OUT/selfcheck.txt" 2>&1 &
+self_pid=$!
+"$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" --out "$OUT/run-head" >"$OUT/play-head.txt"
+stage "head played"
+wait "$self_pid" || failed=1
+cat "$OUT/selfcheck.txt"
+
+if [[ -n "$base_pid" ]]; then
+    wait "$base_pid" || { echo "quality: the base did not build" >&2; exit 1; }
+    stage "play the base"
+    base_model="$(cat "$tmp/base-model-path")"
+    (cd "$base_tree" && "$tmp/base-build/release/perekey-eval" play --cases "$ROOT/eval/cases" "$CASES" \
+        --model "$base_model" --cache "$CACHE" --data "$ROOT/data" --noise "$ROOT/eval/noise" \
+        --layouts "$ROOT/eval/layouts" --lexicon "$OUT" --out "$OUT/run-base" >"$OUT/play-base.txt")
+    base_run="$OUT/run-base"
+    base_note="$(cat "$tmp/base-note")"
 fi
 
 # A pull request that changes the stand and not the core: noWorse is shown, not a bar.

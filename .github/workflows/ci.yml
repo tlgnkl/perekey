@@ -77,7 +77,7 @@ jobs:
           path: .build/data-cache/pairs
           # The inputs of the count only: the text scripts, the dictionary lists (not data/*/hyphen.txt), the counter and the fingerprints. Not the model hashes, not the rest of the sources.
           key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/ru/**', 'data/en/**', 'data/mixed/**', '!data/*/hyphen.txt', 'Sources/PerekeyModelKit/PairTable.swift', 'Sources/PerekeyModelKit/PairText.swift', 'Sources/PerekeyCore/ModelFormat.swift') }}
-      - run: scripts/fetch-data.sh lexicon wikifreq pairs heldout
+      - run: scripts/fetch-data.sh lexicon wikifreq pairs heldout bench
       - name: Build the model files and check their hashes
         run: scripts/build-model.sh
       - name: Evaluate the classifier on the held-out sample

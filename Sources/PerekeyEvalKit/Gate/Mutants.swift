@@ -18,6 +18,8 @@ public struct Mutant: Sendable {
         case shrinks(times: Double)
         /// The count is not above the ordinary run's.
         case notAbove
+        /// The ordinary run had events and this one has none.
+        case fallsToZero
     }
 
     public struct Expectation: Sendable {
@@ -76,6 +78,14 @@ public enum Mutants {
             .init(what: "П в slip.warm", suite: "*", scenarioPrefix: "slip.warm", slice: nil, count: .missLayout, relation: .shrinks(times: 0.98)),
             .init(what: "В в clean.warm", suite: "*", scenarioPrefix: "clean.warm", slice: nil, count: .harm, relation: .notAbove),
         ]),
+        Mutant(name: "preset layout-only", options: nil, settings: "layout-only", expectations: [
+            .init(what: "Починено в typos.*", suite: "typos.*", scenarioPrefix: "", slice: nil, count: .fixed, relation: .fallsToZero),
+            .init(what: "Т в typos.none", suite: "typos.none", scenarioPrefix: "", slice: nil, count: .silent, relation: .fallsToZero),
+        ]),
+        Mutant(name: "preset default", options: nil, settings: "default", expectations: [
+            .init(what: "Починено в hyphen", suite: "hyphen", scenarioPrefix: "", slice: nil, count: .fixed, relation: .fallsToZero),
+            .init(what: "Починено в yo", suite: "yo", scenarioPrefix: "", slice: nil, count: .fixed, relation: .fallsToZero),
+        ]),
     ]
 
     /// The cases a mutant needs: those some expectation covers.
@@ -105,6 +115,11 @@ public enum Mutants {
                 let ok = a > 0 && Double(b) <= needed
                 return MutantFinding(verdict: ok ? .ok : .fail,
                                      line: "\(mutant.name): \(expectation.what): \(a) → \(b), нужно не больше \(number(needed))"
+                                         + (ok ? "" : " — НЕТ СДВИГА"))
+            case .fallsToZero:
+                let ok = a > 0 && b == 0
+                return MutantFinding(verdict: ok ? .ok : .fail,
+                                     line: "\(mutant.name): \(expectation.what): \(a) → \(b), нужно 0"
                                          + (ok ? "" : " — НЕТ СДВИГА"))
             case .notAbove:
                 let ok = b <= a

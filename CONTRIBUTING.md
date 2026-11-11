@@ -37,6 +37,61 @@ asks for access, reads the microphone, switches devices and starts and stops it
 1000 times. Each check writes its lines to `~/Library/Logs/Perekey/voice-check-<name>.txt`;
 `--voice-check help` lists them.
 
+## Recording typing for the measure
+
+The classifier is measured on a corpus (`scripts/eval.sh`). The live measure
+replays real typing through the whole `InputMachine` instead
+(docs/classifier.md, «Замер на живых сессиях»). The recordings come from a
+developer build with the typing recorder in it. A release never has it.
+
+**Build.** `PEREKEY_RECORD=1 scripts/bundle.sh` builds `.build/record/app/Perekey.app`;
+with `PEREKEY_VOICE=1` too, `.build/voice-record/app/Perekey.app`. Every line of
+the recorder is under `#if PEREKEY_RECORD`. `scripts/check-no-recorder.sh` fails
+on a binary that has it: CI runs it on the release build and in `release.yml`,
+and checks that it fails on a build with the flag. `PEREKEY_RECORD=1 scripts/test.sh`
+tests the recorder, in `.build/record`.
+
+**Turn it on.** The menu of that build has «Typing recording (dev)». It is off
+by default and stays as you leave it across launches. While it records, the menu
+bar item shows ● rec, whatever its own settings: it cannot be hidden.
+
+**What is recorded.** Every event the machine handles, with what it answered:
+keys (key codes, so typed text), layout changes, focus (bundle IDs), clicks,
+retypes, corrections with the original and the new word. A segment starts with
+the machine's state, settings included: the exceptions, the words learned per
+app, the always-fix spellings. A selection is recorded as as many «x» as it had
+characters. The model is not recorded, only its languages and options.
+
+**What is never recorded.** While the focus is a password field, while Secure
+Input is on, and while the focus is in a password manager (1Password,
+Bitwarden, KeePassXC, Keychain Access, Passwords), no event is written: the file
+gets one `gap` line instead, and recording goes on from the next quiet point
+after it. «Do not record here» in the menu adds the app in front to that list.
+Right after an app switch, until Accessibility tells the field, the recorder
+does not know a password field yet; such a field turns Secure Input on, and then
+no key reaches Perekey at all.
+
+**Where.** `~/Library/Application Support/Perekey/sessions.noindex/`, one file
+per launch and per day (`2026-11-10-1.pksession`). The folder is 0700, the
+files 0600, both out of Time Machine and Spotlight. A file goes 30 days after
+it was last written, at launch. «Erase Recordings…» removes them all, «Show
+Recordings in Finder» opens the folder. Never copy them into the repository
+(`.gitignore` has `*.pksession`), a log, an issue or a shared folder: they hold
+what you typed.
+
+**How it works.** On the tap thread the engine only appends the event and the
+output to an array in memory (`RecordingBuffer`); every 256 events or once a
+second the array goes to the recorder's own queue (`SessionRecorder`, utility
+QoS), which encodes and appends it to the file. No disk on the tap thread. When
+the disk falls behind by 16 384 entries, the recording writes `gap(overflow)`
+and typing goes on unslowed. The last second before a quit may be lost; the
+reader drops a line cut off in the middle. `PEREKEY_RECORD=1 scripts/bench.sh`
+times the machine with the buffer on («autoswitch, recording»).
+
+**Read them.** `perekey-eval replay check|words|compare <files> --model <dir>`
+(docs/classifier.md, «Команды»). Words show only with `--show-words`, and only in
+the terminal.
+
 ## Toolchain notes
 
 - Without Xcode the `@State` macro is unavailable. Use `State(initialValue:)`

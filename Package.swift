@@ -110,7 +110,7 @@ var targets: [Target] = [
     .testTarget(name: "PerekeyVoiceCoreTests", dependencies: ["PerekeyCore", "PerekeyVoiceCore"]),
     .testTarget(
         name: "PerekeyEvalKitTests",
-        dependencies: ["PerekeyCore", "PerekeyDesk", "PerekeyEvalKit"],
+        dependencies: ["PerekeyCore", "PerekeyDesk", "PerekeyEvalKit", "PerekeyModelKit"],
         resources: [.copy("Fixtures")]
     ),
 ]

@@ -14,7 +14,8 @@ public struct MachineSystem: TypingSystem {
         desk = EvalDesk(EvalDesk.Setup(
             settings: setup.settings, layouts: setup.layouts, start: setup.start.id, classifier: setup.classifier,
             focus: Focus(bundleID: env.effectiveApp), mode: env.effectiveMode, prior: prior,
-            secureInput: env.secureInput ?? false, field: env.effectiveField, lag: env.effectiveLag
+            secureInput: env.secureInput ?? false, field: env.effectiveField, lag: env.effectiveLag,
+            tracesJudgements: setup.tracesJudgements
         ))
     }
 
@@ -35,7 +36,9 @@ public struct MachineSystem: TypingSystem {
     }
 
     /// What the machine said about its actions: corrections, undos and
-    /// cancelled retypes, in the order of the typist's events.
+    /// cancelled retypes, and, with the trace of judgements, the words it
+    /// kept and the ones it did not judge. In the order of the typist's
+    /// events.
     static func trace(of desk: EvalDesk) -> [TraceEntry] {
         var entries: [TraceEntry] = []
         for logged in desk.log {
@@ -57,7 +60,23 @@ public struct MachineSystem: TypingSystem {
         for cancelled in desk.cancelled where cancelled.origin.isAutomatic {
             entries.append(TraceEntry(event: cancelled.event, kind: .cancelled))
         }
-        return entries.sorted { $0.event < $1.event }
+        // A switch or a correction is in the log with its decision already.
+        for judged in desk.judgements {
+            switch judged.trace.action {
+            case .kept:
+                let decision = judged.trace.decision
+                entries.append(TraceEntry(
+                    event: judged.event, kind: .kept, reason: decision.map { "\($0.reason)" },
+                    score: decision.map(\.score).flatMap { $0.isFinite ? $0 : nil }, margin: decision?.margin
+                ))
+            case let .notJudged(skip):
+                entries.append(TraceEntry(event: judged.event, kind: .notJudged, reason: "skip:\(skip.rawValue)"))
+            case .switched, .corrected:
+                break
+            }
+        }
+        // Stable: entries of one event keep the order they were made in.
+        return entries.enumerated().sorted { ($0.element.event, $0.offset) < ($1.element.event, $1.offset) }.map(\.element)
     }
 }
 

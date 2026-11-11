@@ -53,10 +53,16 @@ public struct EvalDesk: Sendable {
         /// Key downs the typist sends before the desk carries out a layout
         /// selection or a retype; 0 is at once.
         public var lag: Int
+        /// The machine keeps the trace of every word it judges
+        /// (`InputMachine.tracesJudgements`) and the desk lists them
+        /// (`judgements`). It judges each word a second time for the
+        /// explanation, so only a bench turns it on; off, the desk does no
+        /// extra work.
+        public var tracesJudgements: Bool
 
         public init(settings: Settings, layouts: [LayoutMap], start: LayoutID, classifier: Classifier?,
                     focus: Focus, mode: AppMode = .auto, prior: LanguagePrior? = nil, secureInput: Bool = false,
-                    field: FieldKind = .plain, lag: Int = 0)
+                    field: FieldKind = .plain, lag: Int = 0, tracesJudgements: Bool = false)
         {
             self.settings = settings
             self.layouts = layouts
@@ -68,6 +74,7 @@ public struct EvalDesk: Sendable {
             self.secureInput = secureInput
             self.field = field
             self.lag = lag
+            self.tracesJudgements = tracesJudgements
         }
     }
 
@@ -76,6 +83,14 @@ public struct EvalDesk: Sendable {
     public struct Logged: Hashable, Sendable {
         public var event: Int
         public var effect: Effect
+    }
+
+    /// The trace of a word the machine judged (or did not judge, and why),
+    /// with the index of the typist's event it was made at. Only with
+    /// `Setup.tracesJudgements`.
+    public struct Judged: Sendable {
+        public var event: Int
+        public var trace: JudgeTrace
     }
 
     /// A retype the desk did not carry out: the text before the caret was
@@ -121,6 +136,8 @@ public struct EvalDesk: Sendable {
     public private(set) var capsLock = false
     public private(set) var log: [Logged] = []
     public private(set) var cancelled: [Cancelled] = []
+    /// The words judged, in order, while `Setup.tracesJudgements`.
+    public private(set) var judgements: [Judged] = []
     /// Every call of the machine, when `recording` is on.
     public private(set) var records: [Record] = []
     public var recording = false
@@ -144,6 +161,8 @@ public struct EvalDesk: Sendable {
     private var requests: [UInt32: Int] = [:]
     /// The event the effects of the retype being posted belong to.
     private var posting: Int?
+    /// The serial of the last trace listed in `judgements`.
+    private var judgedSerial = 0
 
     /// The event effects are logged under now.
     private var cause: Int { posting ?? event }
@@ -158,7 +177,7 @@ public struct EvalDesk: Sendable {
         appLayout = setup.start
         maps = Dictionary(setup.layouts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         machine = InputMachine(settings: setup.settings, layouts: setup.layouts, currentLayout: setup.start,
-                               classifier: setup.classifier)
+                               classifier: setup.classifier, tracesJudgements: setup.tracesJudgements)
         send(.focusChanged(setup.focus))
         send(.appModeChanged(setup.mode))
         // The app takes the shortcuts away in "off" (AppModeController,
@@ -360,6 +379,7 @@ public struct EvalDesk: Sendable {
 
     private mutating func send(_ input: InputEvent) {
         let output = machine.handle(input)
+        noteJudgement()
         record(input, output)
         run(output.effects)
     }
@@ -368,6 +388,7 @@ public struct EvalDesk: Sendable {
     /// `releaseHeld` of the same output would lose the key (`Desk.key`).
     private mutating func key(_ event: KeyEvent) {
         let output = machine.handle(.key(event, time: time))
+        noteJudgement()
         switch output.disposition {
         case .pass:
             if event.phase == .down, !event.origin.isOwn { typeIntoField(event) }
@@ -378,6 +399,13 @@ public struct EvalDesk: Sendable {
         }
         record(.key(event, time: time), output)
         run(output.effects)
+    }
+
+    /// Lists the trace the call just made, if it made one.
+    private mutating func noteJudgement() {
+        guard machine.tracesJudgements, let last = machine.lastJudgement, last.serial != judgedSerial else { return }
+        judgedSerial = last.serial
+        judgements.append(Judged(event: cause, trace: last))
     }
 
     private mutating func record(_ input: InputEvent, _ output: Output) {

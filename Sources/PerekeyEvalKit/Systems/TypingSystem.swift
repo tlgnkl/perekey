@@ -13,6 +13,10 @@ public struct CaseSetup: Sendable {
     public var settings: Settings
     /// The classifier of the run, for the systems that judge words.
     public var classifier: Classifier?
+    /// The machine keeps the trace of the words it keeps and does not judge
+    /// (docs/eval.md, «Исходы»). The trace labels and slices and changes no
+    /// outcome (rule 2.7); off, the machine does no extra work.
+    public var tracesJudgements = true
 
     public init(item: EvalCase, library: LayoutLibrary, classifier: Classifier?) throws {
         self.item = item
@@ -36,6 +40,11 @@ public struct TraceEntry: Hashable, Sendable, Codable {
         case undone
         /// A retype was not carried out: the text before the caret differed.
         case cancelled
+        /// The classifier judged the word and left it as typed: `reason`,
+        /// `score` and `margin` are its decision.
+        case kept
+        /// The word was not judged at all: `reason` is `skip:` and why.
+        case notJudged
     }
 
     /// The index of the typist's event during which it happened.
@@ -43,7 +52,8 @@ public struct TraceEntry: Hashable, Sendable, Codable {
     public var kind: Kind
     /// The `Correction.Kind` of a correction: layout, typo, capsLock…
     public var correction: String?
-    /// The classifier's reason, for a switch at the end of a word.
+    /// The classifier's reason, for a decision at the end of a word; for a
+    /// word not judged, `skip:` and the cause (`JudgeTrace.Skip`).
     public var reason: String?
     /// Nil when the score is not finite: the other reading is no word.
     public var score: Double?

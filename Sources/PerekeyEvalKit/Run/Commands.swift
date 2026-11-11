@@ -3,11 +3,13 @@
 import Foundation
 import PerekeyCore
 import PerekeyDesk
+import PerekeyModelKit
 
 /// The bench's commands of `perekey-eval` (docs/eval.md, «Команды»):
 ///
 ///     perekey-eval cases check <files .jsonl>
 ///     perekey-eval cases list  <files .jsonl> [--suite X] [--scenario Y] [--split dev|test] [--reveal-test]
+///     perekey-eval cases personal <.pksession files or folders> --model <dir> [--name <set>]
 ///     perekey-eval cases build [--suites <dir>] [--cache <dir>] [--tier ci|full] [--out <dir>]
 ///                              [--only <suite,...>] [--epoch <n>]
 ///     perekey-eval play   --cases <files or directory> --model <dir> --out <run dir>
@@ -21,6 +23,9 @@ import PerekeyDesk
 ///
 /// `play` also takes `--cache <data cache>` (and `--lexicon <dir>`, `--data <dir>`, `--noise <dir>`) to score with
 /// the lexicon: `disputed`, `silent` and the features `known`, `zipf`, `collision`, `seen`.
+///
+/// A personal set (suite `personal.<name>`) lives in the folder `PEREKEY_EVAL_PRIVATE`, outside the repository
+/// (docs/eval.md, «Личные наборы»); a run with one is written there, and its words are hashes everywhere.
 ///
 /// Every command takes `--layouts <dir>` (default eval/layouts). Exit status:
 /// 0 success, 1 a self-check failed, 2 bad input.
@@ -41,7 +46,7 @@ public enum EvalCommands {
             default: throw EvalError.input("unknown command \(command)")
             }
         } catch {
-            FileHandle.standardError.write(Data("perekey-eval: \(error)\n".utf8))
+            EvalContext.err("perekey-eval: \(error)")
             return 2
         }
     }
@@ -51,9 +56,11 @@ public enum EvalCommands {
     static func cases(_ parsed: inout Arguments) throws -> Int32 {
         let sub = try parsed.command()
         if sub == "build" { return try build(parsed) }
+        if sub == "personal" { return try personal(parsed) }
         let library = try parsed.library()
         let files = try CaseFiles.expand(parsed.positional)
         guard !files.isEmpty else { throw EvalError.input("cases \(sub): no files") }
+        let store = try parsed.store()
         switch sub {
         case "check":
             var problems = 0
@@ -64,7 +71,8 @@ public enum EvalCommands {
                 do {
                     items = try CaseCodec.read(text, file: file)
                 } catch {
-                    print("\(error)")
+                    // The message of a decoding error may quote a value.
+                    EvalContext.out(store?.contains(file) == true ? "\(file): not a case; the details of a personal file are withheld" : "\(error)")
                     problems += 1
                     continue
                 }
@@ -73,24 +81,127 @@ public enum EvalCommands {
                     count += 1
                     var found = CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
                     if try CaseCodec.line(item) != line { found.append("the line is not canonical: sorted keys, no spaces") }
-                    for problem in found { print("\(file): \(item.id): \(problem)") }
+                    for problem in found { EvalContext.out("\(file): \(item.id): \(problem)") }
                     problems += found.isEmpty ? 0 : 1
                 }
             }
-            print("\(count) cases, \(problems) with problems")
+            EvalContext.out("\(count) cases, \(problems) with problems")
             return problems == 0 ? 0 : 2
         case "list":
             let reveal = parsed.flag("--reveal-test")
-            for (_, item) in try CaseFiles.read(files) {
+            for (_, item) in try CaseFiles.read(files, store: store) {
                 if let suite = parsed.value("--suite"), item.suite != suite { continue }
                 if let scenario = parsed.value("--scenario"), item.scenario != scenario { continue }
                 if let split = parsed.value("--split"), item.split.rawValue != split { continue }
-                let want = item.split == .dev || reveal ? item.want.debugDescription : "(test)"
-                print("\(item.id)\t\(item.split.rawValue)\t\(want)")
+                let want = item.isPersonal ? Redactor.withheld
+                    : item.split == .dev || reveal ? item.want.debugDescription : "(test)"
+                EvalContext.out("\(item.id)\t\(item.split.rawValue)\t\(want)")
             }
             return 0
         default:
             throw EvalError.input("unknown command cases \(sub): check, list or build")
+        }
+    }
+
+    // MARK: - personal
+
+    /// `cases personal`: the recordings of the person's typing become a personal set in the private folder.
+    /// It prints counts and never a word.
+    static func personal(_ parsed: Arguments) throws -> Int32 {
+        guard let model = parsed.value("--model") else { throw EvalError.input("cases personal: --model <dir> is required") }
+        guard let store = try parsed.store(creating: true) else {
+            throw EvalError.input("cases personal: \(PrivateStore.variable) must name the folder of personal sets")
+        }
+        var options = SessionCases.Options()
+        if let name = parsed.value("--name") {
+            guard !name.isEmpty, name.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else {
+                throw EvalError.input("--name: letters, digits and - only")
+            }
+            options.name = name
+        }
+        let library = try parsed.library()
+        let files = try sessionFiles(parsed.positional)
+        guard !files.isEmpty else { throw EvalError.input("cases personal: no .\(SessionFile.fileExtension) files") }
+        let models = SessionModels(directory: model)
+        var seen: Set<String> = []
+        var cases: [EvalCase] = []
+        var report = SessionCases.Report()
+        for file in files {
+            let session: Session
+            do {
+                session = try SessionFile.read(path: file)
+            } catch let error as SessionFileError {
+                throw EvalError.input("\(file): \(Self.withheld(error))")
+            }
+            let made = try SessionCases.build(session, library: library, classifier: models.classifier,
+                                              options: options, seen: &seen)
+            try models.check()
+            cases += made.cases
+            report.add(made.report)
+        }
+        let path = (store.root as NSString).appendingPathComponent("\(EvalCase.personalPrefix)\(options.name).jsonl")
+        try store.write(try CaseCodec.write(cases), to: path)
+        EvalContext.out(report.render())
+        EvalContext.out("wrote \(cases.count) cases to \(path)")
+        return 0
+    }
+
+    /// The text of a session error without the part a recording could quote.
+    private static func withheld(_ error: SessionFileError) -> String {
+        switch error {
+        case .empty: "the file is empty"
+        case let .unreadable(line, _): "line \(line) is not a session line (details withheld)"
+        case let .notASession(format: _): "not a Perekey session"
+        case let .unsupportedVersion(version): "version \(version) of the session format is not supported"
+        case let .noHeader(line): "line \(line): the file must start with its header"
+        case let .secondHeader(line): "line \(line): a second header"
+        case let .stepWithoutSnapshot(line): "line \(line): an event outside a segment"
+        }
+    }
+
+    /// Files of the arguments, and the `.pksession` files of the folders among them, in name order.
+    private static func sessionFiles(_ paths: [String]) throws -> [String] {
+        var files: [String] = []
+        for path in paths {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+                throw EvalError.input("no such file: \(path)")
+            }
+            if isDirectory.boolValue {
+                files += try FileManager.default.contentsOfDirectory(atPath: path)
+                    .filter { $0.hasSuffix(".\(SessionFile.fileExtension)") }.sorted()
+                    .map { (path as NSString).appendingPathComponent($0) }
+            } else {
+                files.append(path)
+            }
+        }
+        return files
+    }
+
+    /// The models of a folder, loaded once for each set of languages a recording names.
+    private final class SessionModels {
+        let directory: String
+        private var loaded: [[String]: LanguageModel] = [:]
+        private var failure: String?
+
+        init(directory: String) {
+            self.directory = directory
+        }
+
+        func classifier(_ spec: ClassifierSpec) -> Classifier? {
+            if loaded[spec.languages] == nil {
+                do {
+                    loaded[spec.languages] = try ModelFile.load(directory, languages: spec.languages)
+                } catch {
+                    failure = "cannot load the model of \(spec.languages.joined(separator: ", ")) from \(directory): \(error)"
+                    return nil
+                }
+            }
+            return loaded[spec.languages].map { Classifier(model: $0, options: spec.options) }
+        }
+
+        func check() throws {
+            if let failure { throw EvalError.input(failure) }
         }
     }
 
@@ -100,7 +211,15 @@ public enum EvalCommands {
         guard let out = parsed.value("--out") else { throw EvalError.input("play: --out <run dir> is required") }
         let library = try parsed.library()
         let files = try CaseFiles.expand(parsed.values("--cases"))
-        let items = try selected(files, parsed, library: library)
+        let store = try parsed.store()
+        let items = try selected(files, parsed, library: library, store: store)
+        // A run with a personal set is written inside the private folder, and its words are hashes.
+        var redactor: Redactor?
+        if items.contains(where: \.isPersonal) {
+            guard let store else { throw EvalError.input("a personal set needs \(PrivateStore.variable)") }
+            try store.require(inside: out, what: "the run folder (--out)")
+            redactor = try store.redactor()
+        }
         var config = try parsed.config()
         let knowledge = try parsed.knowledge(items: items, library: library)
         config.knowledge = knowledge?.knowledge
@@ -117,20 +236,21 @@ public enum EvalCommands {
         info.lexicon = knowledge?.lexiconHashes
         info.seen = knowledge?.seenHash
         info.noise = knowledge?.knowledge.noise.files
-        try RunFiles.write(scores, info: info, to: out)
-        print(Console.summary(Summary(scores)), terminator: "")
+        try RunFiles.write(scores, info: info, to: out, redactor: redactor)
+        EvalContext.out(Console.summary(Summary(scores)), terminator: "")
         return 0
     }
 
     /// The cases of the files after `--only` and `--split`; every case must
     /// pass the checks, or nothing is played.
-    static func selected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary) throws -> [EvalCase] {
+    static func selected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary,
+                         store: PrivateStore? = nil) throws -> [EvalCase] {
         let only = parsed.value("--only").map { Set($0.split(separator: ",").map(String.init)) }
         let split = parsed.value("--split") ?? "all"
         guard ["dev", "test", "all"].contains(split) else { throw EvalError.input("--split dev|test|all") }
         var items: [EvalCase] = []
         var problems: [String] = []
-        for (file, item) in try CaseFiles.read(files) {
+        for (file, item) in try CaseFiles.read(files, store: store) {
             if let only, !only.contains(item.suite) { continue }
             if split != "all", item.split.rawValue != split { continue }
             problems += CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
@@ -157,7 +277,9 @@ public enum EvalCommands {
             options.profilesFile = profilesPath
         }
         if options.words == nil, (parsed.value("--format") ?? "text") == "text" { options.words = 20 }
-        let data = try ReportBuilder.build(try RunData.load(directory), options: options)
+        let run = try RunData.load(directory)
+        try requirePrivateOutput(for: [run], to: parsed.value("--out"), parsed)
+        let data = try ReportBuilder.build(run, options: options)
         let text: String
         switch parsed.value("--format") ?? "text" {
         case "text": text = ReportRender.text(data)
@@ -175,8 +297,9 @@ public enum EvalCommands {
         var options = DiffOptions()
         options.revealTest = parsed.flag("--reveal-test")
         if let list = parsed.value("--list") { options.list = try count(list, "--list") }
-        let data = try DiffBuilder.build(try RunData.load(parsed.positional[0]), try RunData.load(parsed.positional[1]),
-                                         options: options)
+        let runs = try [RunData.load(parsed.positional[0]), RunData.load(parsed.positional[1])]
+        try requirePrivateOutput(for: runs, to: parsed.value("--out"), parsed)
+        let data = try DiffBuilder.build(runs[0], runs[1], options: options)
         let text: String
         switch parsed.value("--format") ?? "text" {
         case "text": text = DiffRender.text(data, list: options.list)
@@ -191,6 +314,13 @@ public enum EvalCommands {
         return 0
     }
 
+    /// A report or a diff of a personal run is a file of the private folder.
+    private static func requirePrivateOutput(for runs: [RunData], to path: String?, _ parsed: Arguments) throws {
+        guard let path, runs.contains(where: { $0.info.personal == true }) else { return }
+        guard let store = try parsed.store() else { throw EvalError.input("a personal run needs \(PrivateStore.variable)") }
+        try store.require(inside: path, what: "the report (--out)")
+    }
+
     private static func count(_ text: String, _ flag: String) throws -> Int {
         guard let value = Int(text), value >= 0 else { throw EvalError.input("\(flag) needs a number") }
         return value
@@ -200,7 +330,7 @@ public enum EvalCommands {
         if let path {
             try text.write(toFile: path, atomically: true, encoding: .utf8)
         } else {
-            print(text, terminator: "")
+            EvalContext.out(text, terminator: "")
         }
     }
 
@@ -210,8 +340,11 @@ public enum EvalCommands {
         guard let id = parsed.value("--id") else { throw EvalError.input("case: --id is required") }
         let library = try parsed.library()
         let files = try CaseFiles.expand(parsed.values("--cases"))
-        guard let original = try CaseFiles.read(files).map(\.item).first(where: { $0.id == id }) else {
+        guard let original = try CaseFiles.read(files, store: try parsed.store()).map(\.item).first(where: { $0.id == id }) else {
             throw EvalError.input("no case \(id)")
+        }
+        if original.isPersonal {
+            throw EvalError.input("\(id) is in a personal set: its words are never printed; read the run folder instead")
         }
         if original.split == .test, !parsed.flag("--reveal-test") {
             throw EvalError.input("\(id) is in the test part: its words are shown only with --reveal-test")
@@ -223,7 +356,7 @@ public enum EvalCommands {
         let events = try runner.typist.events(for: item, layouts: library)
         let setup = try CaseSetup(item: item, library: library,
                                   classifier: runner.config.system == .machine ? try runner.classifier(for: item) : nil)
-        print("\(item.id)  \(item.split.rawValue)  \(runner.config.system.rawValue)  want \(item.want.debugDescription)")
+        EvalContext.out("\(item.id)  \(item.split.rawValue)  \(runner.config.system.rawValue)  want \(item.want.debugDescription)")
         let out: RunResult
         if runner.config.system == .machine {
             var machine = try MachineSystem(setup: setup)
@@ -232,29 +365,29 @@ public enum EvalCommands {
             out = try machine.finish()
             var records = machine.desk.records[...]
             for (index, typed) in events.enumerated() {
-                print(String(format: "%9.4f  ", typed.time) + Console.describe(typed.event))
+                EvalContext.out(String(format: "%9.4f  ", typed.time) + Console.describe(typed.event))
                 while let record = records.first, record.event <= index {
                     records = records.dropFirst()
-                    print("           → " + Console.describe(record))
+                    EvalContext.out("           → " + Console.describe(record))
                 }
             }
-            for record in records { print("           → " + Console.describe(record)) }
+            for record in records { EvalContext.out("           → " + Console.describe(record)) }
         } else {
-            for typed in events { print(String(format: "%9.4f  ", typed.time) + Console.describe(typed.event)) }
+            for typed in events { EvalContext.out(String(format: "%9.4f  ", typed.time) + Console.describe(typed.event)) }
             out = try runner.config.system.play(setup, events: events)
         }
         let null = try SystemName.null.play(setup, events: events)
         var score = runner.scorer.score(item, null: null, out: out, events: events)
         score.failedChecks = Runner.failedChecks(item, out, library: library)
-        print("null  \(null.text.debugDescription)")
-        print("out   \(out.text.debugDescription)  layout \(out.layout)  corrections \(out.corrections)  undone \(out.undone)")
+        EvalContext.out("null  \(null.text.debugDescription)")
+        EvalContext.out("out   \(out.text.debugDescription)  layout \(out.layout)  corrections \(out.corrections)  undone \(out.undone)")
         if score.scoring == .token {
             for token in score.tokens {
-                print("  \(token.index)  \(token.want)  null \(token.null)  out \(token.out)  \(token.outcome.rawValue)"
+                EvalContext.out("  \(token.index)  \(token.want)  null \(token.null)  out \(token.out)  \(token.outcome.rawValue)"
                     + (token.form.map { "  \($0)" } ?? "") + (token.cascade ? "  cascade" : ""))
             }
         }
-        print("exact \(score.exact)" + (score.failedChecks.isEmpty ? "" : "  failed checks \(score.failedChecks)"))
+        EvalContext.out("exact \(score.exact)" + (score.failedChecks.isEmpty ? "" : "  failed checks \(score.failedChecks)"))
         return 0
     }
 
@@ -268,17 +401,18 @@ public enum EvalCommands {
 
         // 6. Every case passes the checks.
         var problems = 0
-        for (file, item) in try CaseFiles.read(files) {
+        let store = try parsed.store()
+        for (file, item) in try CaseFiles.read(files, store: store) {
             let found = CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
             for problem in found { failures.append("\(file): \(item.id): \(problem)") }
             problems += found.isEmpty ? 0 : 1
         }
         guard problems == 0 else {
-            for failure in failures { print(failure) }
-            print("selfcheck: \(problems) cases do not pass the check")
+            for failure in failures { EvalContext.out(failure) }
+            EvalContext.out("selfcheck: \(problems) cases do not pass the check")
             return 1
         }
-        let items = try selected(files, parsed, library: library)
+        let items = try selected(files, parsed, library: library, store: store)
         let config = try parsed.config()
         func run(_ system: SystemName, settings: String? = nil) throws -> [Runner.Played] {
             var config = config
@@ -317,7 +451,7 @@ public enum EvalCommands {
         }) {
             compared += 1
             if played.out.text != nullPlayed.out.text {
-                failures.append("machine off differs from null on \(played.item.id)" + (played.score.hidden ? ""
+                failures.append("machine off differs from null on \(played.item.id)" + (played.score.hidden || played.score.personal ? ""
                         : ": \(played.out.text.debugDescription) vs \(nullPlayed.out.text.debugDescription)"))
             }
         }
@@ -354,8 +488,8 @@ public enum EvalCommands {
         }
         lines.append("6. cases pass the check: \(items.count)")
 
-        for line in lines { print(line) }
-        for failure in failures { print("FAIL: \(failure)") }
+        for line in lines { EvalContext.out(line) }
+        for failure in failures { EvalContext.out("FAIL: \(failure)") }
         return failures.isEmpty ? 0 : 1
     }
 }
@@ -418,6 +552,11 @@ struct Arguments {
         for language in languages { hashes[language] = try Lexicon.hash(language: language, directory: directory) }
         return KnowledgeSetup(knowledge: Knowledge(lexicon: lexicon, seen: seen, noise: noise), lexiconHashes: hashes,
                               seenHash: seen?.hash)
+    }
+
+    /// The folder of personal sets, if `PEREKEY_EVAL_PRIVATE` names one.
+    func store(creating: Bool = false) throws -> PrivateStore? {
+        try PrivateStore.fromEnvironment(EvalContext.env, creating: creating)
     }
 
     func library() throws -> LayoutLibrary {

@@ -118,6 +118,8 @@ public enum ReportBuilder {
         if reveal { notes.append(run.info.testRevealed ? "тест раскрыт" : "тест раскрыт флагом, но прогон сыгран без --reveal-test: слова части test в нём скрыты") }
         else if run.info.testRevealed { notes.append("прогон сыгран с --reveal-test; в этом отчёте слова части test скрыты") }
 
+        if run.info.personal == true { notes.append("личный набор: слова в файлах прогона — хэши, соль у владельца") }
+
         let key = { (row: RunData.Row) in [row.suite, row.scenario] }
         var order: [[String]] = []
         var grouped: [[String]: [RunData.Row]] = [:]

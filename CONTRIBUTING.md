@@ -112,6 +112,14 @@ Recordings in Finder» opens the folder. Never copy them into the repository
 (`.gitignore` has `*.pksession`), a log, an issue or a shared folder: they hold
 what you typed.
 
+**Your own set for the quality bench.** `perekey-eval cases personal` turns the
+strong labels of your recordings (an undone switch, a word you retyped by hand)
+into a personal set, and `perekey-eval play` runs it (docs/eval.md, «Личные
+наборы»). Set `PEREKEY_EVAL_PRIVATE` to a folder outside the repository and
+outside any scratchpad; the set and its runs live there, and the files and the
+output of a run hold hashes and numbers, never your words. The commands refuse a
+folder inside the repository or a shared one.
+
 **How it works.** On the tap thread the engine only appends the event and the
 output to an array in memory (`RecordingBuffer`); every 256 events or once a
 second the array goes to the recorder's own queue (`SessionRecorder`, utility

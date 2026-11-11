@@ -24,6 +24,9 @@ public struct Runner {
         /// noise; without it the scorer gives no `disputed`, `silent`, `known`, `zipf`,
         /// `collision` or `seen`.
         public var knowledge: Knowledge?
+        /// The machine keeps the trace of the words it keeps and does not judge
+        /// (`CaseSetup.tracesJudgements`). It labels and slices and changes no outcome.
+        public var tracesJudgements = true
 
         public init() {}
     }
@@ -64,16 +67,27 @@ public struct Runner {
     }
 
     public mutating func play(_ original: EvalCase) throws -> Played {
+        do {
+            return try playChecked(original)
+        } catch where original.isPersonal {
+            // The message of a failure may quote the person's text.
+            throw EvalError.input("\(original.id): cannot be played (\(type(of: error))); the details of a personal case are withheld")
+        }
+    }
+
+    private mutating func playChecked(_ original: EvalCase) throws -> Played {
         let item = prepared(original)
         let events = try typist.events(for: item, layouts: library)
         let classifier = config.system == .machine ? try classifier(for: item) : nil
         let model = try languageModel(for: item)
-        let setup = try CaseSetup(item: item, library: library, classifier: classifier)
+        var setup = try CaseSetup(item: item, library: library, classifier: classifier)
+        setup.tracesJudgements = config.tracesJudgements
         let null = try SystemName.null.play(setup, events: events)
         let out = try config.system.play(setup, events: events)
         var score = scorer.score(item, null: null, out: out, events: events, model: model)
         score.failedChecks = Self.failedChecks(item, out, library: library)
         score.hidden = item.split == .test && !config.revealTest
+        score.personal = item.isPersonal
         return Played(item: item, events: events, null: null, out: out, score: score)
     }
 
@@ -156,14 +170,32 @@ public enum CaseFiles {
         return files
     }
 
-    /// Every case of the files, in order, with the file it came from.
-    public static func read(_ files: [String]) throws -> [(file: String, item: EvalCase)] {
+    /// Every case of the files, in order, with the file it came from. A
+    /// personal case lives in a file of the private `store` and nowhere
+    /// else, and a file of the store holds nothing but personal cases: a
+    /// case read from the store has its words hashed in every file and
+    /// output, and one outside it must not stand for a person's words.
+    public static func read(_ files: [String], store: PrivateStore? = nil) throws -> [(file: String, item: EvalCase)] {
         var result: [(String, EvalCase)] = []
         for file in files {
+            let inStore = store?.contains(file) ?? false
+            let items: [EvalCase]
             do {
-                result += try CaseCodec.read(file: file).map { (file, $0) }
+                items = try CaseCodec.read(file: file)
             } catch let error as CaseCodec.ReadError {
-                throw EvalError.input(error.description)
+                // The message of a decoding error may quote the value.
+                throw EvalError.input(inStore ? "\(file):\(error.line): not a case; the details of a personal file are withheld"
+                    : error.description)
+            }
+            for item in items {
+                if item.isPersonal, !inStore {
+                    throw EvalError.input("\(item.id): a personal case is read only from a file inside \(PrivateStore.variable)"
+                        + (store == nil ? ", which is not set" : ""))
+                }
+                if !item.isPersonal, inStore {
+                    throw EvalError.input("\(file): a file inside \(PrivateStore.variable) holds only personal. suites")
+                }
+                result.append((file, item))
             }
         }
         return result

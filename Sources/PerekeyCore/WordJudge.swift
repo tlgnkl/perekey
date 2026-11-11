@@ -224,15 +224,23 @@ struct WordJudge: Sendable {
     /// What the classifier is told about the next word. The app's prior
     /// only where the focus is in that app: not in Perekey's own windows,
     /// not in the moment the focus has moved and the context not yet.
-    private func context(focus: Focus?) -> Classifier.Context {
-        Classifier.Context(recent: recent, prior: inContextApp(focus) ? languageContext.prior : LanguagePrior(),
-                           personal: personal)
+    private func context(focus: Focus?, buffer: WordBuffer, layouts: LayoutState) -> Classifier.Context {
+        var context = Classifier.Context(recent: recent, prior: inContextApp(focus) ? languageContext.prior : LanguagePrior(),
+                                         personal: personal)
+        // The word before is read for every context the classifier judges
+        // with, the verdict's, the explanation's and the choice's alike, and
+        // only while the limit is above 0.
+        if let limit = classifier?.options.wordContextLimit, limit > 0 {
+            context.previousWord = realWordBefore(buffer, layouts: layouts,
+                                                  sentenceStart: sentenceStartOfWord(in: buffer))
+        }
+        return context
     }
 
     /// The context a manual retype ranks the readings of the word with:
     /// the one it had at its end, or the current one.
-    func manualContext(focus: Focus?) -> Classifier.Context {
-        var context = judged ? contextAtJudge : context(focus: focus)
+    func manualContext(focus: Focus?, buffer: WordBuffer, layouts: LayoutState) -> Classifier.Context {
+        var context = judged ? contextAtJudge : context(focus: focus, buffer: buffer, layouts: layouts)
         context.mode = .manual
         return context
     }
@@ -249,6 +257,16 @@ struct WordJudge: Sendable {
     /// The next word starts a sentence (after `. ! ?`, a line end or a focus
     /// change): a capital there is no name. Independent of the word itself.
     private(set) var sentenceStart = true
+    /// What `sentenceStart` was before the period, `!` or `?` that ended the
+    /// word in the buffer set it, and the number of keys the buffer had at
+    /// that judgement. "привет." is judged at its period and again at the
+    /// space after it; the period starts a sentence for the word after, not
+    /// for the word itself, so the second judgement reads the word before
+    /// as the first did (`sentenceStartOfWord(in:)`). Nil when no judgement
+    /// of this word set it. Not part of `MachineSnapshot`: a machine made
+    /// from a snapshot in the middle of such a word judges it with
+    /// `sentenceStart`.
+    private var sentenceStartBeforeMark: (value: Bool, entries: Int)?
     /// See `Gate.judged`.
     private(set) var judged: Bool {
         get { gate.judged }
@@ -257,7 +275,7 @@ struct WordJudge: Sendable {
     /// The context the last judgement had (the words before it, the app's
     /// prior), so «why?» can ask again with the same one. Only read while
     /// `judged`.
-    private var contextAtJudge = Classifier.Context()
+    private(set) var contextAtJudge = Classifier.Context()
     private(set) var switching: Switching {
         get { gate.switching }
         set { gate.switching = newValue }
@@ -331,6 +349,7 @@ struct WordJudge: Sendable {
     ///   - drops: the key goes on with a word that has a letter already.
     mutating func typed(startsWord: Bool, confirms: Bool = false, drops: Bool = false) {
         if startsWord {
+            sentenceStartBeforeMark = nil
             switching = .allowed
             languageRecorded = false
             wordTraced = false
@@ -413,8 +432,20 @@ struct WordJudge: Sendable {
         self.kept = room
     }
 
+    /// Whether the word in the buffer starts a sentence: `sentenceStart`, or
+    /// what it was before the mark that ended this very word set it
+    /// (`sentenceStartBeforeMark`). The mark is the last key in the buffer
+    /// then, and the key after it (the space) is not in the buffer yet.
+    private func sentenceStartOfWord(in buffer: WordBuffer) -> Bool {
+        if let held = sentenceStartBeforeMark, sentenceStart, buffer.entries.count == held.entries + 1 {
+            return held.value
+        }
+        return sentenceStart
+    }
+
     /// The text before the caret is unknown now.
     mutating func forgetContext(newField: Bool) {
+        sentenceStartBeforeMark = nil
         recent.removeAll()
         previousForTypo = nil
         languageRecorded = false
@@ -607,7 +638,7 @@ struct WordJudge: Sendable {
         }
         judged = true
         counting = inContextApp(focus)
-        contextAtJudge = context(focus: focus)
+        contextAtJudge = context(focus: focus, buffer: buffer, layouts: layouts)
         if pendingObservation != nil {
             if Self.hasLetter(buffer.entries, layouts: layouts) {
                 // The word is judged again ("hello." and a space): its new end decides.
@@ -627,7 +658,14 @@ struct WordJudge: Sendable {
         // in the buffer then.
         let startsSentence = endsLine || Self.endsSentence(stroke, in: typed)
             || (stroke.keyCode == KeyCode.space && Self.endsSentence(last.stroke, in: typed))
+        let sentenceStartOfThisWord = sentenceStartOfWord(in: buffer)
         defer {
+            // The space after the mark judges the word again: it keeps what the mark's judgement held.
+            if !endsLine, stroke.keyCode != KeyCode.space, startsSentence {
+                sentenceStartBeforeMark = (sentenceStartOfThisWord, buffer.entries.count)
+            } else if stroke.keyCode != KeyCode.space || !startsSentence {
+                sentenceStartBeforeMark = nil
+            }
             sentenceStart = startsSentence
             if startsSentence { recent.keepLatest() }
         }
@@ -845,14 +883,45 @@ struct WordJudge: Sendable {
     private func wordBefore(_ buffer: WordBuffer, layouts: LayoutState, realWords: Bool) -> UInt64? {
         guard let corrector = typoCorrector, corrector.options.contextWeight > 0 || realWords else { return nil }
         guard let before = buffer.previousWord else { return sentenceStart ? ModelFormat.sentenceStart : nil }
-        guard let first = before.first, let map = layouts[first.layout] else { return nil }
+        return Self.read(before, layouts: layouts)?.fingerprint
+    }
+
+    /// The word before the one in the buffer with the language it was typed
+    /// in, for the classifier's word context (`Classifier.Options.wordContextLimit`).
+    /// Nil at the start of a sentence (after `. ! ?` or a line end): the
+    /// pairs of the model hold the words of one sentence, so the last word of
+    /// the sentence before says nothing about this one, and the corpus of
+    /// `perekey-eval` has no word before there either. Nil too when the
+    /// buffer does not know the word before: at the start of the field,
+    /// after a click, a focus change or a backspace into it. Reads nothing
+    /// unless asked.
+    func realWordBefore(_ buffer: WordBuffer, layouts: LayoutState) -> Classifier.PreviousWordRef? {
+        realWordBefore(buffer, layouts: layouts, sentenceStart: sentenceStartOfWord(in: buffer))
+    }
+
+    private func realWordBefore(_ buffer: WordBuffer, layouts: LayoutState, sentenceStart: Bool)
+        -> Classifier.PreviousWordRef?
+    {
+        guard !sentenceStart, let before = buffer.previousWord, let read = Self.read(before, layouts: layouts),
+              let language = read.language, read.fingerprint != ModelFormat.sentenceStart
+        else { return nil }
+        return Classifier.PreviousWordRef(language: language, fingerprint: read.fingerprint)
+    }
+
+    /// The fingerprint of the word in `entries` and the language of the
+    /// layout it was typed in, nil when that layout has none (the typo
+    /// corrector reads the word before in any layout).
+    private static func read(_ entries: ArraySlice<WordBuffer.Entry>, layouts: LayoutState)
+        -> (fingerprint: UInt64, language: String?)?
+    {
+        guard let first = entries.first, let map = layouts[first.layout] else { return nil }
         var reader = PreviousWord.Reader()
-        for entry in before {
+        for entry in entries {
             // One key types a short text: a `String` held inline, no heap.
             guard let text = map.text(for: entry.stroke) else { continue }
             for scalar in text.unicodeScalars { reader.add(scalar) }
         }
-        return reader.result
+        return reader.result.map { ($0, map.language) }
     }
 
     /// What automatic switching decides about the word in the buffer, for the
@@ -874,7 +943,7 @@ struct WordJudge: Sendable {
         auto.other = chosen
         var decision = auto.classifier.classify(
             buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
-            context: judged ? contextAtJudge : context(focus: focus),
+            context: judged ? contextAtJudge : context(focus: focus, buffer: buffer, layouts: layouts),
             explaining: true
         )
         if decision.verdict == .switch(to: auto.other.id),
@@ -917,7 +986,7 @@ struct WordJudge: Sendable {
         switching = .switchedInside
         switchedFrom = context.typed.id
         if tracing {
-            let wordContext = self.context(focus: focus)
+            let wordContext = self.context(focus: focus, buffer: buffer, layouts: layouts)
             trace(.switched(to: other.id, early: true), buffer, layouts: layouts, context: wordContext,
                   decision: context.classifier.classify(buffer.entries.lazy.map(\.stroke), typed: context.typed,
                                                         other: other, context: wordContext, explaining: true),

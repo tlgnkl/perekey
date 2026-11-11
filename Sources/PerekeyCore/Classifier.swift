@@ -81,6 +81,15 @@ public struct Classifier: Sendable {
         /// time, as with no limit, and 65 % of the random strings that stood
         /// the other rules are cut off; at 10 the recall is 88 %.
         public var personalNoiseCost = 11.0
+        /// The most bits the word before may move a decision, either way
+        /// (`wordContext`): the lift of the pair (previous word, other
+        /// reading) over the lift of the pair (previous word, typed reading),
+        /// each counted only when the previous word is in the language of
+        /// that reading. It acts on the 1–2 letter words and on the band of
+        /// doubt (`0 < score < margin`) and nowhere else. Zero looks no pair
+        /// up: the output is as it was. From `perekey-eval run
+        /// --word-context-sweep` (docs/classifier.md, «Слова в контексте»).
+        public var wordContextLimit = 0.0
 
         public init() {}
     }
@@ -102,6 +111,10 @@ public struct Classifier: Sendable {
         /// The words the user keeps typing, as keyed fingerprints; `.off`
         /// looks nothing up.
         public var personal: PersonalLexicon
+        /// The word before the one judged, with the language it was typed in;
+        /// nil when it is not known (`PreviousWord`). Looked up only when
+        /// `Options.wordContextLimit` is above 0.
+        public var previousWord: PreviousWordRef?
 
         /// The language the previous word was judged to be in, e.g. "ru".
         public var previousLanguage: String? { recent.latest }
@@ -111,12 +124,25 @@ public struct Classifier: Sendable {
         }
 
         public init(recent: RecentLanguages, prior: LanguagePrior = LanguagePrior(), mode: Mode = .automatic,
-                    personal: PersonalLexicon = .off)
+                    personal: PersonalLexicon = .off, previousWord: PreviousWordRef? = nil)
         {
+            self.previousWord = previousWord
             self.recent = recent
             self.prior = prior
             self.mode = mode
             self.personal = personal
+        }
+    }
+
+    /// The word before: its language and its folded fingerprint
+    /// (`PreviousWord.fingerprint(of:)`), the key of a pair of the model.
+    public struct PreviousWordRef: Hashable, Sendable {
+        public var language: String
+        public var fingerprint: UInt64
+
+        public init(language: String, fingerprint: UInt64) {
+            self.language = language
+            self.fingerprint = fingerprint
         }
     }
 
@@ -270,8 +296,8 @@ public struct Classifier: Sendable {
                 else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
                 markPersonal(&typedReading, language: typedCode, scalars: scalars[0..<half], context.personal)
                 markPersonal(&otherReading, language: otherCode, scalars: scalars[half...], context.personal)
-                return decide(typedReading, otherReading, typed: typed, other: other, context: context,
-                              explaining: explaining)
+                return decide(typedReading, otherReading, typed: typed, other: other,
+                              languages: (typedLanguage, otherLanguage), context: context, explaining: explaining)
             }
         }
     }
@@ -342,7 +368,8 @@ public struct Classifier: Sendable {
                                                      scalars: scalars[half...], symbols: symbols[half...])
                     else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
                     markPersonal(&otherReading, language: otherCode, scalars: scalars[half...], context.personal)
-                    let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context,
+                    let decision = decide(typedReading, otherReading, typed: typed, other: other,
+                                          languages: (typedLanguage, otherLanguage), context: context,
                                           explaining: explaining)
                     readings.append((decision, otherCode, otherReading.exactFingerprint ^ UInt64(otherReading.count),
                                      decision.score - lean(context, toward: otherCode, from: typedCode)))
@@ -611,9 +638,11 @@ public struct Classifier: Sendable {
     }
 
     private func decide(_ typed: Reading, _ other: Reading, typed typedLayout: LayoutMap, other otherLayout: LayoutMap,
+                        languages: (typed: LanguageModel.Language, other: LanguageModel.Language),
                         context: Context, explaining: Bool) -> Decision
     {
-        var decision = compare(typed, other, typed: typedLayout, other: otherLayout, context: context)
+        var decision = compare(typed, other, typed: typedLayout, other: otherLayout, languages: languages,
+                               context: context)
         // Always: the word judge leaves a personal word to no typo step,
         // and asking again would cost a reading of the word.
         decision.typedPersonal = typed.personal
@@ -643,6 +672,7 @@ public struct Classifier: Sendable {
     }
 
     private func compare(_ typed: Reading, _ other: Reading, typed typedLayout: LayoutMap, other otherLayout: LayoutMap,
+                         languages: (typed: LanguageModel.Language, other: LanguageModel.Language),
                          context: Context) -> Decision
     {
         let typedCode = typedLayout.language
@@ -693,15 +723,23 @@ public struct Classifier: Sendable {
             // have a letter: "{" is no reason to type "х".
             let frequent = (other.rank ?? 0) >= options.shortWordRank
             let typedRank = typed.isWord ? (typed.rank ?? 0) : 0
+            // The pairs of the model move the rank the other reading counts
+            // for: `wordContext` bits are `rankUnitsPerBit` units each. Asked
+            // only where the rank is compared, and not at all while the
+            // limit is 0.
+            func shift() -> Int {
+                Int((wordContext(typed, other, languages: languages, typedCode: typedCode, otherCode: otherCode,
+                                 context: context) * TypoCorrector.Options.rankUnitsPerBit).rounded())
+            }
             let wins: Bool
             if typed.letters == 0
                 || (context.previousLanguage == typedCode && !isMixed(context.recent, typedCode, otherCode))
             {
                 wins = false
             } else if context.previousLanguage == otherCode {
-                wins = frequent && typedRank < (other.rank ?? 0)
+                wins = frequent && Int(typedRank) < Int(other.rank ?? 0) + shift()
             } else {
-                wins = frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0)
+                wins = frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0) + shift()
             }
             return Decision(verdict: wins ? .switch(to: otherLayout.id) : .keep, score: score, reason: .shortWord,
                             language: wins ? otherCode : (typed.isWord && plausible(typed) ? typedCode : nil))
@@ -730,10 +768,41 @@ public struct Classifier: Sendable {
             return Decision(verdict: .switch(to: otherLayout.id), score: score, reason: .compared, language: otherCode)
         }
         if score > 0 {
-            return Decision(verdict: .unsure, score: score, reason: .compared, language: nil)
+            // The band of doubt: the word before may tip it either way, never
+            // further than the limit, and never outside the band.
+            let moved = score + wordContext(typed, other, languages: languages, typedCode: typedCode,
+                                            otherCode: otherCode, context: context)
+            if moved >= margin {
+                return Decision(verdict: .switch(to: otherLayout.id), score: score, reason: .compared,
+                                language: otherCode)
+            }
+            if moved > 0 {
+                return Decision(verdict: .unsure, score: score, reason: .compared, language: nil)
+            }
         }
         return Decision(verdict: .keep, score: score, reason: .compared,
                         language: plausible(typed) ? typedCode : nil)
+    }
+
+    /// Bits the word before gives the other reading over the typed one: the
+    /// lift of the pair (previous word, other) minus that of (previous word,
+    /// typed), each only when the previous word is in the language of that
+    /// reading and the model has the pair; between `±wordContextLimit`.
+    /// A pair that is not in the table says nothing (`Language.pairLift`),
+    /// so it counts 0. No lookup at all while the limit is 0.
+    private func wordContext(_ typed: Reading, _ other: Reading,
+                             languages: (typed: LanguageModel.Language, other: LanguageModel.Language),
+                             typedCode: String?, otherCode: String?, context: Context) -> Double
+    {
+        let limit = options.wordContextLimit
+        guard limit > 0, context.mode == .automatic, let previous = context.previousWord else { return 0 }
+        func bits(_ reading: Reading, _ code: String?, _ language: LanguageModel.Language) -> Double {
+            guard reading.isWord, code == previous.language,
+                  let lift = language.pairLift(previous: previous.fingerprint, word: reading.fingerprint)
+            else { return 0 }
+            return Double(lift) / 8
+        }
+        return min(limit, max(-limit, bits(other, otherCode, languages.other) - bits(typed, typedCode, languages.typed)))
     }
 
     /// Bits the words before give the other reading: `contextBonus` for the
@@ -999,7 +1068,7 @@ extension Classifier.Options: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
-             personalRank, personalNoiseCost
+             personalRank, personalNoiseCost, wordContextLimit
     }
 
     /// The keys the file format knows, one per stored property (a test holds
@@ -1029,6 +1098,7 @@ extension Classifier.Options: Codable {
         try read(.shortWordRank, &shortWordRank)
         try read(.personalRank, &personalRank)
         try read(.personalNoiseCost, &personalNoiseCost)
+        try read(.wordContextLimit, &wordContextLimit)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -1050,5 +1120,8 @@ extension Classifier.Options: Codable {
         try container.encode(shortWordRank, forKey: .shortWordRank)
         try container.encode(personalRank, forKey: .personalRank)
         try container.encode(personalNoiseCost, forKey: .personalNoiseCost)
+        // Written only when on: the file of a limit of 0 is the file of
+        // before the word context, byte for byte.
+        if wordContextLimit != 0 { try container.encode(wordContextLimit, forKey: .wordContextLimit) }
     }
 }

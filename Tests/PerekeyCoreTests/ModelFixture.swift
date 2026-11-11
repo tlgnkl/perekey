@@ -100,10 +100,21 @@ enum ModelFixture {
         try! LanguageModel(bytes: build(englishWords: words, englishPairs: pairs))
     }
 
+    /// The fixture plus English words with their ranks, pairs of English
+    /// words and pairs of Russian words (lift in eighths of a bit).
+    static func model(withEnglishWords words: [(String, UInt8)], englishPairs: [(String, String, UInt8)] = [],
+                      russianWords: [(String, UInt8)] = [],
+                      russianPairs: [(String, String, UInt8)]) -> LanguageModel
+    {
+        try! LanguageModel(bytes: build(russianWords: russianWords, englishWords: words, englishPairs: englishPairs,
+                                        russianPairs: russianPairs))
+    }
+
     private static func build(rareEnglish: [String] = [], russianForms: [String] = [],
                               russianWords: [(String, UInt8)] = [], hyphenByRule extra: [String] = [],
                               englishWords: [(String, UInt8)] = [],
-                              englishPairs: [(String, String, UInt8)] = []) -> [UInt8]
+                              englishPairs: [(String, String, UInt8)] = [],
+                              russianPairs: [(String, String, UInt8)] = []) -> [UInt8]
     {
         var builder = ModelBuilder()
         builder.meta = "fixture"
@@ -125,6 +136,10 @@ enum ModelFixture {
         for (previous, word, lift) in englishPairs {
             builder.addPair(previous: previous.isEmpty ? ModelFormat.sentenceStart : fingerprint(previous),
                             word: fingerprint(word), lift: lift, language: "en")
+        }
+        for (previous, word, lift) in russianPairs {
+            builder.addPair(previous: previous.isEmpty ? ModelFormat.sentenceStart : fingerprint(previous),
+                            word: fingerprint(word), lift: lift, language: "ru")
         }
         return builder.build()
     }

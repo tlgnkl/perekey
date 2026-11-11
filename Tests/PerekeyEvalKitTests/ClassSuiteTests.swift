@@ -645,7 +645,13 @@ enum ClassFixtures {
     @Test func aUnitWithNoLetterIsTypedWhereItsAimIs() throws {
         let manifest = try ClassFixtures.manifest("protect.numbers", rule: "numbers", classBody: "\"languages\":[\"en\"]",
                                                   tier: 200)
-        let output = try build(manifest, lexicon: ["en": (0..<100).map { ("hello" + String(UnicodeScalar(0x61 + UInt32($0 % 26))!) + String(UnicodeScalar(0x61 + UInt32($0 / 26))!), 4.0) }])
+        let letters: [Character] = Array("abcdefghijklmnopqrstuvwxyz")
+        var words: [(String, Double)] = []
+        for index in 0..<100 {
+            let word: String = "hello" + String(letters[index % 26]) + String(letters[index / 26])
+            words.append((word, 4.0))
+        }
+        let output = try build(manifest, lexicon: ["en": words])
         let digits: [EvalCase] = output.cases.filter { item in item.tokens?.allSatisfy { $0.lang == "-" } == true }
         #expect(!digits.isEmpty)
         #expect(Set(digits.map(\.start)) == ["ABC", "Russian"])

@@ -109,10 +109,18 @@ else
 fi
 # One process per suite: reading a source takes most of the time, and the suites are independent.
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
-printf '%s\n' "${suites[@]}" | xargs -P "$JOBS" -I{} sh -c '
-    part="$1/{}"; rm -f "$part"/*.jsonl "$part/build.json" "$part/failed"; mkdir -p "$part"
-    "$2" cases build --tier "$3" --cache "$4" --skip-missing --only "{}" --out "$part" >"$part/log.txt" 2>&1 || touch "$part/failed"
-' sh "$OUT/parts/$TIER" "$bin" "$TIER" "$CACHE"
+build_suite() {
+    local part="$OUT/parts/$TIER/$1"
+    rm -f "$part"/*.jsonl "$part/build.json" "$part/failed"
+    mkdir -p "$part"
+    "$bin" cases build --tier "$TIER" --cache "$CACHE" --skip-missing --only "$1" --out "$part" >"$part/log.txt" 2>&1 \
+        || touch "$part/failed"
+}
+for suite in "${suites[@]}"; do
+    while [[ "$(jobs -r | wc -l)" -ge "$JOBS" ]]; do sleep 0.5; done
+    build_suite "$suite" &
+done
+wait
 : >"$OUT/build.txt"
 for suite in "${suites[@]}"; do
     part="$OUT/parts/$TIER/$suite"

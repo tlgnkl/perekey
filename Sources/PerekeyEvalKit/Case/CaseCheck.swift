@@ -141,18 +141,10 @@ public enum CaseCheck {
             if measuredWant.count != tokens.count {
                 problems.append("want has \(measuredWant.count) measured tokens, tokens has \(tokens.count)")
             }
-            if measuredTarget.count != tokens.count {
-                if tokens.contains(where: { $0.err == .hyphen }) {
-                    // A hyphen typed as a space splits a token: the tokens do not line up, the letters do.
-                    func letters(_ list: some Sequence<String>) -> String {
-                        list.joined().filter { $0 != "-" && !$0.isWhitespace }
-                    }
-                    if letters(measuredTarget) != letters(tokens.map(\.t)) {
-                        problems.append("the steps give other letters than the tokens, apart from hyphens and spaces")
-                    }
-                } else {
-                    problems.append("the steps give \(measuredTarget.count) measured tokens, tokens has \(tokens.count)")
-                }
+            if tokens.contains(where: { $0.err == .hyphen }) {
+                problems += alignedProblems(typed: measuredTarget, tokens: tokens, quote: quote)
+            } else if measuredTarget.count != tokens.count {
+                problems.append("the steps give \(measuredTarget.count) measured tokens, tokens has \(tokens.count)")
             } else {
                 for (index, (typed, spec)) in zip(measuredTarget, tokens).enumerated() {
                     let same = typed == spec.t
@@ -172,6 +164,48 @@ public enum CaseCheck {
                 problems.append("want is not the warm-up and the tokens joined by spaces")
             }
         }
+        return problems
+    }
+
+    /// The tokens of a case with a hyphen error, against the tokens the steps give. A hyphen typed as a space
+    /// splits a word, so such a token takes as many typed tokens as it needs until the letters match; every
+    /// other token stands against one typed token, hyphens and all.
+    static func alignedProblems(typed: [String], tokens: [TokenSpec], quote: (String) -> String) -> [String] {
+        func letters(_ text: some StringProtocol) -> String { String(text.filter { $0 != "-" && !$0.isWhitespace }) }
+        var problems: [String] = []
+        var position = 0
+        for (index, spec) in tokens.enumerated() {
+            guard position < typed.count else {
+                problems.append("token \(index): the steps give no token for it")
+                return problems
+            }
+            if spec.err == .hyphen {
+                let wanted = letters(spec.t)
+                var taken: [String] = []
+                var joined = ""
+                while position < typed.count, joined.count < wanted.count {
+                    taken.append(typed[position])
+                    joined += letters(typed[position])
+                    position += 1
+                }
+                if joined != wanted {
+                    problems.append("token \(index): the steps give \(quote(taken.joined(separator: " "))), other letters than \(quote(spec.t))")
+                } else if taken == [spec.t] {
+                    problems.append("token \(index): err hyphen, but nothing differs")
+                }
+            } else {
+                let text = typed[position]
+                position += 1
+                let same = text == spec.t
+                switch spec.err {
+                case .none, .layout:
+                    if !same { problems.append("token \(index): the steps give \(quote(text)), not \(quote(spec.t))") }
+                default:
+                    if same { problems.append("token \(index): err \(spec.err.rawValue), but nothing differs") }
+                }
+            }
+        }
+        if position < typed.count { problems.append("the steps give \(typed.count - position) tokens more than the tokens") }
         return problems
     }
 }

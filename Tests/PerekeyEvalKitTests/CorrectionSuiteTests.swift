@@ -118,14 +118,40 @@ enum CorrectionFixtures {
         #expect(local.map(\.suite) == ["typos.real.ru"])
     }
 
+    /// The shares of the kinds of slip the corrector assumes, in percent, read from its own priors
+    /// (`TypoCorrector.Options`, log priors in rank units of 32 per decade). The priors are per candidate: a
+    /// neighbouring key is one of about six, a stray letter one of the alphabet (its doc comment).
+    static func correctorShares() -> SuiteManifest.TypoWeights {
+        let options = TypoCorrector.Options()
+        func likelihood(_ prior: Int, spread: Double = 1) -> Double { pow(10, Double(prior) / 32) * spread }
+        let raw = [likelihood(options.substitutionPrior, spread: 6), likelihood(options.transpositionPrior),
+                   likelihood(options.dropPrior), likelihood(options.doublePrior),
+                   likelihood(options.strayPrior, spread: 26)]
+        let total = raw.reduce(0, +)
+        let shares = raw.map { Int(($0 / total * 100).rounded()) }
+        return SuiteManifest.TypoWeights(neighbor: shares[0], swap: shares[1], drop: shares[2], double: shares[3],
+                                         stray: shares[4])
+    }
+
+    @Test func theCorrectorsSharesComeFromItsPriors() {
+        let shares = Self.correctorShares()
+        #expect(abs(shares.neighbor - 40) <= 2 && abs(shares.swap - 20) <= 2 && abs(shares.drop - 20) <= 2)
+        #expect(abs(shares.double - 10) <= 2 && abs(shares.stray - 10) <= 2)
+    }
+
     @Test func theSyntheticSuitesDifferInTheirWeightsAndNotInTheCorrectorsOwn() throws {
-        let corrector = SuiteManifest.TypoWeights(neighbor: 40, swap: 20, drop: 20, double: 10, stray: 10)
+        let corrector = Self.correctorShares()
         let manifests = try SuiteManifestFiles.read(directory: Repo.path("eval/suites"))
             .filter { $0.suite.hasPrefix("typos.synth.") }
         let weights = manifests.compactMap { $0.correction?.weights }
         #expect(weights.count == 3)
         #expect(Set(weights).count == 3)
-        #expect(!weights.contains(corrector))
+        for weight in weights {
+            let own = [corrector.neighbor, corrector.swap, corrector.drop, corrector.double, corrector.stray]
+            let theirs = [weight.neighbor, weight.swap, weight.drop, weight.double, weight.stray]
+            // Far from the corrector's assumption: some kind differs by ten points or more.
+            #expect(zip(own, theirs).map { abs($0 - $1) }.max()! >= 10)
+        }
         #expect(weights.contains { $0.neighbor == 70 })
         #expect(weights.contains { $0.swap == 50 })
         #expect(weights.contains { Set([$0.neighbor, $0.swap, $0.drop, $0.double, $0.stray]).count == 1 })
@@ -271,6 +297,24 @@ enum CorrectionFixtures {
         let other = Cases.make([.type("что та случилось ", on: "Russian")], want: "что-то случилось", start: "Russian",
                                tokens: [TokenSpec(t: "что-то", lang: "ru", err: .hyphen), TokenSpec(t: "случилось", lang: "ru")])
         #expect(!CaseCheck.problems(other, layouts: Repo.library).isEmpty)
+        // Two neighbours with no error that came out as one token fail, whatever the hyphen token does.
+        let merged = Cases.make([.type("что-то яиду ", on: "Russian")], want: "что-то я иду", start: "Russian",
+                                tokens: [TokenSpec(t: "что-то", lang: "ru", err: .hyphen), TokenSpec(t: "я", lang: "ru"),
+                                         TokenSpec(t: "иду", lang: "ru")])
+        #expect(!CaseCheck.problems(merged, layouts: Repo.library).isEmpty)
+        // The hyphen token after a word and two split tokens in a row line up.
+        let two = Cases.make([.type("я что то и по моему ", on: "Russian")], want: "я что-то и по-моему", start: "Russian",
+                             tokens: [TokenSpec(t: "я", lang: "ru"), TokenSpec(t: "что-то", lang: "ru", err: .hyphen),
+                                      TokenSpec(t: "и", lang: "ru"), TokenSpec(t: "по-моему", lang: "ru", err: .hyphen)])
+        #expect(CaseCheck.problems(two, layouts: Repo.library).isEmpty)
+        // A hyphen error whose token comes out as written differs in nothing.
+        let same = Cases.make([.type("что-то случилось ", on: "Russian")], want: "что-то случилось", start: "Russian",
+                              tokens: [TokenSpec(t: "что-то", lang: "ru", err: .hyphen), TokenSpec(t: "случилось", lang: "ru")])
+        #expect(!CaseCheck.problems(same, layouts: Repo.library).isEmpty)
+        // A real hyphen kept by a token with no error must be there.
+        let lost = Cases.make([.type("чтото случилось ", on: "Russian")], want: "что-то случилось", start: "Russian",
+                              tokens: [TokenSpec(t: "что-то", lang: "ru"), TokenSpec(t: "случилось", lang: "ru", err: .hyphen)])
+        #expect(!CaseCheck.problems(lost, layouts: Repo.library).isEmpty)
         // And without a hyphen error a different number of tokens is still a problem.
         let plain = Cases.make([.type("что то случилось ", on: "Russian")], want: "что-то случилось", start: "Russian",
                                tokens: [TokenSpec(t: "что-то", lang: "ru", err: .typo), TokenSpec(t: "случилось", lang: "ru")])
@@ -514,5 +558,31 @@ enum CorrectionFixtures {
         #expect(built.cases.count == 4)
         #expect(built.report.drops["badLine"] == 1)
         #expect(built.cases.allSatisfy { $0.tags?.contains("local") == true })
+    }
+
+    @Test func aFileWithWindowsLineEndsAndSpacesGivesTheSameCases() throws {
+        let manifest = try CorrectionFixtures.manifest(
+            "typos.real.ru", kind: "typo.real", reader: "typopairs", source: "local/typos.real.ru.tsv",
+            extra: ",\"tags\":[\"local\"]", tier: 30)
+        let lines = ["# typo, meant", "", "превет\tпривет", "", "Я иду дмой сегодня\tЯ иду домой сегодня", "  вот  \t  вода "]
+        var refs: [[String]] = []
+        for separator in ["\n", "\r\n"] {
+            let cache = try CorrectionFixtures.cache(rus: ["Привет"], eng: ["Hello"])
+            try FileManager.default.createDirectory(atPath: cache + "/local", withIntermediateDirectories: true)
+            try (lines.joined(separator: separator) + separator).write(
+                toFile: cache + "/local/typos.real.ru.tsv", atomically: true, encoding: .utf8)
+            let built = try CorrectionFixtures.build(manifest, cache: cache)
+            #expect(built.report.drops["badLine"] == nil)
+            refs.append(built.cases.compactMap { $0.meta?["ref"]?.string }.sorted())
+        }
+        // Lines 3, 5 and 6 of the file, empty lines counted; "вот → вода" is two edits and falls out later.
+        #expect(refs[0] == refs[1])
+        #expect(refs[0] == ["typopairs:3", "typopairs:5"])
+    }
+
+    @Test func aFileThatIsNotTabSeparatedIsWarnedAbout() {
+        #expect(CorrectionBuilder.badLineWarning(suite: "t", lines: 100, dropped: 91) != nil)
+        #expect(CorrectionBuilder.badLineWarning(suite: "t", lines: 100, dropped: 90) == nil)
+        #expect(CorrectionBuilder.badLineWarning(suite: "t", lines: 0, dropped: 0) == nil)
     }
 }

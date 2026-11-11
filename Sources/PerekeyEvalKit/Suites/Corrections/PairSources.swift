@@ -39,23 +39,42 @@ extension CorrectionBuilder {
             report.units = pairs.count
             candidates = try withCarriers(pairs, cache: cache, options: options)
         case .typopairs:
-            let lines = try String(contentsOfFile: sourcePath(cache), encoding: .utf8).split(separator: "\n")
-            for (number, line) in lines.enumerated() where !line.hasPrefix("#") {
+            let text = try String(contentsOfFile: sourcePath(cache), encoding: .utf8)
+            // Every line counts, the empty ones too: `typopairs:N` is the number of the line in the file.
+            // A line may end in `\r\n` (one `Character` in Swift, so the split asks `isNewline`), and the person's editor may leave spaces round a field.
+            for (number, line) in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
                 report.units += 1
                 let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 guard fields.count == 2, !fields[0].isEmpty, !fields[1].isEmpty else {
                     report.drops["badLine", default: 0] += 1
                     continue
                 }
                 let ref = "typopairs:\(number + 1)"
                 candidates.append(Candidate(rank: SuiteBuilder.rank(ref: ref, seed: manifest.seed, epoch: manifest.epoch),
-                                            ref: ref, text: String(fields[1]), slip: .typed(String(fields[0]))))
+                                            ref: ref, text: fields[1], slip: .typed(fields[0])))
+            }
+            if let warning = Self.badLineWarning(suite: manifest.suite, lines: report.units,
+                                                 dropped: report.drops["badLine", default: 0])
+            {
+                FileHandle.standardError.write(Data((warning + "\n").utf8))
             }
         default:
             throw EvalError.input("\(manifest.suite): reader \(manifest.reader.rawValue) has no pairs")
         }
         candidates.sort { $0.rank != $1.rank ? $0.rank < $1.rank : $0.ref < $1.ref }
         return Dictionary(uniqueKeysWithValues: manifest.scenarios.map { ($0, candidates) })
+    }
+
+    /// The share of lines of a pairs file that are not a pair, above which the file is probably not in the
+    /// format (spaces for tabs, one column): a first guess, not a measurement.
+    static let badLineShare = 0.9
+
+    static func badLineWarning(suite: String, lines: Int, dropped: Int) -> String? {
+        guard lines > 0, Double(dropped) > badLineShare * Double(lines) else { return nil }
+        return "warning: \(suite): \(dropped) of \(lines) lines are not `typo<TAB>meant` pairs; is the file tab-separated?"
     }
 
     func sourcePath(_ cache: String) throws -> String {

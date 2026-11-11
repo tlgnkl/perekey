@@ -220,6 +220,8 @@ func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutM
     // The app's words count (the language tally, and the personal lexicon's observations).
     if counted { _ = machine.handle(.languageContextChanged(LanguageContext(app: "app.perekey.bench"))) }
     _ = machine.handle(.personalLexiconChanged(personal))
+    // The app's main thread hands the machine its buffers, outside the timing.
+    while machine.personalRoomsWanted > 0 { _ = machine.handle(.personalRoomReturned(PersonalRoom())) }
     #if PEREKEY_RECORD
     // The recording starts at a quiet point, as in the app: this one.
     _ = recordingBuffer?.record(.focusChanged(Focus(bundleID: "app.perekey.bench")), Output(),
@@ -249,6 +251,7 @@ func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutM
             recordingBuffer?.written(batch, newDay: false)
         }
         #endif
+        while machine.personalRoomsWanted > 0 { _ = machine.handle(.personalRoomReturned(PersonalRoom())) }
         run.events += 1
         for effect in output.effects {
             switch effect {
@@ -367,6 +370,20 @@ if autoswitch3P99 > 1_000_000 {
     failed = true
 }
 
+// The classifier of this section. With a real model it is the default one. The
+// small model above knows too little Russian: «дашка» costs it more per
+// letter than the noise limit of a personal word
+// (`Classifier.Options.personalNoiseCost`) and the lexicon would find
+// nothing, so the limit is off here, as in the tests' desk (`Desk.classifier`):
+// the three runs, and the one without a lexicon, use the same classifier. With
+// no limit the lexicon is asked about more readings than a real model lets
+// through, which only makes the cost higher than the app's.
+let personalClassifier: Classifier = {
+    guard ProcessInfo.processInfo.environment["PEREKEY_MODEL"] == nil else { return classifier }
+    var options = Classifier.Options()
+    options.personalNoiseCost = .infinity
+    return Classifier(model: model, options: options)
+}()
 // The personal lexicon (docs/classifier.md, «Личный словарь»): a snapshot of
 // 2000 words, one of them a word of the session the model does not know
 // («дашка», typed "lfirf" on ABC). The same session with the words counted
@@ -402,17 +419,18 @@ var emptyMean = Double.infinity
 // Every word is observed, none is looked up.
 let emptyLexicon = PersonalLexicon(key: personalKey, words: [] as [UInt64], starts: [] as [UInt64])
 for _ in 0..<5 {
-    var run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords, counted: true)
+    var run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords,
+                            classifier: personalClassifier, counted: true)
     run.samples.sort()
     countedMean = min(countedMean, run.samples.reduce(0, +) / Double(run.samples.count))
     counted = run
-    run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords, counted: true,
-                            personal: personal)
+    run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords,
+                            classifier: personalClassifier, counted: true, personal: personal)
     run.samples.sort()
     personalMean = min(personalMean, run.samples.reduce(0, +) / Double(run.samples.count))
     withLexicon = run
-    run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords, counted: true,
-                            personal: emptyLexicon)
+    run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords,
+                            classifier: personalClassifier, counted: true, personal: emptyLexicon)
     run.samples.sort()
     emptyMean = min(emptyMean, run.samples.reduce(0, +) / Double(run.samples.count))
     withEmptyLexicon = run
@@ -420,7 +438,7 @@ for _ in 0..<5 {
 let personalP99 = withLexicon.samples[withLexicon.samples.count * 99 / 100]
 // The lexicon is looked up: "lfirf" reads as «дашка», a word it has. The
 // small model's n-grams know too little Russian for the switch itself.
-let dashkaDecision = classifier.classify(abc.strokes("lfirf"), typed: abc, other: russian,
+let dashkaDecision = personalClassifier.classify(abc.strokes("lfirf"), typed: abc, other: russian,
                                          context: Classifier.Context(recent: RecentLanguages(), personal: personal),
                                          explaining: true)
 
@@ -438,7 +456,7 @@ if personalP99 > 1_000_000 {
 }
 // A real model may know «дашка» itself; then the lexicon has nothing to add.
 let dashkaRank = model.language("ru")?.rank(of: ModelFormat.Fingerprint.of("дашка".unicodeScalars, folded: true))
-let dashkaKnown = dashkaRank.map { $0 == 0 || $0 >= classifier.options.knownRank } ?? false
+let dashkaKnown = dashkaRank.map { $0 == 0 || $0 >= personalClassifier.options.knownRank } ?? false
 if !dashkaKnown, !dashkaDecision.otherPersonal {
     print("FAIL: the personal lexicon found no word")
     failed = true
@@ -450,7 +468,7 @@ var personalClassifierSamples: [Double] = []
 for _ in 0..<200 {
     for strokes in wordStrokes {
         let start = clock.now
-        sink &+= classifier.classify(strokes, typed: abc, other: russian, context: personalContext).score > 0 ? 1 : 0
+        sink &+= personalClassifier.classify(strokes, typed: abc, other: russian, context: personalContext).score > 0 ? 1 : 0
         personalClassifierSamples.append(nanoseconds(clock.now - start))
     }
 }

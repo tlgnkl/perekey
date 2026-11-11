@@ -203,7 +203,7 @@ public enum SessionDriver {
         mutating func observe(_ event: InputEvent, recorded: Int?, source: Int?, output: Output,
                               change: ReplayChange) -> OutputDigest
         {
-            let recordedEvent = RecordedEvent(event)
+            guard let recordedEvent = RecordedEvent(event) else { return OutputDigest(output) }
             let digest = OutputDigest(output)
             var trace: JudgeTrace?
             if let last = change.lastJudgement, last.serial != lastSerial {

@@ -183,9 +183,10 @@ private let ru = Fixture.russian.id
 
     /// A desk in TextEdit, whose words count, with the lexicon on.
     func desk(_ settings: Settings = Settings(), current: LayoutID = ru, personal: PersonalLexicon? = nil,
-              counted: Bool = true, focus: Focus? = Desk.textEdit) -> Desk
+              counted: Bool = true, focus: Focus? = Desk.textEdit, supplies: Bool = true) -> Desk
     {
         var desk = Desk(settings, current: current, classifier: classifier, focus: focus)
+        desk.suppliesPersonalRoom = supplies
         if counted { desk.send(.languageContextChanged(Self.textEdit)) }
         desk.send(.personalLexiconChanged(personal ?? on))
         return desk
@@ -506,27 +507,118 @@ private let ru = Fixture.russian.id
 extension PersonalObservationTests {
     // MARK: The batch buffers (plan 2.2: nothing allocates per word)
 
-    @Test func theBuffersKeepTheirRoomThroughABatch() {
-        var desk = desk()
-        let room = WordJudge.keptCapacity
-        #expect(room == WordJudge.tallySize + 1)
-        #expect(desk.machine.judge.keptCapacity >= room)
-        #expect(desk.machine.judge.spareCapacity >= room)
-        // A batch leaves with its buffer; the spare takes its place at once.
+    /// Where a buffer's storage lives: a buffer that is replaced, copied or
+    /// grown has another address.
+    static func address(_ buffer: [PersonalObservation]) -> UnsafeRawPointer? {
+        buffer.withUnsafeBufferPointer { UnsafeRawPointer($0.baseAddress) }
+    }
+
+    /// The main thread's part: a buffer made and sent, and the address of its
+    /// storage. The test keeps no reference to it: a buffer held twice is
+    /// copied by the first word written, and that is what the tests look for.
+    @discardableResult
+    func give(_ desk: inout Desk) -> UnsafeRawPointer? {
+        let room = PersonalRoom()
+        let address = Self.address(room.observations)
+        desk.send(.personalRoomReturned(room))
+        return address
+    }
+
+    /// A desk whose main thread is the test: it hands the rooms over itself.
+    func deskWithoutMain() -> Desk {
+        desk(supplies: false)
+    }
+
+    @Test func theLexiconTurnedOnAsksForTwoRoomsAndAllocatesNone() {
+        var desk = deskWithoutMain()
+        // Nothing was handed over: the machine reserved nothing itself.
+        #expect(desk.machine.judge.personalRoomsWanted == 2)
+        #expect(desk.machine.judge.keptCapacity == 0 && desk.machine.judge.spareCapacity == 0)
+        // Observations are skipped, not stored in a buffer made on the spot.
+        for _ in 0..<3 { desk.type("дашка ", on: Fixture.russian) }
+        #expect(desk.machine.judge.keptCount == 0 && desk.machine.judge.keptCapacity == 0)
+        let firstAddress = give(&desk), secondAddress = give(&desk)
+        #expect(desk.machine.judge.personalRoomsWanted == 0)
+        #expect(Self.address(desk.machine.judge.keptStorage) == firstAddress)
+        #expect(Self.address(desk.machine.judge.spareStorage) == secondAddress)
+    }
+
+    @Test func aBatchLeavesWithItsBufferAndTheSpareTakesItsPlace() throws {
+        var desk = deskWithoutMain()
+        let firstAddress = give(&desk), secondAddress = give(&desk)
         for _ in 0..<WordJudge.tallySize { desk.type("дашка ", on: Fixture.russian) }
         desk.type("и ", on: Fixture.russian)
-        #expect(desk.log.contains { if case .wordsKept = $0 { true } else { false } })
-        let after = desk.machine.judge.keptCapacity
-        #expect(after >= room && desk.machine.judge.spareCapacity >= room)
+        let tallies = desk.log.compactMap { if case let .wordsKept(tally) = $0 { tally } else { nil } }
+        let batch = try #require(tallies.first)
+        // The batch went out in the first buffer, as it was; the second one is the filling one now.
+        #expect(Self.address(batch.observations) == firstAddress)
+        #expect(Self.address(desk.machine.judge.keptStorage) == secondAddress)
+        // The tap made no buffer for the next spare: it waits for the main thread's.
+        #expect(desk.machine.judge.spareCapacity == 0)
+        #expect(desk.machine.judge.personalRoomsWanted == 1)
         // The words of the next batch grow nothing.
         for _ in 0..<(WordJudge.tallySize / 2) { desk.type("колян ", on: Fixture.russian) }
-        #expect(desk.machine.judge.keptCapacity == after)
+        #expect(Self.address(desk.machine.judge.keptStorage) == secondAddress)
+        #expect(desk.machine.judge.keptCount > 0)
+    }
+
+    @Test func whenBothBuffersAreBusyTheObservationIsSkippedNotAllocated() throws {
+        var desk = deskWithoutMain()
+        let firstAddress = give(&desk), secondAddress = give(&desk)
+        // Two full batches go out and the main thread returns nothing.
+        for _ in 0..<(WordJudge.tallySize + 2) { desk.type("дашка ", on: Fixture.russian) }
+        for _ in 0..<(WordJudge.tallySize + 2) { desk.type("колян ", on: Fixture.russian) }
+        let tallies = desk.log.compactMap { if case let .wordsKept(tally) = $0 { tally } else { nil } }
+        #expect(tallies.count == 2)
+        #expect(Self.address(tallies[0].observations) == firstAddress)
+        #expect(Self.address(tallies[1].observations) == secondAddress)
+        #expect(desk.machine.judge.personalRoomsWanted == 2)
+        // Both are out: further words are skipped, and nothing was reserved for them.
+        let before = tallies.count
+        for _ in 0..<5 { desk.type("дашка ", on: Fixture.russian) }
+        #expect(desk.machine.judge.keptCount == 0)
+        #expect(desk.machine.judge.keptCapacity == 0 && desk.machine.judge.spareCapacity == 0)
+        #expect(desk.log.filter { if case .wordsKept = $0 { true } else { false } }.count == before)
+        // The main thread returns an emptied buffer: the next words are kept again, in that very storage.
+        let returnedAddress = give(&desk)
+        desk.type("дашка ", on: Fixture.russian)
+        desk.type("колян ", on: Fixture.russian)
+        #expect(desk.machine.judge.keptCount > 0)
+        #expect(Self.address(desk.machine.judge.keptStorage) == returnedAddress)
+    }
+
+    @Test func aRoomThatIsNotEmptyOrTooSmallIsNotTaken() {
+        var desk = deskWithoutMain()
+        desk.send(.personalRoomReturned(PersonalRoom(emptied: [])))
+        desk.send(.personalRoomReturned(PersonalRoom(emptied: [personalObservation("дашка", "ru")])))
+        #expect(desk.machine.judge.personalRoomsWanted == 2)
+        #expect(desk.machine.judge.keptCapacity == 0 && desk.machine.judge.spareCapacity == 0)
+    }
+
+    @Test func aRoomForAnotherLexiconIsDroppedWhileItIsOff() {
+        var desk = desk()
+        desk.send(.personalLexiconChanged(.off))
+        desk.suppliesPersonalRoom = false
+        desk.send(.personalRoomReturned(PersonalRoom()))
+        #expect(desk.machine.judge.keptCapacity == 0 && desk.machine.judge.spareCapacity == 0)
+        #expect(desk.machine.judge.personalRoomsWanted == 0)
+    }
+
+    @Test func restoreAsksForTheSpareOnly() {
+        var desk = desk()
+        for _ in 0..<3 { desk.type("дашка ", on: Fixture.russian) }
+        let read = desk.machine.snapshot
+        #expect(read.personalKept?.isEmpty == false)
+        let machine = InputMachine(snapshot: read, classifier: Desk.classifier)
+        #expect(machine.judge.keptCount == read.personalKept?.count)
+        #expect(machine.judge.personalRoomsWanted == 1)
     }
 
     @Test func offKeepsNoRoom() {
         var desk = desk()
         desk.send(.personalLexiconChanged(.off))
         #expect(desk.machine.judge.keptCapacity == 0 && desk.machine.judge.spareCapacity == 0)
+        #expect(desk.machine.judge.personalRoomsWanted == 0)
     }
 
     // MARK: A word the lexicon has is counted by the fingerprint the classifier found

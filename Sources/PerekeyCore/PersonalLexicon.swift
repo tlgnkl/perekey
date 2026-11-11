@@ -175,6 +175,28 @@ public struct PersonalTally: Hashable, Sendable, Codable {
     }
 }
 
+/// An empty buffer with room for a whole batch of observations
+/// (`InputEvent.personalRoomReturned`). The tap thread allocates nothing
+/// (plan 2.2): the main thread makes the room, and gives back the buffer of
+/// every batch it has taken (`Effect.wordsKept`) after it emptied it with
+/// `removeAll(keepingCapacity: true)`, as the recorder's buffers come back
+/// (`RecordingBuffer.written`).
+public struct PersonalRoom: Sendable {
+    public private(set) var observations: [PersonalObservation]
+
+    /// A new buffer with room for a batch. This allocates: not on the tap thread.
+    public init() {
+        observations = []
+        observations.reserveCapacity(WordJudge.keptCapacity)
+    }
+
+    /// A buffer the main thread emptied after taking its batch. One that is
+    /// not empty, or too small for a batch, is not taken by the machine.
+    public init(emptied observations: [PersonalObservation]) {
+        self.observations = observations
+    }
+}
+
 /// The numbers of the personal lexicon. Every one is a first guess, to be
 /// fitted on recorded sessions (`perekey-eval replay`, plan 7.2): nothing
 /// measured them yet. `perekey-eval personal` checks that the corpus's

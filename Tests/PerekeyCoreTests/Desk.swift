@@ -27,6 +27,9 @@ struct Desk {
     /// Every event the machine handled and what it answered, while not nil:
     /// a session as the recorder writes it (`SessionStep`).
     var tape: [SessionStep]?
+    /// The desk hands the machine the buffers it asks for after every event, as
+    /// the main thread does; the tests of the buffers themselves turn it off.
+    var suppliesPersonalRoom = true
     #if PEREKEY_RECORD
     /// Sees every event the machine handled, its output and the machine
     /// after it, as the engine's typing recorder does (`RecordingBuffer`).
@@ -83,7 +86,11 @@ struct Desk {
 
     private mutating func handle(_ event: InputEvent) -> Output {
         let output = machine.handle(event)
-        tape?.append(SessionStep(event: RecordedEvent(event), output: OutputDigest(output)))
+        if let recorded = RecordedEvent(event) { tape?.append(SessionStep(event: recorded, output: OutputDigest(output))) }
+        // The main thread of the app: it gives the machine the buffers it asks for.
+        while suppliesPersonalRoom, machine.judge.personalRoomsWanted > 0 {
+            _ = machine.handle(.personalRoomReturned(PersonalRoom()))
+        }
         #if PEREKEY_RECORD
         watcher?(event, output, machine)
         #endif

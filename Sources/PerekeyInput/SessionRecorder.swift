@@ -260,7 +260,8 @@ public final class SessionRecorder: @unchecked Sendable {
                 }
                 line = .snapshot(SessionSnapshot(machine: machine, classifier: classifier.map(ClassifierSpec.init)))
             case let .step(event, output):
-                line = .step(SessionStep(event: RecordedEvent(event), output: OutputDigest(output)))
+                guard let recorded = RecordedEvent(event) else { continue }
+                line = .step(SessionStep(event: recorded, output: OutputDigest(output)))
             case let .gap(reason):
                 line = .gap(reason)
             }

@@ -125,6 +125,11 @@ public struct InputMachine: Sendable {
     /// Its `serial` tells a new one from the one before.
     public var lastJudgement: JudgeTrace? { judge.lastTrace }
 
+    /// How many buffers for the words kept for the personal lexicon the
+    /// machine waits for (`InputEvent.personalRoomReturned`): 2 when the
+    /// lexicon was just turned on, 1 after a batch left, 0 when it is off.
+    public var personalRoomsWanted: Int { judge.personalRoomsWanted }
+
     /// The bundle ID of the focus, as the undos and the per-app exceptions see it.
     public var focusApp: String? { focus?.bundleID }
 
@@ -264,6 +269,9 @@ public struct InputMachine: Sendable {
 
         case let .personalLexiconChanged(lexicon):
             judge.setPersonalLexicon(lexicon)
+
+        case let .personalRoomReturned(room):
+            judge.takePersonalRoom(room)
 
         case .voiceHoldLost:
             if let signal = shortcuts.holdLost() { effects.append(.voice(signal)) }

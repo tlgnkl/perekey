@@ -150,6 +150,14 @@ public enum InputEvent: Sendable {
     /// of accepted words changes, and when the lexicon is turned on, off or
     /// erased; the observations of another key or generation are dropped.
     case personalLexiconChanged(PersonalLexicon)
+    /// The main thread gives the machine an empty buffer for the words it
+    /// keeps (`PersonalRoom`). The machine asks for two while the lexicon is
+    /// on (`WordJudge.personalRoomsWanted`): the one that fills and the one
+    /// that takes its place when a batch leaves. A batch leaves with its
+    /// buffer; the main thread returns it once it has counted the words. Until
+    /// a buffer is back, a word that finds none is not observed. Not recorded:
+    /// it only moves memory (`RecordedEvent.init(_:)` is nil for it).
+    case personalRoomReturned(PersonalRoom)
     /// While a voice hold is on (`VoiceSignal.holdBegan`), the system layer
     /// found its key or modifiers up without the event that says so: the
     /// machine ends the hold with `HoldEndReason.lost`.

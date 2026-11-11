@@ -185,13 +185,17 @@ struct WordJudge: Sendable {
     /// end (`confirmObservation`). Backspace, an undo, a retype by hand, a
     /// click or a focus change drop it.
     private(set) var pendingObservation: PersonalObservation?
-    /// Observations confirmed since the last batch (`takeKept()`). Its room
-    /// is reserved for a whole batch: no allocation per word.
+    /// Observations confirmed since the last batch (`takeKept()`). The buffer
+    /// is made by the main thread with room for a whole batch
+    /// (`PersonalRoom`): the tap thread allocates none, and a word finding no
+    /// room is not observed (`confirmObservation`).
     private var kept: [PersonalObservation] = []
-    /// The second buffer, reserved too. A batch leaves with its buffer
-    /// (the effect owns it), and this one takes its place at once: the words
-    /// after the batch grow no array. The next spare is reserved in the same
-    /// call, once per batch, never in the word's own path.
+    /// The second buffer, empty, with its room. A batch leaves with its
+    /// buffer (the effect owns it), and this one takes its place at once.
+    /// The main thread returns an emptied buffer for the next spare
+    /// (`personalRoomsWanted`, `InputEvent.personalRoomReturned`); until
+    /// then there is none, and a batch that fills in the meantime leaves
+    /// the filling slot empty.
     private var spare: [PersonalObservation] = []
     /// Room for a whole batch: it goes out at `tallySize` words, and the word
     /// that fills it may be confirmed in the same event.
@@ -202,6 +206,15 @@ struct WordJudge: Sendable {
     /// The room of the two buffers, for the test that no word grows one.
     var keptCapacity: Int { kept.capacity }
     var spareCapacity: Int { spare.capacity }
+    /// The buffers themselves, for the test that none is replaced or copied
+    /// (it compares their addresses).
+    var keptStorage: [PersonalObservation] { kept }
+    var spareStorage: [PersonalObservation] { spare }
+    /// How many buffers the main thread owes: none while the lexicon is off.
+    var personalRoomsWanted: Int {
+        guard personal.isOn else { return 0 }
+        return (kept.capacity < Self.keptCapacity ? 1 : 0) + (spare.capacity < Self.keptCapacity ? 1 : 0)
+    }
     /// The observations waiting for the next batch, for `MachineSnapshot`.
     var keptObservations: [PersonalObservation] { kept }
 
@@ -391,7 +404,13 @@ struct WordJudge: Sendable {
         self.tally = tally
         self.tallied = tallied
         setPersonalLexicon(personal)
-        self.kept.append(contentsOf: kept)
+        // A machine made from a snapshot is not the tap's: it runs in a
+        // replay, and makes the filling buffer itself. The spare is asked of
+        // the driver (`personalRoomsWanted`) as ever.
+        guard personal.isOn, !kept.isEmpty else { return }
+        var room = PersonalRoom().observations
+        room.append(contentsOf: kept.prefix(room.capacity))
+        self.kept = room
     }
 
     /// The text before the caret is unknown now.
@@ -407,7 +426,9 @@ struct WordJudge: Sendable {
 
     /// A new snapshot of the personal lexicon. Observations made under
     /// another key or generation (an erase, the lexicon turned off) are
-    /// dropped: the store would drop them anyway.
+    /// dropped: the store would drop them anyway. Allocates nothing: the
+    /// buffers come from the main thread (`takePersonalRoom`); turning the
+    /// lexicon off lets go of them, a settings change and no word's path.
     mutating func setPersonalLexicon(_ lexicon: PersonalLexicon) {
         if lexicon.key != personal.key || lexicon.generation != personal.generation {
             kept.removeAll(keepingCapacity: true)
@@ -420,14 +441,28 @@ struct WordJudge: Sendable {
             spare = []
             return
         }
-        if kept.capacity < Self.keptCapacity { kept.reserveCapacity(Self.keptCapacity) }
-        if spare.capacity < Self.keptCapacity { spare.reserveCapacity(Self.keptCapacity) }
+    }
+
+    /// A buffer from the main thread: it becomes the filling one if that has
+    /// no room, else the spare. An emptied buffer that has the room of a
+    /// batch only; the lexicon being off, or both buffers being there, it is
+    /// let go.
+    mutating func takePersonalRoom(_ room: PersonalRoom) {
+        guard personal.isOn, room.observations.isEmpty, room.observations.capacity >= Self.keptCapacity else { return }
+        if kept.capacity < Self.keptCapacity {
+            kept = room.observations
+        } else if spare.capacity < Self.keptCapacity {
+            spare = room.observations
+        }
     }
 
     /// The pending observation stands: the next word started, or the line ended.
     private mutating func confirmObservation() {
         guard let observation = pendingObservation else { return }
         pendingObservation = nil
+        // No room (a buffer is not back yet): the word is not observed. The
+        // array never grows here.
+        guard kept.count < kept.capacity else { return }
         kept.append(observation)
     }
 
@@ -437,7 +472,6 @@ struct WordJudge: Sendable {
         let tally = PersonalTally(observations: kept, generation: personal.generation)
         kept = spare
         spare = []
-        spare.reserveCapacity(Self.keptCapacity)
         return tally
     }
 

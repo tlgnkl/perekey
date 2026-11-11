@@ -677,3 +677,16 @@ extension PersonalObservationTests {
         }
     }
 }
+
+@Suite struct LetterTests {
+    @Test func theRangesAgreeWithUnicode() {
+        // Every scalar of the ranges the fast path answers for, against the property.
+        for value in UInt32(0)...0x52F {
+            guard let scalar = Unicode.Scalar(value) else { continue }
+            #expect(WordJudge.isLetter(scalar) == scalar.properties.isAlphabetic, "U+\(String(value, radix: 16))")
+        }
+        for scalar in ["中", "é", "ß", "ё", "5", "-", " "].compactMap(\.unicodeScalars.first) {
+            #expect(WordJudge.isLetter(scalar) == scalar.properties.isAlphabetic)
+        }
+    }
+}

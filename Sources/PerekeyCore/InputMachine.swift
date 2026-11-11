@@ -482,7 +482,7 @@ public struct InputMachine: Sendable {
         } else if let text = map.text(for: stroke) {
             if stroke.keyCode != KeyCode.space {
                 judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isGap == true,
-                            isLetter: text.unicodeScalars.first?.properties.isAlphabetic == true)
+                            isLetter: text.unicodeScalars.first.map(WordJudge.isLetter) == true)
             }
             // The part stays whole when it is no word where it ended up:
             // "github.com/" kept in ABC is code, and so is the rest of it.

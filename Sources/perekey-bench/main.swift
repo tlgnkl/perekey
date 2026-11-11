@@ -394,8 +394,13 @@ let personalSessionWords = autoswitchWords + [("layout", abc), ("дашка", ru
 // per cent drowns in the noise of a single run.
 var counted = AutoswitchRun()
 var withLexicon = AutoswitchRun()
+var withEmptyLexicon = AutoswitchRun()
 var countedMean = Double.infinity
 var personalMean = Double.infinity
+var emptyMean = Double.infinity
+// On and empty: the state of someone who turned «Мои слова» on and has no word yet.
+// Every word is observed, none is looked up.
+let emptyLexicon = PersonalLexicon(key: personalKey, words: [] as [UInt64], starts: [] as [UInt64])
 for _ in 0..<5 {
     var run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords, counted: true)
     run.samples.sort()
@@ -406,6 +411,11 @@ for _ in 0..<5 {
     run.samples.sort()
     personalMean = min(personalMean, run.samples.reduce(0, +) / Double(run.samples.count))
     withLexicon = run
+    run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords, counted: true,
+                            personal: emptyLexicon)
+    run.samples.sort()
+    emptyMean = min(emptyMean, run.samples.reduce(0, +) / Double(run.samples.count))
+    withEmptyLexicon = run
 }
 let personalP99 = withLexicon.samples[withLexicon.samples.count * 99 / 100]
 // The lexicon is looked up: "lfirf" reads as «дашка», a word it has. The
@@ -419,6 +429,9 @@ print(String(format: "autoswitch, words counted: %d events, %d corrections: mean
 print(String(format: "autoswitch, personal lexicon of %d words: %d events, %d corrections: mean %.0f ns (%+.1f%%), "
              + "p99 %.0f ns, max %.0f ns", personal.wordCount, withLexicon.events, withLexicon.corrections,
              personalMean, (personalMean / countedMean - 1) * 100, personalP99, withLexicon.samples.last!))
+print(String(format: "autoswitch, personal lexicon on and empty: %d events, %d corrections: mean %.0f ns (%+.1f%%), "
+             + "p99 %.0f ns", withEmptyLexicon.events, withEmptyLexicon.corrections, emptyMean,
+             (emptyMean / countedMean - 1) * 100, withEmptyLexicon.samples[withEmptyLexicon.samples.count * 99 / 100]))
 if personalP99 > 1_000_000 {
     print("FAIL: autoswitch p99 with a personal lexicon exceeds the 1 ms tap callback budget")
     failed = true
@@ -532,7 +545,7 @@ if arguments.count >= 3 {
                               "typos": typosMean, "typosP99": typosP99,
                               "typosContext": typosContextMean, "typosContextP99": typosContextP99,
                               "autoswitchCounted": countedMean, "autoswitchPersonal": personalMean,
-                              "autoswitchPersonalP99": personalP99, "classifierPersonal": personalClassifierMean,
+                              "autoswitchPersonalEmpty": emptyMean, "autoswitchPersonalP99": personalP99, "classifierPersonal": personalClassifierMean,
                               "classifierPersonalP99": personalClassifierP99,
                               "typosRealWords": typosRealWordsMean, "typosRealWordsP99": typosRealWordsP99])
         .write(to: URL(fileURLWithPath: arguments[2]))

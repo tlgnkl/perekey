@@ -29,7 +29,8 @@
 //   perekey-eval replay check|words|compare <.pksession files> --model <dir> [--json <file>] [--show-words]
 //                       [--candidate-model <dir>] [--candidate-options <json or file>]
 //   perekey-eval personal --model <dir> --layouts <dir> [--cache <dir>] [--names N] [--seed S] [--corpus <file>]
-//                         [--personal-rank R] [--personal-rank-sweep] [--json <file>]
+//                         [--personal-rank R] [--personal-rank-sweep] [--personal-noise X]
+//                         [--personal-noise-sweep] [--json <file>]
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -90,7 +91,10 @@
 // get worse. Exit status 1 for a false switch or a correction of a personal
 // word, poison accepted or a category worse; recall under 90 % is reported.
 // `--personal-rank-sweep` repeats it for `Classifier.Options.personalRank`
-// 0, 80, 96 and 128.
+// 0, 80, 96 and 128; `--personal-noise-sweep` for `personalNoiseCost` 7 to 12
+// bits a letter and no limit, with the poison typed ten times over five days
+// (the known limit) beside the names accepted. `--names N` is the size of the
+// user's lexicon: 200 by default, 2000 is the size the bench measures.
 // `corpus` writes a TSV of words by category (about N words, default 50 000,
 // plus a tenth of typos).
 // `run` types every word in its own layout and in the other one and prints
@@ -154,7 +158,7 @@ while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
     if ["--sweep", "--typo-sweep", "--typo-context-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep",
         "--lead", "--real-words", "--real-word-sweep", "--off", "--real-word-no-ending", "--real-word-swaps-only",
-        "--personal-rank-sweep"].contains(argument) {
+        "--personal-rank-sweep", "--personal-noise-sweep"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -212,6 +216,10 @@ do {
             guard let rank = UInt8(text) else { fail("--personal-rank: \"\(text)\" is not a rank 0…255") }
             options.personalRank = rank
         }
+        if let text = flags["--personal-noise"] {
+            guard let cost = Double(text), cost >= 0 else { fail("--personal-noise: \"\(text)\" is not bits a letter") }
+            options.personalNoiseCost = cost
+        }
         let names = try PersonalEvaluation.names(cache: cache, model: model, options: options,
                                                  count: Int(flags["--names"] ?? "200") ?? 200, seed: seed)
         let corpus = try flags["--corpus"].map(Corpus.read)
@@ -236,6 +244,26 @@ do {
                              poison) + corpus)
             }
             json["sweep"] = points.map(PersonalEvaluation.json)
+        }
+        if flags["--personal-noise-sweep"] != nil {
+            let points = try evaluation.noiseSweep(limits: PersonalEvaluation.noiseLimits, names: names, cache: cache,
+                                                   corpus: corpus)
+            print("\npersonal noise sweep: limit (bits a letter), names accepted, recall, "
+                + "(b) random strings 10 times over 5 days accepted, (c) typos 10 times over 5 days accepted, "
+                + "poison by the gate accepted, corpus: false switches, recall, wrong corrections")
+            for (limit, point) in points {
+                let gate = point.poisons.reduce(0) { $0 + $1.accepted }
+                let randoms = point.limits.first { $0.name.hasPrefix("(b)") }
+                let typos = point.limits.first { $0.name.hasPrefix("(c)") }
+                let corpus = point.corpus.map { corpus in
+                    String(format: "  %6.3f%%  %6.2f%%  %6.3f%%", corpus.full.total.falseRate * 100,
+                           corpus.full.total.recall * 100, corpus.full.total.wrongCorrectionRate * 100)
+                } ?? ""
+                print(String(format: "  %@  %4d  %6.2f%%  %4d of %d  %4d of %d  %3d", limit.isFinite ? String(limit) : "none",
+                             point.accepted, point.recall * 100, randoms?.accepted ?? 0, randoms?.strings ?? 0,
+                             typos?.accepted ?? 0, typos?.strings ?? 0, gate) + corpus)
+            }
+            json["noiseSweep"] = points.map { ["limit": $0.0.isFinite ? $0.0 : -1, "result": PersonalEvaluation.json($0.1)] }
         }
         if let path = flags["--json"] {
             try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])

@@ -283,6 +283,20 @@ struct WordJudge: Sendable {
 
     // MARK: - What happened to the word
 
+    /// Whether a character is a letter, on every key of the tap: the Latin and
+    /// Cyrillic ranges answer without the Unicode property table (whose
+    /// lookup cost a tenth of the key's time in `perekey-bench`), any other
+    /// scalar asks it.
+    static func isLetter(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x41...0x5A, 0x61...0x7A: true
+        // The Cyrillic block but its signs and combining marks, U+0482 to U+0489.
+        case 0x400...0x481, 0x48A...0x4FF: true
+        case 0x80...: scalar.properties.isAlphabetic
+        default: false
+        }
+    }
+
     /// A key that types a character went into the buffer. `startsWord`: it
     /// began a new word, and whatever was decided about the last one is over.
     ///
@@ -418,21 +432,31 @@ struct WordJudge: Sendable {
         return tally
     }
 
+    /// Whether `correctWord` asks the typo corrector about a word in `map`
+    /// (the typo step is on and `map`'s language has a corrector).
+    private func askedTypo(in map: LayoutMap, layouts: LayoutState, settings: Settings) -> Bool {
+        settings.typoCorrection && typoCorrector != nil && layouts.correctsTypos(map.id)
+    }
+
     /// Observes the word just judged, read in `result`, if the lexicon is on
     /// and the word is a candidate (`Classifier.personalObservation`): it
     /// waits for the next word. Only where automatic switching could act
     /// and words count (`counting`): not in «manual only» or «off», not in a
     /// password field or on an unknown focus, not in Perekey's own windows.
-    /// - Parameter known: the fingerprint the classifier found the word under
-    ///   in the lexicon (`Decision.typedPersonalWord`): the word counts
-    ///   without a second look at its rival, its typo and its hash.
+    /// - Parameters:
+    ///   - known: the fingerprint the classifier found the word under
+    ///     in the lexicon (`Decision.typedPersonalWord`): the word counts
+    ///     without a second look at its rival, its typo and its hash.
+    ///   - typoAsked: the typo step asked the corrector about this word, with
+    ///     these very arguments, and it corrected nothing: condition 6 holds
+    ///     and the corrector is not asked again.
     private mutating func observe(_ strokes: some Collection<KeyStroke>, in result: LayoutMap,
                                   rivals: some Collection<LayoutMap>, classifier: Classifier, settings: Settings,
-                                  known: UInt64? = nil, confirm: Bool)
+                                  known: UInt64? = nil, typoAsked: Bool = false, confirm: Bool)
     {
         guard personal.isOn, counting else { return }
         // The corrector is asked as `correctWord` asks it: with the word before.
-        let typo = typoCorrector.map {
+        let typo = typoAsked ? nil : typoCorrector.map {
             TypoCheck(corrector: $0, sentenceStart: sentenceStart, previous: previousForTypo,
                       realWords: settings.corrections.realWords)
         }
@@ -704,7 +728,9 @@ struct WordJudge: Sendable {
                     // Nothing but the layout changed, so the word is the buffer's keys.
                     observe(buffer.entries.lazy.map(\.stroke), in: auto.other, rivals: CollectionOfOne(auto.typed),
                             classifier: auto.classifier, settings: settings,
-                            known: found.otherPersonal ? found.otherPersonalWord : nil, confirm: false)
+                            known: found.otherPersonal ? found.otherPersonalWord : nil,
+                            typoAsked: spelling == nil && askedTypo(in: auto.other, layouts: layouts, settings: settings),
+                            confirm: false)
                 }
                 if tracing {
                     trace(.switched(to: auto.other.id, early: false), buffer, layouts: layouts, context: contextAtJudge,
@@ -748,7 +774,9 @@ struct WordJudge: Sendable {
                     }
                 } else {
                     observe(buffer.entries.lazy.map(\.stroke), in: auto.typed, rivals: auto.candidates,
-                            classifier: auto.classifier, settings: settings, confirm: endsLine)
+                            classifier: auto.classifier, settings: settings,
+                            typoAsked: askedTypo(in: auto.typed, layouts: layouts, settings: settings),
+                            confirm: endsLine)
                 }
             }
             return .keep

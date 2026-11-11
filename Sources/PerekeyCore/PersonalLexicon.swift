@@ -194,10 +194,11 @@ public struct PersonalOptions: Hashable, Sendable {
     public var maxWords = 5000
     public var maxCandidates = 20000
     /// Shorter words are left to the rule of short words
-    /// (`Classifier.Options.shortWordRank`), longer ones are no words: the
-    /// typo corrector's bound (`TypoCorrector.Options.maxLetters`).
-    public var minLetters = 3
-    public var maxLetters = 24
+    /// (`Classifier.shortWordLetters` and under, `Classifier.Options.shortWordRank`),
+    /// longer ones are no words: the typo corrector's bound
+    /// (`TypoCorrector.Options.maxLetters`).
+    public var minLetters = Classifier.shortWordLetters + 1
+    public var maxLetters = TypoCorrector.Options().maxLetters
 
     public init() {}
 }

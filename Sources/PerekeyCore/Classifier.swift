@@ -594,6 +594,11 @@ public struct Classifier: Sendable {
         }
     }
 
+    /// A word of this many letters or fewer is a short word: `compare` decides
+    /// it by the rule of short words (`Options.shortWordRank`, `Reason.shortWord`),
+    /// and the personal lexicon leaves it alone (`PersonalOptions.minLetters`).
+    static let shortWordLetters = 2
+
     /// Strokes up to the last one that is not a space.
     static func wordLength(_ strokes: some Collection<KeyStroke>) -> Int {
         var length = 0
@@ -682,7 +687,7 @@ public struct Classifier: Sendable {
         }
         let known = isKnown(other)
         let margin = known ? options.threshold : options.threshold + options.unknownWordExtra
-        if other.letters <= 2 {
+        if other.letters <= Self.shortWordLetters {
             // Too short for the n-grams: the dictionary and the context decide.
             // The typed reading may carry a symbol ("t`" is "её") but must
             // have a letter: "{" is no reason to type "х".

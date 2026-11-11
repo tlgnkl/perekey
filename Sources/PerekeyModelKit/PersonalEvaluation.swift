@@ -218,6 +218,22 @@ public struct PersonalEvaluation {
         }
     }
 
+    /// The limits of `Classifier.Options.personalNoiseCost` the sweep tries:
+    /// the bits a letter from the classifier's `noiseCost` (7) up to where it
+    /// stops cutting anything, and no limit (docs/classifier.md, «Личный словарь»).
+    public static let noiseLimits: [Double] = [7, 8, 9, 10, 11, 12, .infinity]
+
+    /// Phase 1 and 2 with every limit of `limits`.
+    public func noiseSweep(limits: [Double], names: [CorpusItem], cache: String,
+                           corpus: [CorpusItem]?) throws -> [(Double, Results)]
+    {
+        try limits.map { limit in
+            var evaluation = self
+            evaluation.options.personalNoiseCost = limit
+            return (limit, try evaluation.run(names: names, cache: cache, corpus: corpus))
+        }
+    }
+
     private func otherLayout(_ language: String) -> LayoutMap? {
         layouts.first { $0.key != language }?.value
     }

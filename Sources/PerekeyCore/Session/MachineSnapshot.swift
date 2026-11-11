@@ -45,4 +45,10 @@ public struct MachineSnapshot: Hashable, Sendable, Codable {
     /// Words judged since the last `Effect.languagesCounted`, by language.
     public var tally: [String: Int]
     public var tallied: Int
+    /// The personal lexicon the machine had, nil when off: the key and the
+    /// fingerprints of the accepted words, no text. A file from before it
+    /// reads as off.
+    public var personalLexicon: PersonalLexicon?
+    /// Observations confirmed since the last `Effect.wordsKept`, nil when none.
+    public var personalKept: [PersonalObservation]?
 }

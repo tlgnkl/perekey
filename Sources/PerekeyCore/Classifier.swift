@@ -65,6 +65,22 @@ public struct Classifier: Sendable {
         /// reading is rarer, and without context only if it is rarer by a
         /// unit of Zipf.
         public var shortWordRank: UInt8 = 160
+        /// The rank a word of the personal lexicon reads with when the model
+        /// does not know it (`PersonalLexicon`): 128 is Zipf 4, a bonus of
+        /// 7.25 bits. From `perekey-eval personal --personal-rank-sweep` over
+        /// 0, 80, 96, 128 (docs/classifier.md, «Личный словарь»): 128 brings
+        /// the names back 90 % of the time against 87 % at 0 (a form without
+        /// a frequency, as Hunspell's), with no false switch, and no category
+        /// of the corpus, 50 k or 1 M words, worse than at 0.
+        public var personalRank: UInt8 = 128
+        /// The most n-gram cost per letter (bits, over the letters + 1 as
+        /// `noiseCost` counts) a word may have to become a candidate of the
+        /// personal lexicon: a random string costs more, a name costs less.
+        /// From `perekey-eval personal --personal-noise-sweep` (docs/classifier.md,
+        /// «Личный словарь»): at 11 the names still come back 90 % of the
+        /// time, as with no limit, and 65 % of the random strings that stood
+        /// the other rules are cut off; at 10 the recall is 88 %.
+        public var personalNoiseCost = 11.0
 
         public init() {}
     }
@@ -83,6 +99,9 @@ public struct Classifier: Sendable {
         /// What the app or site says about the language, if anything.
         public var prior: LanguagePrior
         public var mode: Mode
+        /// The words the user keeps typing, as keyed fingerprints; `.off`
+        /// looks nothing up.
+        public var personal: PersonalLexicon
 
         /// The language the previous word was judged to be in, e.g. "ru".
         public var previousLanguage: String? { recent.latest }
@@ -91,10 +110,13 @@ public struct Classifier: Sendable {
             self.init(recent: previousLanguage.map { RecentLanguages([$0]) } ?? RecentLanguages(), mode: mode)
         }
 
-        public init(recent: RecentLanguages, prior: LanguagePrior = LanguagePrior(), mode: Mode = .automatic) {
+        public init(recent: RecentLanguages, prior: LanguagePrior = LanguagePrior(), mode: Mode = .automatic,
+                    personal: PersonalLexicon = .off)
+        {
             self.recent = recent
             self.prior = prior
             self.mode = mode
+            self.personal = personal
         }
     }
 
@@ -161,6 +183,19 @@ public struct Classifier: Sendable {
         /// the forms: learning picks its threshold by them (`LearningOptions.threshold`).
         public var typedRank: UInt8?
         public var otherRank: UInt8?
+        /// The reading is a word of the personal lexicon the model does not
+        /// know: «a word you often type». Filled by every judgement of two
+        /// readings, explained or not.
+        public var typedPersonal = false
+        public var otherPersonal = false
+        /// The reading is a known form of the model, the personal lexicon
+        /// aside: a word the lexicon need not observe. Set by every judgement.
+        var typedKnown = false
+        var otherKnown = false
+        /// The fingerprints of the personal readings (`typedPersonal`,
+        /// `otherPersonal`): the word judge counts the word with them.
+        var typedPersonalWord: UInt64 = 0
+        var otherPersonalWord: UInt64 = 0
         /// The languages of the two layouts, e.g. "en" and "ru".
         public var typedLanguage: String?
         public var otherLanguage: String?
@@ -228,11 +263,13 @@ public struct Classifier: Sendable {
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: 2 * Self.maxScalars) { scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 2 * Self.maxScalars) { symbols in
                 let half = Self.maxScalars
-                guard let typedReading = Reading(strokes, count: count, in: typed, language: typedLanguage,
+                guard var typedReading = Reading(strokes, count: count, in: typed, language: typedLanguage,
                                                  scalars: scalars[0..<half], symbols: symbols[0..<half]),
-                      let otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
+                      var otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
                                                  scalars: scalars[half...], symbols: symbols[half...])
                 else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
+                markPersonal(&typedReading, language: typedCode, scalars: scalars[0..<half], context.personal)
+                markPersonal(&otherReading, language: otherCode, scalars: scalars[half...], context.personal)
                 return decide(typedReading, otherReading, typed: typed, other: other, context: context,
                               explaining: explaining)
             }
@@ -287,9 +324,10 @@ public struct Classifier: Sendable {
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: 2 * Self.maxScalars) { scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 2 * Self.maxScalars) { symbols in
                 let half = Self.maxScalars
-                guard let typedReading = Reading(strokes, count: count, in: typed, language: typedLanguage,
+                guard var typedReading = Reading(strokes, count: count, in: typed, language: typedLanguage,
                                                  scalars: scalars[0..<half], symbols: symbols[0..<half])
                 else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
+                markPersonal(&typedReading, language: typedCode, scalars: scalars[0..<half], context.personal)
                 // `bare`: the score without the context, which picks the
                 // preferred reading and must not count a second time.
                 var readings: [(decision: Decision, language: String, text: UInt64, bare: Double)] = []
@@ -300,9 +338,10 @@ public struct Classifier: Sendable {
                           let otherLanguage = model.language(otherCode)
                     else { continue }
                     // The other half is reused: a decision keeps no pointer into it.
-                    guard let otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
+                    guard var otherReading = Reading(strokes, count: count, in: other, language: otherLanguage,
                                                      scalars: scalars[half...], symbols: symbols[half...])
                     else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
+                    markPersonal(&otherReading, language: otherCode, scalars: scalars[half...], context.personal)
                     let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context,
                                           explaining: explaining)
                     readings.append((decision, otherCode, otherReading.exactFingerprint ^ UInt64(otherReading.count),
@@ -345,11 +384,11 @@ public struct Classifier: Sendable {
         // A form the dictionary has, however rare, keeps its last letter:
         // "e;byf." is "ужинаю", not "ужина.".
         for other in candidates where other.language != typed.language {
-            if lookUp(strokes, count: count, in: other)?.rank != nil { return nil }
+            if lookUp(strokes, count: count, in: other, personal: context.personal)?.rank != nil { return nil }
         }
         var decision = judge(strokes.prefix(count - marks))
         guard case let .switch(to: id) = decision.verdict, let target = candidates.first(where: { $0.id == id }),
-              isKnownWord(strokes, count: count - marks, in: target)
+              isKnownWord(strokes, count: count - marks, in: target, personal: context.personal)
         else { return nil }
         decision.punctuationKeys = marks
         return decision
@@ -359,17 +398,18 @@ public struct Classifier: Sendable {
     /// (`impossiblePrefix`): how many letters at its end `source` types as
     /// marks and are marks. "ytn" went to Russian as "нет", and the comma
     /// typed next on the ABC comma key is "б" there: "нетб" is no known form
-    /// and "нет" is, so 1. "хлеб" is a word: 0.
+    /// and "нет" is, so 1. "хлеб" is a word: 0. A word of `personal` is a
+    /// known form here too: "Lfirf," gives "Дашка,".
     public func marksAfterSwitch(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap,
-                                 from source: LayoutMap) -> Int
+                                 from source: LayoutMap, personal: PersonalLexicon = .off) -> Int
     {
         let marks = Self.trailingMarks(strokes, typed: source, candidates: CollectionOfOne(layout))
         let count = Self.wordLength(strokes)
         // The letters were typed in `layout` and read there as typed, so
         // they win unless the dictionary has never seen the word at all:
         // "ужинаю" is rare, but there.
-        guard marks > 0, lookUp(strokes, count: count, in: layout)?.rank == nil,
-              isKnownWord(strokes, count: count - marks, in: layout)
+        guard marks > 0, lookUp(strokes, count: count, in: layout, personal: personal)?.rank == nil,
+              isKnownWord(strokes, count: count - marks, in: layout, personal: personal)
         else { return 0 }
         return marks
     }
@@ -425,24 +465,31 @@ public struct Classifier: Sendable {
         return false
     }
 
-    /// The first `count` strokes read in `layout` as a known form of its language.
-    private func isKnownWord(_ strokes: some Collection<KeyStroke>, count: Int, in layout: LayoutMap) -> Bool {
-        guard let form = lookUp(strokes, count: count, in: layout), form.isWord else { return false }
+    /// The first `count` strokes read in `layout` as a known form of its
+    /// language, or a word of `personal`.
+    private func isKnownWord(_ strokes: some Collection<KeyStroke>, count: Int, in layout: LayoutMap,
+                             personal: PersonalLexicon) -> Bool
+    {
+        guard let form = lookUp(strokes, count: count, in: layout, personal: personal), form.isWord else {
+            return false
+        }
         return form.rank.map { $0 == 0 || $0 >= options.knownRank } ?? false
     }
 
     /// The first `count` strokes read in `layout`: a word or not, and its
-    /// rank in the dictionary, nil when it is not there. Nil when the
-    /// language has no model.
-    private func lookUp(_ strokes: some Collection<KeyStroke>, count: Int,
-                        in layout: LayoutMap) -> (isWord: Bool, rank: UInt8?)?
+    /// rank in the dictionary, nil when it is not there; a word of
+    /// `personal` the model does not know has `Options.personalRank`. Nil
+    /// when the language has no model.
+    private func lookUp(_ strokes: some Collection<KeyStroke>, count: Int, in layout: LayoutMap,
+                        personal: PersonalLexicon) -> (isWord: Bool, rank: UInt8?)?
     {
         guard let code = layout.language, let language = model.language(code) else { return nil }
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) { scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
-                guard let reading = Reading(strokes, count: count, in: layout, language: language,
+                guard var reading = Reading(strokes, count: count, in: layout, language: language,
                                             scalars: scalars[...], symbols: symbols[...])
                 else { return nil }
+                markPersonal(&reading, language: code, scalars: scalars[...], personal)
                 return (reading.isWord, reading.rank)
             }
         }
@@ -547,8 +594,13 @@ public struct Classifier: Sendable {
         }
     }
 
+    /// A word of this many letters or fewer is a short word: `compare` decides
+    /// it by the rule of short words (`Options.shortWordRank`, `Reason.shortWord`),
+    /// and the personal lexicon leaves it alone (`PersonalOptions.minLetters`).
+    static let shortWordLetters = 2
+
     /// Strokes up to the last one that is not a space.
-    private static func wordLength(_ strokes: some Collection<KeyStroke>) -> Int {
+    static func wordLength(_ strokes: some Collection<KeyStroke>) -> Int {
         var length = 0
         var index = 0
         for stroke in strokes {
@@ -562,6 +614,17 @@ public struct Classifier: Sendable {
                         context: Context, explaining: Bool) -> Decision
     {
         var decision = compare(typed, other, typed: typedLayout, other: otherLayout, context: context)
+        // Always: the word judge leaves a personal word to no typo step,
+        // and asking again would cost a reading of the word.
+        decision.typedPersonal = typed.personal
+        decision.otherPersonal = other.personal
+        // Only for a lexicon that is on: the word judge asks for nothing else.
+        if context.personal.isOn {
+            decision.typedPersonalWord = typed.personalFingerprint
+            decision.otherPersonalWord = other.personalFingerprint
+            decision.typedKnown = !typed.personal && typed.isWord && isKnown(typed)
+            decision.otherKnown = !other.personal && other.isWord && isKnown(other)
+        }
         guard explaining else { return decision }
         decision.margin = isKnown(other) ? options.threshold : options.threshold + options.unknownWordExtra
         decision.typedForm = form(of: typed)
@@ -624,7 +687,7 @@ public struct Classifier: Sendable {
         }
         let known = isKnown(other)
         let margin = known ? options.threshold : options.threshold + options.unknownWordExtra
-        if other.letters <= 2 {
+        if other.letters <= Self.shortWordLetters {
             // Too short for the n-grams: the dictionary and the context decide.
             // The typed reading may carry a symbol ("t`" is "её") but must
             // have a letter: "{" is no reason to type "х".
@@ -651,10 +714,11 @@ public struct Classifier: Sendable {
                             language: wins ? otherCode : nil)
         }
         if typed.upperInside > 0, typed.lower > 0,
-           typed.upperInside > 1 || (other.rank ?? 0) < options.mixedCaseRank
+           typed.upperInside > 1 || other.personal || (other.rank ?? 0) < options.mixedCaseRank
         {
             // Shift inside a word, and nothing frequent to switch to: a captcha,
-            // a product name, an identifier.
+            // a product name, an identifier. A word of the personal lexicon
+            // is no frequent form here, whatever `personalRank` says.
             return Decision(verdict: .keep, score: score, reason: .mixedCase, language: nil)
         }
         if !known, typed.cost / Double(typed.letters + 1) < options.noiseCost {
@@ -729,7 +793,7 @@ public struct Classifier: Sendable {
     }
 
     /// In the dictionary with a frequency worth the name, or a form without one.
-    private func isKnown(_ reading: Reading) -> Bool {
+    func isKnown(_ reading: Reading) -> Bool {
         guard let rank = reading.rank else { return false }
         return rank == 0 || rank >= options.knownRank
     }
@@ -766,11 +830,27 @@ struct Reading {
     var fingerprint: UInt64 = 0
     /// Exact fingerprint of the core, for the never-switch list.
     var exactFingerprint: UInt64 = 0
-    /// n-gram cost in bits; meaningful when `isWord`.
+    /// n-gram cost in bits; meaningful when `isWord` and `measured`.
     var cost = 0.0
+    /// Whether `cost` was measured (`init(…, measuring:)`).
+    private(set) var measured = false
     var rank: UInt8?
     /// Whether some word of the language starts with its first 3–4 letters.
     var prefixPossible = true
+    /// A word of the personal lexicon the model does not know: `rank` is
+    /// `Classifier.Options.personalRank` then (`Classifier.markPersonal`).
+    var personal = false
+    /// Its fingerprint in the lexicon, when `personal`: the observation of
+    /// the word takes it instead of hashing the word a second time.
+    var personalFingerprint: UInt64 = 0
+
+    /// The ASCII digits "0" to "9".
+    static func isDigit(_ scalar: UInt32) -> Bool {
+        scalar >= 0x30 && scalar <= 0x39
+    }
+
+    /// The hyphen-minus, which joins the parts of a word.
+    static let hyphen: UInt32 = 0x2D
 
     /// Only letters (and digits, which the automatic mode refuses earlier)
     /// inside the core: a word the model can measure.
@@ -798,8 +878,12 @@ struct Reading {
     }
 
     /// Reads `count` strokes. `nil` when they type more scalars than fit.
+    /// - Parameter measuring: also its n-gram `cost` and `prefixPossible`;
+    ///   without, only what the form and the rank need (the personal
+    ///   lexicon's checks, on every word).
     init?(_ strokes: some Collection<KeyStroke>, count: Int, in layout: LayoutMap, language: LanguageModel.Language,
-          scalars: Slice<UnsafeMutableBufferPointer<UInt32>>, symbols: Slice<UnsafeMutableBufferPointer<UInt8>>)
+          scalars: Slice<UnsafeMutableBufferPointer<UInt32>>, symbols: Slice<UnsafeMutableBufferPointer<UInt8>>,
+          measuring: Bool = true)
     {
         let scalars = UnsafeMutableBufferPointer(rebasing: scalars)
         let symbols = UnsafeMutableBufferPointer(rebasing: symbols)
@@ -843,7 +927,7 @@ struct Reading {
             let foldedScalar = ModelFormat.fold(scalar)
             folded.add(foldedScalar)
             exact.add(scalar)
-            if scalar >= 0x30, scalar <= 0x39 {
+            if Self.isDigit(scalar) {
                 digits += 1
                 continue
             }
@@ -866,20 +950,21 @@ struct Reading {
         exactFingerprint = exact.value
         guard isWord else { return }
         rank = language.rank(of: fingerprint)
-        if letters >= 3 {
+        measured = measuring
+        if measuring, letters >= 3 {
             prefixPossible = language.isPossiblePrefix(UnsafeBufferPointer(rebasing: symbols[0..<min(4, letters)]))
         }
 
         // Hyphens join words: "кто-то", "out-of-date". The word lists rarely
         // have them, so each part is measured and looked up on its own.
-        let hyphen = language.symbol(0x2D)
+        let hyphen = language.symbol(Self.hyphen)
         var start = 0
         var parts = 0
         var partRank: UInt8 = 255
         var partsKnown = true
         for position in 0...letters where position == letters || symbols[position] == hyphen {
             if position > start {
-                cost += language.cost(UnsafeBufferPointer(rebasing: symbols[start..<position]))
+                if measuring { cost += language.cost(UnsafeBufferPointer(rebasing: symbols[start..<position])) }
                 parts += 1
                 if rank == nil, partsKnown {
                     var part = ModelFormat.Fingerprint()
@@ -913,7 +998,8 @@ struct Reading {
 extension Classifier.Options: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
-             rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank
+             rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
+             personalRank, personalNoiseCost
     }
 
     /// The keys the file format knows, one per stored property (a test holds
@@ -941,6 +1027,8 @@ extension Classifier.Options: Codable {
         try read(.priorLimit, &priorLimit)
         try read(.priorScale, &priorScale)
         try read(.shortWordRank, &shortWordRank)
+        try read(.personalRank, &personalRank)
+        try read(.personalNoiseCost, &personalNoiseCost)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -960,5 +1048,7 @@ extension Classifier.Options: Codable {
         try container.encode(priorLimit, forKey: .priorLimit)
         try container.encode(priorScale, forKey: .priorScale)
         try container.encode(shortWordRank, forKey: .shortWordRank)
+        try container.encode(personalRank, forKey: .personalRank)
+        try container.encode(personalNoiseCost, forKey: .personalNoiseCost)
     }
 }

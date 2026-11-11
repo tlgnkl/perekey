@@ -22,6 +22,8 @@ enum ExplanationText {
             case .rare: return String(localized: "“\(text)” is a rare word \(`in`)")
             case .known: return String(localized: "“\(text)” is a common word \(`in`)")
             }
+        case let .personal(text):
+            return String(localized: "“\(text)” is a word you often type")
         case let .edge(score, needed, switched):
             let threshold = Int(needed.rounded())
             if score <= 0 {

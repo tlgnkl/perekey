@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import Foundation
 import Testing
 @testable import PerekeyCore
 
@@ -121,5 +122,48 @@ import Testing
         let statements = Explanation(correction: both).statements
         #expect(statements.count == 4)
         #expect(statements.last == .typo(.substitute))
+    }
+
+    // MARK: The personal lexicon (plan 7.2, item 4)
+
+    /// "lfirf" judged with «дашка» in the lexicon, explained.
+    private func explainedPersonal(typedPersonal: Bool = false) -> Classifier.Decision {
+        let classifier = Desk.classifier
+        let (typed, other, text) = typedPersonal
+            ? (Fixture.russian, Fixture.abc, "дашка") : (Fixture.abc, Fixture.russian, "lfirf")
+        return classifier.classify(typed.strokes(text), typed: typed, other: other,
+                                   context: Classifier.Context(recent: RecentLanguages(),
+                                                               personal: personalLexicon([("дашка", "ru")])),
+                                   explaining: true)
+    }
+
+    @Test func aPersonalReadingIsNamedInTheFacts() {
+        let switched = explainedPersonal()
+        #expect(switched.otherPersonal && !switched.typedPersonal)
+        let explanation = Explanation(decision: switched, typed: "lfirf", other: "дашка")
+        #expect(explanation.statements.contains(.personal(text: "дашка")))
+        #expect(!explanation.statements.contains { if case .reading(text: "дашка", _, _) = $0 { true } else { false } })
+        // The typed reading can be the personal one too.
+        let kept = explainedPersonal(typedPersonal: true)
+        #expect(kept.typedPersonal)
+        #expect(Explanation(decision: kept, typed: "дашка", other: "lfirf").statements.first == .personal(text: "дашка"))
+    }
+
+    /// The text of the reason in both languages: the app turns `.personal` into
+    /// the line that `Support/*.lproj/Localizable.strings` has for its key
+    /// (`ExplanationText`, checked in the app by `scripts/check-strings.sh`).
+    @Test func theReasonHasATextInRussianAndEnglish() throws {
+        let key = "“%@” is a word you often type"
+        func value(of language: String) throws -> String {
+            let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().appendingPathComponent("Support/\(language).lproj/Localizable.strings")
+            let strings = try #require(NSDictionary(contentsOf: file) as? [String: String])
+            return try #require(strings[key])
+        }
+        let english = try value(of: "en")
+        let russian = try value(of: "ru")
+        #expect(english == key)
+        #expect(russian == "«%@» — слово, которое вы часто пишете")
+        for text in [english, russian] { #expect(String(format: text, "дашка").contains("дашка")) }
     }
 }

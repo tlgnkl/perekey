@@ -52,10 +52,13 @@ public enum RecordedEvent: Hashable, Sendable, Codable {
     case noClassifier
     case undoLastCorrection(seq: UInt32, time: Double)
     case languageContextChanged(LanguageContext)
+    case personalLexiconChanged(PersonalLexicon)
     case voiceHoldLost
     case voiceSession(Bool)
 
-    public init(_ event: InputEvent) {
+    /// The event as the file has it, or nil for one that is no part of a
+    /// session: `InputEvent.personalRoomReturned` moves memory and nothing else.
+    public init?(_ event: InputEvent) {
         switch event {
         case let .key(key, time): self = .key(key, time: time)
         case let .flagsChanged(keyCode, flags, origin, time, location):
@@ -79,8 +82,10 @@ public enum RecordedEvent: Hashable, Sendable, Codable {
         case let .classifierChanged(classifier): self = classifier.map { .classifier(ClassifierSpec($0)) } ?? .noClassifier
         case let .undoLastCorrection(seq, time): self = .undoLastCorrection(seq: seq, time: time)
         case let .languageContextChanged(context): self = .languageContextChanged(context)
+        case let .personalLexiconChanged(lexicon): self = .personalLexiconChanged(lexicon)
         case .voiceHoldLost: self = .voiceHoldLost
         case let .voiceSession(on): self = .voiceSession(on)
+        case .personalRoomReturned: return nil
         }
     }
 
@@ -110,6 +115,7 @@ public enum RecordedEvent: Hashable, Sendable, Codable {
         case .noClassifier: .classifierChanged(nil)
         case let .undoLastCorrection(seq, time): .undoLastCorrection(seq: seq, time: time)
         case let .languageContextChanged(context): .languageContextChanged(context)
+        case let .personalLexiconChanged(lexicon): .personalLexiconChanged(lexicon)
         case .voiceHoldLost: .voiceHoldLost
         case let .voiceSession(on): .voiceSession(on)
         }

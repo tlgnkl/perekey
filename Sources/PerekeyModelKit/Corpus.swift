@@ -53,11 +53,11 @@ public struct CorpusItem: Hashable, Sendable {
 
 public enum Corpus {
     /// Categories whose words should switch when typed in the wrong layout.
-    public static let switchable: Set<String> = ["prose", "chat", "names", "mixed", "apps"]
+    public static let switchable: Set<String> = ["prose", "chat", "names", "mixed", "apps", "personal"]
     /// Categories whose strings are typed in the English layout only.
     public static let englishOnly: Set<String> = ["code", "url", "password"]
     public static let categories = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos",
-                                    "apps", "realword"]
+                                    "apps", "realword", "personal"]
 
     /// Share of each category in a sample. Typos and apps come on top of
     /// the classifier's categories: each grows the sample of `words` by a tenth.

@@ -245,6 +245,13 @@ final class InputController {
 
     /// The switch «Мои слова» goes to the store, which reaches the key and
     /// the file only while it is on, and the tap gets its snapshot from there.
+    /// The words the voice dictionary names as the user's own: «Мои слова»
+    /// takes them as accepted while it is on (`PersonalLexiconWiring.sharedWordsChanged`).
+    /// The fingerprints are made by the store, on this thread.
+    func sharedWordsChanged(_ words: [String]) {
+        personalWiring?.sharedWordsChanged(words)
+    }
+
     private func applyPersonalWords() {
         personalWiring?.settingsChanged(personalWords: store.settings.personalWords)
     }

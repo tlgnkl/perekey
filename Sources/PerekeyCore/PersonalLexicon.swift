@@ -512,8 +512,10 @@ public struct PersonalLexiconModel: Hashable, Sendable {
     }
 
     /// What the tap gets: the accepted words, their starts and their
-    /// languages under `key`.
-    public func snapshot(key: PersonalKey) -> PersonalLexicon {
+    /// languages under `key`, and the shared words (`PersonalKey.sharedObservations`):
+    /// those are accepted from the start, are in no entry and leave the
+    /// snapshot with their source. A word both learned and shared is in once.
+    public func snapshot(key: PersonalKey, shared: [PersonalObservation] = []) -> PersonalLexicon {
         var words: [UInt64] = []
         var starts: [UInt64] = []
         var languages: [LanguageCode] = []
@@ -522,6 +524,12 @@ public struct PersonalLexiconModel: Hashable, Sendable {
             languages.append(entry.language)
             if let start3 = entry.start3 { starts.append(start3) }
             if let start4 = entry.start4 { starts.append(start4) }
+        }
+        for word in shared {
+            words.append(word.word)
+            languages.append(word.language)
+            if let start3 = word.start3 { starts.append(start3) }
+            if let start4 = word.start4 { starts.append(start4) }
         }
         return PersonalLexicon(key: key, words: words, starts: starts, languages: languages, generation: generation,
                                options: options)

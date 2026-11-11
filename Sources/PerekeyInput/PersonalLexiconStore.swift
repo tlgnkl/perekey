@@ -156,7 +156,18 @@ public final class PersonalLexiconStore {
     @ObservationIgnored private var wanted = false
     @ObservationIgnored private var permitted: Bool
     @ObservationIgnored private var applied: Bool?
-    @ObservationIgnored private var key: PersonalKey?
+    @ObservationIgnored private var key: PersonalKey? {
+        didSet { refreshShared() }
+    }
+    /// The words other settings name as the user's own (the right side of the
+    /// voice dictionary), as text, for a moment longer than a word's text
+    /// stays elsewhere: they are the user's own settings, already in
+    /// `voice-text.json`, and a new key (an erase) needs them again. They are
+    /// never written by the store.
+    @ObservationIgnored private var sharedTexts: [String] = []
+    /// Their fingerprints under the key now; empty while there is no key.
+    @ObservationIgnored private var shared: [PersonalObservation] = []
+    @ObservationIgnored private var sharedWords: Set<UInt64> = []
     @ObservationIgnored private var model: PersonalLexiconModel
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var lastSave: Double?
@@ -241,6 +252,30 @@ public final class PersonalLexiconStore {
         }
         guard !isActive else { return }
         activate()
+    }
+
+    // MARK: - Shared words
+
+    /// The words the voice dictionary names as the user's own, as the
+    /// dictionary holds them now (the right side of each record). With the
+    /// lexicon on they are accepted words from this moment: the tap hears of
+    /// them in the snapshot, once, and a record that goes leaves the next
+    /// snapshot. Off, they are kept for when it is on and the tap hears of
+    /// nothing (docs/classifier.md, «Общие слова»).
+    ///
+    /// The fingerprints are made here, on the main thread, under the key of
+    /// the lexicon. They are no entry of the model: they are counted by no
+    /// batch and written to no file.
+    public func setSharedWords(_ texts: [String]) {
+        guard texts != sharedTexts else { return }
+        sharedTexts = texts
+        refreshShared()
+        if isActive { publish() }
+    }
+
+    private func refreshShared() {
+        shared = key.map { $0.sharedObservations(of: sharedTexts, options: options) } ?? []
+        sharedWords = Set(shared.map(\.word))
     }
 
     /// The Keychain refused the key when the lexicon was asked for (a locked
@@ -332,9 +367,19 @@ public final class PersonalLexiconStore {
             publish()
         }
         latestDay = day
-        let acceptedChanged = model.record(tally, day: day)
+        let acceptedChanged = model.record(withoutShared(tally), day: day)
         if acceptedChanged { publish() }
         markDirty()
+    }
+
+    /// A shared word is accepted without counting. One the model counts already
+    /// (the user taught it before the dictionary named it) goes on counting, so it
+    /// does not run out under the dictionary and stays when the record goes.
+    private func withoutShared(_ tally: PersonalTally) -> PersonalTally {
+        guard !sharedWords.isEmpty else { return tally }
+        var kept = tally
+        kept.observations = tally.observations.filter { !sharedWords.contains($0.word) || model.entries[$0.word] != nil }
+        return kept
     }
 
     /// Drops the word: «Забыть» in the hint, or a strong signal against it.
@@ -402,7 +447,7 @@ public final class PersonalLexiconStore {
         wordCount = model.acceptedCount
         let snapshot = sessionOnly
             ? PersonalLexicon(key: key, words: [UInt64](), starts: [UInt64](), generation: model.generation, options: options)
-            : model.snapshot(key: key)
+            : model.snapshot(key: key, shared: shared)
         guard snapshot != lexicon else { return }
         lexicon = snapshot
         onLexiconChanged?(snapshot)

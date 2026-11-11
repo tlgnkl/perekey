@@ -511,6 +511,105 @@ import Testing
     }
 }
 
+/// Words that are words in the evaluation (docs/classifier.md, «Опечатки-слова»).
+@Suite struct RealWordEvaluationTests {
+    static let model: LanguageModel = {
+        var builder = ModelBuilder()
+        builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        for word in ["letter", "from", "form", "then", "them", "hello", "world", "of", "to", "said"] {
+            builder.addForm(word, language: "en", rank: 200, weight: 100)
+        }
+        builder.addForm("привет", language: "ru", rank: 200, weight: 100)
+        builder.addPair(previous: fingerprint("letter"), word: fingerprint("from"), lift: 80, language: "en")
+        builder.addPair(previous: fingerprint("of"), word: fingerprint("them"), lift: 80, language: "en")
+        builder.addPair(previous: fingerprint("to"), word: fingerprint("then"), lift: 80, language: "en")
+        return try! LanguageModel(bytes: builder.build())
+    }()
+
+    static func fingerprint(_ text: String) -> UInt64 { ModelFormat.Fingerprint.of(text.unicodeScalars, folded: true) }
+
+    static let items = [
+        CorpusItem(category: "realword", language: "en", recent: ["en"], text: "form", expected: "from",
+                   previousWords: ["letter"]),
+        CorpusItem(category: "realword", language: "en", recent: ["en"], text: "then", expected: "them",
+                   previousWords: ["of"]),
+        // The typed pair is in the table: kept.
+        CorpusItem(category: "realword", language: "en", recent: ["en"], text: "then", expected: "them",
+                   previousWords: ["to"]),
+        // A clean word that the class would change: a wrong change.
+        CorpusItem(category: "prose", language: "en", recent: ["en"], text: "then", previousWords: ["of"]),
+        CorpusItem(category: "prose", language: "en", recent: ["en"], text: "hello", previousWords: ["of"]),
+    ]
+
+    static func run(realWords: Bool) -> Evaluation.Results {
+        var evaluation = Evaluation(model: model, layouts: ["en": TypoEvaluationTests.abc,
+                                                            "ru": TypoEvaluationTests.russian])
+        evaluation.realWords = realWords
+        return evaluation.run(items)
+    }
+
+    @Test func offFixesNothingAndChangesNothing() {
+        let results = Self.run(realWords: false)
+        let category = results.categories.first { $0.name == "realword" }
+        #expect(category?.realWordWords == 3)
+        #expect(category?.realWordsFixed == 0)
+        #expect(category?.realWordsWrong == 0)
+        #expect(results.total.realWordChanges == 0)
+        #expect(!Evaluation.report(results).contains("words that are words"))
+    }
+
+    @Test func onFixesTheWordsAndCountsTheWrongChanges() {
+        let results = Self.run(realWords: true)
+        let category = results.categories.first { $0.name == "realword" }
+        #expect(category?.realWordsFixed == 2)
+        #expect(category?.realWordsWrong == 0)
+        let prose = results.categories.first { $0.name == "prose" }
+        #expect(prose?.realWordChanges == 1)
+        #expect(prose?.realWordChangesByKey == 1)
+        #expect(prose?.realWordChangesByTransposition == 0)
+        #expect(prose?.wrongCorrections == 1)
+        #expect(Evaluation.report(results).contains("words that are words"))
+        #expect(results.errors.contains { $0.item.text == "then" && $0.correction == "them" })
+    }
+
+    @Test func theRealWordItemsAreNotCleanWords() {
+        // They count in no false rate and no checked words.
+        let category = Self.run(realWords: true).categories.first { $0.name == "realword" }
+        #expect(category?.keepWords == 0)
+        #expect(category?.checkedWords == 0)
+    }
+
+    @Test func theSweepRunsEveryBarAndTheHighestChangesNothing() {
+        var evaluation = Evaluation(model: Self.model, layouts: ["en": TypoEvaluationTests.abc,
+                                                                 "ru": TypoEvaluationTests.russian])
+        evaluation.realWords = false
+        let points = evaluation.realWordSweep(Self.items, lifts: [6, 12], slacks: [32])
+        #expect(points.map(\.typoOptions.realWordLift) == [6, 12])
+        #expect(points[0].total.realWordsFixed == 2)
+        #expect(points[1].total.realWordsFixed == 0, "the pairs are 10 bits")
+        #expect(points.allSatisfy { $0.realWords })
+    }
+
+    @Test func cleanTextIsMeasuredWithTheWordBefore() {
+        let corrector = TypoCorrector(model: Self.model)
+        let on = RealWordEvaluation.measure(["Said of then hello. Letter form.", "of\tthen"], name: "t",
+                                            corrector: corrector, layout: TypoEvaluationTests.abc,
+                                            language: Self.model.language("en")!)
+        // "then" after "of" twice (the tab starts a sentence, so the second has "of" no more) and "form" after "letter".
+        #expect(on.changes["then → them"] == 1)
+        #expect(on.changes["form → from"] == 1)
+        #expect(on.changed == 2)
+        #expect(on.byKey == 1 && on.byTransposition == 1)
+        #expect(on.report.contains("2 changed"))
+        let off = RealWordEvaluation.measure(["Said of then hello. Letter form.", "of\tthen"], name: "t", corrector: corrector,
+                                             layout: TypoEvaluationTests.abc, language: Self.model.language("en")!,
+                                             realWords: false)
+        #expect(off.changed == 0)
+        #expect(off.known == on.known)
+    }
+}
+
 /// Belarusian and Kazakh: built from Wikipedia counts; be is enabled, kk is not.
 @Suite struct BelarusianKazakhModelTests {
     @Test func alphabetsHoldTheirOwnLetters() throws {

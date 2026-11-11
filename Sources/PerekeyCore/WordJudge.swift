@@ -420,7 +420,8 @@ struct WordJudge: Sendable {
         judged = true
         counting = inContextApp(focus)
         contextAtJudge = context(focus: focus)
-        previousForTypo = wordBefore(buffer, layouts: layouts)
+        previousForTypo = wordBefore(buffer, layouts: layouts,
+                                     realWords: settings.typoCorrection && settings.corrections.realWords)
         defer { previousForTypo = nil }
         let switchingBefore = switching
         // The word after this key starts a sentence after `. ! ?` or a line
@@ -594,11 +595,12 @@ struct WordJudge: Sendable {
     /// typo corrector: the previous word of the buffer's history, or the start
     /// of a sentence when there is none and the word is the first of one. Nil
     /// when the corrector does not weigh it (`TypoCorrector.Options.contextWeight`
-    /// is 0, the default: nothing is read) or the buffer does not know the
-    /// word before. The history is cleared by the events that clear
-    /// `recent`: the caret left the text, a click, a new field.
-    private func wordBefore(_ buffer: WordBuffer, layouts: LayoutState) -> UInt64? {
-        guard let corrector = typoCorrector, corrector.options.contextWeight > 0 else { return nil }
+    /// is 0, the default, and no word that is a word is looked for: nothing is
+    /// read) or the buffer does not know the word before. The history is
+    /// cleared by the events that clear `recent`: the caret left the text, a
+    /// click, a new field.
+    private func wordBefore(_ buffer: WordBuffer, layouts: LayoutState, realWords: Bool) -> UInt64? {
+        guard let corrector = typoCorrector, corrector.options.contextWeight > 0 || realWords else { return nil }
         guard let before = buffer.previousWord else { return sentenceStart ? ModelFormat.sentenceStart : nil }
         guard let first = before.first, let map = layouts[first.layout] else { return nil }
         var reader = PreviousWord.Reader()
@@ -958,7 +960,7 @@ struct WordJudge: Sendable {
         var fix: WordFix?
         if settings.typoCorrection, let typoCorrector, layouts.correctsTypos(map.id),
            let candidate = typoCorrector.correct(entries.lazy.map(\.stroke), inAllowed: map, sentenceStart: sentenceStart,
-                                                 previous: previousForTypo)
+                                                 previous: previousForTypo, realWords: settings.corrections.realWords)
         {
             fix = WordFix(strokes: candidate.strokes, kind: .typo, typoChange: candidate.change)
         }

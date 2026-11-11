@@ -78,6 +78,12 @@ public struct EvalCase: Hashable, Sendable {
     public var effectiveFold: Set<Fold> { Set(fold ?? []) }
     public var effectiveEpoch: Int { epoch ?? 1 }
 
+    /// The prefix of the suites of personal sets (docs/eval.md, «Личные наборы»).
+    public static let personalPrefix = "personal."
+
+    /// The case is of a personal set: its words are a person's own.
+    public var isPersonal: Bool { suite.hasPrefix(Self.personalPrefix) }
+
     /// `meta.status` of an incident: `open` or `fixed`.
     public var status: String? { meta?["status"]?.string }
 }

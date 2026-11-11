@@ -30,6 +30,9 @@ public enum RunFiles {
         public var lexicon: [String: String]?
         public var seen: String?
         public var noise: [CaseFile]?
+        /// The run holds a personal set: its files are in the private
+        /// folder, and its words are hashes.
+        public var personal: Bool?
 
         public struct CaseFile: Hashable, Sendable, Codable {
             public var path: String
@@ -92,7 +95,8 @@ public enum RunFiles {
     /// many times it occurs, how often it was harmed, missed, botched, and the
     /// summed weight of those errors. The words of the test part only if the
     /// run reveals them (`--reveal-test`); the report hides them again without its own flag.
-    public static func wordsTSV(_ scores: [CaseScore]) -> String {
+    /// The words of a personal set are hashes of the store's salt.
+    public static func wordsTSV(_ scores: [CaseScore], redactor: Redactor? = nil) -> String {
         struct Key: Hashable, Comparable {
             var split: String
             var word: String
@@ -100,11 +104,13 @@ public enum RunFiles {
         }
         struct Row { var occurrences = 0, harm = 0, miss = 0, botched = 0, weight = 0.0 }
         var rows: [Key: Row] = [:]
-        for score in scores where !score.hidden {
+        for score in scores where !score.hidden && (!score.personal || redactor != nil) {
             for token in score.measured where Tokenizer.isWord(token.want) {
                 let core = Lexicon.core(token.want)
                 guard !core.isEmpty else { continue }
-                let key = Key(split: score.split.rawValue, word: core)
+                // A personal word is its hash; without the salt it is left out above.
+                let word = score.personal ? redactor?.hash(core) ?? Redactor.withheld : core
+                let key = Key(split: score.split.rawValue, word: word)
                 rows[key, default: Row()].occurrences += 1
                 switch token.outcome {
                 case .harm: rows[key]!.harm += 1; rows[key]!.weight += token.weight
@@ -132,11 +138,14 @@ public enum RunFiles {
 
     /// One line per token that is not `ok`, one per case scored as a whole
     /// whose text differs, and one per case whose checks failed. Words of a
-    /// hidden case read `(test)`.
-    public static func eventsJSONL(_ scores: [CaseScore]) throws -> String {
+    /// hidden case read `(test)`; those of a personal case are hashes.
+    public static func eventsJSONL(_ scores: [CaseScore], redactor: Redactor? = nil) throws -> String {
         var lines: [String] = []
         for score in scores {
-            func shown(_ text: String) -> String { score.hidden ? hiddenText : text }
+            func shown(_ text: String) -> String {
+                if score.personal { return redactor?.hash(text) ?? Redactor.withheld }
+                return score.hidden ? hiddenText : text
+            }
             let wholeCase = score.scoring == .case
             let textDiffers = wholeCase && !score.exact
             let hasFailedChecks = !score.failedChecks.isEmpty
@@ -171,20 +180,38 @@ public enum RunFiles {
         try pretty(info)
     }
 
-    public static func write(_ scores: [CaseScore], info: Info, to directory: String) throws {
-        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+    /// A run with a personal set is written for its owner alone (folder 0700,
+    /// files 0600) and needs the `redactor` of the store: without it the
+    /// words of the set would have no hash to stand for them.
+    public static func write(_ scores: [CaseScore], info: Info, to directory: String, redactor: Redactor? = nil) throws {
+        let personal = scores.contains(where: \.personal)
+        guard !personal || redactor != nil else {
+            throw EvalError.input("a run with a personal set needs \(PrivateStore.variable)")
+        }
+        var info = info
+        // The id of a personal case is a hash of its content: files name it with the salted one.
+        let scores = personal ? scores.map { score -> CaseScore in
+            var named = score
+            if named.personal { named.id = redactor?.caseID(score.id) ?? score.id }
+            return named
+        } : scores
+        if personal { info.personal = true }
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true,
+                                                attributes: personal ? [.posixPermissions: 0o700] : nil)
+        if personal { try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory) }
         let files = try [
             ("run.json", runJSON(info)),
             ("cases.tsv", casesTSV(scores)),
-            ("events.jsonl", eventsJSONL(scores)),
+            ("events.jsonl", eventsJSONL(scores, redactor: redactor)),
             ("summary.json", summaryJSON(scores)),
             ("counts.tsv", countsTSV(scores)),
             ("slices.json", slicesJSON(scores)),
-            ("words.tsv", wordsTSV(scores)),
+            ("words.tsv", wordsTSV(scores, redactor: redactor)),
         ]
         for (name, text) in files {
-            try text.write(toFile: (directory as NSString).appendingPathComponent(name), atomically: true,
-                           encoding: .utf8)
+            let path = (directory as NSString).appendingPathComponent(name)
+            try text.write(toFile: path, atomically: true, encoding: .utf8)
+            if personal { try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path) }
         }
     }
 

@@ -60,7 +60,9 @@ public struct RunData: Sendable {
 
     public var splitOf: [String: String] { Dictionary(rows.map { ($0.id, $0.split) }, uniquingKeysWith: { first, _ in first }) }
 
-    public static func load(_ directory: String) throws -> RunData {
+    /// `withholdDetails`: the folder holds a personal run, so an error that comes from a file names only its type.
+    public static func load(_ directory: String, withholdDetails: Bool = false) throws -> RunData {
+        func said(_ error: Error) -> String { withholdDetails ? "cannot be read (\(type(of: error)))" : "\(error)" }
         func text(_ name: String) throws -> String {
             let path = (directory as NSString).appendingPathComponent(name)
             guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
@@ -73,7 +75,7 @@ public struct RunData: Sendable {
             do { return try decoder.decode(type, from: Data(text(name).utf8)) } catch let error as EvalError {
                 throw error
             } catch {
-                throw EvalError.input("\(directory)/\(name): \(error)")
+                throw EvalError.input("\(directory)/\(name): \(said(error))")
             }
         }
         let info = try decode(RunFiles.Info.self, "run.json")
@@ -95,7 +97,7 @@ public struct RunData: Sendable {
         var events: [Event] = []
         for line in try text("events.jsonl").split(separator: "\n") {
             do { events.append(try decoder.decode(Event.self, from: Data(line.utf8))) } catch {
-                throw EvalError.input("\(directory)/events.jsonl: \(error)")
+                throw EvalError.input("\(directory)/events.jsonl: \(said(error))")
             }
         }
         var words: [Word] = []

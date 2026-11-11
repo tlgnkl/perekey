@@ -137,6 +137,32 @@ if [[ -z "$MODEL" ]]; then
     MODEL="$ROOT/.build/model"
 fi
 
+model_inputs=(data scripts/build-model.sh scripts/fetch-data.sh scripts/wiki-freq.py scripts/build-pairs.sh
+              scripts/wiki-text.py Sources/perekey-model Sources/PerekeyModelKit Sources/PerekeyCore/ModelFormat.swift)
+base_fingerprint() {
+    {
+        git rev-parse "$1^{commit}"
+        find Sources/PerekeyEvalKit Sources/PerekeyDesk Sources/perekey-eval Package.swift -type f | LC_ALL=C sort | xargs shasum -a 256
+        git diff "$1" -- "${model_inputs[@]}"
+    } | shasum -a 256 | cut -d' ' -f1
+}
+
+# QUALITY_WARM_CACHE is a folder to fill, for a pull request of the future, with the head as its base: the head
+# binary is the base binary of the next pull request (same commit, same bench, no model difference), so it costs
+# a copy, not a build. The CI job saves the folder from main under the key that a pull request looks for.
+if [[ -n "${QUALITY_WARM_CACHE:-}" ]]; then
+    if git diff --quiet HEAD -- && [[ -z "$(git ls-files --others --exclude-standard)" ]]; then
+        rm -rf "$QUALITY_WARM_CACHE"
+        mkdir -p "$QUALITY_WARM_CACHE"
+        cp "$bin" "$QUALITY_WARM_CACHE/perekey-eval"
+        echo "the bench of this tree" >"$QUALITY_WARM_CACHE/stand"
+        base_fingerprint HEAD >"$QUALITY_WARM_CACHE/fingerprint"
+        echo "quality: the head $(git rev-parse --short HEAD) is kept for the cache of a base"
+    else
+        echo "quality: the tree is not clean; no cache of a base is kept"
+    fi
+fi
+
 # The base builds in the background from the start, while the cases are built and the head is checked and played.
 # QUALITY_BASE_CACHE is a folder kept between runs (actions/cache, key by the SHA of the base): the binary of the
 # base and, when it needs its own, its model. What was built is told by `fingerprint`; a folder that does not
@@ -150,15 +176,9 @@ if [[ -n "$base_ref" ]]; then
     if [[ ! -d "$base_tree/Sources/PerekeyEvalKit" ]]; then
         base_note="Base $base_ref has no bench: nothing to compare with."
     else
-        model_inputs=(data scripts/build-model.sh scripts/fetch-data.sh scripts/wiki-freq.py scripts/build-pairs.sh
-                      scripts/wiki-text.py Sources/perekey-model Sources/PerekeyModelKit Sources/PerekeyCore/ModelFormat.swift)
         # What the base binary and its model are made of: the base commit, the bench of this tree laid over it,
         # and the difference of the model inputs.
-        fingerprint="$( {
-            git rev-parse "$base_ref^{commit}"
-            find Sources/PerekeyEvalKit Sources/PerekeyDesk Sources/perekey-eval Package.swift -type f | LC_ALL=C sort | xargs shasum -a 256
-            git diff "$base_ref" -- "${model_inputs[@]}"
-        } | shasum -a 256 | cut -d' ' -f1)"
+        fingerprint="$(base_fingerprint "$base_ref")"
         (
             t_base=$SECONDS
             base_bin="$tmp/base-build/release/perekey-eval"

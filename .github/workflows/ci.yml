@@ -112,6 +112,16 @@ jobs:
           # A manual run has neither: it compares with main.
           QUALITY_BASE: ${{ steps.quality-base.outputs.ref }}
           QUALITY_BASE_CACHE: ${{ github.workspace }}/.build/quality-base
+          # On main (and a manual run) the head binary is kept too: it is the base of the next pull request.
+          QUALITY_WARM_CACHE: ${{ github.event_name != 'pull_request' && format('{0}/.build/quality-warm', github.workspace) || '' }}
+      # Pull requests only restore caches of main and their own; the first run of each would miss without this.
+      # The key is the one a pull request looks for: its base is the first parent of the merge, the tip of main.
+      - name: Keep the head of main as the base of the next pull request
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: .build/quality-warm
+          key: quality-base-v2-${{ github.sha }}-${{ hashFiles('Sources/PerekeyEvalKit/**', 'Sources/PerekeyDesk/**', 'Sources/perekey-eval/**', 'Package.swift', 'data/**', 'scripts/build-model.sh', 'scripts/fetch-data.sh', 'scripts/wiki-freq.py', 'scripts/build-pairs.sh', 'scripts/wiki-text.py', 'Sources/perekey-model/**', 'Sources/PerekeyModelKit/**', 'Sources/PerekeyCore/ModelFormat.swift') }}
       - run: scripts/bundle.sh
       - name: No typing recorder in the app
         run: scripts/check-no-recorder.sh .build/app/Perekey.app

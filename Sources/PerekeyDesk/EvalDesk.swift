@@ -379,6 +379,7 @@ public struct EvalDesk: Sendable {
 
     private mutating func send(_ input: InputEvent) {
         let output = machine.handle(input)
+        supplyPersonalRoom()
         noteJudgement()
         record(input, output)
         run(output.effects)
@@ -388,6 +389,7 @@ public struct EvalDesk: Sendable {
     /// `releaseHeld` of the same output would lose the key (`Desk.key`).
     private mutating func key(_ event: KeyEvent) {
         let output = machine.handle(.key(event, time: time))
+        supplyPersonalRoom()
         noteJudgement()
         switch output.disposition {
         case .pass:
@@ -399,6 +401,12 @@ public struct EvalDesk: Sendable {
         }
         record(.key(event, time: time), output)
         run(output.effects)
+    }
+
+    /// The app's main thread: the buffers the machine asks for for the words
+    /// it keeps. Not an event of the replay (it is not recorded).
+    private mutating func supplyPersonalRoom() {
+        while machine.personalRoomsWanted > 0 { _ = machine.handle(.personalRoomReturned(PersonalRoom())) }
     }
 
     /// Lists the trace the call just made, if it made one.

@@ -35,6 +35,9 @@ import Testing
         .languageContextChanged(LanguageContext(app: "com.tinyspeck.slackmacgap", site: "example.org",
                                                 prior: LanguagePrior(counts: ["ru": 120, "en": 30]),
                                                 generation: 4)),
+        .personalLexiconChanged(PersonalLexicon(key: PersonalKey(k0: 0x0706_0504_0302_0100, k1: 0xF0E_0D0C_0B0A_0908),
+                                                words: [3, 0xFFFF_FFFF_FFFF_FFFF, 1], starts: [2], generation: 5)),
+        .personalLexiconChanged(.off),
         .voiceHoldLost,
         .voiceSession(true),
     ]
@@ -61,8 +64,10 @@ import Testing
         case .classifierChanged: "classifierChanged"
         case .undoLastCorrection: "undoLastCorrection"
         case .languageContextChanged: "languageContextChanged"
+        case .personalLexiconChanged: "personalLexiconChanged"
         case .voiceHoldLost: "voiceHoldLost"
         case .voiceSession: "voiceSession"
+        case .personalRoomReturned: "personalRoomReturned"
         }
     }
 
@@ -82,25 +87,27 @@ import Testing
             "key", "flagsChanged", "click", "scroll", "focusChanged", "layoutChanged", "layoutsChanged",
             "secureInputChanged", "settingsChanged", "retypePosted", "retypeCancelled", "selectionRead", "inputLost",
             "dictationTyping", "deadline", "appModeChanged", "classifierChanged", "undoLastCorrection",
-            "languageContextChanged", "voiceHoldLost", "voiceSession",
+            "languageContextChanged", "personalLexiconChanged", "voiceHoldLost", "voiceSession",
         ]
         // The two cases with their own rules have tests of their own below.
         #expect(sampled == all.subtracting(["selectionRead", "classifierChanged"]))
+        // The buffer that moves memory is no part of a session.
+        #expect(RecordedEvent(.personalRoomReturned(PersonalRoom())) == nil)
     }
 
     @Test(arguments: RecordedEventTests.events.indices)
     func eventSurvivesTheRecording(index: Int) throws {
         let event = Self.events[index]
-        let recorded = RecordedEvent(event)
+        let recorded = try #require(RecordedEvent(event))
         let read = try Self.roundTrip(recorded)
         #expect(read == recorded)
         let replayed = read.inputEvent(classifier: Self.classifier)
         #expect(Self.name(of: replayed) == Self.name(of: event))
-        #expect(RecordedEvent(replayed) == recorded)
+        #expect(try #require(RecordedEvent(replayed)) == recorded)
     }
 
     @Test func selectionIsRecordedAsItsLengthOnly() throws {
-        let recorded = RecordedEvent(.selectionRead(seq: 4, text: "привет, мир", viaAccessibility: true))
+        let recorded = try #require(RecordedEvent(.selectionRead(seq: 4, text: "привет, мир", viaAccessibility: true)))
         #expect(recorded == .selectionRead(seq: 4, text: "xxxxxxxxxxx", viaAccessibility: true))
         let json = try #require(String(data: JSONEncoder().encode(recorded), encoding: .utf8))
         #expect(!json.contains("привет") && !json.contains("мир"))
@@ -113,7 +120,7 @@ import Testing
         var options = Classifier.Options()
         options.threshold = 12.5
         options.shortWordRank = 150
-        let recorded = RecordedEvent(.classifierChanged(Classifier(model: ModelFixture.model, options: options)))
+        let recorded = try #require(RecordedEvent(.classifierChanged(Classifier(model: ModelFixture.model, options: options))))
         #expect(recorded == .classifier(ClassifierSpec(languages: Self.fixtureLanguages, options: options)))
         let read = try Self.roundTrip(recorded)
         #expect(read == recorded)
@@ -127,7 +134,7 @@ import Testing
     }
 
     @Test func noClassifierIsRecordedAsSuch() throws {
-        let recorded = RecordedEvent(.classifierChanged(nil))
+        let recorded = try #require(RecordedEvent(.classifierChanged(nil)))
         #expect(recorded == .noClassifier)
         #expect(try Self.roundTrip(recorded) == .noClassifier)
         guard case .classifierChanged(nil) = recorded.inputEvent(classifier: Self.classifier) else {

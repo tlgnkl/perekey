@@ -243,6 +243,11 @@ public enum Effect: Hashable, Sendable {
     /// The languages of the words judged since the last tally, in its app and
     /// site: add them to `LanguageStats`, off the tap thread. Counts only.
     case languagesCounted(LanguageTally)
+    /// Words the user typed and kept that the personal lexicon may learn,
+    /// as keyed fingerprints (`PersonalTally`), with `languagesCounted` or
+    /// when the batch is full: count them, off the tap thread
+    /// (`PersonalLexiconModel.record`). Never text.
+    case wordsKept(PersonalTally)
     /// The voice trigger fired (`Settings.voice`). Its key events are swallowed.
     case voice(VoiceSignal)
     /// The user pressed a key or a modifier while dictation typed

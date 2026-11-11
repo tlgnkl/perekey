@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
             REPORT=html; shift ;;
         --model)
             [[ $# -ge 2 ]] || { echo "quality: --model needs a directory" >&2; exit 2; }
-            MODEL="$2"; shift ;;
+            MODEL="$(cd "$2" && pwd)"; shift ;;
         -h|--help) sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "quality: unknown argument $1" >&2; exit 2 ;;
     esac

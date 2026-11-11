@@ -120,6 +120,12 @@ outside any scratchpad; the set and its runs live there, and the files and the
 output of a run hold hashes and numbers, never your words. The commands refuse a
 folder inside the repository or a shared one.
 
+**Tuning how Perekey learns from undos.** `perekey-eval learning run|sweep`
+simulates a person with a personal vocabulary who types for 30 days, undoes the
+wrong switches and answers the question «Больше не менять…» (docs/eval.md,
+«Обучение»). `--options` and `--grid` change the fields of `LearningOptions`
+without touching the core: it measures the thresholds, it does not set them.
+
 **How it works.** On the tap thread the engine only appends the event and the
 output to an array in memory (`RecordingBuffer`); every 256 events or once a
 second the array goes to the recorder's own queue (`SessionRecorder`, utility

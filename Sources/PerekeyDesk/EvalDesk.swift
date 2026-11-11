@@ -101,6 +101,14 @@ public struct EvalDesk: Sendable {
         public var origin: Retype.Origin
     }
 
+    /// A retype the desk carried out, with the index of the typist's event it
+    /// came from: the app learns from the manual ones (`InputEngine`'s
+    /// `retyped`, `InputController.unlearn`).
+    public struct Posted: Sendable {
+        public var event: Int
+        public var retype: Retype
+    }
+
     /// One call of the machine, for `perekey-eval case` and the replay of
     /// recorded sessions.
     public struct Record: Sendable {
@@ -136,6 +144,8 @@ public struct EvalDesk: Sendable {
     public private(set) var capsLock = false
     public private(set) var log: [Logged] = []
     public private(set) var cancelled: [Cancelled] = []
+    /// The retypes carried out, in order.
+    public private(set) var posted: [Posted] = []
     /// The words judged, in order, while `Setup.tracesJudgements`.
     public private(set) var judgements: [Judged] = []
     /// Every call of the machine, when `recording` is on.
@@ -496,6 +506,7 @@ public struct EvalDesk: Sendable {
         }
         field.deleteLeft(retype.deleteCount)
         field.insert(retype.text)
+        posted.append(Posted(event: cause, retype: retype))
         time += options.retypeStep
         send(.retypePosted(seq: retype.seq, time: time))
         let count = retype.deleteCount + retype.keys.count

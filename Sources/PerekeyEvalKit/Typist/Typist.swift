@@ -94,9 +94,20 @@ public struct Typist: Sendable {
     }
 
     public func events(for item: EvalCase, layouts: LayoutLibrary) throws -> [TypedEvent] {
-        let settings = try EvalSettings.settings(for: item.effectiveEnv)
-        var clock = Clock(now: micro(options.startTime))
-        var tempo = options.tempo(item.effectiveEnv.effectivePace)
+        try events(of: item.allSteps, env: item.effectiveEnv, layouts: layouts, label: item.id)
+    }
+
+    /// The events of steps that are not a whole case: the learning
+    /// simulation types a message at a time (docs/eval.md, «Обучение»).
+    /// `label` names the steps in an error; `startingAt` is the time of the
+    /// first event (default `Options.startTime`); `endPause` adds the pause
+    /// that ends a case.
+    public func events(of steps: [Step], env: Env, layouts: LayoutLibrary, label: String, startingAt: Double? = nil,
+                       endPause: Bool = true) throws -> [TypedEvent]
+    {
+        let settings = try EvalSettings.settings(for: env)
+        var clock = Clock(now: micro(startingAt ?? options.startTime))
+        var tempo = options.tempo(env.effectivePace)
         var result: [TypedEvent] = []
         /// Whether a key has been typed: the first event needs no gap before it.
         var started = false
@@ -132,16 +143,16 @@ public struct Typist: Sendable {
             clock.now -= micro(options.chordStep)
         }
 
-        for (index, step) in item.allSteps.enumerated() {
+        for (index, step) in steps.enumerated() {
             switch step {
             case let .type(text, on):
-                guard let map = layouts[on] else { throw EvalError.input("\(item.id): unknown layout \(on)") }
+                guard let map = layouts[on] else { throw EvalError.input("\(label): unknown layout \(on)") }
                 var shiftHeld = false
                 let shift = Self.flag(.leftShift)
                 for (offset, character) in text.enumerated() {
                     char = offset
                     guard let stroke = LayoutLibrary.printableStroke(character, in: map) else {
-                        throw EvalError.input("\(item.id): \(on) does not type \"\(character)\" without ⌥")
+                        throw EvalError.input("\(label): \(on) does not type \"\(character)\" without ⌥")
                     }
                     let needsShift = stroke.modifiers.contains(.shift)
                     if needsShift != shiftHeld {
@@ -164,11 +175,11 @@ public struct Typist: Sendable {
                 }
                 char = nil
             case let .layout(name):
-                guard let map = layouts[name] else { throw EvalError.input("\(item.id): unknown layout \(name)") }
+                guard let map = layouts[name] else { throw EvalError.input("\(label): unknown layout \(name)") }
                 emit(.userLayout(map.id), at: next(), step: index)
             case let .hotkey(name):
                 guard let binding = settings.hotkeys.first(where: { $0.action == name.action }) else {
-                    throw EvalError.input("\(item.id): \(name.rawValue) has no shortcut in the case's settings")
+                    throw EvalError.input("\(label): \(name.rawValue) has no shortcut in the case's settings")
                 }
                 clock.now += micro(options.hotkeyPause)
                 started = true
@@ -227,7 +238,7 @@ public struct Typist: Sendable {
                 emit(.undoButton, at: next(), step: index)
             }
         }
-        emit(.idle(seconds: options.endPause), at: next(), step: nil)
+        if endPause { emit(.idle(seconds: options.endPause), at: next(), step: nil) }
         return result
     }
 

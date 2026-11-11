@@ -23,7 +23,8 @@ differently, what was fixed.
   When Perekey switches a word because it is yours, the hint and «Why?» in the
   menu say so and offer «Forget the word». Undoing such a switch, or retyping
   the word by hand, forgets it too. Settings → Privacy shows how many words
-  are remembered and erases them, with the key. An administrator can forbid it
+  are remembered and erases them, with the key, after you confirm; turning the
+  switch off keeps what was remembered. An administrator can forbid it
   with the `PersonalWordsDisabled` profile key.
 - **Dictation language: as in the app.** In Settings → Voice you can pick
   «As in the app» for the dictation language. When the app you dictate into is

@@ -43,7 +43,9 @@ enum Recording {
         var lines: [SessionLine] = [.header(SessionHeader(perekey: "0.2.0", build: "test", time: 1_762_780_000)),
                                     .snapshot(snapshot)]
         for record in machine.desk.records {
-            lines.append(.step(SessionStep(event: RecordedEvent(record.input), output: OutputDigest(record.output))))
+            // An event the replay does not record (the personal lexicon's buffers) has no line.
+            guard let event = RecordedEvent(record.input) else { continue }
+            lines.append(.step(SessionStep(event: event, output: OutputDigest(record.output))))
         }
         return lines
     }

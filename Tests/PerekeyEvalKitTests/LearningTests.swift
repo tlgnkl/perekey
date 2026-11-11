@@ -145,7 +145,7 @@ import Testing
             Self.event("class.short/clean.cold/j", want: "dj", err: "layout"),
             Self.event("class.short/clean.cold/k", want: "ye", lang: "uk"),
         ].joined(separator: "\n")
-        let candidates = try VocabularyPicker.candidates(eventsJSONL: lines)
+        let candidates = try VocabularyPicker.candidates(eventsJSONL: lines, runJSON: Data(#"{"testRevealed":false}"#.utf8))
         #expect(candidates.sorted { $0.word < $1.word } == [
             .init(word: "vs", layout: "ABC", harm: 2), .init(word: "шт", layout: "Russian", harm: 1),
         ])
@@ -355,6 +355,128 @@ import Testing
         }, options: options))
         #expect(run.totals.falseLearned == 1)
         #expect(run.totals.falseLearnedPer1000Accidents.map { $0 > 0 } == true)
+    }
+
+    // MARK: - The review of E8
+
+    /// The committed «jrtq» set, played with a model that knows «окей» (the fixture model plus the word).
+    static func jrtq(_ edit: (inout LearningManifest) throws -> Void = { _ in }, options: LearningOptions = LearningOptions())
+        throws -> LearningRun
+    {
+        let directory = Repo.path("eval/learning")
+        var manifest = try LearningManifest.read(file: "\(directory)/learning.jrtq.json")
+        try edit(&manifest)
+        let vocabulary = try LearningVocabulary.read(file: "\(directory)/\(manifest.vocabulary)")
+        let classifier = Classifier(model: ModelFixture.model(withRussianWords: [("окей", 150)], hyphenByRule: []))
+        return try LearningSimulation.run(.init(manifest: manifest, vocabulary: vocabulary, library: Repo.library,
+                                                classifier: classifier, options: options))
+    }
+
+    @Test func theCommittedJrtqSetLearnsNothingBecauseOfItsRule() throws {
+        let run = try Self.jrtq()
+        // The set is played: Backspaces happen, and Perekey switched «jrtq» every time.
+        #expect(run.totals.accidents > 0)
+        #expect(run.totals.accidents == run.totals.other, "each «jrtq» was switched, then undone by the Backspace for the space")
+        #expect(run.totals.learnedWords == 0)
+        #expect(run.totals.counted == 0)
+        #expect(run.totals.falseLearned == 0)
+        // Control 1: the rule before the evidence learned the word from the same Backspaces.
+        #expect(run.totals.oldRuleWouldLearn == 1)
+        // Control 2: the same set, the same machine, but the person types on after the Backspace
+        // (it counts) and the threshold is 1: the word is learned. So the zero is the rule, not the set.
+        let continuing = try Self.jrtq({ $0 = try $0.overriding("manifest.accidentContinues", 1) }, options: Self.bar(1))
+        #expect(continuing.totals.learnedWords == 1)
+        #expect(continuing.totals.falseLearned == 1)
+        // The rule at the thresholds of today and a continuing person: two Backspaces are enough, too.
+        let today = try Self.jrtq({ $0 = try $0.overriding("manifest.accidentContinues", 1) })
+        #expect(today.totals.learnedWords == 1)
+    }
+
+    @Test func aWordIsLearnedFalselyWhenTheAccidentsGaveItsPoints() throws {
+        // «ghbdtn» is meant as typed and as «привет»; the bar of 3 needs a Backspace that a real undo does not give.
+        // A button undo is 2 points, an accidental Backspace that the person types on after is 1 (+1 on a new day).
+        var decisive = 0
+        var keptAndFalse = 0
+        for seed in 1...30 {
+            let run = try LearningSimulation.run(Self.config({
+                $0["meantOther"] = 0.5
+                $0["accident"] = 1
+                $0["accidentContinues"] = 1
+                $0["backspaceShare"] = 0
+                $0["days"] = 4
+                $0["seed"] = seed
+            }, options: Self.bar(3)))
+            let word = try #require(run.words.first)
+            #expect(run.totals.falseLearned == (word.learnedByAccident ? 1 : 0))
+            #expect(word.accidentPoints >= 0)
+            if word.learnedByAccident {
+                decisive += 1
+                #expect(word.learnedDay != nil)
+                if word.keep > 0 { keptAndFalse += 1 }
+            }
+        }
+        #expect(decisive > 0, "the accidents taught a word in some seeds")
+        #expect(keptAndFalse > 0, "a word the person also meant as typed is counted: the old «keep == 0» rule missed it")
+    }
+
+    @Test func aWordLearnedByRealUndosAloneIsNotLearnedFalsely() throws {
+        // No accidents: the same loop teaches the word by the button, and nothing is false.
+        let run = try LearningSimulation.run(Self.config({ $0["accident"] = 1; $0["meantOther"] = 0 }))
+        #expect(run.totals.learnedWords == 1)
+        #expect(run.totals.falseLearned == 0)
+        #expect(run.words[0].accidentPoints == 0)
+    }
+
+    @Test func wordsThatNeverWentSilentAreCountedNextToTheMean() throws {
+        var run = try LearningSimulation.run(Self.config())
+        run.totals.wordsHarmed = 5
+        run.totals.wordsSilent = 3
+        #expect(run.totals.wordsNeverSilent == 2)
+        let text = LearningReport.text(try manifest(), runs: [run])
+        #expect(text.contains("words that never went silent"))
+        #expect(text.contains("only the words that went silent"))
+        let table = LearningReport.sweepTable([.init(point: [], name: "learning.test", runs: [run])], seeds: 1)
+        let header = try #require(table.split(separator: "\n").first).split(separator: "\t").map(String.init)
+        #expect(header.contains("neverSilent"))
+        #expect(header.contains("toSilence(silent only)"))
+    }
+
+    @Test func theVocabularyRefusesARunWithTheTestRevealedOrAPersonalOne() throws {
+        let events = Self.event("class.short/clean.cold/a", want: "vs")
+        func info(_ json: String) -> Data { Data(json.utf8) }
+        #expect(try VocabularyPicker.candidates(eventsJSONL: events, runJSON: info(#"{"testRevealed":false,"commit":"c"}"#)).count == 1)
+        #expect(try VocabularyPicker.candidates(eventsJSONL: events, runJSON: info(#"{"commit":"c","personal":false}"#)).count == 1)
+        #expect(throws: EvalError.self) {
+            try VocabularyPicker.candidates(eventsJSONL: events, runJSON: info(#"{"testRevealed":true}"#))
+        }
+        #expect(throws: EvalError.self) {
+            try VocabularyPicker.candidates(eventsJSONL: events, runJSON: info(#"{"testRevealed":false,"personal":true}"#))
+        }
+        #expect(throws: EvalError.self) { try VocabularyPicker.candidates(eventsJSONL: events, runJSON: nil) }
+        #expect(throws: EvalError.self) { try VocabularyPicker.candidates(eventsJSONL: events, runJSON: info("[1]")) }
+    }
+
+    @Test func aGridIsCheckedBeforeAnyRun() throws {
+        // A bad value is an error of the grid, not of the point that happens to come last.
+        #expect(throws: EvalError.self) { try LearningReport.points(grid: #"{"frequentThreshold": [3, 1.5]}"#) }
+        #expect(throws: EvalError.self) { try LearningReport.points(grid: #"{"frequentThreshold": [-1]}"#) }
+        #expect(throws: EvalError.self) { try LearningReport.points(grid: #"{"manifest.accident": [0.2, 1.4]}"#) }
+        #expect(throws: EvalError.self) { try LearningReport.points(grid: #"{"manifest.zipf": [-1]}"#) }
+        // The sets are checked against every point before the first run: the model below does not exist,
+        // and the error is still the grid's, not the model's.
+        let file = Repo.path("eval/learning/learning.jrtq.json")
+        func sweep(_ grid: String) throws -> Int32 {
+            var parsed = try Arguments(["sweep", "--manifest", file, "--layouts", Repo.path("eval/layouts"),
+                                        "--model", "/nonexistent-model", "--grid", grid])
+            parsed.positional.removeAll()
+            return try LearningCommand.sweep(parsed)
+        }
+        do {
+            _ = try sweep(#"{"manifest.accidentContinues": [0, 0.7], "manifest.accidentRetypes": [0, 0.7]}"#)
+            Issue.record("a share above 1 together went through")
+        } catch let error as EvalError {
+            #expect("\(error)".contains("together are a share"), "\(error)")
+        }
     }
 
     @Test func aRetypeAfterTheAccidentGivesNoEvidence() throws {

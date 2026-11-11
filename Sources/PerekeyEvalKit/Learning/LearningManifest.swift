@@ -67,6 +67,16 @@ public struct LearningManifest: Hashable, Sendable, Codable {
         "manifest.accidentRetypes", "manifest.zipf",
     ]
 
+    /// A value for one of `overridable`, on its own: a share is 0…1, `zipf` is not negative.
+    static func checkOverride(_ name: String, _ value: Double) throws {
+        guard overridable.contains(name) else { throw EvalError.input("\(name) cannot be set from a grid") }
+        if name == "manifest.zipf" {
+            guard value >= 0 else { throw EvalError.input("--grid: \(name) must not be negative") }
+        } else {
+            guard (0...1).contains(value) else { throw EvalError.input("--grid: \(name) is a share, 0…1") }
+        }
+    }
+
     /// The manifest with one of `overridable` set; the result is checked again.
     func overriding(_ name: String, _ value: Double) throws -> LearningManifest {
         var copy = self

@@ -46,6 +46,12 @@ public struct LearningRun: Hashable, Sendable, Codable {
         public var otherInterventions = 0
         /// The first day the word was learned, if it was.
         public var learnedDay: Int?
+        /// Evidence points the word got from accidental Backspaces (a Backspace for the space that the
+        /// person followed by typing on), the day bonus of such an undo included.
+        public var accidentPoints = 0
+        /// The word was learned for the first time on points of accidental Backspaces: without them its
+        /// evidence was below the threshold at the question. This is a false learning (docs/eval.md).
+        public var learnedByAccident = false
         public var unlearned = 0
         /// Other tokens that needed a retype by hand because the word was learned.
         public var neededAfterLearned = 0
@@ -68,7 +74,7 @@ public struct LearningRun: Hashable, Sendable, Codable {
         public var asked = 0
         /// Words learned (an entry on «Не трогать: выученные» at some time).
         public var learnedWords = 0
-        /// Learned words the person never meant as typed: learned wrongly.
+        /// Words learned on points of accidental Backspaces (`Word.learnedByAccident`): learned wrongly.
         public var falseLearned = 0
         /// `falseLearned` per 1000 accidental Backspaces.
         public var falseLearnedPer1000Accidents: Double?
@@ -81,7 +87,10 @@ public struct LearningRun: Hashable, Sendable, Codable {
         public var wordsHarmed = 0
         /// Of them, words whose last keep token needed no undo.
         public var wordsSilent = 0
-        /// Undos of keep tokens per harmed word, mean over the harmed words.
+        /// Words harmed whose last keep token still needed an undo: they never went silent.
+        public var wordsNeverSilent: Int { wordsHarmed - wordsSilent }
+        /// Undos of keep tokens per word, mean over the words that went silent only: the words that
+        /// never went silent (`wordsNeverSilent`) are not in it.
         public var interventionsToSilence: Double?
         public var interventionsDay1 = 0
         public var interventionsLastDay = 0
@@ -153,6 +162,11 @@ public struct LearningSimulation {
     private var words: [LearningRun.Word]
     private var keepHistory: [[Bool]]
     private var oldRuleLearn: Set<Int> = []
+    /// The word of an accidental Backspace that waits for the follow-up that settles it.
+    private var accidentOpen: Int?
+    /// By word and app: the evidence at the last counted undo, and the part of it that accidents gave.
+    private var lastEvidence: [String: Int] = [:]
+    private var accidentShare: [String: Int] = [:]
     private var indexOf: [String: Int] = [:]
 
     public static func run(_ config: Config) throws -> LearningRun {
@@ -260,6 +274,7 @@ public struct LearningSimulation {
         case .nothing:
             break
         case .undoByBackspace:
+            accidentOpen = nil
             try press([.key(.backspace, n: nil, mods: nil)])
             days[day].undoneByBackspace += 1
             intervened = true
@@ -273,6 +288,7 @@ public struct LearningSimulation {
             days[day].converted += 1
             intervened = true
         case let .accidentalBackspace(end):
+            if end == .continues { accidentOpen = index }
             try press([.key(.backspace, n: nil, mods: nil)])
             days[day].accidents += 1
             // The person sees the word come back as typed.
@@ -375,6 +391,22 @@ public struct LearningSimulation {
                                options: config.options)
         if step.oldRule == .learn, let index = indexOf[WordRules.normalize(report.word)] { oldRuleLearn.insert(index) }
         if step.outcome == .counted || step.outcome == .ask { days[day].counted += 1 }
+        // The points of a Backspace that the person typed on after, with no purpose but the space, are the accidents'.
+        let accidental = report.channel == .backspace && accidentOpen != nil
+        if report.channel == .backspace { accidentOpen = nil }
+        let key = WordRules.normalize(report.word) + "\u{0}" + (report.app ?? "")
+        if step.outcome == .counted || step.outcome == .ask,
+           let candidate = rules.candidates.first(where: { $0.word == WordRules.normalize(report.word) && $0.app == report.app })
+        {
+            // A first counted undo starts a candidate; later ones add the difference.
+            let gained = candidate.undoCount == 1 ? candidate.evidence : candidate.evidence - (lastEvidence[key] ?? 0)
+            if candidate.undoCount == 1 { accidentShare[key] = 0 }
+            if accidental {
+                accidentShare[key, default: 0] += gained
+                if let index = indexOf[WordRules.normalize(report.word)] { words[index].accidentPoints += gained }
+            }
+            lastEvidence[key] = candidate.evidence
+        }
         guard let question = step.question else { return }
         days[day].asked += 1
         let answer: LearningAnswer
@@ -386,7 +418,11 @@ public struct LearningSimulation {
         guard let learned = rules.answer(question, answer, at: desk.time, readings: readings, options: config.options)
         else { return }
         days[day].learned += 1
-        if let index = indexOf[learned.word], words[index].learnedDay == nil { words[index].learnedDay = day }
+        if let index = indexOf[learned.word], words[index].learnedDay == nil {
+            words[index].learnedDay = day
+            // Without the points of the accidents, was the evidence below the bar at the question?
+            words[index].learnedByAccident = step.evidence - (accidentShare[key] ?? 0) < step.threshold
+        }
         publish()
     }
 
@@ -444,7 +480,7 @@ public struct LearningSimulation {
             }
             if words[index].learnedDay != nil {
                 totals.learnedWords += 1
-                if words[index].keep == 0 { totals.falseLearned += 1 }
+                if words[index].learnedByAccident { totals.falseLearned += 1 }
                 if words[index].neededAfterLearned > 0 { totals.learnedThenNeeded += 1 }
             }
         }

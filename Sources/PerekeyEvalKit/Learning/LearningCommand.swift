@@ -123,6 +123,7 @@ enum LearningCommand {
         let points = try LearningReport.points(grid: grid)
         let library = try parsed.library()
         let sets = try sets(parsed)
+        try LearningReport.check(points: points, against: sets.map(\.manifest))
         let setup = try setup(parsed, sets: sets, library: library)
         let seeds = try seeds(parsed)
         var rows: [LearningReport.SweepRow] = []
@@ -158,7 +159,8 @@ enum LearningCommand {
         } ?? 50
         let events = (try? String(contentsOfFile: "\(run)/events.jsonl", encoding: .utf8)) ?? ""
         guard !events.isEmpty else { throw EvalError.input("\(run)/events.jsonl: no such run") }
-        let candidates = try VocabularyPicker.candidates(eventsJSONL: events)
+        let candidates = try VocabularyPicker.candidates(eventsJSONL: events,
+                                                         runJSON: try? Data(contentsOf: URL(fileURLWithPath: "\(run)/run.json")))
         let chosen = VocabularyPicker.choose(candidates, size: size)
         guard chosen.count == size else {
             throw EvalError.input("learning vocabulary: \(chosen.count) words fit the rule, \(size) wanted")
@@ -190,10 +192,26 @@ enum VocabularyPicker {
     /// pair of layouts for the set is ABC and Russian.
     static let layouts = ["en": "ABC", "ru": "Russian"]
 
+    /// Reads `run.json` of the run: a run with the words of the test part shown (`testRevealed`) or with a
+    /// personal set (`personal`) is no source for a vocabulary that is committed to the repository; a run
+    /// without `run.json` cannot be told, and is refused too.
+    static func checkSource(runJSON: Data?) throws {
+        guard let runJSON, let info = (try? JSONSerialization.jsonObject(with: runJSON)) as? [String: Any] else {
+            throw EvalError.input("learning vocabulary: run.json is missing or is not an object; the run cannot be told from a revealed or a personal one")
+        }
+        if info["testRevealed"] as? Bool == true {
+            throw EvalError.input("learning vocabulary: the run shows the words of the test part (testRevealed); play it again without --reveal-test")
+        }
+        if info["personal"] as? Bool == true {
+            throw EvalError.input("learning vocabulary: the run holds a personal set; its words are not for a committed vocabulary")
+        }
+    }
+
     /// Harm of form `layout` on a word typed as meant (`err: none`) in a
     /// `clean.*` scenario, of the part dev (the words of `test` are not
     /// printed), by lowercase word. Letters only, two at least.
-    static func candidates(eventsJSONL: String) throws -> [Candidate] {
+    static func candidates(eventsJSONL: String, runJSON: Data?) throws -> [Candidate] {
+        try checkSource(runJSON: runJSON)
         var counts: [String: (layout: String, harm: Int)] = [:]
         for line in eventsJSONL.split(separator: "\n") {
             guard let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {

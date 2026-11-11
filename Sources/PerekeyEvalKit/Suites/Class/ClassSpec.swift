@@ -26,6 +26,11 @@ public struct ClassSpec: Hashable, Sendable {
     public var corpusFull: String?
     /// The seed list, a file of `eval/classes/`.
     public var seeds: String?
+    /// A snapshot of open data kept in the repository, a file of `eval/classes/` (`names.wikidata.tsv`).
+    public var snapshot: String?
+    /// At tier `ci` the corpus is read only up to this many posts of a Stack Exchange dump, from the start of the
+    /// file; `full` reads all. The limit lets the 1 GB dump of ru.stackoverflow serve the quick tier.
+    public var ciPosts: Int?
     /// A word must be in the language's spelling dictionary (Hunspell, SCOWL) when it has one.
     public var requireDictionary: Bool?
 
@@ -37,7 +42,7 @@ public struct ClassSpec: Hashable, Sendable {
 
     public init(rule: Rule, languages: [String] = [], minZipf: Double? = nil, maxLetters: Int? = nil, top: Int? = nil,
                 minPerMillion: Double? = nil, corpus: String? = nil, corpusFull: String? = nil, seeds: String? = nil,
-                requireDictionary: Bool? = nil)
+                snapshot: String? = nil, ciPosts: Int? = nil, requireDictionary: Bool? = nil)
     {
         self.rule = rule
         self.languages = languages
@@ -48,6 +53,8 @@ public struct ClassSpec: Hashable, Sendable {
         self.corpus = corpus
         self.corpusFull = corpusFull
         self.seeds = seeds
+        self.snapshot = snapshot
+        self.ciPosts = ciPosts
         self.requireDictionary = requireDictionary
     }
 
@@ -90,7 +97,7 @@ public struct ClassSpec: Hashable, Sendable {
 extension ClassSpec: Codable {
     private static let fields: Set<String> = [
         "rule", "languages", "minZipf", "maxLetters", "top", "minPerMillion", "corpus", "corpusFull", "seeds",
-        "requireDictionary",
+        "snapshot", "ciPosts", "requireDictionary",
     ]
 
     public init(from decoder: any Decoder) throws {
@@ -105,6 +112,8 @@ extension ClassSpec: Codable {
         corpus = try c.optional(String.self, "corpus")
         corpusFull = try c.optional(String.self, "corpusFull")
         seeds = try c.optional(String.self, "seeds")
+        snapshot = try c.optional(String.self, "snapshot")
+        ciPosts = try c.optional(Int.self, "ciPosts")
         requireDictionary = try c.optional(Bool.self, "requireDictionary")
     }
 
@@ -119,6 +128,8 @@ extension ClassSpec: Codable {
         try c.encodeIfPresent(corpus, forKey: AnyKey("corpus"))
         try c.encodeIfPresent(corpusFull, forKey: AnyKey("corpusFull"))
         try c.encodeIfPresent(seeds, forKey: AnyKey("seeds"))
+        try c.encodeIfPresent(snapshot, forKey: AnyKey("snapshot"))
+        try c.encodeIfPresent(ciPosts, forKey: AnyKey("ciPosts"))
         try c.encodeIfPresent(requireDictionary, forKey: AnyKey("requireDictionary"))
     }
 }

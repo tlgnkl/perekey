@@ -76,6 +76,20 @@ enum ClassFixtures {
         }
     }
 
+    @Test func theBigClassesTakeEveryWordFromZipfThreeAndOovReadsTheDumpOfTechRuso() throws {
+        let manifests = Dictionary(uniqueKeysWithValues: try SuiteManifestFiles.read(directory: Repo.path("eval/suites"))
+            .filter { $0.reader == .class }.map { ($0.suite, $0) })
+        for name in ["class.short", "class.collision", "class.frequent", "class.short.uk", "class.collision.uk", "class.frequent.uk"] {
+            #expect(manifests[name]?.classSpec?.requireDictionary == false, "\(name)")
+        }
+        for name in ["class.oov", "class.brands"] {
+            let spec = try #require(manifests[name]?.classSpec)
+            #expect(spec.corpusFiles == ["stackexchange/ru.stackoverflow.com.7z"] && spec.corpusFullFiles.isEmpty && spec.ciPosts != nil)
+        }
+        #expect(manifests["class.names.uk"]?.classSpec?.seeds == "class.names.uk.txt")
+        #expect(manifests["class.names"]?.classSpec?.snapshot == "names.wikidata.tsv")
+    }
+
     @Test func aClassManifestNeedsItsRule() throws {
         #expect(throws: DecodingError.self) { try ClassFixtures.manifest(rule: "nonsense") }
         let manifest = try ClassFixtures.manifest(rule: "short")
@@ -146,9 +160,12 @@ enum ClassFixtures {
         for index in 0..<200 { words.append(("слово" + String(UnicodeScalar(0x430 + UInt32(index % 32))!) + String(UnicodeScalar(0x430 + UInt32(index / 32))!), 4.0)) }
         let manifest = try ClassFixtures.manifest(rule: "punct", classBody: "\"languages\":[\"ru\"],\"top\":200",
                                                   layoutSets: "[[\"ABC\",\"Russian\"],[\"ABC\",\"RussianWin\"]]")
-        let (rules, _) = try ClassFixtures.rules(manifest, lexicon: ["ru": words])
+        let hyphenated: [(String, Double)] = [("кто-то", 5.0), ("что-нибудь", 4.5), ("а-б-в", 4.0), ("слово-", 4.0), ("-слово", 4.0)]
+        let (rules, _) = try ClassFixtures.rules(manifest, lexicon: ["ru": words + hyphenated])
         let items = try rules.punct()
-        #expect(items.count == 200)
+        // 200 decorated words and the two real hyphenated words of the lexicon; «а-б-в» has three parts, the others a bare hyphen.
+        #expect(items.count == 202)
+        #expect(Set(ClassFixtures.texts(items.filter { $0.tags.contains("punct:hyphen") })) == ["кто-то", "что-нибудь"])
         let kinds = Set(items.flatMap { $0.tags.filter { $0.hasPrefix("punct:") } })
         #expect(kinds == ["punct:lead", "punct:trail", "punct:both", "punct:hyphen"])
         for item in items where !item.tags.contains("punct:hyphen") {
@@ -351,39 +368,71 @@ enum ClassFixtures {
         #expect(throws: EvalError.self) { try broken.code() }
     }
 
-    @Test func namesComeFromGeoNamesAndWikidata() throws {
+    func geonames(_ rows: [(name: String, ascii: String, alternates: String)]) throws -> String {
         let cache = try SuiteFixtures.directory()
         let source = try SuiteFixtures.directory()
-        let row = { (name: String, ascii: String, alternates: String) in
-            ["1", name, ascii, alternates, "0", "0", "P", "PPL", "RU", "", "", "", "", "", "100000", "", "", "Europe/Moscow", "2020-01-01"]
+        let lines = rows.map { row in
+            ["1", row.name, row.ascii, row.alternates, "0", "0", "P", "PPL", "RU", "", "", "", "", "", "100000", "", "", "Europe/Moscow", "2020-01-01"]
                 .joined(separator: "\t")
         }
-        try ([row("Moskva", "Moskva", "Moscow,Москва,Moskau,Масква"), row("Saint Petersburg", "Saint Petersburg", "Санкт-Петербург")]
-            .joined(separator: "\n") + "\n").write(toFile: source + "/cities15000.txt", atomically: true, encoding: .utf8)
+        try (lines.joined(separator: "\n") + "\n").write(toFile: source + "/cities15000.txt", atomically: true, encoding: .utf8)
         try FileManager.default.createDirectory(atPath: cache + "/geonames", withIntermediateDirectories: true)
         try SuiteFixtures.run("/usr/bin/zip", ["-q", cache + "/geonames/cities15000.zip", "cities15000.txt"], in: source)
-        try FileManager.default.createDirectory(atPath: cache + "/wikidata", withIntermediateDirectories: true)
-        let json = """
-        {"head":{"vars":["ru","en","uk"]},"results":{"bindings":[
-          {"ru":{"type":"literal","value":"Иван"},"en":{"type":"literal","value":"Ivan"}},
-          {"ru":{"type":"literal","value":"Шарон / Шерон"},"en":{"type":"literal","value":"Sharon"},"uk":{"type":"literal","value":"Шерон"}}]}}
-        """
-        try json.write(toFile: cache + "/wikidata/given-names.json", atomically: true, encoding: .utf8)
-        let manifest = try ClassFixtures.manifest(rule: "names", classBody: "\"languages\":[\"ru\",\"en\"],\"corpus\":\"geonames/cities15000.zip\",\"corpusFull\":\"wikidata/given-names.json\"")
-        let directory = try ClassFixtures.lexiconDirectory(["ru": [], "en": []])
-        let context = ClassContext(cache: cache, lexiconDirectory: directory, classesDirectory: cache)
+        return cache
+    }
+
+    @Test func namesComeFromGeoNamesAndTheSnapshot() throws {
+        let cache = try geonames([("Moskva", "Moskva", "Moscow,Москва,Moskau,Масква"), ("Saint Petersburg", "Saint Petersburg", "Санкт-Петербург")])
+        let snapshot = try SuiteFixtures.directory()
+        try "# comment\nru\ten\tuk\tlinks\nИван\tIvan\t\t30\nШарон / Шерон\tSharon\tШерон\t20\n"
+            .write(toFile: snapshot + "/names.tsv", atomically: true, encoding: .utf8)
+        let manifest = try ClassFixtures.manifest(rule: "names", classBody: "\"languages\":[\"ru\",\"en\"],\"corpus\":\"geonames/cities15000.zip\",\"snapshot\":\"names.tsv\"")
+        let directory = try ClassFixtures.lexiconDirectory(["ru": [("москва", 5), ("иван", 4)], "en": []])
+        let context = ClassContext(cache: cache, lexiconDirectory: directory, classesDirectory: snapshot)
+        context.setDictionary(nil, for: "ru")
         let sets = [try LayoutSet(names: ["ABC", "Russian"], library: Repo.library)]
-        func texts(_ tier: SuiteManifest.Tier) throws -> Set<String> {
-            Set(ClassFixtures.texts(try ClassRules(manifest: manifest, spec: manifest.classSpec!, context: context, library: Repo.library,
-                                                   sets: sets, tier: tier).names().0))
+        let rules = ClassRules(manifest: manifest, spec: manifest.classSpec!, context: context, library: Repo.library, sets: sets, tier: .ci)
+        // Cities: the Latin name when it is one word; a Cyrillic alternative only when the Russian lexicon has it
+        // («Масква» is Belarusian). «Санкт-Петербург» has a hyphen. The snapshot gives one-word names per language.
+        #expect(Set(ClassFixtures.texts(try rules.names().0)) == ["Moskva", "Москва", "Иван", "Ivan", "Sharon"])
+        #expect(throws: EvalError.self) { try ClassRules.snapshotLabels(path: snapshot + "/none.tsv") }
+    }
+
+    @Test func aCyrillicAlternativeIsAWordOfTheLanguageOnlyIfTheLanguageKnowsIt() throws {
+        let cache = try geonames([("Odesa", "Odesa", "Odessa,Одесса,Одеса,Odesa")])
+        let russian = try ClassFixtures.manifest(rule: "names", classBody: "\"languages\":[\"ru\"],\"corpus\":\"geonames/cities15000.zip\"")
+        let ukrainian = try ClassFixtures.manifest(rule: "names", classBody: "\"languages\":[\"uk\"],\"corpus\":\"geonames/cities15000.zip\"",
+                                                   layoutSets: "[[\"ABC\",\"Ukrainian-PC\"]]")
+        let directory = try ClassFixtures.lexiconDirectory(["ru": [("одесса", 4)], "uk": [("одеса", 4)], "en": []])
+        func names(_ manifest: SuiteManifest) throws -> Set<String> {
+            let context = ClassContext(cache: cache, lexiconDirectory: directory, classesDirectory: directory)
+            context.setDictionary(nil, for: "ru")
+            context.setDictionary(nil, for: "uk")
+            let sets = try manifest.layoutSets.map { try LayoutSet(names: $0, library: Repo.library) }
+            return Set(ClassFixtures.texts(try ClassRules(manifest: manifest, spec: manifest.classSpec!, context: context,
+                                                          library: Repo.library, sets: sets, tier: .ci).names().0))
         }
-        // Cities: the Latin name when it is one word, Cyrillic alternatives of one word with a capital. «Санкт-Петербург» has a hyphen.
-        #expect(try texts(.ci) == ["Moskva", "Москва", "Масква"])
-        // The Wikidata extract is read at `full`: a name of one word per language; «Шарон / Шерон» is two.
-        #expect(try texts(.full) == ["Moskva", "Москва", "Масква", "Иван", "Ivan", "Sharon"])
-        let broken = cache + "/wikidata/broken.json"
-        try "{\"results\":{\"bindings\":[\n".write(toFile: broken, atomically: true, encoding: .utf8)
-        #expect(throws: EvalError.self) { try ClassRules.wikidataLabels(path: broken) }
+        // «Одеса» is not Russian, «Одесса» is not Ukrainian; on ci the Ukrainian suite has Ukrainian names.
+        #expect(try names(russian) == ["Одесса"])
+        #expect(try names(ukrainian) == ["Одеса"])
+    }
+
+    @Test func aCorpusDumpIsReadOnlyUpToItsPostsOnTheQuickTier() throws {
+        let cache = try SuiteFixtures.directory()
+        let source = try SuiteFixtures.directory()
+        var xml = "<?xml version=\"1.0\"?>\n<posts>\n"
+        for (index, word) in ["один", "два", "три", "четыре"].enumerated() {
+            xml += "  <row Id=\"\(index + 1)\" Body=\"&lt;p&gt;\(word) слово.&lt;/p&gt;\" />\n"
+        }
+        try (xml + "</posts>\n").write(toFile: source + "/Posts.xml", atomically: true, encoding: .utf8)
+        try SuiteFixtures.run("/usr/bin/tar", ["-cf", cache + "/dump.7z", "Posts.xml"], in: source)
+        let context = ClassContext(cache: cache, lexiconDirectory: cache, classesDirectory: cache)
+        let some = try context.corpus(files: ["dump.7z"], posts: 2)
+        #expect(some.cyrillic["один"] == 1 && some.cyrillic["два"] == 1 && some.cyrillic["три"] == nil)
+        let all = try context.corpus(files: ["dump.7z"])
+        #expect(all.cyrillic["четыре"] == 1 && all.cyrillic["слово"] == 4)
+        // The counts of the limited read are kept apart from the whole one.
+        #expect(try context.corpus(files: ["dump.7z"], posts: 2).cyrillic["слово"] == 2)
     }
 }
 

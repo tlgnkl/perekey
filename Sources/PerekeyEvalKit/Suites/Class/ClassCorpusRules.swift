@@ -17,6 +17,9 @@ extension ClassRules {
         return files
     }
 
+    /// The posts to read of a dump: all at `full`, `ciPosts` at `ci`.
+    var corpusPosts: Int? { tier == .ci ? spec.ciPosts : nil }
+
     // MARK: - oov
 
     /// Cyrillic words that a corpus uses from `minPerMillion` times in a million tokens and the language's
@@ -26,11 +29,11 @@ extension ClassRules {
         guard let language = spec.languages.first(where: { script(of: $0) == .cyrillic }) else {
             throw EvalError.input("\(manifest.suite): oov needs a Cyrillic language")
         }
-        let stats = try context.corpus(files: corpusFiles())
+        let stats = try context.corpus(files: corpusFiles(), posts: corpusPosts)
         let dictionary = try context.dictionary(language)
         let zipfs = dictionary == nil ? try context.zipfs(language) : [:]
         var items: [ClassItem] = []
-        for (word, count) in stats.cyrillic where word.count >= 2 && stats.perMillion(count) >= (spec.minPerMillion ?? 20) {
+        for (word, count) in stats.cyrillic where word.count >= options.corpusWordLetters && stats.perMillion(count) >= (spec.minPerMillion ?? options.minPerMillion) {
             let known = dictionary.map { $0.contains(Lexicon.key(word)) } ?? ((zipfs[Lexicon.key(word)] ?? 0) >= options.knownZipf)
             if !known { items.append(ClassItem(text: word, weight: stats.perMillion(count), tags: ["oov"])) }
         }
@@ -42,10 +45,10 @@ extension ClassRules {
     /// Latin words among Russian text that have a capital or are not English words: names of products and
     /// companies (plan, 8.4). A lower-case English word is text, not a name.
     func brands() throws -> ([ClassItem], [String: String]) {
-        let stats = try context.corpus(files: corpusFiles())
+        let stats = try context.corpus(files: corpusFiles(), posts: corpusPosts)
         let english = try context.dictionary("en")
         var items: [ClassItem] = []
-        for (word, count) in stats.latinAmongCyrillic where word.count >= 2 && stats.perMillion(count) >= (spec.minPerMillion ?? 20) {
+        for (word, count) in stats.latinAmongCyrillic where word.count >= options.corpusWordLetters && stats.perMillion(count) >= (spec.minPerMillion ?? options.minPerMillion) {
             let capital = word != word.lowercased()
             if !capital, english?.contains(Lexicon.key(word)) ?? false { continue }
             items.append(ClassItem(text: word, weight: stats.perMillion(count), tags: ["brand"]))
@@ -55,69 +58,78 @@ extension ClassRules {
 
     // MARK: - names
 
-    /// The names of the cities of GeoNames (`cities15000`: the Latin name, the Cyrillic alternatives for Russian)
-    /// and the given names of a Wikidata extract when the cache has it (`corpusFull`). One word each, with a capital.
+    /// The names of the cities of GeoNames (`cities15000`: the Latin name; the Cyrillic alternatives of each
+    /// Cyrillic language of the manifest) and the given names of the Wikidata snapshot in `eval/classes/`.
+    /// One word each, with a capital. A Cyrillic alternative counts as a name of the language only if the language
+    /// knows it: its dictionary has it, or its lexicon has it from `unknownZipf` (GeoNames does not say which
+    /// language an alternative is in, and «Одеса» is not Russian).
     func names() throws -> ([ClassItem], [String: String]) {
         var items: [ClassItem] = []
         var files: [String: String] = [:]
-        var known: [String: [UInt64: Double]] = [:]
+        var zipfs: [String: [UInt64: Double]] = [:]
+        func zipf(_ name: String, language: String) throws -> Double? {
+            if zipfs[language] == nil { zipfs[language] = try context.zipfs(language) }
+            return zipfs[language]?[Lexicon.key(name)]
+        }
+        func known(_ name: String, language: String) throws -> Bool {
+            if let dictionary = try context.dictionary(language), dictionary.contains(Lexicon.key(name)) { return true }
+            return (try zipf(name, language: language) ?? 0) >= options.unknownZipf
+        }
         func weight(_ name: String, language: String) throws -> Double {
-            if known[language] == nil { known[language] = try context.zipfs(language) }
-            return classWeight(zipf: known[language]?[Lexicon.key(name)] ?? options.unknownZipf)
+            classWeight(zipf: try zipf(name, language: language) ?? options.unknownZipf)
         }
         for file in corpusFiles() {
             let path = (context.cache as NSString).appendingPathComponent(file)
             guard FileManager.default.fileExists(atPath: path) else { throw EvalError.input("no source file \(path)") }
             files[file] = try Runner.sha256(file: path)
-            if file.hasSuffix("cities15000.zip") {
-                for line in String(decoding: try Archive.unzip(path, member: "cities15000.txt"), as: UTF8.self)
-                    .split(separator: "\n")
-                {
-                    let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-                    guard fields.count > 3 else { continue }
-                    if spec.languages.contains("en"), Self.isWord(String(fields[2]), script: .latin) {
-                        items.append(ClassItem(text: String(fields[2]), weight: try weight(String(fields[2]), language: "en"),
+            for line in String(decoding: try Archive.unzip(path, member: "cities15000.txt"), as: UTF8.self)
+                .split(separator: "\n")
+            {
+                let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard fields.count > 3 else { continue }
+                if spec.languages.contains("en"), Self.isWord(String(fields[2]), script: .latin) {
+                    items.append(ClassItem(text: String(fields[2]), weight: try weight(String(fields[2]), language: "en"),
+                                           tags: ["name", "name:city"]))
+                }
+                for language in spec.languages where script(of: language) == .cyrillic {
+                    for alternative in fields[3].split(separator: ",") where Self.isWord(String(alternative), script: .cyrillic) {
+                        let name = title(String(alternative).lowercased())
+                        guard try known(name, language: language) else { continue }
+                        items.append(ClassItem(text: name, weight: try weight(name, language: language),
                                                tags: ["name", "name:city"]))
                     }
-                    if spec.languages.contains("ru") {
-                        for alternative in fields[3].split(separator: ",")
-                            where Self.isWord(String(alternative), script: .cyrillic)
-                        {
-                            let name = title(String(alternative).lowercased())
-                            items.append(ClassItem(text: name, weight: try weight(name.lowercased(), language: "ru"),
-                                                   tags: ["name", "name:city"]))
-                        }
-                    }
                 }
-            } else {
-                for label in try Self.wikidataLabels(path: path) where spec.languages.contains(label.language) {
-                    guard Self.isWord(label.name, script: script(of: label.language)) else { continue }
-                    items.append(ClassItem(text: title(label.name.lowercased()),
-                                           weight: try weight(label.name.lowercased(), language: label.language),
-                                           tags: ["name", "name:given"]))
-                }
+            }
+        }
+        if let snapshot = spec.snapshot {
+            let path = (context.classesDirectory as NSString).appendingPathComponent(snapshot)
+            for label in try Self.snapshotLabels(path: path) where spec.languages.contains(label.language) {
+                guard Self.isWord(label.name, script: script(of: label.language)) else { continue }
+                items.append(ClassItem(text: title(label.name.lowercased()),
+                                       weight: try weight(label.name.lowercased(), language: label.language),
+                                       tags: ["name", "name:given"]))
             }
         }
         return (items, files)
     }
 
-    /// The labels of a Wikidata query result (`format=json`): language code and name, in file order. A result the
-    /// query service cut off is not JSON; the error says to fetch it again.
-    static func wikidataLabels(path: String) throws -> [(language: String, name: String)] {
-        guard let data = FileManager.default.contents(atPath: path),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let results = root["results"] as? [String: Any], let bindings = results["bindings"] as? [[String: Any]]
-        else {
-            throw EvalError.input("\(path) is not a Wikidata result; delete it and run PEREKEY_DATA_REFRESH=1 scripts/fetch-data.sh names")
-        }
+    /// The labels of a names snapshot (`eval/classes/names.wikidata.tsv`): `#` lines are comments, the first other
+    /// line names the columns (`ru`, `en`, `uk`, `links`), an empty cell is a name the language lacks.
+    static func snapshotLabels(path: String) throws -> [(language: String, name: String)] {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { throw EvalError.input("no snapshot \(path)") }
+        var header: [String]?
         var labels: [(language: String, name: String)] = []
-        for binding in bindings {
-            for language in ["ru", "en", "uk"] {
-                if let cell = binding[language] as? [String: Any], let name = cell["value"] as? String {
-                    labels.append((language, name))
-                }
+        for line in text.split(separator: "\n") where !line.hasPrefix("#") {
+            let cells = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard let columns = header else {
+                header = cells
+                continue
+            }
+            for (index, column) in columns.enumerated() where ["ru", "en", "uk"].contains(column) && index < cells.count && !cells[index].isEmpty {
+                labels.append((column, cells[index]))
             }
         }
+        guard header != nil else { throw EvalError.input("\(path) has no header line") }
         return labels
     }
 
@@ -259,7 +271,7 @@ extension ClassRules {
         var items: [ClassItem] = []
         for (token, entry) in counts {
             let perMillion = total > 0 ? Double(entry.count) * 1_000_000 / Double(total) : 0
-            guard perMillion >= (spec.minPerMillion ?? 20) else { continue }
+            guard perMillion >= (spec.minPerMillion ?? options.minPerMillion) else { continue }
             items.append(ClassItem(text: token, weight: perMillion,
                                    tags: ["code"] + entry.languages.sorted().map { "code:\($0)" }))
         }

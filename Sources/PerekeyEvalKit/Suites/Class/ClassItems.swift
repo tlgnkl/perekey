@@ -184,8 +184,8 @@ final class ClassContext {
     }
 
     /// Sets the counts of a corpus by hand, so that a test needs no dump.
-    func setCorpus(_ stats: CorpusStats, file: String) {
-        corpora[file] = stats
+    func setCorpus(_ stats: CorpusStats, file: String, posts: Int? = nil) {
+        corpora[posts.map { "\(file)#\($0)" } ?? file] = stats
     }
 
     func seeds(_ name: String?) throws -> SeedList {
@@ -194,23 +194,31 @@ final class ClassContext {
     }
 
     /// Reads Stack Exchange dumps of the cache once each and counts their tokens; the counts of several files add up.
-    func corpus(files: [String]) throws -> CorpusStats {
+    /// With `posts` only the first posts of each dump are read (the quick tier of a big dump); the counts are of
+    /// that part, so the per-million thresholds are too.
+    func corpus(files: [String], posts: Int? = nil) throws -> CorpusStats {
         var sum = CorpusStats()
         for file in files {
-            if let known = corpora[file] {
+            let key = posts.map { "\(file)#\($0)" } ?? file
+            if let known = corpora[key] {
                 sum.merge(known)
                 continue
             }
             let path = (cache as NSString).appendingPathComponent(file)
             guard FileManager.default.fileExists(atPath: path) else {
-                throw EvalError.input("no source file \(path); run scripts/fetch-data.sh heldout")
+                throw EvalError.input("no source file \(path); run scripts/fetch-data.sh heldout (heavy for ru.stackoverflow.com)")
             }
             var stats = CorpusStats()
-            try StackExchangeReader.forEachUnit(path: path) { unit in
-                stats.add(sentence: UnitParser.tokens(of: unit.text))
+            var read = 0
+            try LineStream.read(tool: "/usr/bin/tar", arguments: ["-xOf", path, "Posts.xml"]) { row in
+                try StackExchangeReader.forEachSentence(inRow: row) { _, pending in
+                    stats.add(sentence: UnitParser.tokens(of: pending.make().text))
+                }
+                if StackExchangeReader.attribute("Body", in: row) != nil { read += 1 }
+                return posts.map { read < $0 } ?? true
             }
             stats.files[file] = try Runner.sha256(file: path)
-            corpora[file] = stats
+            corpora[key] = stats
             sum.merge(stats)
         }
         return sum

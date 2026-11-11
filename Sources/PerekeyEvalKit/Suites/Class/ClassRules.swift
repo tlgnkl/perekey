@@ -28,6 +28,22 @@ struct ClassRules {
         var vocabularySize = 2000
         /// The share of generated passwords that are a Russian word typed on Latin keys: plan, 8.4 («Ghbdtn123!»).
         var passwordRussianShare = 0.4
+        /// Defaults for what a manifest leaves out. Each is the plan's number (8.4); a manifest sets its own.
+        /// The most letters of a word of `short`: «одной-двух букв».
+        var shortLetters = 2
+        /// How many most frequent words `frequent` takes per language: «5000 самых частых слов каждого языка».
+        var frequentTop = 5000
+        /// How many most frequent words `punct` and `caps` decorate: a first guess that gives every decoration
+        /// 40 words and more (docs/eval.md); `perekey-eval cases build` prints the counts by class.
+        var decoratedTop = 1500
+        /// How many most frequent Russian words `translit` writes in Latin letters: «2000 самых частых русских слов».
+        var translitTop = 2000
+        /// How many words with a hyphen `punct` takes from the lexicon per language: a first guess.
+        var hyphenTop = 150
+        /// The least occurrences per million tokens of a corpus word: «от 20 вхождений на миллион» (plan, 8.4).
+        var minPerMillion = 20.0
+        /// The fewest letters of a word that `oov` and `brands` read from a corpus: one letter is a mark or a preposition.
+        var corpusWordLetters = 2
         /// The least Zipf at which a word counts as known when the language has no spelling dictionary (`oov` for
         /// Ukrainian): the least the bench's lexicon keeps (plan, 9.4).
         var knownZipf = 2.0
@@ -135,7 +151,7 @@ struct ClassRules {
     func short() throws -> [ClassItem] {
         var items: [ClassItem] = []
         for language in spec.languages {
-            for entry in try lexiconWords(language) where entry.word.count <= (spec.maxLetters ?? 2) {
+            for entry in try lexiconWords(language) where entry.word.count <= (spec.maxLetters ?? options.shortLetters) {
                 items.append(item(entry.word, zipf: entry.zipf, tags: ["short", "len\(entry.word.count)"]))
             }
         }
@@ -170,7 +186,7 @@ struct ClassRules {
     func frequent() throws -> [ClassItem] {
         var items: [ClassItem] = []
         for language in spec.languages {
-            for entry in try lexiconWords(language, minimum: spec.minZipf ?? 0).prefix(spec.top ?? 5000) {
+            for entry in try lexiconWords(language, minimum: spec.minZipf ?? 0).prefix(spec.top ?? options.frequentTop) {
                 items.append(item(entry.word, zipf: entry.zipf, tags: ["frequent"]))
             }
         }
@@ -202,7 +218,6 @@ struct ClassRules {
         .init(name: "both", before: "\"", after: "\","), .init(name: "both", before: "(", after: ")."),
         .init(name: "both", before: "\"", after: "\"."), .init(name: "both", before: "(", after: "),"),
         .init(name: "both", before: "\"", after: "\"!"), .init(name: "both", before: "(", after: ")?"),
-        .init(name: "hyphen", before: "", after: ""),
     ]
 
     /// The decorations a person can type on the layouts of the sets: a Cyrillic word takes only the marks that
@@ -217,21 +232,30 @@ struct ClassRules {
         }
     }
 
-    /// The most frequent words, each with one decoration the word's hash picks (plan, 8.4).
+    /// Words of the lexicon with a hyphen between two parts of the language's letters («кто-то»), the most frequent first.
+    func hyphenWords(_ language: String) throws -> [(word: String, zipf: Double)] {
+        let script = script(of: language)
+        let found = try context.lexiconWords(language).filter { entry in
+            guard entry.zipf >= (spec.minZipf ?? 0) else { return false }
+            let parts = entry.word.split(separator: "-", omittingEmptySubsequences: false)
+            return parts.count == 2 && parts.allSatisfy { Self.isWord(String($0), script: script) }
+        }
+        return found.sorted { $0.zipf != $1.zipf ? $0.zipf > $1.zipf : $0.word.utf8.lexicographicallyPrecedes($1.word.utf8) }
+    }
+
+    /// The most frequent words, each with one decoration the word's hash picks (plan, 8.4); and the hyphenated words of the lexicon.
     func punct() throws -> [ClassItem] {
         var items: [ClassItem] = []
         for language in spec.languages {
-            let words = Array(try lexiconWords(language).prefix(spec.top ?? 1500))
+            let words = Array(try lexiconWords(language).prefix(spec.top ?? options.decoratedTop))
             let available = decorations(for: language)
             for entry in words {
                 let decoration = available[Self.choice(entry.word, salt: "punct", count: available.count)]
-                var text = decoration.before + entry.word + decoration.after
-                if decoration.name == "hyphen", let partner = words.isEmpty ? nil
-                    : words[Self.choice(entry.word, salt: "partner", count: words.count)].word, partner != entry.word
-                {
-                    text = entry.word + "-" + partner
-                }
+                let text = decoration.before + entry.word + decoration.after
                 items.append(item(text, zipf: entry.zipf, tags: ["punct", "punct:\(decoration.name)"]))
+            }
+            for entry in try hyphenWords(language).prefix(options.hyphenTop) {
+                items.append(item(entry.word, zipf: entry.zipf, tags: ["punct", "punct:hyphen"]))
             }
         }
         return items
@@ -242,7 +266,7 @@ struct ClassRules {
         var items: [ClassItem] = []
         var files: [String: String] = [:]
         for language in spec.languages {
-            let words = Array(try lexiconWords(language).prefix(spec.top ?? 1500))
+            let words = Array(try lexiconWords(language).prefix(spec.top ?? options.decoratedTop))
             let latin = script(of: language) == .latin
             let forms = latin ? ["title", "upper", "camel", "pascal"] : ["title", "upper"]
             for entry in words {
@@ -259,10 +283,10 @@ struct ClassRules {
             }
         }
         if !spec.corpusFiles.isEmpty {
-            let stats = try context.corpus(files: spec.corpusFiles)
+            let stats = try context.corpus(files: spec.corpusFiles, posts: corpusPosts)
             files = stats.files
             let allowed = Set(spec.languages.map(script(of:)))
-            for (word, count) in stats.capitals where stats.perMillion(count) >= (spec.minPerMillion ?? 0) {
+            for (word, count) in stats.capitals where stats.perMillion(count) >= (spec.minPerMillion ?? options.minPerMillion) {
                 let kind = word.unicodeScalars.contains { (0x400...0x4FF).contains($0.value) } ? Lexicon.Script.cyrillic : .latin
                 guard allowed.contains(kind) else { continue }
                 items.append(ClassItem(text: word, weight: stats.perMillion(count), tags: ["caps", "caps:acronym"]))
@@ -289,7 +313,7 @@ struct ClassRules {
     /// The most frequent Russian words, written in Latin letters by one scheme, typed on ABC: they must stay.
     func translit() throws -> [ClassItem] {
         var items: [ClassItem] = []
-        for entry in try lexiconWords("ru", minimum: spec.minZipf ?? 0).prefix(spec.top ?? 2000) {
+        for entry in try lexiconWords("ru", minimum: spec.minZipf ?? 0).prefix(spec.top ?? options.translitTop) {
             let text = Self.transliterate(entry.word)
             guard !text.isEmpty else { continue }
             items.append(item(text, zipf: entry.zipf, tags: ["translit"]))

@@ -1,0 +1,33 @@
+{
+ "about": "A word with two capitals at the start («ПРивет») in a Tatoeba sentence (ru, en); and real words with two capitals, typed as they are",
+ "balance": false,
+ "correction": {
+  "kind": "doublecap"
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 20,
+  "minTokens": 3
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": ["fix", "keep"],
+ "seed": 1,
+ "settings": "all",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "doublecap",
+ "tags": ["doublecap", "natural"],
+ "tiers": {
+  "ci": 8000,
+  "full": 150000
+ },
+ "version": 1
+}

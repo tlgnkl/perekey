@@ -110,6 +110,8 @@ public enum SourceReader {
             switch manifest.reader {
             case .tatoeba, .class: try TatoebaReader.forEachLazyUnit(path: path) { try body(index, $0, $1) }
             case .stackexchange: try StackExchangeReader.forEachLazyUnit(path: path) { try body(index, $0, $1) }
+            case .misspellings, .typopairs:
+                throw EvalError.input("\(manifest.suite): the reader \(manifest.reader.rawValue) reads pairs, not sentences")
             }
         }
     }

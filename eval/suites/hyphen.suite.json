@@ -1,0 +1,32 @@
+{
+ "about": "Tatoeba ru sentences with hyphenated words: typed merged, typed with a space, and as written",
+ "correction": {
+  "kind": "hyphen"
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 20,
+  "minTokens": 3
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": ["fix.merged", "fix.spaced", "keep"],
+ "seed": 1,
+ "settings": "all",
+ "source": "tatoeba/rus_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "hyphen",
+ "tags": ["hyphen", "natural"],
+ "tiers": {
+  "ci": 6000,
+  "full": 100000
+ },
+ "version": 1
+}

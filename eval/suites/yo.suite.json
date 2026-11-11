@@ -1,0 +1,32 @@
+{
+ "about": "Tatoeba ru sentences that have «ё», typed with «е»",
+ "correction": {
+  "kind": "yo"
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 20,
+  "minTokens": 3
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": ["fix"],
+ "seed": 1,
+ "settings": "all",
+ "source": "tatoeba/rus_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "yo",
+ "tags": ["yo", "natural"],
+ "tiers": {
+  "ci": 8000,
+  "full": 150000
+ },
+ "version": 1
+}

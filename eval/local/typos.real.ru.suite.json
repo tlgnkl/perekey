@@ -1,0 +1,32 @@
+{
+ "about": "Real typos of Russian words from a file the person put there (RUSpellRU, GitHubTypoCorpusRu): the licence is not confirmed, so the suite is local only",
+ "correction": {
+  "kind": "typo.real"
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 40,
+  "minTokens": 1
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "local file, not redistributed",
+ "normalize": "keyboard",
+ "reader": "typopairs",
+ "sampling": "token",
+ "scenarios": ["fix"],
+ "seed": 1,
+ "settings": "all",
+ "source": "local/typos.real.ru.tsv",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "typos.real.ru",
+ "tags": ["typo", "real", "local"],
+ "tiers": {
+  "ci": 4000,
+  "full": 60000
+ },
+ "version": 1
+}

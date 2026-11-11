@@ -23,6 +23,7 @@
 | Ранг частоты be и kk | Википедия be и kk, снимок 2023-11-01: слова считает `scripts/wiki-freq.py` | CC BY-SA 4.0 (+ GFDL) | `text` |
 | Словоформы be | Hunspell be-official из LibreOffice (Грамматическая база bnkorpus.info) | CC BY-SA 4.0 или LGPLv3 | `lexicon` |
 | Отложенный корпус | Tatoeba, Stack Exchange (в том числе `ukrainian`), GeoNames, синтетика; для наборов классов стенда ещё tldr-pages, шесть репозиториев с кодом и имена Wikidata | CC0, CC BY 2.0 FR, CC BY-SA, CC BY 4.0, Apache-2.0, MIT, PostgreSQL License | `heldout`, `heavy`, `bench` |
+| Настоящие описки en для стенда качества | Список частых описок Википедии, ревизия 1199637275 | CC BY-SA 4.0 | `bench` |
 | Запасной словарь ru | OpenCorpora | CC BY-SA 3.0 | `fallback`, только после юриста |
 | Запасные словоформы uk | Викисловарь (en.wiktionary) через kaikki.org | CC BY-SA 4.0 + GFDL | `fallback`, только после юриста |
 
@@ -197,6 +198,7 @@ en) другие файлы того же снимка читает `scripts/wik
 | URL, email, пути | Синтетика с фиксированным seed | — | Да |
 | Строки-пароли, капча | Синтетика с фиксированным seed | — | Да |
 | Опечатки (этап 4а) | Синтетика по схеме клавиатуры | — | Да |
+| Настоящие описки, английский (стенд качества, набор `typos.real.en`) | [Wikipedia:Lists of common misspellings/For machines](https://en.wikipedia.org/wiki/Wikipedia:Lists_of_common_misspellings/For_machines), ревизия 1199637275 от 2024-01-27 (99 150 байт), `scripts/fetch-data.sh` (группа `bench`, SHA-256 закреплён) | CC BY-SA 4.0: подвал страницы Википедии, «additional terms may apply» | Да, только локально и в CI, не в репозиторий. Атрибуция нужна, только если мы публикуем случаи (`docs/eval.md`) |
 
 Tatoeba и GeoNames обновляются без версий. Скрипт их не пиннит, а записывает
 хэш скачанного в `MANIFEST.sha256`. Для воспроизводимого прогона корпус
@@ -206,6 +208,20 @@ Tatoeba и GeoNames обновляются без версий. Скрипт и�
 автора ([license.txt](https://archive.org/download/stackexchange/license.txt)).
 Они нужны, только если мы публикуем тексты. Поэтому посты в репозиторий не
 кладём.
+
+### Настоящие описки: лицензии по первоисточнику (проверено 11.11.2026)
+
+Для наборов `typos.real.*` стенда качества (`docs/eval.md`, «Наборы правок слова»).
+Правило плана: источник, чью лицензию нельзя подтвердить по первоисточнику, не идёт ни в
+`fetch-data.sh`, ни в публичный пакет; его набор строится только из файла, который
+человек положил сам.
+
+| Источник | Что заявлено | Что нашли в первоисточнике | Вердикт |
+|---|---|---|---|
+| Список частых описок Википедии (en), страница «For machines» | CC BY-SA 4.0 | Подвал страницы: «Text is available under the Creative Commons Attribution-ShareAlike 4.0 License; additional terms may apply». Страница защищена, последняя ревизия 1199637275 (27.01.2024), 99 150 байт; пары `описка->слово`, у части несколько исправлений через запятую или фразы | Да. Ревизия и хэш закреплены в `fetch-data.sh`, группа `bench` |
+| RUSpellRU (SpellRuEval, Dialogue 2016), в составе [ai-forever/spellcheck_benchmark](https://huggingface.co/datasets/ai-forever/spellcheck_benchmark) | MIT («All our datasets are published by MIT License», карточка набора) | Карточка набора не даёт лицензии подмножествам; тексты собраны из LiveJournal, исправлены вручную. Страница соревнования `dialog-21.ru/evaluation/2016/spelling_correction/` отвечает 404, лицензии организаторов не нашли | Нет. MIT ставит перепаковщик, права на сами тексты ЖЖ он выдать не может. Только файл человека |
+| GitHubTypoCorpusRu, там же | MIT (карточка и SAGE) | Исходный [GitHub Typo Corpus](https://github.com/mhagiwara/github-typo-corpus): «The copyright and license terms of the individual commits and texts contained in the dataset follow the terms of the repositories they belong to»; распространяется на условиях Acceptable Use Policies GitHub, раздел 5; своей лицензии у набора нет | Нет. Права следуют за лицензией каждого репозитория |
+| Birkbeck spelling error corpus (Р. Миттон), en | CC BY-NC-SA 3.0 по записи Oxford Text Archive (`ota:0643`), по поисковой выдаче | Страницу [OTA](https://ota.bodleian.ox.ac.uk/repository/xmlui/handle/20.500.12024/0643) из этой среды открыть не удалось (сокет закрыт), условия на странице [Миттона](https://www.dcs.bbk.ac.uk/~roger/corpora.html) — только про разрешение Cambridge University Press и Д. Холбрука на часть данных | Нет. Не подтверждено по первоисточнику, а условие NonCommercial несовместимо с распространением. Только файл человека |
 
 ### Отклонены или в запасе
 

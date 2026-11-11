@@ -44,6 +44,14 @@ enum Drop: String, CaseIterable, Hashable, Error {
     case noWarmup
     /// Null got a token wrong in a `clean` scenario: the case would blame the system for the typist.
     case nullWrongInClean
+    /// A correction suite: the sentence has both scripts. The suites of corrections type one layout.
+    case mixedScript
+    /// A correction suite: nothing in the sentence for the edit to change.
+    case noTarget
+    /// `typos.synth`: the dice chose a slip the word has no place for.
+    case noTypo
+    /// A correction suite: the edit left no token that Null gets wrong, or a character the layout does not type.
+    case nullRight
 }
 
 /// What the layouts of one set say about a language: the Latin layout, the

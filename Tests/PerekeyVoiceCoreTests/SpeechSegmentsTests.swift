@@ -110,6 +110,18 @@ struct SegmentedTextTests {
         #expect(SegmentedText.outcome([.text("Один."), .noSpeech, .text("Два."), .nothingLeft]) == .text("Один. Два."))
     }
 
+    @Test func eachPieceIsTrimmedBeforeTheJoin() {
+        #expect(SegmentedText.outcome([.text(" Один. \n"), .text("\tДва.  "), .text("   ")]) == .text("Один. Два."))
+    }
+
+    @Test func piecesInAnUnspacedLanguageJoinWithoutASpace() {
+        let pieces: [RecognitionOutcome] = [.text("今日は。 "), .text(" いい天気です。")]
+        #expect(SegmentedText.outcome(pieces, language: "ja") == .text("今日は。いい天気です。"))
+        #expect(SegmentedText.outcome(pieces, language: "zh-Hans") == .text("今日は。いい天気です。"))
+        #expect(SegmentedText.outcome(pieces, language: "ru") == .text("今日は。 いい天気です。"))
+        #expect(SegmentedText.outcome(pieces, language: nil) == .text("今日は。 いい天気です。"), "no hint: the limit")
+    }
+
     @Test func nothingHeardInAnyPieceIsNoSpeech() {
         #expect(SegmentedText.outcome([.noSpeech, .noSpeech]) == .noSpeech)
         #expect(SegmentedText.outcome([]) == .noSpeech)

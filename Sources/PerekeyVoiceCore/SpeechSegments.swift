@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import Foundation
+
 /// Where a dictation is cut into pieces while it is spoken, so that each
 /// piece is recognized while the next one is said and only the last is left
 /// after the stop («Распознавать во время речи»). A cut falls only in a pause
@@ -109,12 +111,31 @@ public enum SegmentedText {
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
-    /// The pieces' outcomes as one: their texts in order, joined by a
-    /// space. With no text, speech the stop list took (`nothingLeft`) wins
-    /// over silence: as for a whole dictation, the HUD says nothing was heard.
-    public static func outcome(_ pieces: [RecognitionOutcome]) -> RecognitionOutcome {
-        let texts = pieces.compactMap { if case let .text(text) = $0 { text } else { nil } }
-        if !texts.isEmpty { return .text(texts.joined(separator: " ")) }
+    /// Languages written without spaces between words: the pieces of a
+    /// dictation in one of them are joined with no space.
+    static let unspacedLanguages: Set<String> = ["ja", "zh", "yue"]
+
+    /// The pieces' outcomes as one: their texts in order, each trimmed of
+    /// the whitespace around it, joined by a space, or by nothing in a
+    /// language written without spaces (`language`, the code the pieces were
+    /// recognized in). With no text, speech the stop list took
+    /// (`nothingLeft`) wins over silence: as for a whole dictation, the HUD
+    /// says nothing was heard.
+    ///
+    /// Limit: the language is known only from the hint of the dictation's app
+    /// (`DictationLanguageHint`). Without a hint, Japanese or Chinese pieces
+    /// are joined with a space, the model's own choice of the language
+    /// being unknown here.
+    public static func outcome(_ pieces: [RecognitionOutcome], language: String? = nil) -> RecognitionOutcome {
+        let texts = pieces.compactMap { piece -> String? in
+            guard case let .text(text) = piece else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if !texts.isEmpty {
+            let base = language?.prefix { $0 != "-" && $0 != "_" }.lowercased() ?? ""
+            return .text(texts.joined(separator: unspacedLanguages.contains(base) ? "" : " "))
+        }
         return pieces.contains(.nothingLeft) ? .nothingLeft : .noSpeech
     }
 }

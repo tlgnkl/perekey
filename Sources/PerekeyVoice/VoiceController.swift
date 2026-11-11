@@ -266,6 +266,8 @@ public final class VoiceController {
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "voice")
     /// Recognitions over, whatever came of them: tests wait for it.
     @ObservationIgnored private(set) var recognitionsDone = 0
+    /// The speech probabilities the session keeps for the cuts: for tests.
+    var speechChunksKept: Int { current?.speech.count ?? 0 }
 
     /// One session's audio and the work on it. The model is the one the
     /// session started with: changing the setting mid-way does not swap it.
@@ -682,8 +684,9 @@ public final class VoiceController {
         work.refining?.cancel()
         // A request to the cloud, unlike CoreML, can be stopped.
         if work.isCloud { work.recognition?.cancel() }
-        // No more pieces start; the one under way ends by itself.
-        if let pieces = work.pieces { Task { await pieces.cancel() } }
+        // No more pieces start; the one under way ends by itself. At once, not
+        // in a task: a piece must not start between the Esc and the cancel.
+        work.pieces?.cancel()
         current = nil
         // A recognition under way keeps its hold on the model until it ends:
         // CoreML is not stopped half way, and the model must not go under it.
@@ -703,7 +706,7 @@ public final class VoiceController {
         let pieces = work.pieces
         Task {
             if let pieces {
-                await pieces.cancel()
+                pieces.cancel()
                 await pieces.idle()
             }
             if (try? await loading?.value) != nil { await residency?.end() }
@@ -1186,7 +1189,10 @@ public final class VoiceController {
                 let expected = (heard - checked) / chunk
                 let fresh = probabilities.suffix(expected)
                 // A chunk the detector gave no answer for counts as speech: no cut there.
-                work.speech += [Float](repeating: 1, count: expected - fresh.count) + fresh
+                // Kept only for the cuts: without pieces it would grow for nothing.
+                if work.segmenter != nil {
+                    work.speech += [Float](repeating: 1, count: expected - fresh.count) + fresh
+                }
                 for (index, probability) in fresh.enumerated() {
                     let end = Double(checked + (index + 1) * chunk) / VoiceCore.sampleRate
                     if watch?.observe(speech: probability >= VoiceActivity.threshold, upTo: end) == true {
@@ -1219,7 +1225,8 @@ public final class VoiceController {
         if let pieces = work.pieces { return pieces }
         guard work.segmenter != nil, !work.isReleased else { return nil }
         let pieces = SegmentedRecognizer(audio: work.audio, engine: engine, detector: detector, dictionary: dictionary,
-                                         hint: plan.hint, promptWords: pieceOptions.promptWords, ready: loading)
+                                         hint: plan.hint, promptWords: pieceOptions.promptWords, ready: loading,
+                                         log: log)
         work.pieces = pieces
         work.piecesPlan = plan
         return pieces

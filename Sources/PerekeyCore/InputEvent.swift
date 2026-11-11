@@ -145,6 +145,11 @@ public enum InputEvent: Sendable {
     /// counts give (`LanguageStats`). The words counted so far go out first
     /// (`Effect.languagesCounted`), under the context they were typed in.
     case languageContextChanged(LanguageContext)
+    /// The personal lexicon changed: the words the user keeps typing, as
+    /// keyed fingerprints (`PersonalLexicon`), or `.off`. Sent when the set
+    /// of accepted words changes, and when the lexicon is turned on, off or
+    /// erased; the observations of another key or generation are dropped.
+    case personalLexiconChanged(PersonalLexicon)
     /// While a voice hold is on (`VoiceSignal.holdBegan`), the system layer
     /// found its key or modifiers up without the event that says so: the
     /// machine ends the hold with `HoldEndReason.lost`.

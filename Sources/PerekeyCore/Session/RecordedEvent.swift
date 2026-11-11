@@ -52,6 +52,7 @@ public enum RecordedEvent: Hashable, Sendable, Codable {
     case noClassifier
     case undoLastCorrection(seq: UInt32, time: Double)
     case languageContextChanged(LanguageContext)
+    case personalLexiconChanged(PersonalLexicon)
     case voiceHoldLost
     case voiceSession(Bool)
 
@@ -79,6 +80,7 @@ public enum RecordedEvent: Hashable, Sendable, Codable {
         case let .classifierChanged(classifier): self = classifier.map { .classifier(ClassifierSpec($0)) } ?? .noClassifier
         case let .undoLastCorrection(seq, time): self = .undoLastCorrection(seq: seq, time: time)
         case let .languageContextChanged(context): self = .languageContextChanged(context)
+        case let .personalLexiconChanged(lexicon): self = .personalLexiconChanged(lexicon)
         case .voiceHoldLost: self = .voiceHoldLost
         case let .voiceSession(on): self = .voiceSession(on)
         }
@@ -110,6 +112,7 @@ public enum RecordedEvent: Hashable, Sendable, Codable {
         case .noClassifier: .classifierChanged(nil)
         case let .undoLastCorrection(seq, time): .undoLastCorrection(seq: seq, time: time)
         case let .languageContextChanged(context): .languageContextChanged(context)
+        case let .personalLexiconChanged(lexicon): .personalLexiconChanged(lexicon)
         case .voiceHoldLost: .voiceHoldLost
         case let .voiceSession(on): .voiceSession(on)
         }

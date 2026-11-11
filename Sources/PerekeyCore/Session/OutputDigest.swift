@@ -41,6 +41,8 @@ public enum EffectDigest: Hashable, Sendable, Codable {
     case alwaysFixWithdrawn(String)
     case capsLockOff
     case languagesCounted(app: String?, site: String?, words: [String: Int], generation: UInt32)
+    /// Fingerprints and languages only, as the effect has them.
+    case wordsKept(PersonalTally)
     case voice(String)
     case typingInterrupted
 
@@ -62,6 +64,7 @@ public enum EffectDigest: Hashable, Sendable, Codable {
         case .capsLockOff: self = .capsLockOff
         case let .languagesCounted(tally):
             self = .languagesCounted(app: tally.app, site: tally.site, words: tally.words, generation: tally.generation)
+        case let .wordsKept(tally): self = .wordsKept(tally)
         case let .voice(signal): self = .voice(Self.name(signal))
         case .typingInterrupted: self = .typingInterrupted
         }

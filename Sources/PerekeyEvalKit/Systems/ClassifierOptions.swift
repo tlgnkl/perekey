@@ -26,6 +26,7 @@ public enum ClassifierOptions {
         "priorLimit": { $0.priorLimit = $1 },
         "priorScale": { $0.priorScale = $1 },
         "shortWordRank": { $0.shortWordRank = try rank($1, "shortWordRank") },
+        "personalRank": { $0.personalRank = try rank($1, "personalRank") },
     ]
 
     /// The names the table knows.

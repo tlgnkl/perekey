@@ -11,6 +11,9 @@ public struct Explanation: Equatable, Sendable {
     public enum Statement: Equatable, Sendable {
         /// What a reading of the keys is as a word of its language.
         case reading(text: String, form: Classifier.Form, language: String?)
+        /// The reading is a word the user often types: the personal lexicon
+        /// has it and the dictionary does not (`Decision.typedPersonal`).
+        case personal(text: String)
         /// How far the other reading was ahead, in bits, and what it needed.
         case edge(score: Double, needed: Double, switched: Bool)
         /// A guard or another reason that is no comparison.
@@ -58,8 +61,10 @@ public struct Explanation: Equatable, Sendable {
 
     private static func facts(of decision: Classifier.Decision, typed: String, other: String) -> [Statement] {
         let readings: [Statement] = [
-            .reading(text: typed, form: decision.typedForm, language: decision.typedLanguage),
-            .reading(text: other, form: decision.otherForm, language: decision.otherLanguage),
+            decision.typedPersonal
+                ? .personal(text: typed) : .reading(text: typed, form: decision.typedForm, language: decision.typedLanguage),
+            decision.otherPersonal
+                ? .personal(text: other) : .reading(text: other, form: decision.otherForm, language: decision.otherLanguage),
         ]
         let switched: Bool
         if case .switch = decision.verdict { switched = true } else { switched = false }

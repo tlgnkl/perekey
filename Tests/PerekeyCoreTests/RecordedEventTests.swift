@@ -35,6 +35,9 @@ import Testing
         .languageContextChanged(LanguageContext(app: "com.tinyspeck.slackmacgap", site: "example.org",
                                                 prior: LanguagePrior(counts: ["ru": 120, "en": 30]),
                                                 generation: 4)),
+        .personalLexiconChanged(PersonalLexicon(key: PersonalKey(k0: 0x0706_0504_0302_0100, k1: 0xF0E_0D0C_0B0A_0908),
+                                                words: [3, 0xFFFF_FFFF_FFFF_FFFF, 1], starts: [2], generation: 5)),
+        .personalLexiconChanged(.off),
         .voiceHoldLost,
         .voiceSession(true),
     ]
@@ -61,6 +64,7 @@ import Testing
         case .classifierChanged: "classifierChanged"
         case .undoLastCorrection: "undoLastCorrection"
         case .languageContextChanged: "languageContextChanged"
+        case .personalLexiconChanged: "personalLexiconChanged"
         case .voiceHoldLost: "voiceHoldLost"
         case .voiceSession: "voiceSession"
         }
@@ -82,7 +86,7 @@ import Testing
             "key", "flagsChanged", "click", "scroll", "focusChanged", "layoutChanged", "layoutsChanged",
             "secureInputChanged", "settingsChanged", "retypePosted", "retypeCancelled", "selectionRead", "inputLost",
             "dictationTyping", "deadline", "appModeChanged", "classifierChanged", "undoLastCorrection",
-            "languageContextChanged", "voiceHoldLost", "voiceSession",
+            "languageContextChanged", "personalLexiconChanged", "voiceHoldLost", "voiceSession",
         ]
         // The two cases with their own rules have tests of their own below.
         #expect(sampled == all.subtracting(["selectionRead", "classifierChanged"]))

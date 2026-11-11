@@ -177,6 +177,22 @@ struct WordJudge: Sendable {
     /// A tally goes out after this many words, or when the context changes.
     static let tallySize = 64
 
+    /// The personal lexicon (`InputEvent.personalLexiconChanged`): looked up
+    /// by the classifier, and the key the words kept are observed under.
+    private(set) var personal = PersonalLexicon.off
+    /// The word just ended, as the personal lexicon may learn it: it waits
+    /// for the first letter of the next word, or is taken at once at a line
+    /// end (`confirmObservation`). Backspace, an undo, a retype by hand, a
+    /// click or a focus change drop it.
+    private(set) var pendingObservation: PersonalObservation?
+    /// Observations confirmed since the last batch (`takeKept()`). Its room
+    /// is reserved for a whole batch: no allocation per word.
+    private var kept: [PersonalObservation] = []
+    /// How many observations wait for the next batch.
+    var keptCount: Int { kept.count }
+    /// The observations waiting for the next batch, for `MachineSnapshot`.
+    var keptObservations: [PersonalObservation] { kept }
+
     /// The language of the last judged word.
     var previousLanguage: String? { recent.latest }
 
@@ -184,7 +200,8 @@ struct WordJudge: Sendable {
     /// only where the focus is in that app: not in Perekey's own windows,
     /// not in the moment the focus has moved and the context not yet.
     private func context(focus: Focus?) -> Classifier.Context {
-        Classifier.Context(recent: recent, prior: inContextApp(focus) ? languageContext.prior : LanguagePrior())
+        Classifier.Context(recent: recent, prior: inContextApp(focus) ? languageContext.prior : LanguagePrior(),
+                           personal: personal)
     }
 
     /// The context a manual retype ranks the readings of the word with:
@@ -259,6 +276,10 @@ struct WordJudge: Sendable {
             switching = .allowed
             languageRecorded = false
             wordTraced = false
+            confirmObservation()
+        } else {
+            // The word goes on after its end: what was observed is not it.
+            pendingObservation = nil
         }
         judged = false
     }
@@ -266,6 +287,7 @@ struct WordJudge: Sendable {
     /// Backspace changed the word: judge it again at its end.
     mutating func deleted() {
         judged = false
+        pendingObservation = nil
     }
 
     /// The key held by a correction at the word's end came back: the word it
@@ -280,12 +302,14 @@ struct WordJudge: Sendable {
     /// contradicts the undo, so there is nothing to learn.
     mutating func leaveWordAlone() {
         switching = .suppressed
+        pendingObservation = nil
     }
 
     /// A correction of the word was undone: the word is back in its layout.
     mutating func wordUndone() {
         switching = .suppressed
         judged = true
+        pendingObservation = nil
     }
 
     /// The undo of the word was posted: it is in `language`. Not before: a
@@ -298,6 +322,7 @@ struct WordJudge: Sendable {
     /// it ends.
     mutating func learnAtWordEnd() {
         switching = .learnAtEnd
+        pendingObservation = nil
     }
 
     /// Words judged since the last tally, by language.
@@ -305,13 +330,16 @@ struct WordJudge: Sendable {
 
     /// Goes on with the languages of another judge (`InputMachine.init(snapshot:)`).
     mutating func restore(languageContext: LanguageContext, recent: RecentLanguages, sentenceStart: Bool,
-                          tally: [String: Int], tallied: Int)
+                          tally: [String: Int], tallied: Int, personal: PersonalLexicon,
+                          kept: [PersonalObservation])
     {
         self.languageContext = languageContext
         self.recent = recent
         self.sentenceStart = sentenceStart
         self.tally = tally
         self.tallied = tallied
+        setPersonalLexicon(personal)
+        self.kept.append(contentsOf: kept)
     }
 
     /// The text before the caret is unknown now.
@@ -319,7 +347,55 @@ struct WordJudge: Sendable {
         recent.removeAll()
         previousForTypo = nil
         languageRecorded = false
+        pendingObservation = nil
         if newField { sentenceStart = true }
+    }
+
+    // MARK: - The personal lexicon
+
+    /// A new snapshot of the personal lexicon. Observations made under
+    /// another key or generation (an erase, the lexicon turned off) are
+    /// dropped: the store would drop them anyway.
+    mutating func setPersonalLexicon(_ lexicon: PersonalLexicon) {
+        if lexicon.key != personal.key || lexicon.generation != personal.generation {
+            kept.removeAll(keepingCapacity: true)
+            pendingObservation = nil
+        }
+        personal = lexicon
+        if lexicon.isOn, kept.capacity < Self.tallySize + 1 { kept.reserveCapacity(Self.tallySize + 1) }
+    }
+
+    /// The pending observation stands: the next word started, or the line ended.
+    private mutating func confirmObservation() {
+        guard let observation = pendingObservation else { return }
+        pendingObservation = nil
+        kept.append(observation)
+    }
+
+    /// The confirmed observations as a batch, or nil when there are none.
+    mutating func takeKept() -> PersonalTally? {
+        guard !kept.isEmpty else { return nil }
+        let tally = PersonalTally(observations: kept, generation: personal.generation)
+        kept = []
+        kept.reserveCapacity(Self.tallySize + 1)
+        return tally
+    }
+
+    /// Observes the word just judged, read in `result`, if the lexicon is on
+    /// and the word is a candidate (`Classifier.personalObservation`): it
+    /// waits for the next word. Only where automatic switching could act
+    /// and words count (`counting`): not in «manual only» or «off», not in a
+    /// password field or on an unknown focus, not in Perekey's own windows.
+    private mutating func observe(_ strokes: some Collection<KeyStroke>, in result: LayoutMap,
+                                  rivals: some Collection<LayoutMap>, classifier: Classifier, confirm: Bool)
+    {
+        guard personal.isOn, counting,
+              let observation = classifier.personalObservation(strokes, in: result, rivals: rivals,
+                                                               personal: personal, corrector: typoCorrector,
+                                                               sentenceStart: sentenceStart)
+        else { return }
+        pendingObservation = observation
+        if confirm { confirmObservation() }
     }
 
     // MARK: - Languages of the words
@@ -420,6 +496,8 @@ struct WordJudge: Sendable {
         judged = true
         counting = inContextApp(focus)
         contextAtJudge = context(focus: focus)
+        // The word is judged again ("hello." and a space): its new end decides.
+        pendingObservation = nil
         previousForTypo = wordBefore(buffer, layouts: layouts)
         defer { previousForTypo = nil }
         let switchingBefore = switching
@@ -459,6 +537,15 @@ struct WordJudge: Sendable {
                 }
             }
             record(typed.language)
+            // A switch inside the word that stood: the word now reads in the
+            // layout it went to, and the one it came from is its rival.
+            if personal.isOn, switchingBefore == .switchedInside, let auto, wordIsPlain(buffer, layouts: layouts),
+               let source = switchedFrom.flatMap({ layouts[$0] }),
+               !isException(buffer, in: auto.typed, settings, focus)
+            {
+                observe(buffer.entries.lazy.map(\.stroke), in: auto.typed, rivals: CollectionOfOne(source),
+                        classifier: auto.classifier, confirm: endsLine)
+            }
             // A word switched inside, or undone there, has its trace from then.
             if tracing, switchingBefore == .suppressed, !wordTraced {
                 trace(.notJudged(.leftAlone), buffer, layouts: layouts, context: contextAtJudge, decision: nil,
@@ -553,6 +640,13 @@ struct WordJudge: Sendable {
                 // list instead of learning, whoever decided the switch.
                 retype.pending.alwaysFix = listed
                 record(auto.other.language)
+                // The switched word, if nothing but its layout changed: it
+                // waits for the next word, so a cancelled or undone switch
+                // drops it.
+                if personal.isOn, switches, !forced, listed == nil, retype.pending.correction.kind == .layout {
+                    observe(retype.word ?? buffer.entries.map(\.stroke), in: auto.other,
+                            rivals: CollectionOfOne(auto.typed), classifier: auto.classifier, confirm: false)
+                }
                 if tracing {
                     trace(.switched(to: auto.other.id, early: false), buffer, layouts: layouts, context: contextAtJudge,
                           decision: retype.decision, focus: focus)
@@ -579,6 +673,13 @@ struct WordJudge: Sendable {
                 } else {
                     trace(.kept, buffer, layouts: layouts, context: contextAtJudge, decision: nil, focus: focus)
                 }
+            }
+            // Kept as typed, by a decision to keep and no correction.
+            if personal.isOn, let auto, decision?.verdict == .keep, !isException(buffer, in: auto.typed, settings, focus),
+               alwaysFixSpelling(buffer, in: auto.typed, settings) == nil
+            {
+                observe(buffer.entries.lazy.map(\.stroke), in: auto.typed, rivals: auto.candidates,
+                        classifier: auto.classifier, confirm: endsLine)
             }
             return .keep
         }
@@ -656,8 +757,12 @@ struct WordJudge: Sendable {
               let other = Self.onlyPossibleStart(buffer, context)
         else { return nil }
         context.other = other
+        // A word the user keeps typing may start like no word of its
+        // language ("Lfirf" is no English, but someone's name): its end decides.
         guard !isExceptionPrefix(buffer, context, settings, focus),
-              !isAlwaysFixPrefix(buffer, in: context.typed, settings)
+              !isAlwaysFixPrefix(buffer, in: context.typed, settings),
+              !context.classifier.startsPersonalWord(buffer.entries.lazy.map(\.stroke), in: context.typed,
+                                                     personal: personal)
         else { return nil }
         let trigger = buffer.entries[count - 1].stroke
         guard var retype = autoRetype(context, buffer.entries.dropLast(), held: trigger, heldKeyCode: trigger.keyCode,
@@ -690,7 +795,7 @@ struct WordJudge: Sendable {
     {
         guard wordIsPlain(buffer, layouts: layouts) else { return nil }
         let strokes = buffer.entries.lazy.map(\.stroke)
-        let marks = auto.classifier.marksAfterSwitch(strokes, in: auto.typed, from: source)
+        let marks = auto.classifier.marksAfterSwitch(strokes, in: auto.typed, from: source, personal: personal)
         guard marks > 0, let spelling = Self.keepingMarks(marks, buffer.entries, from: source, in: auto.typed)
         else { return nil }
         let back = AutoContext(classifier: auto.classifier, typed: source, other: auto.typed, candidates: [auto.typed])
@@ -956,7 +1061,9 @@ struct WordJudge: Sendable {
                              settings: Settings) -> WordFix?
     {
         var fix: WordFix?
+        // A word of the personal lexicon is no typo: the corrector does not see it.
         if settings.typoCorrection, let typoCorrector, layouts.correctsTypos(map.id),
+           !(classifier?.isPersonal(entries.lazy.map(\.stroke), in: map, personal: personal) ?? false),
            let candidate = typoCorrector.correct(entries.lazy.map(\.stroke), inAllowed: map, sentenceStart: sentenceStart,
                                                  previous: previousForTypo)
         {

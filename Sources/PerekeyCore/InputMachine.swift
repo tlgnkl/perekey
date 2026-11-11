@@ -80,7 +80,8 @@ public struct InputMachine: Sendable {
         voiceSession = snapshot.voiceSession
         dictationTyping = snapshot.dictationTyping
         judge.restore(languageContext: snapshot.languageContext, recent: RecentLanguages(snapshot.recentLanguages),
-                      sentenceStart: snapshot.sentenceStart, tally: snapshot.tally, tallied: snapshot.tallied)
+                      sentenceStart: snapshot.sentenceStart, tally: snapshot.tally, tallied: snapshot.tallied,
+                      personal: snapshot.personalLexicon ?? .off, kept: snapshot.personalKept ?? [])
     }
 
     /// The state for a fresh machine to go on from (`init(snapshot:)`).
@@ -94,7 +95,9 @@ public struct InputMachine: Sendable {
             appMode: judge.appMode, secureInput: secureInput, voiceSession: voiceSession,
             dictationTyping: dictationTyping, languageContext: judge.languageContext,
             recentLanguages: (0..<recent.count).map { recent[$0] }, sentenceStart: judge.sentenceStart,
-            tally: judge.tallyCounts, tallied: judge.tallied
+            tally: judge.tallyCounts, tallied: judge.tallied,
+            personalLexicon: judge.personal.isOn ? judge.personal : nil,
+            personalKept: judge.keptCount > 0 ? judge.keptObservations : nil
         )
     }
 
@@ -105,7 +108,7 @@ public struct InputMachine: Sendable {
     public var isQuiet: Bool {
         buffer.isEmpty && buffer.history.isEmpty && !fence.isHolding && fence.returning == .nothing
             && undo.last == nil && undoWatch == nil && openUndo == nil && languageChoice == nil
-            && typingKeyUps.isEmpty && shortcuts.isIdle && manual.isIdle
+            && typingKeyUps.isEmpty && shortcuts.isIdle && manual.isIdle && judge.pendingObservation == nil
     }
 
     /// The classifier automatic switching runs, if any.
@@ -253,6 +256,10 @@ public struct InputMachine: Sendable {
 
         case let .languageContextChanged(context):
             if let tally = judge.languageContextChanged(context) { effects.append(.languagesCounted(tally)) }
+            if let kept = judge.takeKept() { effects.append(.wordsKept(kept)) }
+
+        case let .personalLexiconChanged(lexicon):
+            judge.setPersonalLexicon(lexicon)
 
         case .voiceHoldLost:
             if let signal = shortcuts.holdLost() { effects.append(.voice(signal)) }
@@ -484,10 +491,18 @@ public struct InputMachine: Sendable {
 
     // MARK: - Corrections
 
-    /// Hands the language counts to the app layer every `WordJudge.tallySize` words.
+    /// Hands the language counts to the app layer every `WordJudge.tallySize`
+    /// words, and the words kept for the personal lexicon with them or when
+    /// a batch of them is full.
     private mutating func tallyIfFull(effects: inout [Effect]) {
-        guard judge.tallied >= WordJudge.tallySize, let tally = judge.takeTally() else { return }
-        effects.append(.languagesCounted(tally))
+        var counted = false
+        if judge.tallied >= WordJudge.tallySize, let tally = judge.takeTally() {
+            effects.append(.languagesCounted(tally))
+            counted = true
+        }
+        if counted || judge.keptCount >= WordJudge.tallySize, let kept = judge.takeKept() {
+            effects.append(.wordsKept(kept))
+        }
     }
 
     /// Retypes the word as the judge decided, behind the fence, with the

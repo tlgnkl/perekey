@@ -5,7 +5,10 @@ import Foundation
 /// `perekey-eval cases build` (docs/eval.md, «Команды»):
 ///
 ///     perekey-eval cases build [--suites <dir>] [--cache <dir>] [--tier ci|full] [--out <dir>]
-///                              [--only <suite,...>] [--epoch <n>] [--layouts <dir>]
+///                              [--only <suite,...>] [--epoch <n>] [--layouts <dir>] [--skip-missing]
+///
+/// With `--skip-missing`, a suite whose source is not in the cache is not built: the line
+/// «пропущен: нет источника X» says so, and the command goes on. Without it, a missing source is an error.
 ///
 /// Writes `<out>/<suite>.jsonl` for each manifest and `<out>/build.json`
 /// with the counts and the SHA-256 of every file. Nothing in `build.json`
@@ -32,6 +35,13 @@ extension EvalCommands {
                 self.epoch = epoch
             }
             only = parsed.value("--only").map { Set($0.split(separator: ",").map(String.init)) }
+        }
+
+        /// The first file of the manifest's source that the cache lacks.
+        func missingSource(of manifest: SuiteManifest) -> String? {
+            manifest.sources.first {
+                !FileManager.default.fileExists(atPath: (cache as NSString).appendingPathComponent($0))
+            }
         }
 
         /// The manifests after `--only` and `--epoch`.
@@ -70,6 +80,10 @@ extension EvalCommands {
         try FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
         var entries: [BuildSummary.Entry] = []
         for manifest in try settings.manifests() {
+            if parsed.flag("--skip-missing"), let missing = settings.missingSource(of: manifest) {
+                print("\(manifest.suite)  пропущен: нет источника \(missing)")
+                continue
+            }
             let built = try builtSuite(manifest, settings: settings, library: library)
             let path = (out as NSString).appendingPathComponent("\(manifest.suite).jsonl")
             try built.bytes.write(to: URL(fileURLWithPath: path))
@@ -85,6 +99,15 @@ extension EvalCommands {
 
 /// `build.json`: the reports of a build and the hash of every file.
 struct BuildSummary: Codable {
+    /// `<directory>/build.json` as `cases build` wrote it.
+    static func read(directory: String) throws -> BuildSummary {
+        let path = (directory as NSString).appendingPathComponent("build.json")
+        guard let data = FileManager.default.contents(atPath: path) else { throw EvalError.input("no such file: \(path)") }
+        do { return try JSONDecoder().decode(BuildSummary.self, from: data) } catch {
+            throw EvalError.input("\(path): \(error)")
+        }
+    }
+
     struct Entry: Codable {
         var report: BuildReport
         var sha256: String

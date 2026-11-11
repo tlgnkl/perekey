@@ -11,6 +11,10 @@
 // A decoding error names the place and the rule, never the value: a file
 // that is not a session may hold anything, and the error ends up in a log.
 
+private extension UInt8 {
+    var isHexDigit: Bool { (0x30...0x39).contains(self) || (0x41...0x46).contains(self) || (0x61...0x66).contains(self) }
+}
+
 /// Hex digits of a 64-bit value: JSON numbers lose such values in many readers.
 private let hexDigits = 16
 /// Hex digits of the key: two 64-bit halves.
@@ -22,7 +26,8 @@ private func hex(_ value: UInt64) -> String {
 }
 
 private func value(_ text: String, at path: [any CodingKey]) throws -> UInt64 {
-    guard text.utf8.count == hexDigits, let value = UInt64(text, radix: 16) else {
+    // `UInt64(_:radix:)` takes a sign: 16 characters may be 15 digits.
+    guard text.utf8.count == hexDigits, text.utf8.allSatisfy(\.isHexDigit), let value = UInt64(text, radix: 16) else {
         throw DecodingError.dataCorrupted(.init(codingPath: path, debugDescription: "not \(hexDigits) hex digits"))
     }
     return value
@@ -52,6 +57,10 @@ extension PersonalLexicon: Codable {
         var options = PersonalOptions()
         options.minLetters = try container.decode(Int.self, forKey: .minLetters)
         options.maxLetters = try container.decode(Int.self, forKey: .maxLetters)
+        guard options.minLetters >= 1, options.minLetters <= options.maxLetters else {
+            throw DecodingError.dataCorrupted(.init(codingPath: container.codingPath + [CodingKeys.minLetters],
+                                                    debugDescription: "the letters of a word are 1 ≤ min ≤ max"))
+        }
         let languages = try container.decodeIfPresent([String].self, forKey: .languages)?.map { text -> LanguageCode in
             guard let code = LanguageCode(text) else {
                 throw DecodingError.dataCorrupted(.init(codingPath: path, debugDescription: "not a language code"))

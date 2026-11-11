@@ -58,6 +58,9 @@ extension Classifier {
         let count = Self.wordLength(strokes)
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) { scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
+                // `measuring: false`: only the word's letters are read, as the
+                // personal lookup needs them; the n-gram cost is the
+                // classifier's own question and is not asked here.
                 guard var reading = Reading(strokes, count: count, in: layout, language: language,
                                             scalars: scalars[...], symbols: symbols[...], measuring: false)
                 else { return false }

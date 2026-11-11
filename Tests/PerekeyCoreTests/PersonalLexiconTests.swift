@@ -303,6 +303,33 @@ func personalLexicon(_ words: [(String, LanguageCode)], generation: UInt32 = 0) 
         #expect(throws: DecodingError.self) { try JSONDecoder().decode(PersonalLexicon.self, from: Data(zero.utf8)) }
     }
 
+    @Test func aFileWithAHexFieldThatIsNotHexOrNotTheLengthIsRejected() {
+        let key = "07060504030201000f0e0d0c0b0a0908"
+        func lexicon(key: String = key, words: String = "", min: Int = 3, max: Int = 24) -> String {
+            #"{"key":"\#(key)","words":[\#(words)],"starts":[],"generation":0,"minLetters":\#(min),"maxLetters":\#(max)}"#
+        }
+        let good = lexicon(words: #""0000000000000001""#)
+        #expect((try? JSONDecoder().decode(PersonalLexicon.self, from: Data(good.utf8))) != nil)
+        let bad = [
+            // 16 characters, but a sign and 15 digits, or a space, or not hex at all.
+            lexicon(words: #""+000000000000001""#),
+            lexicon(words: #""-000000000000001""#),
+            lexicon(words: #"" 000000000000001""#),
+            lexicon(words: #""000000000000000g""#),
+            lexicon(words: #""0x00000000000001""#),
+            lexicon(key: "+7060504030201000f0e0d0c0b0a0908"),
+            lexicon(key: "07060504030201000f0e0d0c0b0a090-"),
+            // The letters of a word: 1 ≤ min ≤ max.
+            lexicon(min: 0), lexicon(min: -1), lexicon(min: 9, max: 8), lexicon(min: 3, max: 0),
+        ]
+        for json in bad {
+            #expect(throws: DecodingError.self, "\(json)") {
+                try JSONDecoder().decode(PersonalLexicon.self, from: Data(json.utf8))
+            }
+        }
+        #expect((try? JSONDecoder().decode(PersonalLexicon.self, from: Data(lexicon(min: 1, max: 1).utf8))) != nil)
+    }
+
     @Test func theKeyAndTheLexiconPrintAsRedacted() {
         let lexicon = personalLexicon([("дашка", "ru")])
         for value in [personalKey as Any, lexicon as Any] {

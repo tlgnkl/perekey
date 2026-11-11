@@ -155,6 +155,11 @@ struct Shortcuts: Sendable {
         swallowedKeyUps.insert(keyCode)
     }
 
+    /// No modifier is down and no key's up is to be swallowed: a fresh
+    /// detector would see the next keys alike (`InputMachine.isQuiet`). A
+    /// chord's first tap of two is not seen: its time runs out in a moment.
+    var isIdle: Bool { !modifiersDown && swallowedKeyUps.isEmpty }
+
     /// Keys pressed so far are unknown: Secure Input, lost input. The voice
     /// hold stays: it ends on its key up, a modifier up or `holdLost()`.
     mutating func reset() {

@@ -270,3 +270,6 @@ public struct Output: Hashable, Sendable {
         self.effects = effects
     }
 }
+
+// For the session format (`OutputDigest`).
+extension Disposition: Codable {}

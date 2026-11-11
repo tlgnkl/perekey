@@ -905,3 +905,60 @@ struct Reading {
         if rank == nil, parts >= 2, partsKnown { rank = partRank }
     }
 }
+
+/// The session format records the options of the classifier it ran with
+/// (`ClassifierSpec`), and `perekey-eval replay compare --candidate-options`
+/// reads a candidate's. A key left out keeps its default, so a candidate
+/// names only what it changes: `{"threshold": 12}`.
+extension Classifier.Options: Codable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
+             rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank
+    }
+
+    /// The keys the file format knows, one per stored property (a test holds
+    /// them to `Mirror`). `--candidate-options` rejects any other key.
+    public static var codingKeyNames: [String] { CodingKeys.allCases.map(\.rawValue) }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        func read<Value: Decodable>(_ key: CodingKeys, _ value: inout Value) throws {
+            if let found = try container.decodeIfPresent(Value.self, forKey: key) { value = found }
+        }
+        try read(.threshold, &threshold)
+        try read(.readingMargin, &readingMargin)
+        try read(.unknownWordExtra, &unknownWordExtra)
+        try read(.noiseCost, &noiseCost)
+        try read(.unknownNoiseCost, &unknownNoiseCost)
+        try read(.openerBonus, &openerBonus)
+        try read(.dictionaryBonus, &dictionaryBonus)
+        try read(.rankBonus, &rankBonus)
+        try read(.knownRank, &knownRank)
+        try read(.mixedCaseRank, &mixedCaseRank)
+        try read(.contextBonus, &contextBonus)
+        try read(.contextDecay, &contextDecay)
+        try read(.priorLimit, &priorLimit)
+        try read(.priorScale, &priorScale)
+        try read(.shortWordRank, &shortWordRank)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(threshold, forKey: .threshold)
+        try container.encode(readingMargin, forKey: .readingMargin)
+        try container.encode(unknownWordExtra, forKey: .unknownWordExtra)
+        try container.encode(noiseCost, forKey: .noiseCost)
+        try container.encode(unknownNoiseCost, forKey: .unknownNoiseCost)
+        try container.encode(openerBonus, forKey: .openerBonus)
+        try container.encode(dictionaryBonus, forKey: .dictionaryBonus)
+        try container.encode(rankBonus, forKey: .rankBonus)
+        try container.encode(knownRank, forKey: .knownRank)
+        try container.encode(mixedCaseRank, forKey: .mixedCaseRank)
+        try container.encode(contextBonus, forKey: .contextBonus)
+        try container.encode(contextDecay, forKey: .contextDecay)
+        try container.encode(priorLimit, forKey: .priorLimit)
+        try container.encode(priorScale, forKey: .priorScale)
+        try container.encode(shortWordRank, forKey: .shortWordRank)
+    }
+}

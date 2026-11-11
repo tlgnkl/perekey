@@ -50,6 +50,11 @@ struct LayoutState: Sendable {
 
     subscript(id: LayoutID) -> LayoutMap? { maps[id] }
 
+    /// The order of use another state had (`InputMachine.init(snapshot:)`).
+    mutating func restoreUsed(_ ids: [LayoutID]) {
+        used = ids
+    }
+
     mutating func set(_ newMaps: [LayoutMap]) {
         order = newMaps.map(\.id)
         maps = Dictionary(newMaps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

@@ -25,6 +25,11 @@ public enum RunFiles {
         public var tier: String?
         /// Whether words of the test part may be shown.
         public var testRevealed = false
+        /// SHA-256 of each lexicon file by language, of the lists of `data/`, and of
+        /// the files of decisions about the source's noise; nil without a lexicon.
+        public var lexicon: [String: String]?
+        public var seen: String?
+        public var noise: [CaseFile]?
 
         public struct CaseFile: Hashable, Sendable, Codable {
             public var path: String
@@ -46,6 +51,80 @@ public enum RunFiles {
                 .joined(separator: "\t"))
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// One line per case with the counts the report needs to resample cases and
+    /// to compare two runs: id, suite, scenario, split, epoch, lag, then the
+    /// counters of `countColumns` and the weighted ones.
+    public static func countsTSV(_ scores: [CaseScore]) -> String {
+        var lines = [(["id", "suite", "scenario", "split", "epoch", "lag"] + countColumns.map(\.name)
+            + weightedColumns.map(\.name)).joined(separator: "\t")]
+        for score in scores {
+            let metrics = Metrics(score)
+            lines.append((([score.id, score.suite, score.scenario, score.split.rawValue, String(score.epoch),
+                            score.lag.map(String.init) ?? "-"])
+                    + countColumns.map { String(metrics[keyPath: $0.path]) }
+                    + weightedColumns.map { weightText(metrics[keyPath: $0.path]) }).joined(separator: "\t"))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The integer counters of `counts.tsv`, in column order.
+    static let countColumns: [(name: String, path: WritableKeyPath<Metrics, Int> & Sendable)] = [
+        ("exact", \.exact), ("checksFailed", \.checksFailed), ("tokens", \.tokens), ("words", \.words),
+        ("ok", \.ok), ("fixed", \.fixed), ("harm", \.harm), ("harmEvents", \.harmEvents), ("miss", \.miss),
+        ("botched", \.botched), ("spill", \.spill), ("disputed", \.disputed), ("silent", \.silent),
+        ("layoutErrors", \.layoutErrors), ("missLayout", \.missLayout), ("errors", \.errors),
+        ("wrong", \.wrong), ("wrongNull", \.wrongNull),
+    ]
+
+    /// The weighted counters of `counts.tsv`.
+    static let weightedColumns: [(name: String, path: WritableKeyPath<Metrics, Double> & Sendable)] = [
+        ("weightedWords", \.weightedWords), ("weightedHarm", \.weightedHarm),
+        ("weightedLayoutErrors", \.weightedLayoutErrors), ("weightedMissLayout", \.weightedMissLayout),
+    ]
+
+    static func weightText(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(format: "%.6f", value)
+    }
+
+    /// One line per word type of the measured part with a letter, by part: how
+    /// many times it occurs, how often it was harmed, missed, botched, and the
+    /// summed weight of those errors. The words of the test part only if the
+    /// run reveals them (`--reveal-test`); the report hides them again without its own flag.
+    public static func wordsTSV(_ scores: [CaseScore]) -> String {
+        struct Key: Hashable, Comparable {
+            var split: String
+            var word: String
+            static func < (a: Key, b: Key) -> Bool { (a.split, a.word) < (b.split, b.word) }
+        }
+        struct Row { var occurrences = 0, harm = 0, miss = 0, botched = 0, weight = 0.0 }
+        var rows: [Key: Row] = [:]
+        for score in scores where !score.hidden {
+            for token in score.measured where Tokenizer.isWord(token.want) {
+                let core = Lexicon.core(token.want)
+                guard !core.isEmpty else { continue }
+                let key = Key(split: score.split.rawValue, word: core)
+                rows[key, default: Row()].occurrences += 1
+                switch token.outcome {
+                case .harm: rows[key]!.harm += 1; rows[key]!.weight += token.weight
+                case .miss: rows[key]!.miss += 1; rows[key]!.weight += token.weight
+                case .botched: rows[key]!.botched += 1; rows[key]!.weight += token.weight
+                default: break
+                }
+            }
+        }
+        var lines = ["split\tword\toccurrences\tharm\tmiss\tbotched\terrorWeight"]
+        for key in rows.keys.sorted() {
+            let row = rows[key]!
+            lines.append([key.split, key.word, String(row.occurrences), String(row.harm), String(row.miss),
+                          String(row.botched), weightText(row.weight)].joined(separator: "\t"))
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    public static func slicesJSON(_ scores: [CaseScore]) throws -> String {
+        try pretty(SliceTable(scores))
     }
 
     /// What files say instead of a word of the hidden test part.
@@ -76,6 +155,7 @@ public enum RunFiles {
                     id: score.id, index: token.index, want: shown(token.want), null: shown(token.null),
                     out: shown(token.out),
                     outcome: token.outcome.rawValue, form: token.form, cascade: token.cascade ? true : nil,
+                    silent: token.silent ? true : nil,
                     features: token.features, trace: token.trace.isEmpty ? nil : token.trace
                 )))
             }
@@ -98,6 +178,9 @@ public enum RunFiles {
             ("cases.tsv", casesTSV(scores)),
             ("events.jsonl", eventsJSONL(scores)),
             ("summary.json", summaryJSON(scores)),
+            ("counts.tsv", countsTSV(scores)),
+            ("slices.json", slicesJSON(scores)),
+            ("words.tsv", wordsTSV(scores)),
         ]
         for (name, text) in files {
             try text.write(toFile: (directory as NSString).appendingPathComponent(name), atomically: true,
@@ -120,6 +203,7 @@ public enum RunFiles {
         var outcome: String
         var form: String?
         var cascade: Bool?
+        var silent: Bool?
         var features: TokenFeatures?
         var trace: [TraceEntry]?
     }

@@ -608,6 +608,9 @@ struct WordJudge: Sendable {
         judged = true
         counting = inContextApp(focus)
         contextAtJudge = context(focus: focus)
+        if let limit = classifier?.options.wordContextLimit, limit > 0 {
+            contextAtJudge.previousWord = realWordBefore(buffer, layouts: layouts)
+        }
         if pendingObservation != nil {
             if Self.hasLetter(buffer.entries, layouts: layouts) {
                 // The word is judged again ("hello." and a space): its new end decides.
@@ -845,14 +848,33 @@ struct WordJudge: Sendable {
     private func wordBefore(_ buffer: WordBuffer, layouts: LayoutState, realWords: Bool) -> UInt64? {
         guard let corrector = typoCorrector, corrector.options.contextWeight > 0 || realWords else { return nil }
         guard let before = buffer.previousWord else { return sentenceStart ? ModelFormat.sentenceStart : nil }
-        guard let first = before.first, let map = layouts[first.layout] else { return nil }
+        return Self.read(before, layouts: layouts)?.fingerprint
+    }
+
+    /// The word before the one in the buffer with the language it was typed
+    /// in, for the classifier's word context (`Classifier.Options.wordContextLimit`).
+    /// Nil at the start of a sentence, where there is no word, and when the
+    /// buffer does not know the word before. Reads nothing unless asked.
+    private func realWordBefore(_ buffer: WordBuffer, layouts: LayoutState) -> Classifier.PreviousWordRef? {
+        guard let before = buffer.previousWord, let read = Self.read(before, layouts: layouts),
+              read.fingerprint != ModelFormat.sentenceStart
+        else { return nil }
+        return Classifier.PreviousWordRef(language: read.language, fingerprint: read.fingerprint)
+    }
+
+    /// The fingerprint of the word in `entries` and the language of the
+    /// layout it was typed in.
+    private static func read(_ entries: ArraySlice<WordBuffer.Entry>, layouts: LayoutState)
+        -> (fingerprint: UInt64, language: String)?
+    {
+        guard let first = entries.first, let map = layouts[first.layout], let language = map.language else { return nil }
         var reader = PreviousWord.Reader()
-        for entry in before {
+        for entry in entries {
             // One key types a short text: a `String` held inline, no heap.
             guard let text = map.text(for: entry.stroke) else { continue }
             for scalar in text.unicodeScalars { reader.add(scalar) }
         }
-        return reader.result
+        return reader.result.map { ($0, language) }
     }
 
     /// What automatic switching decides about the word in the buffer, for the

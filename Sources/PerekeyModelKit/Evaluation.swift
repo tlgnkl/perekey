@@ -194,7 +194,8 @@ public struct Evaluation {
             var category = categories[item.category, default: Category(name: item.category)]
             let context = Classifier.Context(recent: RecentLanguages(item.recent),
                                              prior: item.app.map { LanguagePrior(counts: $0) } ?? LanguagePrior(),
-                                             personal: personal)
+                                             personal: personal,
+                                             previousWord: Self.previousWord(item))
             // As the word judge: the typo step leaves a word of the lexicon alone.
             let typoStep = classifier.isPersonal(strokes, in: own, personal: personal) ? nil : corrector
             // Without a word before it the word starts the text: a capital is allowed.
@@ -389,6 +390,27 @@ public struct Evaluation {
         guard let words else { return nil }
         guard let latest = words.first else { return ModelFormat.sentenceStart }
         return PreviousWord.fingerprint(of: latest.unicodeScalars)
+    }
+
+    /// The word before a corpus word with its language, for
+    /// `Classifier.Options.wordContextLimit`: nil at the start of a sentence
+    /// and where the corpus does not say.
+    static func previousWord(_ item: CorpusItem) -> Classifier.PreviousWordRef? {
+        guard let text = item.previousWords?.first, let first = item.recent.first, let language = first,
+              let fingerprint = PreviousWord.fingerprint(of: text.unicodeScalars),
+              fingerprint != ModelFormat.sentenceStart
+        else { return nil }
+        return Classifier.PreviousWordRef(language: language, fingerprint: fingerprint)
+    }
+
+    /// Runs the corpus at each limit of the word context: the points to pick
+    /// `Classifier.Options.wordContextLimit` from.
+    public func wordContextSweep(_ items: [CorpusItem], limits: [Double]) -> [Results] {
+        limits.map { limit in
+            var evaluation = self
+            evaluation.options.wordContextLimit = limit
+            return evaluation.run(items, maxErrors: 0)
+        }
     }
 
     /// Runs the corpus at each weight of the word before the typo: the

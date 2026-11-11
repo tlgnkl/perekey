@@ -485,19 +485,20 @@ public struct Scorer: Sendable {
             end: Self.end(token, end), tags: tags + (spec?.tags ?? []).filter { !tags.contains($0) }, reason: entry?.reason,
             margin: entry.flatMap { entry in
                 guard let score = entry.score, let margin = entry.margin else { return nil }
-                return Self.marginBucket(score: score, margin: margin)
+                return Self.marginBucket(score: score, margin: margin, kept: entry.kind == .kept)
             },
             early: entry?.insideWord.map { $0 ? "yes" : "no" }, kind: entry?.correction
         )
     }
 
-    /// How far the decision was from the threshold, in bits, on either side:
-    /// a switch above it, a word kept under it. `nil` when the other reading
-    /// is no word (the score is not finite) and there is no threshold to measure.
-    static func marginBucket(score: Double, margin: Double) -> String? {
+    /// By how many bits the decision held: a switch or a correction above the
+    /// threshold (`score − margin`), a word kept under it (`margin − score`). A
+    /// decision on the wrong side of the threshold falls in `<3`. `nil` when the other reading is no word (the score is not
+    /// finite) and there is no threshold to measure.
+    static func marginBucket(score: Double, margin: Double, kept: Bool = false) -> String? {
         guard score.isFinite else { return nil }
-        let distance = abs(score - margin)
-        return distance < 3 ? "<3" : distance < 10 ? "3-10" : "10+"
+        let held = kept ? margin - score : score - margin
+        return held < 3 ? "<3" : held < 10 ? "3-10" : "10+"
     }
 
     static func capitals(_ letters: String) -> String {

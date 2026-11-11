@@ -113,12 +113,19 @@ import Testing
         return directory
     }
 
-    @Test func theMarginIsTheDistanceToTheThresholdOnEitherSide() {
+    @Test func theMarginOfASwitchIsTheScoreAboveTheThresholdAsBefore() {
         #expect(Scorer.marginBucket(score: 12, margin: 10) == "<3")
-        #expect(Scorer.marginBucket(score: 8, margin: 10) == "<3", "a word kept 2 bits short")
-        #expect(Scorer.marginBucket(score: 4, margin: 10) == "3-10")
+        #expect(Scorer.marginBucket(score: 14, margin: 10) == "3-10")
         #expect(Scorer.marginBucket(score: 25, margin: 10) == "10+")
-        #expect(Scorer.marginBucket(score: -5, margin: 10) == "10+", "kept 15 bits short")
+        #expect(Scorer.marginBucket(score: 4, margin: 10) == "<3", "an early switch under the threshold, as before")
         #expect(Scorer.marginBucket(score: -.infinity, margin: 10) == nil, "the other reading is no word")
+    }
+
+    @Test func theMarginOfAKeptWordIsTheScoreUnderTheThreshold() {
+        #expect(Scorer.marginBucket(score: 8, margin: 10, kept: true) == "<3", "kept 2 bits short")
+        #expect(Scorer.marginBucket(score: 4, margin: 10, kept: true) == "3-10")
+        #expect(Scorer.marginBucket(score: -5, margin: 10, kept: true) == "10+", "kept 15 bits short")
+        #expect(Scorer.marginBucket(score: 12, margin: 10, kept: true) == "<3", "kept although over the threshold")
+        #expect(Scorer.marginBucket(score: -.infinity, margin: 10, kept: true) == nil)
     }
 }

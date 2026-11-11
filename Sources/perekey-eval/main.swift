@@ -348,7 +348,13 @@ do {
         ], options: options, typoOptions: typoOptions)
         evaluation.realWords = flags["--real-words"] != nil
 
-        let results = evaluation.run(items, maxErrors: Int(flags["--errors"] ?? "12") ?? 12)
+        let maxErrors = flags["--errors"].map { text -> Int in
+            guard let count = Int(text), count >= 0 else {
+                fail("--errors: \"\(text)\" is not a count (a whole number from 0, e.g. 12)")
+            }
+            return count
+        } ?? 12
+        let results = evaluation.run(items, maxErrors: maxErrors)
         print(Evaluation.report(results))
         if !results.errors.isEmpty {
             print("examples of errors:")
@@ -498,8 +504,11 @@ do {
         }
         if flags["--word-context-sweep"] != nil {
             // The sweep prints points, not examples: a count other than 0 would be asked for in vain.
-            if let errors = flags["--errors"], errors != "0" {
-                fail("--word-context-sweep prints no examples of errors: --errors \(errors) is not used, give 0 or leave it out")
+            if let errors = flags["--errors"] {
+                guard let count = Int(errors) else { fail("--errors: \"\(errors)\" is not a count (a whole number, e.g. 12)") }
+                if count != 0 {
+                    fail("--word-context-sweep prints no examples of errors: --errors \(errors) is not used, give 0 or leave it out")
+                }
             }
             var evaluation = evaluation
             evaluation.previousWordInWrongLayout = flags["--wrong-previous-word"] != nil
@@ -517,6 +526,12 @@ do {
                 : "\nword context sweep: limit")
             for point in points {
                 print(sweepLine(String(format: "%4.1f", point.options.wordContextLimit), point))
+            }
+            // The same at every limit: the words before do not depend on it.
+            let untranslated = points.first?.previousWordsUntranslated ?? 0
+            if evaluation.previousWordInWrongLayout {
+                print("words before not translated to the other layout (those words ran with no word before): \(untranslated)")
+                json["wordContextSweepUntranslated"] = untranslated
             }
             json["wordContextSweepPreviousWord"] = evaluation.previousWordInWrongLayout ? "wrongLayout" : "asMeant"
             json["wordContextSweep"] = points.map { point -> [String: Any] in

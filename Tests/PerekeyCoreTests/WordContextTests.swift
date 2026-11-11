@@ -241,6 +241,31 @@ import Testing
         #expect(Machine.typeAfterRussianWord(limit: 8, before: "привет ") == "привет на ")
     }
 
+    @Test func aWordWithAPeriodIsJudgedWithTheSameWordBeforeAtThePeriodAndAtTheSpace() throws {
+        // "привет." is judged at the period and again at the space; the period
+        // makes the next word a first one, not the word itself.
+        for key in ["." as Character, "!"] {
+            var desk = Machine.desk(limit: 8)
+            desk.appLayout = Fixture.russian.id
+            desk.send(.layoutChanged(Fixture.russian.id))
+            desk.type("мир привет", on: Fixture.russian)
+            desk.type(String(key), on: Fixture.russian)
+            let atPeriod = desk.machine.judge.contextAtJudge
+            let sentenceAtPeriod = desk.machine.judge.sentenceStart
+            #expect(sentenceAtPeriod, "the period starts a sentence for the next word")
+            desk.type(" ", on: Fixture.russian)
+            let atSpace = desk.machine.judge.contextAtJudge
+            #expect(atPeriod.previousWord != nil, "\(key)")
+            #expect(atSpace.previousWord == atPeriod.previousWord, "\(key)")
+            #expect(atSpace == atPeriod, "\(key)")
+            // The word after the period is a first one.
+            desk.appLayout = Fixture.abc.id
+            desk.send(.layoutChanged(Fixture.abc.id))
+            desk.type("yf")
+            #expect(desk.machine.judge.realWordBefore(desk.machine.buffer, layouts: desk.machine.layouts) == nil)
+        }
+    }
+
     @Test func aBackspaceThroughTheBoundaryForgetsTheWordBefore() {
         var desk = Machine.desk(limit: 8)
         desk.appLayout = Fixture.russian.id

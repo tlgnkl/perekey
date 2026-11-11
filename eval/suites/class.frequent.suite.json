@@ -1,0 +1,45 @@
+{
+ "about": "The most frequent words of each language, en ↔ ru. The rule over the lexicon",
+ "class": {
+  "languages": [
+   "ru",
+   "en"
+  ],
+  "minZipf": 0.0,
+  "rule": "frequent",
+  "seeds": "class.frequent.txt",
+  "top": 5000
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.cold",
+  "slip.cold"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.frequent",
+ "tags": [
+  "class",
+  "frequent"
+ ],
+ "tiers": {
+  "ci": 1200,
+  "full": 10000
+ },
+ "version": 1
+}

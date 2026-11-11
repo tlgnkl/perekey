@@ -1,0 +1,45 @@
+{
+ "about": "Names of cities and of people, one word each with a capital (en ↔ ru). GeoNames and a Wikidata extract",
+ "class": {
+  "corpus": "geonames/cities15000.zip",
+  "corpusFull": "wikidata/given-names.json",
+  "languages": [
+   "ru",
+   "en"
+  ],
+  "rule": "names",
+  "seeds": "class.names.txt"
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "GeoNames CC BY 4.0; Wikidata CC0; wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.cold",
+  "slip.cold"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.names",
+ "tags": [
+  "class",
+  "names"
+ ],
+ "tiers": {
+  "ci": 800,
+  "full": 50000
+ },
+ "version": 1
+}

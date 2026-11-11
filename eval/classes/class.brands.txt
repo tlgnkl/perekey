@@ -1,0 +1,28 @@
+# Затравка набора class.brands. Правило над словарём или корпусом даёт основную массу набора;
+# этот список только начинает класс и проверяет правило: сборка печатает,
+# сколько слов затравки правило нашло само. Второй столбец — группа пробы
+# (~/Documents/perekey-eval/probe/items.tsv), по ней отчёт сверяет числа с пробой.
+zoom	brands.en
+slack	brands.en
+telegram	brands.en
+github	brands.en
+google	brands.en
+chatgpt	brands.en
+claude	brands.en
+openai	brands.en
+figma	brands.en
+notion	brands.en
+jira	brands.en
+iphone	brands.en
+macbook	brands.en
+youtube	brands.en
+wifi	brands.en
+email	brands.en
+login	brands.en
+admin	brands.en
+whatsapp	brands.en
+ozon	brands.en
+wildberries	brands.en
+yandex	brands.en
+tinkoff	brands.en
+sber	brands.en

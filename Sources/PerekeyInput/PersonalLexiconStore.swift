@@ -142,7 +142,7 @@ public final class PersonalLexiconStore {
     @ObservationIgnored private let keys: any LexiconKeyStore
     @ObservationIgnored private let options: PersonalOptions
     @ObservationIgnored private let saveInterval: Double
-    @ObservationIgnored private let sleep: @MainActor (Double) async -> Void
+    @ObservationIgnored private let sleep: @Sendable (Double) async -> Void
     @ObservationIgnored private let today: @MainActor () -> Int
     @ObservationIgnored private let clock: @MainActor () -> Double
     @ObservationIgnored private let sessionOnly: Bool
@@ -173,7 +173,8 @@ public final class PersonalLexiconStore {
     ///   - today: the calendar day, as the app numbers days.
     ///   - allowed: false under a profile that forbids the lexicon
     ///     (`ManagedSettings.personalWordsDisabled`, read once, at launch).
-    ///   - sleep: waits for the held back write; the tests run it by hand.
+    ///   - sleep: waits for the held back write; the tests run it by hand. Not main-actor: a task
+    ///     that awaits a main-actor closure trips a Swift runtime check in the CI toolchain.
     ///   - sessionOnly: the typing recording's build (`PEREKEY_RECORD`): the
     ///     store draws a key of its own for the run, in memory, reads no
     ///     keychain and no file, and keeps no word. The machine observes
@@ -186,7 +187,7 @@ public final class PersonalLexiconStore {
                 options: PersonalOptions = PersonalOptions(), saveInterval: Double = PersonalLexiconStore.defaultSaveInterval,
                 today: @escaping @MainActor () -> Int, allowed: Bool = true, sessionOnly: Bool = false,
                 clock: @escaping @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime },
-                sleep: @escaping @MainActor (Double) async -> Void = { try? await Task.sleep(for: .seconds($0)) })
+                sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(for: .seconds($0)) })
     {
         permitted = allowed
         forbidden = !allowed

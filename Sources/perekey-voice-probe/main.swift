@@ -24,6 +24,10 @@ func usage() -> Never {
           net-control                 one HTTPS request, to test the sampler
           store <command> [id...]     the app's model store in $PEREKEY_VOICE_MODELS
           dictate <id> <audio>... [--realtime] [--runs n]  the app's dictation path, from files
+          dictate-set <id> <speech-dir> [--seconds s] [--runs n] [--instant] [--pieces | --both]
+                      [--minimum s] [--pause s] [--prompt-words n]
+                                      the app's dictation path on the speech set, joined up to s seconds,
+                                      recognized whole or in pieces while spoken
           score <id> <speech-dir> [--hint | --both] [--head s] [--runs n]
                                       word and character errors and time on the speech set
           speech                      Apple Speech locales
@@ -84,6 +88,8 @@ do {
         try await StoreCommand.run(rest)
     case "dictate":
         try await DictateCommand.run(rest)
+    case "dictate-set":
+        try await DictateSetCommand.run(rest)
     case "score":
         try await ScoreCommand.run(rest)
     case "speech":

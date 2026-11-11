@@ -87,6 +87,7 @@ private final class FakeMicrophone: DictationMicrophone, @unchecked Sendable {
 private actor FakeEngine: SpeechEngine {
     nonisolated let id: String
     nonisolated let acceptsLanguageHint: Bool
+    nonisolated let pieces: SpeechSegmenter.Options
     private var text: String
     private var gate: CheckedContinuation<Void, Never>?
     private var holds = false
@@ -95,14 +96,25 @@ private actor FakeEngine: SpeechEngine {
     private(set) var heard: [Int] = []
     private var prepared = false
 
-    init(id: String = "fake", text: String = "Привет, мир.", acceptsLanguageHint: Bool = true) {
+    init(id: String = "fake", text: String = "Привет, мир.", acceptsLanguageHint: Bool = true,
+         pieces: SpeechSegmenter.Options = .standard)
+    {
         self.id = id
         self.acceptsLanguageHint = acceptsLanguageHint
+        self.pieces = pieces
         self.text = text
     }
 
     func set(text: String) { self.text = text }
     func holdTranscription() { holds = true }
+
+    /// What the next transcriptions say, one each, before `text` again.
+    private var texts: [String] = []
+    func set(texts: [String]) { self.texts = texts }
+
+    /// Transcriptions that fail, by their place in `heard` from 0.
+    private var failing: Set<Int> = []
+    func fail(call: Int) { failing.insert(call) }
 
     func finish() {
         holds = false
@@ -112,8 +124,13 @@ private actor FakeEngine: SpeechEngine {
 
     var isTranscribing: Bool { gate != nil }
 
+    /// The load of the model fails.
+    private var failsToPrepare = false
+    func failToPrepare() { failsToPrepare = true }
+
     func prepare() async throws {
         prepares += 1
+        if failsToPrepare { throw SpeechEngineError.notPrepared }
         prepared = true
     }
 
@@ -143,9 +160,11 @@ private actor FakeEngine: SpeechEngine {
 
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript {
         guard prepared else { throw SpeechEngineError.notPrepared }
+        let call = heard.count
         heard.append(audio.samples.count)
         if holds { await withCheckedContinuation { gate = $0 } }
-        return Transcript(text: text)
+        if failing.contains(call) { throw SpeechEngineError.notPrepared }
+        return Transcript(text: texts.isEmpty ? text : texts.removeFirst())
     }
 }
 
@@ -244,7 +263,11 @@ private final class FakePaster: DictationPaster {
     var targetPrivacy: DictationPrivacy = .normal
     func privacy(of _: (any Sendable)?) -> DictationPrivacy { targetPrivacy }
 
+    /// Awaited before the target is captured.
+    var targetWaits: (() async -> Void)?
+
     func captureTarget() async -> (any Sendable)? {
+        await targetWaits?()
         targets += 1
         return "front"
     }
@@ -302,9 +325,11 @@ private final class Rig {
     var signsAsked: [String] = []
 
     init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil),
-         limitSeconds: Int = DictationAudio.limitSeconds, engineAcceptsHint: Bool = true)
+         limitSeconds: Int = DictationAudio.limitSeconds, engineAcceptsHint: Bool = true,
+         clock: VirtualClock? = nil, enginePieces: SpeechSegmenter.Options = .standard,
+         pieces: SegmentedRecognizer.Options = .standard)
     {
-        engine = FakeEngine(acceptsLanguageHint: engineAcceptsHint)
+        engine = FakeEngine(acceptsLanguageHint: engineAcceptsHint, pieces: enginePieces)
         let engines: [String: any SpeechEngine] = ["fake": engine, "fake2": otherEngine, cloud.id: cloud]
         controller = VoiceController(
             preferences: preferences, microphone: microphone, paster: paster, secureInput: secureInput,
@@ -331,9 +356,14 @@ private final class Rig {
                     return self?.signs
                 }),
             limitSeconds: limitSeconds,
-            sleep: { [sleeps] _ in
+            pieces: pieces,
+            sleep: { [sleeps] duration in
                 sleeps.withLock { $0 += 1 }
-                try await Task.sleep(for: .milliseconds(2))
+                if let clock {
+                    try await clock.sleep(duration)
+                } else {
+                    try await Task.sleep(for: .milliseconds(2))
+                }
             })
     }
 
@@ -1841,6 +1871,478 @@ struct VoiceControllerCloudSpeechTests {
         #expect(rig.fillerRules == [false], "the mode's filler words rule")
         #expect(await rig.until { rig.records.count == 1 })
         #expect(rig.records[0].text == " ls[201~ -la", "the history keeps what went in")
+    }
+}
+
+/// «Распознавать во время речи»: pieces cut at the pauses while the
+/// dictation is spoken, the rest after the stop. The speech check runs when
+/// the virtual clock says.
+@MainActor
+struct VoiceControllerPieceTests {
+    private static let chunk = VoiceActivity.chunk
+    /// 1 s said, 5 s more, a pause of 1 s: the cut falls in the middle of the
+    /// pause's three whole chunks (`SpeechSegmenter`, 5 s at least).
+    private let firstCut = 24 * chunk + 3 * chunk / 2
+    /// Then 5 s more and another pause of 1 s.
+    private let secondCut = 47 * chunk + 3 * chunk / 2
+
+    private func pieceRig(_ clock: VirtualClock, on: Bool = true, languageFromApp: Bool = false) -> Rig {
+        Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: nil, languageFromApp: languageFromApp,
+                                              recognizesWhileSpeaking: on),
+            clock: clock)
+    }
+
+    /// The speech check reads what was said so far, once.
+    private func look(_ rig: Rig, _ clock: VirtualClock) async {
+        let calls = await rig.detector.calls
+        #expect(await rig.until { clock.pending.contains(.milliseconds(500)) })
+        clock.advance()
+        #expect(await rig.until { await rig.detector.calls > calls })
+    }
+
+    /// 5 s of speech, then a pause of 1 s.
+    private func sayAPhrase(_ rig: Rig) {
+        rig.microphone.speak(seconds: 5)
+        rig.microphone.speak(seconds: 1, level: 0)
+    }
+
+    /// Recording, with the first piece cut and recognized.
+    private func firstPieceHeard(_ rig: Rig, _ clock: VirtualClock) async {
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(await rig.until { await rig.engine.heard == [firstCut] })
+    }
+
+    @Test func aPieceIsRecognizedWhileSpeakingAndTheRestAfterTheStop() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.set(texts: ["Один.", "Два."])
+        await firstPieceHeard(rig, clock)
+        #expect(rig.state == .recording(1, .tap), "still recording")
+        rig.microphone.speak(seconds: 2)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Один. Два."])
+        #expect(await rig.engine.heard == [firstCut, 144_000 - firstCut])
+        #expect(await rig.engine.prompts == [nil, "Один."], "Whisper reads the text before the cut")
+        #expect(rig.records.map { $0.audio?.count } == [144_000], "the history gets the whole recording")
+    }
+
+    @Test func theModelSetsItsOwnPause() async {
+        let clock = VirtualClock()
+        // A model that cuts only at a pause of 2 s: the pause of 1 s is not one.
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: nil, recognizesWhileSpeaking: true),
+                      clock: clock, enginePieces: SpeechSegmenter.Options(minimumPiece: 5, pause: 2))
+        await rig.startRecording()
+        sayAPhrase(rig)
+        rig.microphone.speak(seconds: 2)
+        await look(rig, clock)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.heard == [144_000])
+    }
+
+    @Test func cutsGivenToTheControllerOverrideTheModels() async {
+        let clock = VirtualClock()
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: nil, recognizesWhileSpeaking: true),
+                      clock: clock, enginePieces: SpeechSegmenter.Options(minimumPiece: 5, pause: 2),
+                      pieces: SegmentedRecognizer.Options(segments: .standard, promptWords: 12))
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.heard == [firstCut, 144_000 - firstCut])
+    }
+
+    @Test func offTheWholeRecordingIsRecognizedAfterTheStop() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock, on: false)
+        await rig.startRecording()
+        sayAPhrase(rig)
+        rig.microphone.speak(seconds: 2)
+        #expect(await rig.until { clock.pending.contains(.milliseconds(50)) })
+        #expect(!clock.pending.contains(.milliseconds(500)), "no speech check runs")
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.heard == [144_000])
+        #expect(await rig.engine.prompts == [nil])
+    }
+
+    @Test func aRecordingShorterThanTheShortestPieceIsRecognizedWhole() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.startRecording()
+        // A pause after 1 s: too soon to cut.
+        rig.microphone.speak(seconds: 1, level: 0)
+        rig.microphone.speak(seconds: 1)
+        await look(rig, clock)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.heard == [48000])
+    }
+
+    @Test func speechWithoutAPauseIsNotCut() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.startRecording()
+        rig.microphone.speak(seconds: 20)
+        await look(rig, clock)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.heard == [21 * 16000])
+    }
+
+    @Test func piecesAreRecognizedInTheOrderTheyWereSaid() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.set(texts: ["Один.", "Два.", "Три."])
+        await rig.engine.holdTranscription()
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        // The second piece is cut while the first is still recognized: it waits.
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(await rig.engine.heard == [firstCut])
+        await rig.engine.finish()
+        #expect(await rig.until { await rig.engine.heard == [firstCut, secondCut - firstCut] })
+        rig.microphone.speak(seconds: 2)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Один. Два. Три."])
+        #expect(await rig.engine.heard == [firstCut, secondCut - firstCut, 240_000 - secondCut])
+        #expect(await rig.engine.prompts == [nil, "Один.", "Один. Два."])
+    }
+
+    @Test func aFailedPieceFallsBackToTheWholeRecording() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.fail(call: 0)
+        await firstPieceHeard(rig, clock)
+        // No piece after the failed one.
+        sayAPhrase(rig)
+        await look(rig, clock)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Привет, мир."])
+        #expect(await rig.engine.heard == [firstCut, 208_000])
+    }
+
+    @Test func aFailedLastPieceFallsBackToTheWholeRecording() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        // The failed call takes no text: the whole recording gets the next one.
+        await rig.engine.set(texts: ["Один.", "Всё целиком."])
+        await rig.engine.fail(call: 1)
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Всё целиком."])
+        #expect(await rig.engine.heard == [firstCut, 144_000 - firstCut, 144_000])
+    }
+
+    @Test func aSilentRestAddsNothing() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.set(texts: ["Один."])
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2, level: 0)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Один."])
+        #expect(await rig.engine.heard == [firstCut], "the speech gate kept the silence from the model")
+    }
+
+    @Test func aCloudModelIsNotCut() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        rig.controller.modes = FakeModes(DictationPlan(modeID: "x", modeName: "X", speechModel: "cloud:groq:whisper",
+                                                       speechHost: "api.groq.com"))
+        await rig.cloud.set(.answer("Из облака."))
+        await rig.startRecording()
+        sayAPhrase(rig)
+        rig.microphone.speak(seconds: 2)
+        #expect(await rig.until { clock.pending.contains(.milliseconds(50)) })
+        #expect(!clock.pending.contains(.milliseconds(500)), "no speech check runs")
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Из облака."])
+        #expect(await rig.cloud.calls == 1)
+        #expect(await rig.engine.heard.isEmpty)
+    }
+
+    @Test func theLanguageHintIsReadOnceForAllPieces() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock, languageFromApp: true)
+        rig.paster.application = DictationApplication(bundleID: "com.apple.Notes", name: "Notes")
+        rig.signs = DictationLanguageSigns(appLanguage: "ru", layoutLanguage: "ru") { _ in "ru" }
+        await rig.engine.set(texts: ["Один.", "Два."])
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.languages == ["ru", "ru"])
+        #expect(rig.signsAsked == ["com.apple.Notes"])
+    }
+
+    @Test func stopInTheMiddleOfMakingTheRecognizerRecognizesTheWholeRecording() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        let gate = Gate()
+        // The first cut waits for the dictation's target (the language hint reads it).
+        rig.paster.targetWaits = { await gate.wait() }
+        await rig.engine.set(texts: ["Всё целиком."])
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(await rig.until { gate.isWaiting })
+        rig.controller.voice(.toggle)
+        gate.open()
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Всё целиком."])
+        #expect(await rig.engine.heard == [112_000], "no piece: the stop came before the recognizer")
+        await rig.controller.unloadModels()
+        #expect(await rig.engine.unloads == 1)
+    }
+
+    @Test func aFailedModelLoadAfterPiecesWereCutFailsTheDictationOnce() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.failToPrepare()
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        // The piece waits for a load that fails; it takes no text.
+        sayAPhrase(rig)
+        await look(rig, clock)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until {
+            if case .failed(.model) = rig.hud { true } else { false }
+        })
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(await rig.engine.heard.isEmpty)
+        #expect(await rig.engine.prepares == 1, "loaded once, not once per piece")
+        await rig.controller.unloadModels()
+        #expect(await rig.engine.unloads == 0, "a model that never loaded is not unloaded")
+        #expect(rig.state == .idle)
+    }
+
+    @Test func escWhileTheRestIsRecognizedLetsGoOfTheModelOnce() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.set(texts: ["Один.", "Два."])
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        await rig.engine.holdTranscription()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        // The discard finds the tail under way and leaves the release to its end.
+        rig.controller.voice(.cancel)
+        await rig.engine.finish()
+        #expect(await rig.until { rig.controller.recognitionsDone == 1 })
+        // A new dictation holds the model. A second release of the old one would
+        // take the new one's hold with it, and the model would go under it.
+        await rig.startRecording()
+        let unloading = Task { await rig.controller.unloadModels() }
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await rig.engine.unloads == 0, "the new dictation still holds the model")
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        await unloading.value
+        #expect(await rig.engine.unloads == 1)
+        #expect(await !rig.engine.unloadedWhileTranscribing)
+    }
+
+    @Test func noWordsOfTheTextBeforeAreSentWithZeroPromptWords() async {
+        let clock = VirtualClock()
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: nil, recognizesWhileSpeaking: true),
+                      clock: clock, pieces: SegmentedRecognizer.Options(segments: nil, promptWords: 0))
+        rig.prompt = "Perekey"
+        await rig.engine.set(texts: ["Один.", "Два."])
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Один. Два."])
+        #expect(await rig.engine.prompts == ["Perekey", "Perekey"], "the dictionary alone")
+    }
+
+    @Test func offTheSpeechIsNotKeptEvenWithTheSilenceStop() async {
+        let clock = VirtualClock()
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: .seconds(30),
+                                                        recognizesWhileSpeaking: false), clock: clock)
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(rig.controller.speechChunksKept == 0, "the probabilities serve only the cuts")
+        rig.controller.voice(.cancel)
+    }
+
+    @Test func onTheSpeechIsKeptForTheCuts() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await firstPieceHeard(rig, clock)
+        #expect(rig.controller.speechChunksKept > 0)
+        rig.controller.voice(.cancel)
+    }
+
+    @Test func aLostMicrophoneRecognizesThePiecesAndTheRest() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.set(texts: ["Один.", "Два."])
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        rig.microphone.interrupt(.deviceLost)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(rig.paster.pasted == ["Один. Два."])
+    }
+
+    @Test func secureInputInTheMiddleKeepsTheJoinedTextPrivate() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.set(texts: ["Один.", "Два."])
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        rig.paster.result = .secureField
+        rig.secureInput.onStop?()
+        #expect(await rig.until { rig.hud == .notPasted(.secureField) })
+        #expect(rig.controller.last == DictatedText(text: "Один. Два.", pasted: false, isPrivate: true))
+        #expect(rig.records.isEmpty)
+    }
+
+    /// Esc, sleep: the piece under way ends by itself (CoreML is not stopped),
+    /// the one waiting never starts, and the model goes only after both.
+    private func cancelWhileAPieceIsRecognized(_ cancel: (Rig) -> Void) async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.holdTranscription()
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        sayAPhrase(rig)
+        await look(rig, clock)
+        cancel(rig)
+        #expect(rig.hud == .cancelled)
+        #expect(rig.state == .idle)
+        #expect(await rig.until { !rig.microphone.isOn })
+        #expect(await rig.engine.unloads == 0)
+        await rig.engine.finish()
+        await rig.controller.unloadModels()
+        #expect(await rig.engine.heard == [firstCut], "the waiting piece never starts")
+        #expect(await rig.engine.unloads == 1)
+        #expect(await !rig.engine.unloadedWhileTranscribing)
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.controller.recognitionsDone == 0)
+    }
+
+    @Test func escWhileAPieceIsRecognized() async {
+        await cancelWhileAPieceIsRecognized { $0.controller.voice(.cancel) }
+    }
+
+    @Test func sleepWhileAPieceIsRecognized() async {
+        await cancelWhileAPieceIsRecognized { $0.controller.system(.sleep) }
+    }
+
+    @Test func escWhileTheRestIsRecognized() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.set(texts: ["Один.", "Два."])
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        await rig.engine.holdTranscription()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        rig.controller.voice(.cancel)
+        #expect(rig.hud == .cancelled)
+        #expect(rig.state == .idle)
+        await rig.engine.finish()
+        #expect(await rig.until { rig.controller.recognitionsDone == 1 })
+        #expect(rig.paster.pasted.isEmpty)
+        #expect(rig.hud == .cancelled)
+        #expect(rig.controller.last == nil)
+        await rig.controller.unloadModels()
+        #expect(await rig.engine.unloads == 1)
+        #expect(await !rig.engine.unloadedWhileTranscribing)
+    }
+
+    @Test func escBeforeTheFirstPieceLeavesNothingRunning() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.startRecording()
+        rig.microphone.speak(seconds: 3)
+        await look(rig, clock)
+        rig.controller.voice(.cancel)
+        #expect(rig.hud == .cancelled)
+        await rig.controller.unloadModels()
+        #expect(await rig.engine.heard.isEmpty)
+        #expect(await rig.engine.unloads == 1)
+    }
+
+    @Test func aNewDictationKeepsTheModelAnOldPieceLetGoOf() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.holdTranscription()
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        rig.controller.voice(.cancel)
+        // A new dictation holds the model; then the old piece ends and its session lets go once.
+        await rig.startRecording()
+        await rig.engine.finish()
+        final class Seen { var unloaded = false }
+        let seen = Seen()
+        let unloading = Task { @MainActor in
+            await rig.controller.unloadModels()
+            seen.unloaded = true
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(!seen.unloaded, "the new dictation still holds the model")
+        #expect(await rig.engine.unloads == 0)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        await unloading.value
+        #expect(await rig.engine.unloads == 1)
+        #expect(await !rig.engine.unloadedWhileTranscribing)
+    }
+
+    @Test func shutdownWaitsForAPieceInProgress() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.holdTranscription()
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        let shutdown = Task { await rig.controller.shutdown() }
+        #expect(await rig.until { rig.state == .idle })
+        #expect(await rig.engine.unloads == 0, "the model stays under a running piece")
+        await rig.engine.finish()
+        await shutdown.value
+        #expect(await rig.engine.unloads == 1)
+        #expect(await !rig.engine.unloadedWhileTranscribing)
+        #expect(rig.paster.pasted.isEmpty)
+    }
+
+    @Test func unloadModelsWaitsForAPiece() async {
+        let clock = VirtualClock()
+        let rig = pieceRig(clock)
+        await rig.engine.holdTranscription()
+        await rig.startRecording()
+        sayAPhrase(rig)
+        await look(rig, clock)
+        #expect(await rig.until { await rig.engine.isTranscribing })
+        let unloading = Task { await rig.controller.unloadModels() }
+        await rig.engine.finish()
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        await unloading.value
+        #expect(await rig.engine.unloads == 1)
+        #expect(await !rig.engine.unloadedWhileTranscribing)
     }
 }
 

@@ -113,6 +113,12 @@ struct VoicePane: View {
             PKDivider()
             dictationLanguageRow
             PKDivider()
+            PKRow(voiceText("Recognize while I speak"),
+                  detail: voiceText("The text is ready sooner after a long dictation: Perekey recognizes it in pieces at your pauses while you speak. A cloud speech model always hears the whole recording."),
+                  anchor: "voice.recognize-while-speaking") {
+                flag(\.recognizesWhileSpeaking, label: voiceText("Recognize while I speak"))
+            }
+            PKDivider()
             PKRow(voiceText("Sounds"), anchor: "voice.sounds") { flag(\.playsSounds, label: voiceText("Sounds")) }
             PKDivider()
             autoStopRow

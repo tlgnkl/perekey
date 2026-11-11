@@ -23,6 +23,17 @@ differently, what was fixed.
   without the hint. The default is «Automatic», as before. Parakeet does not
   take the hint: for it nothing is asked and nothing is recognized twice, so
   it changes nothing.
+- **Recognize while I speak.** In Settings → Voice you can turn on «Recognize
+  while I speak». A long dictation is then recognized in pieces at your pauses
+  while you are still talking, so after you stop only the last piece is left
+  and the text comes sooner. Speech without pauses is not cut, and a piece is
+  never shorter than a few seconds, so a short phrase is recognized whole as
+  before. If a piece fails, Perekey recognizes the whole recording. With «As
+  in the app» the language is read once, at the first piece, and every piece
+  of the dictation gets it: a switch of the app or the layout during the speech
+  is not seen, so that the pieces do not go in different languages. A cloud
+  speech model always gets the whole recording, one request per dictation. Off
+  by default.
 
 ## [0.2.0] - 2026-10-27
 

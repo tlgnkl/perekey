@@ -25,6 +25,8 @@
 "Dictation language" = "Язык диктовки";
 "As in the app: when the app's language and the layout agree, the model is told it. Otherwise it finds the language itself." = "Как в программе: если язык программы и раскладка совпадают, модель получает этот язык. Иначе она определяет язык сама.";
 "As in the app" = "Как в программе";
+"Recognize while I speak" = "Распознавать во время речи";
+"The text is ready sooner after a long dictation: Perekey recognizes it in pieces at your pauses while you speak. A cloud speech model always hears the whole recording." = "Текст после долгой диктовки готов быстрее: Perekey распознаёт её кусками по вашим паузам, пока вы говорите. Облачная модель речи всегда слышит запись целиком.";
 "Sounds" = "Звуки";
 "Stop by itself after" = "Останавливать запись через";
 "A long recording stops and is typed at this limit." = "Долгая запись остановится и напечатается, когда выйдет это время.";

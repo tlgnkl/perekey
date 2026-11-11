@@ -36,6 +36,8 @@ enum Drop: String, CaseIterable, Hashable, Error {
     /// A character a layout of the set does not type without ⌥ and Caps Lock.
     case unprintable
     case duplicate
+    /// A named entity the reader does not know (`&foo;`) is left in the text: the sentence is not what the person wrote.
+    case entity
     /// `stuck` and `clean.toggle` need both scripts in the text.
     case singleScript
     /// There is no sentence of the other language to warm up with.
@@ -153,6 +155,7 @@ enum UnitParser {
         if let maximum = limits?.maxTokens, quick > maximum, !(manifest.transform ?? []).contains(.stripPunctuation) {
             return .failure(.tooLong)
         }
+        if hasUnknownEntity(text) { return .failure(.entity) }
         var text = text
         if manifest.effectiveNormalize == .keyboard { text = keyboard(text) }
         for step in manifest.transform ?? [] {
@@ -188,6 +191,29 @@ enum UnitParser {
             }
         }
         return .success(unit)
+    }
+
+    /// `&name;` or `&#…;` left in a sentence: `SourceText` reads the entities it knows (the five of XML, a few
+    /// of HTML, the numeric ones), so what remains is one it does not.
+    static func hasUnknownEntity(_ text: String) -> Bool {
+        let bytes = Array(text.utf8)
+        var index = 0
+        while index < bytes.count {
+            guard bytes[index] == UInt8(ascii: "&") else {
+                index += 1
+                continue
+            }
+            var end = index + 1
+            while end < bytes.count, end - index <= 10,
+                  bytes[end] == UInt8(ascii: "#") || (0x30...0x39).contains(bytes[end]) || (0x41...0x5A).contains(bytes[end])
+                  || (0x61...0x7A).contains(bytes[end])
+            {
+                end += 1
+            }
+            if end > index + 1, end < bytes.count, bytes[end] == UInt8(ascii: ";") { return true }
+            index += 1
+        }
+        return false
     }
 
     /// Runs of non-whitespace scalars, the code marks not counted as text.

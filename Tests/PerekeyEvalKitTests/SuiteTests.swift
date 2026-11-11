@@ -215,6 +215,15 @@ enum SuiteFixtures {
         #expect(try parse("tab\u{7F}x").isFailure(.unprintable))
     }
 
+    @Test func aNamedEntityTheReaderDoesNotKnowDropsTheUnit() throws {
+        #expect(try parse("цена 5 &euro; за штуку").isFailure(.entity))
+        #expect(try parse("текст &#xZZ; и ещё слова").isFailure(.entity))
+        // Not entities: a bare ampersand, a pair of words, a read entity.
+        #expect(try parse("Том & Джерри; снова вместе").isFailure(.entity) == false)
+        let read = SourceText.paragraphs(fromBody: "&lt;p&gt;a &amp;amp; b &amp;laquo;x&amp;raquo;&lt;/p&gt;")
+        #expect(read == ["a & b «x»"])
+    }
+
     @Test func theReportNamesTheCharactersTheSetCannotType() throws {
         let manifest = try SuiteFixtures.manifest(extra: ",\"normalize\":\"none\"")
         #expect(UnitParser.unprintableCharacters("«Привет» é ok", manifest: manifest, set: set, library: Repo.library) == ["«", "»", "é"])

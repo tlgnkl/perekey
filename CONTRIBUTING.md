@@ -76,8 +76,9 @@ handles, with what it answered: keys (key codes, so typed text), layout
 changes, focus (bundle IDs), clicks, retypes, corrections with the original and
 the new word. A segment starts with the machine's state, settings included, so
 it holds the words from your settings too: the exceptions, the words learned per
-app, the always-fix spellings. This is in a build with `PEREKEY_RECORD` only. A selection is recorded as as many «x» as it had
-characters. The model is not recorded, only its languages and options.
+app, the always-fix spellings. This is in a build with `PEREKEY_RECORD` only.
+A selection is recorded as many «x» as it had characters. The model is not
+recorded, only its languages and options.
 
 **What is never recorded.** While the focus is a password field, while Secure
 Input is on, while the focus is in a password manager (1Password,
@@ -114,13 +115,14 @@ what you typed.
 **How it works.** On the tap thread the engine only appends the event and the
 output to an array in memory (`RecordingBuffer`); every 256 events or once a
 second the array goes to the recorder's own queue (`SessionRecorder`, utility
-QoS), which encodes and appends it to the file. No disk on the tap thread, and
-no memory made there: the arrays are made once when the recording is switched
-on (16 of 256 entries, about 650 KB), the recorder gives each used array back
-empty, and the engine only swaps them. What is left on the tap thread per batch
-is one `queue.async`, which allocates the closure it carries (a few pointers),
-once in 256 events or a second; it is not removable without a lock the tap
-thread would wait on. When all 16 arrays are out, the recording writes
+QoS), which encodes and appends it to the file. No disk on the tap thread. In
+memory: no memory per event; a snapshot at a segment start allocates (rare:
+after a gap, at the start, once a day); one `queue.async` per batch, which
+allocates the closure it carries (a few pointers), once in 256 events or a
+second, and is not removable without a lock the tap thread would wait on. The
+arrays are made once when the recording is switched on (16 of 256 entries, about
+650 KB), the recorder gives each used array back empty, and the engine only
+swaps them. When all 16 arrays are out, the recording writes
 `gap(overflow)` and typing goes on unslowed. The engine checks whether the
 machine is at a quiet point with one cheap question; the machine's state is
 copied only when a segment opens. A write that fails (disk full, folder gone)

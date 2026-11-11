@@ -75,9 +75,11 @@ final class RecordingPipeline {
         recorder.finish(buffer.takeAll())
     }
 
-    /// The files were erased: starts over, the next segment starts a file.
+    /// The files were erased: starts over, the next segment starts a file, and
+    /// the recorder takes batches again.
     func restart() {
         buffer.restart()
+        recorder.resume()
         publish()
     }
 

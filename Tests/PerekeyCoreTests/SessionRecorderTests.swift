@@ -359,6 +359,7 @@ extension Session {
         harness.handOver()
         #expect(harness.files.isEmpty)
         harness.buffer.restart()
+        harness.recorder.resume()
         let start = desk.time
         desk.send(.click(time: desk.time, onHint: false))
         desk.type("ghbdtn ")
@@ -457,14 +458,63 @@ extension Session {
                 if !batch.isEmpty { handed.append(batch) }
             }
         }
+        let capacity = buffer.entries.capacity
         desk.send(.focusChanged(Desk.textEdit))
         desk.type("hello world ")
         #expect(handed.count == 1)
         // The gap that ends the segment is in the array that cannot leave.
         #expect(buffer.entries.contains { if case .gap(.overflow) = $0 { true } else { false } })
         #expect(buffer.entries.count <= options.batch)
-        #expect(buffer.entries.capacity < 2 * options.batch)
+        #expect(buffer.entries.capacity == capacity)
+        #expect(handed.allSatisfy { $0.capacity == capacity })
         #expect(buffer.status == .waiting)
+    }
+
+    /// A step and then a snapshot of a new file (a new day, a new file after a
+    /// failure) fit in the array with room for both: the array that is about to
+    /// leave never grows, for any `batch`, with `resume` of 1.
+    @Test(arguments: [3, 4, 5, 8])
+    func aStepAndASnapshotDoNotGrowTheArray(batch: Int) {
+        var options = RecordingBuffer.Options()
+        options.batch = batch
+        options.buffers = 3
+        options.resume = 1
+        var buffer = RecordingBuffer(options: options)
+        var desk = Desk()
+        desk.send(.focusChanged(Desk.textEdit))
+        let machine = desk.machine
+        let click = InputEvent.click(time: desk.time, onHint: false)
+        let capacity = buffer.entries.capacity
+        // The first segment opens at the focus event.
+        _ = buffer.record(.focusChanged(Desk.textEdit), Output(), quiet: { true },
+                          snapshot: { (machine.snapshot, machine.classifier) })
+        #expect(buffer.status == .recording)
+        buffer.written([], newDay: true)
+        // Not quiet until the array has room for one entry more.
+        while buffer.entries.count < batch - 1 {
+            let full = buffer.record(click, Output(), quiet: { false }, snapshot: { (machine.snapshot, machine.classifier) })
+            #expect(!full)
+        }
+        // The step fills the array; the snapshot of the new file follows it.
+        let full = buffer.record(click, Output(), quiet: { true }, snapshot: { (machine.snapshot, machine.classifier) })
+        #expect(full)
+        #expect(buffer.entries.count == batch + 1)
+        #expect(buffer.entries.capacity == capacity)
+        let handed = buffer.take()
+        #expect(handed.capacity == capacity)
+        #expect(buffer.entries.capacity == capacity)
+        buffer.written(handed, newDay: false)
+        #expect(buffer.spareBuffers <= options.buffers - 1)
+        // And once more, after an overflow with `resume` of 1.
+        var more = 0
+        while buffer.status != .waiting, more < 10 * batch {
+            if buffer.record(click, Output(), quiet: { false }, snapshot: { (machine.snapshot, machine.classifier) }) {
+                _ = buffer.take()
+            }
+            more += 1
+        }
+        #expect(buffer.entries.capacity == capacity)
+        #expect(buffer.entries.count <= batch + 1)
     }
 
     // MARK: - The machine is not touched

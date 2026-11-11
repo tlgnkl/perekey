@@ -256,7 +256,9 @@ public final class InputEngine: @unchecked Sendable {
     /// that starts with a snapshot.
     public func eraseRecordings(_ recorder: SessionRecorder) {
         recorder.eraseAll { [weak self] in
-            self?.perform { $0.recording?.restart() }
+            self?.perform { engine in
+                if let recording = engine.recording { recording.restart() } else { recorder.resume() }
+            }
         }
     }
     #endif
@@ -613,6 +615,8 @@ public final class InputEngine: @unchecked Sendable {
     private func beginRecording(_ recorder: SessionRecorder, excludedApps: Set<String>) {
         endRecording()
         recordings += 1
+        // A new buffer starts over, as after an erasing the earlier one did not finish.
+        recorder.resume()
         recording = RecordingPipeline(
             recorder: recorder, excludedApps: excludedApps, number: recordings,
             hop: { [weak self] block in self?.perform { block($0.recording) } },

@@ -217,5 +217,42 @@ final class PipelineHarness {
         #expect(session.keyTimes.count == 2 * "ghbdtn ".count)
         #expect(session.firstMismatch() == nil)
     }
+
+    /// A batch handed over before the buffer heard of the erasing must not
+    /// bring a file back: not with a snapshot of the running file, and not with
+    /// a snapshot that starts a new one (after a failed write).
+    @Test(arguments: [false, true])
+    func aBatchQueuedWhileErasingLeavesNoFile(newFile: Bool) throws {
+        let harness = PipelineHarness()
+        let pipeline = harness.make()
+        var desk = Desk()
+        harness.attach(pipeline, to: &desk)
+        desk.send(.focusChanged(Desk.textEdit))
+        desk.type("hello ")
+        pipeline.tick()
+        harness.deliver()
+        #expect(harness.files.count == 1)
+        // The erasing is in the recorder's queue, the buffer has not heard of it.
+        harness.recorder.eraseAll()
+        desk.type("secret ")
+        let machine = desk.machine
+        let stale: [RecordingBuffer.Entry] = [
+            .snapshot(machine.snapshot, machine.classifier, newFile: newFile),
+            .step(.click(time: desk.time, onHint: false), Output()),
+        ]
+        harness.recorder.write(stale) { _ in }
+        harness.recorder.drain()
+        pipeline.tick()
+        harness.recorder.drain()
+        #expect(harness.files.isEmpty)
+        // The buffer heard: the recording starts again, in a file of its own.
+        pipeline.restart()
+        desk.send(.click(time: desk.time, onHint: false))
+        desk.type("ghbdtn ")
+        pipeline.finish()
+        let session = try #require(try harness.sessions().first)
+        #expect(harness.files.count == 1)
+        #expect(session.keyTimes.count == 2 * "ghbdtn ".count)
+    }
 }
 #endif

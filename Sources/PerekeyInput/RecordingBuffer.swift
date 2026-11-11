@@ -26,9 +26,11 @@ public enum TypingRecordingStatus: Sendable, Equatable {
 /// machine has them. Turning them into session lines (`RecordedEvent`,
 /// `OutputDigest`), encoding and writing happen on the recorder's queue.
 ///
-/// No memory is allocated on the tap thread. The arrays are made once, when
-/// the buffer is: `Options.buffers` of them, each with room for
-/// `Options.batch` entries. The array that is filling is handed over every
+/// No memory per event; a snapshot at a segment start allocates (the copy of
+/// the machine's state, rare, see below); one `queue.async` per batch. The
+/// arrays are made once, when the buffer is: `Options.buffers` of them, each
+/// with room for `Options.batch` entries and two more (a step may be followed
+/// by the snapshot of a new segment). The array that is filling is handed over every
 /// `Options.batch` entries or when the engine's timer asks (once a second),
 /// another one from the spare ones takes its place, and the recorder gives the
 /// used one back (`written`), empty and with its room. When none is spare and
@@ -138,11 +140,11 @@ public struct RecordingBuffer {
     public init(options: Options = Options(), excludedApps: Set<String> = RecordingBuffer.passwordManagers) {
         self.options = options
         self.excludedApps = excludedApps
-        entries.reserveCapacity(options.batch)
+        entries.reserveCapacity(room)
         spare.reserveCapacity(options.buffers)
         for _ in 1..<max(1, options.buffers) {
             var array: [Entry] = []
-            array.reserveCapacity(options.batch)
+            array.reserveCapacity(room)
             spare.append(array)
         }
         focusBlocks = Self.blocks(nil, excludedApps)
@@ -171,6 +173,11 @@ public struct RecordingBuffer {
         if let app = focus.bundleID, excluded.contains(app) { return .excludedApp }
         return focus.isKnown ? nil : .unknownFocus
     }
+
+    /// Entries an array holds without growing. A step that fills the array
+    /// (`batch`) can be followed by the snapshot of a new file (`record`,
+    /// `.open`): `batch + 1`; one more is left over.
+    private var room: Int { options.batch + 2 }
 
     /// One more entry fits, and the array can leave when it is full.
     private var hasRoom: Bool {
@@ -269,7 +276,7 @@ public struct RecordingBuffer {
     public mutating func written(_ returned: [Entry], newDay: Bool, failed: Bool = false) {
         var returned = returned
         if !returned.isEmpty { returned.removeAll(keepingCapacity: true) }
-        if returned.capacity < options.batch { returned.reserveCapacity(options.batch) }
+        if returned.capacity < room { returned.reserveCapacity(room) }
         if spare.count < options.buffers - 1 { spare.append(returned) }
         if newDay { newFile = true }
         if failed {

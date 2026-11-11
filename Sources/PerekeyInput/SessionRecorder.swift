@@ -129,6 +129,11 @@ public final class SessionRecorder: @unchecked Sendable {
     private var sweptDay: String?
     /// The batch being written could not be created or written to a file.
     private var failed = false
+    /// The files were erased and the buffer has not started over yet
+    /// (`resume`). The generation of the recording: batches that reach the queue
+    /// in this stretch were made before the buffer heard of the erasing, and
+    /// are dropped; read and set on `queue` only, so the tap thread reads nothing.
+    private var erased = false
 
     /// The recorder's answer about a batch.
     public struct Written: Sendable {
@@ -186,7 +191,8 @@ public final class SessionRecorder: @unchecked Sendable {
 
     private func perform(_ batch: [RecordingBuffer.Entry], close: Bool) -> Written {
         failed = false
-        append(batch)
+        // Typed before the buffer heard of the erasing: not for a file.
+        if !erased { append(batch) }
         if close { closeFile() }
         let today = dayName(now())
         let newDay = day.map { $0 != today } ?? false
@@ -199,13 +205,25 @@ public final class SessionRecorder: @unchecked Sendable {
     }
 
     /// Closes the file and removes every recording, after the batches
-    /// handed over before. The buffer must start over (`RecordingBuffer.restart`).
+    /// handed over before. Batches handed over after it, until `resume()`,
+    /// are dropped: they hold what was typed before the buffer heard of the
+    /// erasing, and a snapshot among them would open a file again. `then`
+    /// runs on the queue; the buffer must start over
+    /// (`RecordingBuffer.restart`) and then call `resume()`.
     public func eraseAll(then: @escaping @Sendable () -> Void = {}) {
         queue.async { [self] in
             closeFile()
             folder.eraseAll()
+            erased = true
             then()
         }
+    }
+
+    /// The buffer started over after `eraseAll`: its batches are written
+    /// again. Called on the tap thread after `restart()`, so every batch
+    /// queued before it is ahead of this in the queue and dropped.
+    public func resume() {
+        queue.async { [self] in erased = false }
     }
 
     /// Removes the recordings older than `SessionFolder.lifetime`. The

@@ -3,10 +3,13 @@
 // Measures the classifier on the held-out corpus. scripts/eval.sh wraps it.
 //
 //   perekey-eval corpus --cache <dir> --code <dir> --out <file> [--words N] [--seed S] [--pair en-uk|en-be|en-kk]
+//                       [--real-word-items N --model <file or dir>]
 //   perekey-eval run --model <file> --corpus <file> --layouts <dir> [--pair en-uk|en-be|en-kk [--uk-layout <name>]]
 //                    [--threshold T] [--sweep] [--errors N per category] [--json <file>]
 //                    [--typo-score S] [--typo-margin M] [--typo-sweep]
 //                    [--typo-context W] [--typo-context-sweep [--typo-weights 0,0.25,...]]
+//                    [--real-words [--real-word-lift B] [--real-word-slack S] [--real-word-margin B] [--real-word-no-ending] [--real-word-swaps-only]]
+//                    [--real-word-sweep [--real-word-lifts 4,5,6,...] [--real-word-slacks 0,16,32,...]]
 //                    [--context-bonus B] [--context-decay D] [--context-sweep [--bonuses 3,4] [--decays 0,1]]
 //                    [--prior-scale S] [--prior-limit L] [--prior-sweep]
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
@@ -19,6 +22,9 @@
 //                       [--layouts <dir> --words <hyphen.txt>]
 //   perekey-eval pairs --model <file or dir> --language ru|en [--cache <dir>] [--wiki <file>]
 //                      [--tsv <file> --budgets 2,4,8,16]
+//   perekey-eval realword --model <file or dir> --language ru|en --layouts <dir> [--cache <dir>] [--wiki <file>]
+//                         [--every K] [--list N] [--real-word-lift B] [--real-word-slack S] [--real-word-margin B]
+//                         [--off]
 //   perekey-eval cases|play|case|selfcheck ...: the quality bench (docs/eval.md, PerekeyEvalKit)
 //   perekey-eval replay check|words|compare <.pksession files> --model <dir> [--json <file>] [--show-words]
 //                       [--candidate-model <dir>] [--candidate-options <json or file>]
@@ -90,6 +96,14 @@
 // word; docs/corrections.md, «Опечатки с контекстом»); `--typo-context-sweep`
 // prints the wrong corrections of every category and the typos fixed over
 // the weights of `--typo-weights` (0 to 1.5 by default).
+// `--real-words` lets the corrector replace a word of the dictionary too: one swap
+// or one neighbouring key away, where the pair table likes the other word far more
+// after the word before and does not know the typed pair (`TypoCorrector.Options.
+// realWordLift`, docs/classifier.md, «Опечатки-слова»). `corpus --real-word-items N`
+// adds the category `realword` (Tatoeba words typed as other words) to the corpus,
+// after every other word, so a corpus without it is the corpus as it was.
+// `realword` runs the corrector over clean text (Tatoeba, a held-out Wikipedia
+// file) and counts the dictionary words it changes: all of them wrong.
 // `--context-sweep` runs the corpus over the weight of the previous word and
 // how much each word before it counts (`Classifier.Options.contextBonus` and
 // `contextDecay`); `--prior-sweep` over the app prior's scale and limit. Both
@@ -116,19 +130,41 @@ if CommandLine.arguments.dropFirst().first == "replay" {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen", "pairs"]
+guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen", "pairs", "realword"]
     .contains(command)
 else {
-    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen|pairs|replay ... (see the source header)")
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen|pairs|realword|replay ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
     if ["--sweep", "--typo-sweep", "--typo-context-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep",
-        "--lead"].contains(argument) {
+        "--lead", "--real-words", "--real-word-sweep", "--off", "--real-word-no-ending", "--real-word-swaps-only"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
+    }
+}
+
+/// The `--real-word-*` flags, parsed strictly: a wrong value stops the run, it never falls back to the default.
+@MainActor func applyRealWordFlags(to typoOptions: inout TypoCorrector.Options) {
+    if let text = flags["--real-word-lift"] {
+        guard let lift = Double(text), lift.isFinite, lift >= 0 else {
+            fail("--real-word-lift: \"\(text)\" is not a number of bits (0 up, e.g. 6)")
+        }
+        typoOptions.realWordLift = lift
+    }
+    if let text = flags["--real-word-slack"] {
+        guard let slack = Int(text), slack >= 0 else { fail("--real-word-slack: \"\(text)\" is not a number (0 up)") }
+        typoOptions.realWordSlack = slack
+    }
+    if flags["--real-word-no-ending"] != nil { typoOptions.realWordEnding = false }
+    if flags["--real-word-swaps-only"] != nil { typoOptions.realWordKeys = false }
+    if let text = flags["--real-word-margin"] {
+        guard let margin = Double(text), margin.isFinite, margin >= 0 else {
+            fail("--real-word-margin: \"\(text)\" is not a number of bits (0 up, e.g. 1)")
+        }
+        typoOptions.realWordMargin = margin
     }
 }
 
@@ -159,13 +195,26 @@ do {
         switch pairLanguage {
         case "uk": items = try Corpus.buildUkrainian(cache: cache, words: words, seed: seed)
         case let language?: items = try Corpus.buildSmallPair(language: language, cache: cache, words: words, seed: seed)
-        case nil: items = try Corpus.build(cache: cache, code: code, words: words, seed: seed)
+        case nil:
+            var realWords: (count: Int, isWord: (String, String) -> Bool)?
+            if let text = flags["--real-word-items"] {
+                guard let count = Int(text), count > 0, let modelPath = flags["--model"] else {
+                    fail("--real-word-items needs a number above 0 and --model")
+                }
+                let model = try ModelFile.load(modelPath, languages: ["ru", "en"])
+                realWords = (count, { language, word in
+                    model.language(language)?.rank(of: ModelFormat.Fingerprint.of(word.unicodeScalars, folded: true)) != nil
+                })
+            }
+            items = try Corpus.build(cache: cache, code: code, words: words, seed: seed, realWords: realWords)
         }
         try Corpus.write(items, to: out)
         var counts: [String: Int] = [:]
         for item in items { counts[item.category, default: 0] += 1 }
         print("wrote \(out): \(items.count) words")
-        for category in Corpus.categories { print(String(format: "  %-9@ %7d", category as NSString, counts[category] ?? 0)) }
+        for category in Corpus.categories where category != "realword" || counts[category] != nil {
+            print(String(format: "  %-9@ %7d", category as NSString, counts[category] ?? 0))
+        }
 
     case "run":
         guard let modelPath = flags["--model"], let corpusPath = flags["--corpus"], let layouts = flags["--layouts"] else {
@@ -189,12 +238,14 @@ do {
             }
             typoOptions.contextWeight = weight
         }
+        applyRealWordFlags(to: &typoOptions)
         let cyrillic = (cyrillicCode, flags["--uk-layout"] ?? [
             "uk": "Ukrainian-PC", "be": "Byelorussian", "kk": "Kazakh",
         ][cyrillicCode] ?? "Russian")
-        let evaluation = Evaluation(model: model, layouts: [
+        var evaluation = Evaluation(model: model, layouts: [
             cyrillic.0: layout(cyrillic.1, in: layouts), "en": layout("ABC", in: layouts),
         ], options: options, typoOptions: typoOptions)
+        evaluation.realWords = flags["--real-words"] != nil
 
         let results = evaluation.run(items, maxErrors: Int(flags["--errors"] ?? "12") ?? 12)
         print(Evaluation.report(results))
@@ -224,14 +275,64 @@ do {
             "wrongCorrectionRate": results.total.wrongCorrectionRate,
             "typosFixed": results.total.fixedShare,
             "categories": results.categories.map { category -> [String: Any] in
-                ["name": category.name, "keepWords": category.keepWords, "falseSwitches": category.falseSwitches,
-                 "switchWords": category.switchWords, "switches": category.switches,
-                 "checkedWords": category.checkedWords, "wrongCorrections": category.wrongCorrections,
-                 "typoWords": category.typoWords, "typosFixed": category.typosFixed]
+                var entry: [String: Any] = [
+                    "name": category.name, "keepWords": category.keepWords, "falseSwitches": category.falseSwitches,
+                    "switchWords": category.switchWords, "switches": category.switches,
+                    "checkedWords": category.checkedWords, "wrongCorrections": category.wrongCorrections,
+                    "typoWords": category.typoWords, "typosFixed": category.typosFixed,
+                ]
+                // Only the category of words that are words has these: a corpus without it writes the file it always wrote.
+                if category.name == "realword" {
+                    entry["realWordWords"] = category.realWordWords
+                    entry["realWordsFixed"] = category.realWordsFixed
+                    entry["realWordsWrong"] = category.realWordsWrong
+                }
+                if evaluation.realWords { entry["realWordChanges"] = category.realWordChanges }
+                return entry
             },
         ]
         // Only a run that uses the word before says so: a run without it writes the file it always wrote.
         if typoOptions.contextWeight != 0 { json["typoContextWeight"] = typoOptions.contextWeight }
+        if evaluation.realWords {
+            json["realWords"] = true
+            json["realWordLift"] = typoOptions.realWordLift
+            json["realWordSlack"] = typoOptions.realWordSlack
+            json["realWordMargin"] = typoOptions.realWordMargin
+        }
+        if flags["--real-word-sweep"] != nil {
+            func list<T>(_ key: String, _ fallback: [T], _ parse: (Substring) -> T?) -> [T] {
+                guard let text = flags[key] else { return fallback }
+                return text.split(separator: ",").map { part in
+                    guard let value = parse(part) else { fail("\(key): \"\(part)\" is not a number") }
+                    return value
+                }
+            }
+            let lifts = list("--real-word-lifts", [4.0, 5, 6, 7, 8, 9, 10, 12], { Double($0) })
+            let slacks = list("--real-word-slacks", [0, 16, 32, 64], { Int($0) })
+            let points = evaluation.realWordSweep(items, lifts: lifts, slacks: slacks)
+            let names = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos", "apps"]
+            print("\nreal word sweep: lift, slack, dictionary words changed per category ("
+                + names.joined(separator: " ") + "), all, typos fixed, realword fixed / wrong")
+            for point in points {
+                let counts = names.map { name in
+                    String(format: "%5d", point.categories.first { $0.name == name }?.realWordChanges ?? 0)
+                }.joined(separator: " ")
+                let category = point.categories.first { $0.name == "realword" }
+                print(String(format: "  %5.1f %4d  %@ %6d  %6.2f%%  %6.2f%% / %d", point.typoOptions.realWordLift,
+                             point.typoOptions.realWordSlack, counts as NSString, point.total.realWordChanges,
+                             point.total.fixedShare * 100, (category?.realWordShare ?? 0) * 100,
+                             category?.realWordsWrong ?? 0))
+            }
+            json["realWordSweep"] = points.map { point -> [String: Any] in
+                ["lift": point.typoOptions.realWordLift, "slack": point.typoOptions.realWordSlack,
+                 "typosFixed": point.total.fixedShare, "realWordChanges": point.total.realWordChanges,
+                 "categories": point.categories.map { category -> [String: Any] in
+                     ["name": category.name, "realWordChanges": category.realWordChanges,
+                      "realWordWords": category.realWordWords, "realWordsFixed": category.realWordsFixed,
+                      "realWordsWrong": category.realWordsWrong]
+                 }]
+            }
+        }
         if flags["--typo-context-sweep"] != nil {
             let weights = flags["--typo-weights"].map { list in
                 list.split(separator: ",").map { part in
@@ -463,6 +564,43 @@ do {
                     lifts[ModelFormat.pairKey(previous: $0, word: $1)]
                 }
             }
+        }
+
+    case "realword":
+        guard let modelPath = flags["--model"], let code = flags["--language"], let layouts = flags["--layouts"],
+              code == "ru" || code == "en"
+        else { fail("--model, --language ru|en and --layouts are required") }
+        let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
+        let model = try ModelFile.load(modelPath, languages: [code])
+        guard let language = model.language(code) else { fail("no \(code) in \(modelPath)") }
+        var typoOptions = TypoCorrector.Options()
+        applyRealWordFlags(to: &typoOptions)
+        let corrector = TypoCorrector(model: model, options: typoOptions)
+        let map = layout(code == "ru" ? "Russian" : "ABC", in: layouts)
+        let realWords = flags["--off"] == nil
+        let texts = try PairEvaluation.tatoeba(language: code, cache: cache)
+        var corpora = [("Tatoeba prose", texts.prose), ("Tatoeba chat", texts.chat)]
+        if let wiki = flags["--wiki"] {
+            let every = flags["--every"].map { text in
+                guard let n = Int(text), n >= 1 else { fail("--every: \"\(text)\" is not a number (1 up)") }
+                return n
+            } ?? 1
+            var articles: [String] = []
+            var index = 0
+            try TextLines.forEach(path: wiki) { line in
+                if index % every == 0 { articles.append(String(decoding: line, as: UTF8.self)) }
+                index += 1
+            }
+            corpora.append(("Wikipedia (held out)" + (every > 1 ? ", every \(every)th article" : ""), articles))
+        }
+        print(String(format: "%@ words that are words: lift from %.1f bits, rank slack %d, margin %.1f bits, model %@, %@",
+                     code as NSString, typoOptions.realWordLift, typoOptions.realWordSlack, typoOptions.realWordMargin,
+                     modelPath as NSString, (realWords ? "on" : "off") as NSString))
+        for (name, sentences) in corpora {
+            let result = RealWordEvaluation.measure(sentences, name: name, corrector: corrector, layout: map,
+                                                    language: language, realWords: realWords)
+            print(result.report)
+            for line in result.top(Int(flags["--list"] ?? "12") ?? 12) { print("      \(line)") }
         }
 
     case "word":

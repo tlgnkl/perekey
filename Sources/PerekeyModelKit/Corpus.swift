@@ -57,7 +57,7 @@ public enum Corpus {
     /// Categories whose strings are typed in the English layout only.
     public static let englishOnly: Set<String> = ["code", "url", "password"]
     public static let categories = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos",
-                                    "apps"]
+                                    "apps", "realword"]
 
     /// Share of each category in a sample. Typos and apps come on top of
     /// the classifier's categories: each grows the sample of `words` by a tenth.
@@ -74,7 +74,10 @@ public enum Corpus {
     /// - Parameters:
     ///   - cache: the data cache of scripts/fetch-data.sh.
     ///   - code: a directory of Swift sources for the code category.
-    public static func build(cache: String, code: String, words: Int, seed: UInt64) throws -> [CorpusItem] {
+    ///   - realWords: how many words of the category `realword` to add, and what a word of the dictionary
+    ///     is (language, word). Nil, the default, adds none and leaves every other word as it is.
+    public static func build(cache: String, code: String, words: Int, seed: UInt64,
+                             realWords: (count: Int, isWord: (String, String) -> Bool)? = nil) throws -> [CorpusItem] {
         var random = SplitMix64(seed: seed)
         var items: [CorpusItem] = []
         let quota = { (category: String) in Int(Double(words) * shares[category]!) }
@@ -189,6 +192,29 @@ public enum Corpus {
             let words = Double(100 + random.next() % 2900)
             let app = [favoured: (share * words).rounded(), other: ((1 - share) * words).rounded()]
             count += add(tokens, category: "apps", app: app, to: &items)
+        }
+
+        // Words that are words: a word of a sentence typed as another word, one swap or one
+        // neighbouring key away (docs/classifier.md, «Опечатки-слова»). Both are words of the
+        // dictionary; the word meant is in the fifth column. Last of all, so no other word moves.
+        if let realWords {
+            count = 0
+            while count < realWords.count, let sentence = random.bool() ? ru.next() : en.next() {
+                let tokens = sentence.lowercased().split(separator: " ").map { token in
+                    String(token.filter { $0.isLetter })
+                }
+                let candidates = tokens.indices.filter { tokens[$0].count >= 4 && language(of: tokens[$0]) != nil }
+                guard !candidates.isEmpty else { continue }
+                let index = candidates[Int(random.next() % UInt64(candidates.count))]
+                let word = tokens[index]
+                guard let lang = language(of: word), let typo = Synthetic.typo(of: word, language: lang, random: &random),
+                      typo.count == word.count, realWords.isWord(lang, word), realWords.isWord(lang, typo)
+                else { continue }
+                let recent = tokens[max(0, index - RecentLanguages.capacity)..<index].reversed().map { language(of: $0) }
+                items.append(CorpusItem(category: "realword", language: lang, recent: recent, text: typo, expected: word,
+                                        previousWords: wordsBefore(tokens, at: index)))
+                count += 1
+            }
         }
         return items
     }

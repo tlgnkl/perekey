@@ -81,7 +81,7 @@ public enum EvalCommands {
                     count += 1
                     var found = CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
                     if try CaseCodec.line(item) != line { found.append("the line is not canonical: sorted keys, no spaces") }
-                    for problem in found { EvalContext.out("\(file): \(item.id): \(problem)") }
+                    for problem in found { EvalContext.out("\(file): \(shown(item, store)): \(problem)") }
                     problems += found.isEmpty ? 0 : 1
                 }
             }
@@ -95,12 +95,17 @@ public enum EvalCommands {
                 if let split = parsed.value("--split"), item.split.rawValue != split { continue }
                 let want = item.isPersonal ? Redactor.withheld
                     : item.split == .dev || reveal ? item.want.debugDescription : "(test)"
-                EvalContext.out("\(item.id)\t\(item.split.rawValue)\t\(want)")
+                EvalContext.out("\(shown(item, store))\t\(item.split.rawValue)\t\(want)")
             }
             return 0
         default:
             throw EvalError.input("unknown command cases \(sub): check, list or build")
         }
+    }
+
+    /// The id of a case for the output: a personal case by its salted id.
+    static func shown(_ item: EvalCase, _ store: PrivateStore?) -> String {
+        item.shownID(item.isPersonal ? try? store?.redactor() : nil)
     }
 
     // MARK: - personal
@@ -254,7 +259,7 @@ public enum EvalCommands {
             if let only, !only.contains(item.suite) { continue }
             if split != "all", item.split.rawValue != split { continue }
             problems += CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
-                .map { "\(file): \(item.id): \($0)" }
+                .map { "\(file): \(shown(item, store)): \($0)" }
             items.append(item)
         }
         guard problems.isEmpty else {
@@ -344,7 +349,7 @@ public enum EvalCommands {
             throw EvalError.input("no case \(id)")
         }
         if original.isPersonal {
-            throw EvalError.input("\(id) is in a personal set: its words are never printed; read the run folder instead")
+            throw EvalError.input("the case is in a personal set: its words are never printed; read the run folder instead")
         }
         if original.split == .test, !parsed.flag("--reveal-test") {
             throw EvalError.input("\(id) is in the test part: its words are shown only with --reveal-test")
@@ -404,7 +409,7 @@ public enum EvalCommands {
         let store = try parsed.store()
         for (file, item) in try CaseFiles.read(files, store: store) {
             let found = CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
-            for problem in found { failures.append("\(file): \(item.id): \(problem)") }
+            for problem in found { failures.append("\(file): \(shown(item, store)): \(problem)") }
             problems += found.isEmpty ? 0 : 1
         }
         guard problems == 0 else {
@@ -437,7 +442,7 @@ public enum EvalCommands {
                 != Scorer.normalize(played.item.want, played.item.effectiveFold)
         }
         lines.append("2. oracle: \(oracle.count - oracleWrong.count) of \(oracle.count) exact")
-        for played in oracleWrong { failures.append("oracle is not exact on \(played.item.id)") }
+        for played in oracleWrong { failures.append("oracle is not exact on \(shown(played.item, store))") }
 
         // 3. The machine with the preset `off` types what Null types, where
         // the case presses no shortcut and no Undo.
@@ -451,7 +456,7 @@ public enum EvalCommands {
         }) {
             compared += 1
             if played.out.text != nullPlayed.out.text {
-                failures.append("machine off differs from null on \(played.item.id)" + (played.score.hidden || played.score.personal ? ""
+                failures.append("machine off differs from null on \(shown(played.item, store))" + (played.score.hidden || played.score.personal ? ""
                         : ": \(played.out.text.debugDescription) vs \(nullPlayed.out.text.debugDescription)"))
             }
         }

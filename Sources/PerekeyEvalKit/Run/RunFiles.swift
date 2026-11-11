@@ -189,6 +189,12 @@ public enum RunFiles {
             throw EvalError.input("a run with a personal set needs \(PrivateStore.variable)")
         }
         var info = info
+        // The id of a personal case is a hash of its content: files name it with the salted one.
+        let scores = personal ? scores.map { score -> CaseScore in
+            var named = score
+            if named.personal { named.id = redactor?.caseID(score.id) ?? score.id }
+            return named
+        } : scores
         if personal { info.personal = true }
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true,
                                                 attributes: personal ? [.posixPermissions: 0o700] : nil)

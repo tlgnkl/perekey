@@ -71,7 +71,7 @@ public struct Runner {
             return try playChecked(original)
         } catch where original.isPersonal {
             // The message of a failure may quote the person's text.
-            throw EvalError.input("\(original.id): cannot be played (\(type(of: error))); the details of a personal case are withheld")
+            throw EvalError.input("\(original.shownID(nil)): cannot be played (\(type(of: error))); the details of a personal case are withheld")
         }
     }
 
@@ -189,7 +189,7 @@ public enum CaseFiles {
             }
             for item in items {
                 if item.isPersonal, !inStore {
-                    throw EvalError.input("\(item.id): a personal case is read only from a file inside \(PrivateStore.variable)"
+                    throw EvalError.input("\(item.shownID(nil)): a personal case is read only from a file inside \(PrivateStore.variable)"
                         + (store == nil ? ", which is not set" : ""))
                 }
                 if !item.isPersonal, inStore {

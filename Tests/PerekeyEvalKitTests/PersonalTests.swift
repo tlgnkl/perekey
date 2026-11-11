@@ -295,13 +295,15 @@ enum Recording {
             run(["cases", "personal", sessions, "--model", model, "--name", "privacy"])
         }
 
-        /// The words a run could leak: the text meant, what Null typed and what the machine made of it.
+        /// The words a run could leak: the text meant, what Null typed and what the machine made of it,
+        /// and the id of each case, which is a hash of its content that a guess at a word would give back.
         func secrets() throws -> Set<String> {
             var words: Set<String> = []
             for item in try CaseCodec.read(file: cases) {
                 let played = try Cases.play(item)
                 for text in [item.want, played.null.text, played.out.text] { words.formUnion(Tokenizer.tokens(text)) }
                 words.formUnion(Tokenizer.tokens(TargetText.of(item).full))
+                words.insert(String(item.id.split(separator: "/").last ?? ""))
             }
             return words.filter { $0.count >= 4 }
         }
@@ -320,6 +322,26 @@ enum Recording {
         func leaks(of secrets: Set<String>, in texts: [(name: String, text: String)]) -> [String] {
             texts.flatMap { entry in secrets.filter { entry.text.contains($0) }.map { "\(entry.name) holds \($0.count) letters of a word" } }
         }
+    }
+
+    @Test func aRunNamesAPersonalCaseByASaltedId() throws {
+        let bench = try Bench()
+        defer { bench.remove() }
+        #expect(bench.build() == 0)
+        let run = bench.store.path + "/run"
+        #expect(bench.run(["play", "--cases", bench.cases, "--system", "null", "--out", run]) == 0)
+        let own = try CaseCodec.read(file: bench.cases).map(\.id)
+        let named = try String(contentsOfFile: run + "/cases.tsv", encoding: .utf8).split(separator: "\n").dropFirst()
+            .map { String($0.split(separator: "\t")[0]) }
+        #expect(named.count == own.count)
+        #expect(Set(named).isDisjoint(with: own))
+        #expect(zip(named, own).allSatisfy { $0.split(separator: "/").dropLast() == $1.split(separator: "/").dropLast() },
+                "the suite and the scenario stay")
+        let again = bench.store.path + "/again"
+        #expect(bench.run(["play", "--cases", bench.cases, "--system", "null", "--out", again]) == 0)
+        let second = try String(contentsOfFile: again + "/cases.tsv", encoding: .utf8)
+        #expect(second == (try String(contentsOfFile: run + "/cases.tsv", encoding: .utf8)), "the same ids in every run of the store")
+        #expect(FileManager.default.fileExists(atPath: bench.store.path + "/.metadata_never_index"))
     }
 
     @Test func theSetIsBuiltInTheStoreAndPrintsCountsOnly() throws {

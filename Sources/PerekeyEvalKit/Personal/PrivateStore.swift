@@ -36,6 +36,9 @@ public struct PrivateStore: Sendable {
             guard creating else { throw EvalError.input("\(Self.variable): no such folder \(path)") }
             try FileManager.default.createDirectory(atPath: resolved, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
+            // Spotlight does not index a folder that has this file.
+            FileManager.default.createFile(atPath: (resolved as NSString).appendingPathComponent(".metadata_never_index"),
+                                           contents: nil, attributes: [.posixPermissions: 0o600])
         } else if !isDirectory.boolValue {
             throw EvalError.input("\(Self.variable) is not a folder: \(path)")
         }
@@ -153,6 +156,25 @@ public struct Redactor: Sendable {
         return "h:" + hex.prefix(Self.digits)
     }
 
+    /// The id of a personal case as the files and the output of a run name it.
+    /// The id in the set's own file is a hash of the case's content, and a
+    /// guess at a short word gives it away; this one is salted. The suite and
+    /// the scenario stay, so the files read as before.
+    public func caseID(_ id: String) -> String {
+        let parts = id.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return hash(id) }
+        return "\(parts[0])/\(parts[1])/" + hash(id).dropFirst(2)
+    }
+
     /// What files say for a text of a personal case when no salt is at hand.
     public static let withheld = "(personal)"
+}
+
+public extension EvalCase {
+    /// The id for files and messages: the case's own, or, for a personal case,
+    /// the salted one; without the salt only the suite and the scenario.
+    func shownID(_ redactor: Redactor?) -> String {
+        guard isPersonal else { return id }
+        return redactor?.caseID(id) ?? "\(suite)/\(scenario)/\(Redactor.withheld)"
+    }
 }

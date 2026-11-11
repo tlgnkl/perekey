@@ -85,7 +85,10 @@ public enum CaseCheck {
         if item.v != EvalCase.version { problems.append("format version \(item.v)") }
         do {
             let computed = try item.computedID()
-            if item.id != computed { problems.append("id \(item.id) is not the hash of the content: \(computed)") }
+            if item.id != computed {
+                problems.append(hidden ? "the id is not the hash of the content"
+                    : "id \(item.id) is not the hash of the content: \(computed)")
+            }
         } catch {
             problems.append(hidden ? "cannot hash the content" : "cannot hash the content: \(error)")
         }

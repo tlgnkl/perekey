@@ -97,7 +97,6 @@ public struct PersonalLexiconFile: Sendable {
         let (temporary, handle) = try Self.createTemporary(in: directory)
         do {
             try handle.write(contentsOf: data)
-            try handle.synchronize()
             guard fchmod(handle.fileDescriptor, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EPERM) }
             try handle.close()
             if FileManager.default.fileExists(atPath: url.path) {

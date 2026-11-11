@@ -1445,7 +1445,8 @@ typos), а с веса 1 chat и apps вырастают на ~530 и ~195 сл�
 perekey-eval corpus --cache .build/data-cache --code <Sources основы> --out corpus-rw.tsv --words 1000000 --seed 1 --real-word-items 100000 --model .build/model
 perekey-eval run --model .build/model --corpus corpus-rw.tsv --layouts Tests/PerekeyCoreTests/Fixtures [--real-words] --errors 0
 perekey-eval run … --real-word-sweep --real-word-lifts 6,8,10,12,14,16,20 --real-word-slacks 0,16,32,64
-perekey-eval realword --model .build/model --language en --layouts … --cache .build/data-cache --wiki .build/data-cache/pairs/en.heldout.txt --real-word-lift B
+perekey-eval realword --model .build/model --language en --layouts … --cache .build/data-cache --wiki .build/data-cache/pairs/en.heldout.txt --real-word-lift B --every 10
+perekey-eval realword … --wiki .build/data-cache/pairs/<язык>.heldout.txt --real-word-lift B --real-word-swaps-only   # весь файл, без --every
 ```
 
 **Выключено — как было.** `perekey-eval run` на корпусе основы (1 млн слов, без
@@ -1482,10 +1483,10 @@ perekey-eval realword --model .build/model --language en --layouts … --cache .
 вместо 174) почти без потери (12,49 % вместо 12,58 %), но до нуля не доводит; slack
 64 даёт 231 слово.
 
-**Чистый текст** (`perekey-eval realword`, слов словаря изменено на миллион; en
-на каждой десятой статье Википедии, ru так же):
+**Чистый текст** (`perekey-eval realword … --every 10`, слов словаря изменено на
+миллион; Википедия — каждая десятая статья отложенного файла, у en и ru):
 
-| lift | en prose | en chat | en Wikipedia | ru prose | ru chat | ru Wikipedia |
+| lift | en prose | en chat | en Wikipedia (каждая 10-я) | ru prose | ru chat | ru Wikipedia (каждая 10-я) |
 |---|---|---|---|---|---|---|
 | 6 | 129,8 | 323,3 | 71,0 | 260,1 | 382,2 | 71,0 |
 | 10 | 6,1 | 16,6 | 7,1 | 65,6 | 113,7 | 13,6 |
@@ -1514,9 +1515,11 @@ perekey-eval realword --model .build/model --language en --layouts … --cache .
 | 9 | 0 | 0,52 % | 0 |
 | 10 | 0 | 0,35 % | 0 |
 
-На чистом тексте (слов словаря изменено, весь отложенный файл Википедии):
+На чистом тексте (`perekey-eval realword … --real-word-swaps-only`, **без**
+`--every`; слов словаря изменено, Википедия — весь отложенный файл, а не каждая
+десятая статья, поэтому колонки Википедии не сравнивать с таблицей выше):
 
-| lift | en prose | en chat | en Wikipedia | ru prose | ru chat | ru Wikipedia |
+| lift | en prose | en chat | en Wikipedia (весь файл) | ru prose | ru chat | ru Wikipedia (весь файл) |
 |---|---|---|---|---|---|---|
 | 6 | 47 | 60 | 162 | 8 | 23 | 92 |
 | 8 | 8 | 16 | 45 | 3 | 8 | 22 |

@@ -34,6 +34,10 @@ public struct SuiteManifest: Hashable, Sendable {
     /// How the text is made typeable and what is cut from it before the filter.
     public var normalize: Normalize?
     public var transform: [Transform]?
+    /// With several source files: take as many units from each, the number the
+    /// smallest file has. `true` when absent. A small file (Tatoeba `kaz`) would
+    /// otherwise run out and the rest of the suite would be the other language.
+    public var balance: Bool?
     public var fold: [String]?
     public var tags: [String]?
 
@@ -105,6 +109,7 @@ public struct SuiteManifest: Hashable, Sendable {
     public var effectiveSettings: String { settings ?? "default" }
     public var effectiveEnd: End { end ?? .space }
     public var effectiveNormalize: Normalize { normalize ?? .keyboard }
+    public var effectiveBalance: Bool { balance ?? true }
 
     public var sources: [String] {
         source.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
@@ -139,7 +144,7 @@ public struct SuiteManifest: Hashable, Sendable {
 extension SuiteManifest: Codable {
     private static let fields: Set<String> = [
         "suite", "version", "epoch", "seed", "about", "reader", "source", "license", "sampling", "layoutSets",
-        "scenarios", "settings", "end", "filter", "tiers", "split", "normalize", "transform", "fold", "tags",
+        "scenarios", "settings", "end", "filter", "tiers", "split", "normalize", "transform", "balance", "fold", "tags",
     ]
 
     public init(from decoder: any Decoder) throws {
@@ -163,6 +168,7 @@ extension SuiteManifest: Codable {
         split = try c.required(SplitSpec.self, "split")
         normalize = try c.optional(Normalize.self, "normalize")
         transform = try c.optional([Transform].self, "transform")
+        balance = try c.optional(Bool.self, "balance")
         fold = try c.optional([String].self, "fold")
         tags = try c.optional([String].self, "tags")
     }
@@ -187,6 +193,7 @@ extension SuiteManifest: Codable {
         try c.encode(split, forKey: AnyKey("split"))
         try c.encodeIfPresent(normalize, forKey: AnyKey("normalize"))
         try c.encodeIfPresent(transform, forKey: AnyKey("transform"))
+        try c.encodeIfPresent(balance, forKey: AnyKey("balance"))
         try c.encodeIfPresent(fold, forKey: AnyKey("fold"))
         try c.encodeIfPresent(tags, forKey: AnyKey("tags"))
     }

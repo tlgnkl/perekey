@@ -43,12 +43,12 @@ enum SuiteFixtures {
                                "in", "the", "park", "if", "weather", "is", "nice", "enough", "today"]
 
     /// A Tatoeba cache with `count` sentences of each language: `id\tlang\ttext`, bzip2.
-    static func tatoebaCache(count: Int = 300) throws -> String {
+    static func tatoebaCache(count: Int = 300, englishCount: Int? = nil) throws -> String {
         let cache = try directory()
         try FileManager.default.createDirectory(atPath: cache + "/tatoeba", withIntermediateDirectories: true)
         for (code, words) in [("rus", russianWords), ("eng", englishWords)] {
             var text = ""
-            for index in 0..<count {
+            for index in 0..<(code == "eng" ? englishCount ?? count : count) {
                 let length = 8 + index % 4
                 let sentence = (0..<length).map { words[(index * 7 + $0 * 3) % words.count] }.joined(separator: " ")
                 text += "\(index + 1)\t\(code)\t\(sentence.prefix(1).uppercased() + sentence.dropFirst()).\n"
@@ -434,6 +434,20 @@ extension Result where Failure == Drop {
         #expect(russian > 0 && russian < refs.count)
         #expect(abs(russian - (refs.count - russian)) <= refs.count / 5, "\(russian) of \(refs.count)")
         #expect(SuiteBuilder.interleaved([[1, 2, 3], [10], [20, 21]]) == [1, 10, 20, 2, 21, 3])
+    }
+
+    @Test func aSmallFileLimitsTheOthersUnlessBalanceIsOff() throws {
+        let cache = try SuiteFixtures.tatoebaCache(count: 60, englishCount: 600)
+        func english(_ extra: String) throws -> Int {
+            let manifest = try SuiteFixtures.manifest(source: SuiteFixtures.tatoeba, tier: 100_000,
+                                                      extra: ",\"filter\":{\"minTokens\":8}" + extra)
+            let refs = try build(manifest, cache: cache).cases.filter { $0.scenario == "clean.cold" }
+                .compactMap { $0.meta?["ref"]?.string }
+            return refs.filter { $0.contains("eng") }.count
+        }
+        let balanced = try english(""), free = try english(",\"balance\":false")
+        #expect(balanced <= 60)
+        #expect(free > balanced)
     }
 
     @Test func aNewEpochTakesOtherUnits() throws {

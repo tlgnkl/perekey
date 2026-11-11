@@ -80,7 +80,11 @@ public struct SuiteBuilder {
             let unit = pending.make()
             pools[source].insert(Pooled(rank: rank, ref: unit.ref, text: unit.text), by: Self.order)
         }
-        let ordered = Self.interleaved(pools.map { $0.sorted(by: Self.order) })
+        var lists = pools.map { $0.sorted(by: Self.order) }
+        if manifest.effectiveBalance, let smallest = lists.map(\.count).min() {
+            lists = lists.map { Array($0.prefix(smallest)) }
+        }
+        let ordered = Self.interleaved(lists)
         report.pooled = ordered.count
 
         // Pass two: parse in that order, build until every scenario has its tokens.

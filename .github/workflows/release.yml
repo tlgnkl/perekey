@@ -154,6 +154,8 @@ jobs:
         run: scripts/build-universal.sh
       - name: Check the app
         run: scripts/check-release-app.sh
+      - name: No typing recorder in the app
+        run: scripts/check-no-recorder.sh .build/voice-universal/app/Perekey.app
       - name: DMG
         run: scripts/dmg.sh .build/voice-universal/app/Perekey.app
 

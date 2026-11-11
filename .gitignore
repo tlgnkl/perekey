@@ -10,3 +10,5 @@ DerivedData/
 .claude/worktrees/
 # The voice pins live in Support/voice/Package.resolved (scripts/voice-pins.sh).
 /Package.resolved
+# Typing recordings of the live measure (CONTRIBUTING.md): never in the repository.
+*.pksession

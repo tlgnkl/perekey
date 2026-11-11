@@ -11,6 +11,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # The tool has no voice: build it in .build without PEREKEY_VOICE.
 unset PEREKEY_VOICE
+# With PEREKEY_RECORD=1 the tool also times the typing recorder's buffer, in
+# .build/record. The base commit is built as it is: the means compared are of
+# the machine without the recorder.
+SCRATCH=()
+[[ "${PEREKEY_RECORD:-}" == 1 ]] && SCRATCH=(--scratch-path .build/record)
 
 ROUNDS="${BENCH_ROUNDS:-5}"
 FIXTURES="$PWD/Tests/PerekeyCoreTests/Fixtures"
@@ -22,8 +27,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-swift build -c release --product perekey-bench >/dev/null
-head_bin="$(swift build -c release --show-bin-path)/perekey-bench"
+swift build -c release --product perekey-bench ${SCRATCH[@]+"${SCRATCH[@]}"} >/dev/null
+head_bin="$(swift build -c release ${SCRATCH[@]+"${SCRATCH[@]}"} --show-bin-path)/perekey-bench"
 "$head_bin" "$FIXTURES" "$tmp/head-0.json"
 
 [[ -z "${BENCH_BASE:-}" ]] && exit 0
@@ -37,7 +42,7 @@ if [[ ! -d "$base_tree/Sources/perekey-bench" ]]; then
     echo "Base $BENCH_BASE has no benchmark, nothing to compare."
     exit 0
 fi
-(cd "$base_tree" && swift build -c release --product perekey-bench --scratch-path "$tmp/base-build" >/dev/null)
+(cd "$base_tree" && env -u PEREKEY_RECORD swift build -c release --product perekey-bench --scratch-path "$tmp/base-build" >/dev/null)
 base_bin="$tmp/base-build/release/perekey-bench"
 
 for round in $(seq 1 "$ROUNDS"); do

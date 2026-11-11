@@ -36,6 +36,11 @@ final class CallIndicatorModel {
 @Observable
 final class StatusItemModel {
     var pressed = false
+    #if PEREKEY_RECORD
+    /// What the typing recording of the dev build is doing; nil while it is off.
+    /// The badge shows whenever it is on.
+    var recording: TypingRecordingStatus?
+    #endif
 }
 
 /// The live capsule in the menu bar. SwiftUI re-renders it only when the layout,
@@ -58,6 +63,11 @@ private struct StatusCapsuleView: View {
             if call.timeline != nil {
                 CallBadge(call: call)
             }
+            #if PEREKEY_RECORD
+            if let recording = state.recording {
+                RecordingBadge(status: recording)
+            }
+            #endif
             if style == .capsule {
                 CapsuleView(
                     model: model,
@@ -256,7 +266,11 @@ final class StatusItemController {
     /// Settings when it is launched again instead (`applicationShouldHandleReopen`).
     private func observeVisibility() {
         let visible = withObservationTracking {
-            MenuBarPolicy.isVisible(store.settings.menuBarVisibility, MenuBarSituation(
+            #if PEREKEY_RECORD
+            // The typing recording is never hidden: the badge shows while it runs.
+            if state.recording != nil { return true }
+            #endif
+            return MenuBarPolicy.isVisible(store.settings.menuBarVisibility, MenuBarSituation(
                 paused: pause.current != nil, autoswitchOff: !store.settings.autoswitch,
                 recordingCall: call.timeline != nil, accessMissing: !input.hasAccess))
         } onChange: { [weak self] in
@@ -265,6 +279,13 @@ final class StatusItemController {
         if !visible { menu.close() }
         statusItem.isVisible = visible
     }
+
+    #if PEREKEY_RECORD
+    /// Shows the badge of the typing recording in its state, or takes it away (nil).
+    func setRecording(_ status: TypingRecordingStatus?) {
+        state.recording = status
+    }
+    #endif
 
     private func pressDown() {
         state.pressed = true
@@ -302,6 +323,14 @@ final class StatusItemController {
         let value = withObservationTracking {
             var parts = [sources.currentLayout.map(sources.name(of:)) ?? String(localized: "No layout")]
             if !input.hasAccess { parts.insert(String(localized: "No access to Accessibility; Perekey does not work"), at: 0) }
+            #if PEREKEY_RECORD
+            switch state.recording {
+            case .recording: parts.append(String(localized: "Typing is being recorded"))
+            case .waiting: parts.append(String(localized: "Typing recording is waiting"))
+            case .failed: parts.append(String(localized: "Typing recording failed: the file cannot be written"))
+            case nil: break
+            }
+            #endif
             if call.timeline != nil {
                 parts.append(call.paused ? String(localized: "Call recording paused", table: "Voice")
                                          : String(localized: "Recording a call", table: "Voice"))

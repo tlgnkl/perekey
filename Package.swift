@@ -16,6 +16,15 @@ import PackageDescription
 // and checks them.
 let voice = Context.environment["PEREKEY_VOICE"] == "1"
 
+// The typing recorder for the live measure (CONTRIBUTING.md, «Recording typing
+// for the measure») is built only with PEREKEY_RECORD=1, on a developer's Mac.
+// Every line of it is under `#if PEREKEY_RECORD`; releases never set the flag,
+// and scripts/check-no-recorder.sh fails on a binary that has it. Build with
+// the flag in its own scratch path (`.build/record`, `.build/voice-record` with
+// voice); scripts/test.sh, bundle.sh and bench.sh pick it themselves.
+let record = Context.environment["PEREKEY_RECORD"] == "1"
+let recordSettings: [SwiftSetting] = record ? [.define("PEREKEY_RECORD")] : []
+
 var dependencies: [Package.Dependency] = []
 if voice {
     dependencies += [
@@ -37,13 +46,13 @@ var targets: [Target] = [
     .target(name: "PerekeyVoiceCore", dependencies: ["PerekeyCore"]),
     // System layer: event taps, Text Input Sources, accessibility. Main thread
     // and tap thread rules are in docs/PLAN.md, "Потоки".
-    .target(name: "PerekeyInput", dependencies: ["PerekeyCore", "PerekeyVoiceCore"]),
+    .target(name: "PerekeyInput", dependencies: ["PerekeyCore", "PerekeyVoiceCore"], swiftSettings: recordSettings),
     // The menu bar app.
     .executableTarget(
         name: "Perekey",
         dependencies: ["PerekeyCore", "PerekeyInput", "PerekeyVoiceCore", "Sparkle"]
             + (voice ? ["PerekeyVoice"] : []),
-        swiftSettings: voice ? [.define("PEREKEY_VOICE")] : []
+        swiftSettings: (voice ? [.define("PEREKEY_VOICE")] : []) + recordSettings
     ),
     // Sparkle 2, the official release XCFramework. scripts/bundle.sh embeds it in
     // Contents/Frameworks and signs it. To upgrade: take `version` and `checksum`
@@ -56,7 +65,13 @@ var targets: [Target] = [
     // Dev tool: dumps installed layouts as test fixtures.
     .executableTarget(name: "perekey-layout-dump", dependencies: ["PerekeyCore", "PerekeyInput"]),
     // Benchmarks InputMachine and the classifier; scripts/bench.sh runs it in CI.
-    .executableTarget(name: "perekey-bench", dependencies: ["PerekeyCore"]),
+    // With PEREKEY_RECORD=1 it also times the machine with the typing recorder's
+    // buffer on (PerekeyInput's RecordingBuffer), in memory, without a disk.
+    .executableTarget(
+        name: "perekey-bench",
+        dependencies: ["PerekeyCore"] + (record ? ["PerekeyInput"] : []),
+        swiftSettings: recordSettings
+    ),
     // Dev tool: posts user-looking keystrokes for scripts/e2e.sh.
     .executableTarget(name: "perekey-e2e"),
     // Readers of third-party data and corpora for the two tools below.
@@ -77,13 +92,16 @@ var targets: [Target] = [
     // plays the cases of the quality bench.
     .executableTarget(name: "perekey-eval", dependencies: ["PerekeyCore", "PerekeyModelKit", "PerekeyEvalKit"]),
     // PerekeyModelKit for the replay of recorded sessions: its tests record
-    // sessions on the test desk of these.
+    // sessions on the test desk of these. With PEREKEY_RECORD=1, PerekeyInput
+    // too: the app's typing recorder records on the same desk.
     .testTarget(
         name: "PerekeyCoreTests",
-        dependencies: ["PerekeyCore", "PerekeyModelKit"],
-        resources: [.copy("Fixtures")]
+        dependencies: ["PerekeyCore", "PerekeyModelKit"] + (record ? ["PerekeyInput"] : []),
+        resources: [.copy("Fixtures")],
+        swiftSettings: recordSettings
     ),
-    .testTarget(name: "PerekeyInputTests", dependencies: ["PerekeyCore", "PerekeyInput", "PerekeyVoiceCore"]),
+    .testTarget(name: "PerekeyInputTests", dependencies: ["PerekeyCore", "PerekeyInput", "PerekeyVoiceCore"],
+                swiftSettings: recordSettings),
     .testTarget(
         name: "PerekeyModelKitTests",
         dependencies: ["PerekeyCore", "PerekeyModelKit"],

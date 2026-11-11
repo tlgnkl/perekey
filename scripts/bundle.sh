@@ -6,7 +6,10 @@
 # Environment:
 #   CONFIG         debug | release (default: release)
 #   PEREKEY_VOICE  1 builds voice input in (Package.swift)
-#   SCRATCH_PATH   SwiftPM build directory (default: .build, .build/voice with PEREKEY_VOICE=1)
+#   PEREKEY_RECORD 1 builds the typing recorder in, for the live measure on a
+#                  developer's Mac (CONTRIBUTING.md); never for a release
+#   SCRATCH_PATH   SwiftPM build directory (default: .build, .build/voice with PEREKEY_VOICE=1,
+#                  .build/record with PEREKEY_RECORD=1, .build/voice-record with both)
 #   OUT            where Perekey.app goes (default: $SCRATCH_PATH/app)
 #   VERSION        CFBundleShortVersionString (default: 0.0.0)
 #   BUILD          CFBundleVersion (default: 0)
@@ -20,7 +23,7 @@
 #                  executable, where SwiftPM puts it)
 #   SPARKLE_PUBLIC_ED_KEY  replaces SUPublicEDKey of Support/Info.plist
 #   PEREKEY_MODEL  directory of the language model files (default:
-#                  $SCRATCH_PATH/model, .build/model with PEREKEY_VOICE=1;
+#                  $SCRATCH_PATH/model, .build/model with PEREKEY_VOICE=1 or PEREKEY_RECORD=1;
 #                  built by scripts/build-model.sh if missing)
 #   PEREKEY_LANGUAGES  the model files to ship (default: the languages of
 #                  data/languages, the one list the app enables by)
@@ -31,8 +34,14 @@ cd "$(dirname "$0")/.."
 CONFIG="${CONFIG:-release}"
 VOICE=0
 [[ "${PEREKEY_VOICE:-}" == 1 ]] && VOICE=1
-if ((VOICE)); then
+RECORD=0
+[[ "${PEREKEY_RECORD:-}" == 1 ]] && RECORD=1
+if ((VOICE && RECORD)); then
+    SCRATCH_PATH="${SCRATCH_PATH:-.build/voice-record}"
+elif ((VOICE)); then
     SCRATCH_PATH="${SCRATCH_PATH:-.build/voice}"
+elif ((RECORD)); then
+    SCRATCH_PATH="${SCRATCH_PATH:-.build/record}"
 else
     SCRATCH_PATH="${SCRATCH_PATH:-.build}"
 fi
@@ -84,8 +93,8 @@ cp Support/Perekey.sdef "$APP/Contents/Resources/Perekey.sdef" # AppleScript dic
 # layouts' languages from Bundle.main: Contents/Resources/<language>.pklm.
 # Each file must match its hash in data/model.sha256: a stale local build
 # would otherwise ship silently.
-# The model has no voice in it: a voice build shares the one of .build.
-if ((VOICE)); then
+# The model has no voice or recorder in it: such a build shares the one of .build.
+if ((VOICE || RECORD)); then
     MODEL="${PEREKEY_MODEL:-.build/model}"
 else
     MODEL="${PEREKEY_MODEL:-$SCRATCH_PATH/model}"

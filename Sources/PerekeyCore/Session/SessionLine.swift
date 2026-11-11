@@ -108,4 +108,11 @@ public enum SessionGap: String, Hashable, Sendable, Codable {
     case excludedApp
     /// The buffer of the recorder was full: the disk did not keep up.
     case overflow
+    /// The focus was not known: no app named yet, or accessibility did not
+    /// say what is focused. It may be a password field.
+    case unknownFocus
+    /// The file could not be created or written (disk full, folder gone).
+    /// Never in a file: there is none to take it. It is the buffer's reason
+    /// for a new file at the next quiet point.
+    case writeFailed
 }

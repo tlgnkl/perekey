@@ -92,6 +92,11 @@ final class InputController {
     @ObservationIgnored var onVoice: ((VoiceSignal) -> Void)?
     #endif
 
+    #if PEREKEY_RECORD
+    /// What the typing recording is doing; nil when it is off.
+    @ObservationIgnored var onRecordingStatus: ((TypingRecordingStatus?) -> Void)?
+    #endif
+
     init(sources: InputSources, store: SettingsStore, pause: PauseState,
          languages: LanguageStatsStore = LanguageStatsStore())
     {
@@ -163,6 +168,30 @@ final class InputController {
         observeLanguageContext()
         focus.start()
     }
+
+    #if PEREKEY_RECORD
+    /// The typing recording of the dev build (`SessionRecording`).
+    func startRecording(_ recorder: SessionRecorder, excludedApps: Set<String>) {
+        engine.startRecording(recorder, excludedApps: excludedApps)
+    }
+
+    func stopRecording() {
+        engine.stopRecording()
+    }
+
+    func setRecordingExclusions(_ apps: Set<String>) {
+        engine.setRecordingExclusions(apps)
+    }
+
+    func eraseRecordings(_ recorder: SessionRecorder) {
+        engine.eraseRecordings(recorder)
+    }
+
+    /// Writes the rest of the recording and closes its file, then returns (quit).
+    func finishRecording() {
+        engine.finishRecording()
+    }
+    #endif
 
     /// Maps the files of languages that came with new layouts and lets the
     /// files of removed ones go: the tap drops its classifier for the new one.
@@ -300,6 +329,10 @@ final class InputController {
             // notification, and the fence would wait its full timeout.
             if LayoutReader.currentLayoutID() == id { engine.send(.layoutChanged(id)) }
             engine.post(then)
+        #if PEREKEY_RECORD
+        case let .recordingStatus(status):
+            onRecordingStatus?(status)
+        #endif
         case let .autoswitchChanged(on):
             store.update { $0.autoswitch = on }
         case let .refused(refusal):

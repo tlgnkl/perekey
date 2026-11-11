@@ -37,6 +37,106 @@ asks for access, reads the microphone, switches devices and starts and stops it
 1000 times. Each check writes its lines to `~/Library/Logs/Perekey/voice-check-<name>.txt`;
 `--voice-check help` lists them.
 
+## Recording typing for the measure
+
+The classifier is measured on a corpus (`scripts/eval.sh`). The live measure
+replays real typing through the whole `InputMachine` instead
+(docs/classifier.md, «Замер на живых сессиях»). The recordings come from a
+developer build with the typing recorder in it. A release never has it.
+
+**Build.** `PEREKEY_RECORD=1 scripts/bundle.sh` builds `.build/record/app/Perekey.app`;
+with `PEREKEY_VOICE=1` too, `.build/voice-record/app/Perekey.app`. Every line of
+the recorder is under `#if PEREKEY_RECORD`. `scripts/check-no-recorder.sh` fails
+on a binary that has it. It looks for two markers, one in `PerekeyInput` (the
+recorder's queue) and one in the app (the badge in the menu bar); either one
+fails it. CI runs it on the release build and in `release.yml`, and checks that
+it fails on a debug and on an optimized (`-c release`) build with the flag.
+`strings` is run apart from the search, so a `strings` that fails stops the
+check instead of passing it. `PEREKEY_RECORD=1 scripts/test.sh` tests the
+recorder, in `.build/record`.
+
+**Strings of the menu.** The texts of the recording rows are in
+`Support/*.lproj/Localizable.strings`, so they are in the bundle of a release
+too. That is harmless: the binary of a release has no code that uses them (the
+check above looks at the binary), the menu of a release has no such rows, and
+the strings say nothing the open-source repository does not.
+
+**Turn it on.** The menu of that build has «Typing recording (dev)». It is off
+at every launch: you switch it on by hand each time, it does not remember. The
+row says what the file holds. While it is on, the menu bar item shows «rec»,
+whatever its own settings: it cannot be hidden. The mark is what the recorder
+is doing, not the position of the switch: a red dot while typing goes to the
+file; a grey pause while it waits (a password field, an unknown focus, a quiet
+point not yet reached, the disk behind); a warning triangle when the file could
+not be created or written (a full disk, a folder gone). After a failure a new
+file is tried at a quiet point about 100 seconds of typing later.
+
+**What is recorded.** The file holds the text you type. Every event the machine
+handles, with what it answered: keys (key codes, so typed text), layout
+changes, focus (bundle IDs), clicks, retypes, corrections with the original and
+the new word. A segment starts with the machine's state, settings included, so
+it holds the words from your settings too: the exceptions, the words learned per
+app, the always-fix spellings. This is in a build with `PEREKEY_RECORD` only.
+A selection is recorded as many «x» as it had characters. The model is not
+recorded, only its languages and options.
+
+**What is never recorded.** While the focus is a password field, while Secure
+Input is on, while the focus is in a password manager (1Password,
+Bitwarden, KeePassXC, Keychain Access, Passwords), and while the focus is not
+known (no focus event yet, or Accessibility did not say what is focused), no
+event is written: the file gets one `gap` line instead, and recording goes on
+from the next quiet point after it. «Do not record here» in the menu adds the
+app in front to that list.
+
+*The window that is left.* The focus reaches the tap thread as an event, sent
+by the Accessibility observer on another thread (`FocusTracker`). Keys typed
+between the real change of focus and the arrival of that event are judged on
+the old focus. An app switch is not in that window: the app is named at once
+(a password manager is excluded from the first key) and the field is unknown
+until Accessibility names it, which is a gap (`unknownFocus`; the tracker reads
+again after 0.05, 0.15 and 0.4 s). What stays is a move inside one app into a
+password field (Tab, a click): the window is the delay of the AX notification.
+That delay is not measured; the estimate is tens of milliseconds, one or two
+keys at the pace of typing. A password field turns Secure Input on, which stops
+the keys reaching Perekey at all, but that too is learned by an event. So the
+first keys of a password may be in a recording. Check a recording for it before
+you share anything (you should not share one at all); the live check of the
+plan, «a password field gives `gap`», is the measure of this window.
+
+**Where.** `~/Library/Application Support/Perekey/sessions.noindex/`, one file
+per launch and per day (`2026-11-10-1.pksession`). The folder is 0700, the
+files 0600, both out of Time Machine and Spotlight. A file goes 30 days after
+it was last written, at launch and again when the day changes while the app
+runs. «Erase Recordings…» removes them all, «Show
+Recordings in Finder» opens the folder. Never copy them into the repository
+(`.gitignore` has `*.pksession`), a log, an issue or a shared folder: they hold
+what you typed.
+
+**How it works.** On the tap thread the engine only appends the event and the
+output to an array in memory (`RecordingBuffer`); every 256 events or once a
+second the array goes to the recorder's own queue (`SessionRecorder`, utility
+QoS), which encodes and appends it to the file. No disk on the tap thread. In
+memory: no memory per event; a snapshot at a segment start allocates (rare:
+after a gap, at the start, once a day); one `queue.async` per batch, which
+allocates the closure it carries (a few pointers), once in 256 events or a
+second, and is not removable without a lock the tap thread would wait on. The
+arrays are made once when the recording is switched on (16 of 256 entries, about
+650 KB), the recorder gives each used array back empty, and the engine only
+swaps them. When all 16 arrays are out, the recording writes
+`gap(overflow)` and typing goes on unslowed. The engine checks whether the
+machine is at a quiet point with one cheap question; the machine's state is
+copied only when a segment opens. A write that fails (disk full, folder gone)
+ends the segment, shows in the badge, and a new file follows. At a quit the
+engine writes the rest and closes the file before the app ends
+(`applicationWillTerminate`, waiting up to two seconds); after a crash or a
+force quit the last second may be lost, and the reader drops a line cut off in
+the middle. `PEREKEY_RECORD=1 scripts/bench.sh` times the machine with the
+buffer on («autoswitch, recording»).
+
+**Read them.** `perekey-eval replay check|words|compare <files> --model <dir>`
+(docs/classifier.md, «Команды»). Words show only with `--show-words`, and only in
+the terminal.
+
 ## Toolchain notes
 
 - Without Xcode the `@State` macro is unavailable. Use `State(initialValue:)`

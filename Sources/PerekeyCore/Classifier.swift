@@ -296,8 +296,8 @@ public struct Classifier: Sendable {
                 else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
                 markPersonal(&typedReading, language: typedCode, scalars: scalars[0..<half], context.personal)
                 markPersonal(&otherReading, language: otherCode, scalars: scalars[half...], context.personal)
-                return decide(typedReading, otherReading, typed: typed, other: other, context: context,
-                              explaining: explaining)
+                return decide(typedReading, otherReading, typed: typed, other: other,
+                              languages: (typedLanguage, otherLanguage), context: context, explaining: explaining)
             }
         }
     }
@@ -368,7 +368,8 @@ public struct Classifier: Sendable {
                                                      scalars: scalars[half...], symbols: symbols[half...])
                     else { return Decision(verdict: .keep, score: 0, reason: .tooLong, language: nil) }
                     markPersonal(&otherReading, language: otherCode, scalars: scalars[half...], context.personal)
-                    let decision = decide(typedReading, otherReading, typed: typed, other: other, context: context,
+                    let decision = decide(typedReading, otherReading, typed: typed, other: other,
+                                          languages: (typedLanguage, otherLanguage), context: context,
                                           explaining: explaining)
                     readings.append((decision, otherCode, otherReading.exactFingerprint ^ UInt64(otherReading.count),
                                      decision.score - lean(context, toward: otherCode, from: typedCode)))
@@ -637,9 +638,11 @@ public struct Classifier: Sendable {
     }
 
     private func decide(_ typed: Reading, _ other: Reading, typed typedLayout: LayoutMap, other otherLayout: LayoutMap,
+                        languages: (typed: LanguageModel.Language, other: LanguageModel.Language),
                         context: Context, explaining: Bool) -> Decision
     {
-        var decision = compare(typed, other, typed: typedLayout, other: otherLayout, context: context)
+        var decision = compare(typed, other, typed: typedLayout, other: otherLayout, languages: languages,
+                               context: context)
         // Always: the word judge leaves a personal word to no typo step,
         // and asking again would cost a reading of the word.
         decision.typedPersonal = typed.personal
@@ -669,6 +672,7 @@ public struct Classifier: Sendable {
     }
 
     private func compare(_ typed: Reading, _ other: Reading, typed typedLayout: LayoutMap, other otherLayout: LayoutMap,
+                         languages: (typed: LanguageModel.Language, other: LanguageModel.Language),
                          context: Context) -> Decision
     {
         let typedCode = typedLayout.language
@@ -720,18 +724,22 @@ public struct Classifier: Sendable {
             let frequent = (other.rank ?? 0) >= options.shortWordRank
             let typedRank = typed.isWord ? (typed.rank ?? 0) : 0
             // The pairs of the model move the rank the other reading counts
-            // for: `wordContext` bits are `rankUnitsPerBit` units each.
-            let shift = Int((wordContext(typed, other, typedCode: typedCode, otherCode: otherCode, context: context)
-                * Self.rankUnitsPerBit).rounded())
+            // for: `wordContext` bits are `rankUnitsPerBit` units each. Asked
+            // only where the rank is compared, and not at all while the
+            // limit is 0.
+            func shift() -> Int {
+                Int((wordContext(typed, other, languages: languages, typedCode: typedCode, otherCode: otherCode,
+                                 context: context) * TypoCorrector.Options.rankUnitsPerBit).rounded())
+            }
             let wins: Bool
             if typed.letters == 0
                 || (context.previousLanguage == typedCode && !isMixed(context.recent, typedCode, otherCode))
             {
                 wins = false
             } else if context.previousLanguage == otherCode {
-                wins = frequent && Int(typedRank) < Int(other.rank ?? 0) + shift
+                wins = frequent && Int(typedRank) < Int(other.rank ?? 0) + shift()
             } else {
-                wins = frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0) + shift
+                wins = frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0) + shift()
             }
             return Decision(verdict: wins ? .switch(to: otherLayout.id) : .keep, score: score, reason: .shortWord,
                             language: wins ? otherCode : (typed.isWord && plausible(typed) ? typedCode : nil))
@@ -762,7 +770,8 @@ public struct Classifier: Sendable {
         if score > 0 {
             // The band of doubt: the word before may tip it either way, never
             // further than the limit, and never outside the band.
-            let moved = score + wordContext(typed, other, typedCode: typedCode, otherCode: otherCode, context: context)
+            let moved = score + wordContext(typed, other, languages: languages, typedCode: typedCode,
+                                            otherCode: otherCode, context: context)
             if moved >= margin {
                 return Decision(verdict: .switch(to: otherLayout.id), score: score, reason: .compared,
                                 language: otherCode)
@@ -775,28 +784,25 @@ public struct Classifier: Sendable {
                         language: plausible(typed) ? typedCode : nil)
     }
 
-    /// Units of the dictionary rank (Zipf × 32) in one bit: a decade of
-    /// frequency is 32 units and 3.32 bits.
-    static let rankUnitsPerBit = 32 * 0.30102999566398120
-
     /// Bits the word before gives the other reading over the typed one: the
     /// lift of the pair (previous word, other) minus that of (previous word,
     /// typed), each only when the previous word is in the language of that
     /// reading and the model has the pair; between `±wordContextLimit`.
     /// A pair that is not in the table says nothing (`Language.pairLift`),
     /// so it counts 0. No lookup at all while the limit is 0.
-    private func wordContext(_ typed: Reading, _ other: Reading, typedCode: String?, otherCode: String?,
-                             context: Context) -> Double
+    private func wordContext(_ typed: Reading, _ other: Reading,
+                             languages: (typed: LanguageModel.Language, other: LanguageModel.Language),
+                             typedCode: String?, otherCode: String?, context: Context) -> Double
     {
         let limit = options.wordContextLimit
         guard limit > 0, context.mode == .automatic, let previous = context.previousWord else { return 0 }
-        func bits(_ reading: Reading, _ code: String?) -> Double {
-            guard reading.isWord, code == previous.language, let code, let language = model.language(code),
+        func bits(_ reading: Reading, _ code: String?, _ language: LanguageModel.Language) -> Double {
+            guard reading.isWord, code == previous.language,
                   let lift = language.pairLift(previous: previous.fingerprint, word: reading.fingerprint)
             else { return 0 }
             return Double(lift) / 8
         }
-        return min(limit, max(-limit, bits(other, otherCode) - bits(typed, typedCode)))
+        return min(limit, max(-limit, bits(other, otherCode, languages.other) - bits(typed, typedCode, languages.typed)))
     }
 
     /// Bits the words before give the other reading: `contextBonus` for the
@@ -1114,6 +1120,8 @@ extension Classifier.Options: Codable {
         try container.encode(shortWordRank, forKey: .shortWordRank)
         try container.encode(personalRank, forKey: .personalRank)
         try container.encode(personalNoiseCost, forKey: .personalNoiseCost)
-        try container.encode(wordContextLimit, forKey: .wordContextLimit)
+        // Written only when on: the file of a limit of 0 is the file of
+        // before the word context, byte for byte.
+        if wordContextLimit != 0 { try container.encode(wordContextLimit, forKey: .wordContextLimit) }
     }
 }

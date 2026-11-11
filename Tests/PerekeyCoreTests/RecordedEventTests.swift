@@ -215,10 +215,37 @@ import Testing
         options.priorLimit += 1
         options.priorScale += 1
         options.shortWordRank += 1
+        options.personalRank += 1
+        options.personalNoiseCost += 1
+        options.wordContextLimit += 1
         let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(options))
         #expect(read == options)
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any]
         #expect(Set(json?.keys ?? [:].keys) == Set(Classifier.Options.codingKeyNames))
+    }
+
+    /// The keys `Classifier.Options` wrote on origin/main, before the word context.
+    static let keysOnMain: Set<String> = [
+        "threshold", "readingMargin", "unknownWordExtra", "noiseCost", "unknownNoiseCost", "openerBonus",
+        "dictionaryBonus", "rankBonus", "knownRank", "mixedCaseRank", "contextBonus", "contextDecay", "priorLimit",
+        "priorScale", "shortWordRank", "personalRank", "personalNoiseCost",
+    ]
+
+    @Test func withTheWordContextOffTheOptionsAreCodedAsOnMain() throws {
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(Classifier.Options()))
+            as? [String: Any])
+        #expect(Set(json.keys) == Self.keysOnMain)
+        // Read back, the missing key is the default, off.
+        let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(Classifier.Options()))
+        #expect(read == Classifier.Options())
+    }
+
+    @Test func aLimitAboveZeroIsWritten() throws {
+        var options = Classifier.Options()
+        options.wordContextLimit = 4
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
+        #expect(Set(json.keys) == Self.keysOnMain.union(["wordContextLimit"]))
+        #expect(json["wordContextLimit"] as? Double == 4)
     }
 
     @Test func aMissingKeyKeepsTheDefault() throws {

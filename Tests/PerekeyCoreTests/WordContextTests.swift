@@ -196,3 +196,177 @@ import Testing
         #expect(desk.text == "yf ")
     }
 }
+
+/// The word before dies with the text it was read from: a new place, a
+/// caret that moved, a backspace into it, a layout that relabels it.
+@Suite struct WordContextResetTests {
+    typealias Machine = WordContextMachineTests
+
+    /// "привет " on the Russian layout, then `between`, then "yf " on ABC.
+    static func typeAfterRussianWord(limit: Double, between: (inout Desk) -> Void) -> String {
+        var desk = Machine.desk(limit: limit)
+        desk.appLayout = Fixture.russian.id
+        desk.send(.layoutChanged(Fixture.russian.id))
+        desk.type("привет ", on: Fixture.russian)
+        between(&desk)
+        desk.appLayout = Fixture.abc.id
+        desk.send(.layoutChanged(Fixture.abc.id))
+        desk.type("yf ")
+        return desk.text
+    }
+
+    @Test func theControlRunSwitches() {
+        // Without this the tests below would pass for no reason.
+        #expect(Self.typeAfterRussianWord(limit: 8) { _ in } == "привет на ")
+    }
+
+    @Test func anotherAppForgetsTheWordBefore() {
+        let text = Self.typeAfterRussianWord(limit: 8) { $0.send(.focusChanged(Focus(bundleID: "com.apple.Notes"))) }
+        #expect(text == "привет yf ")
+    }
+
+    @Test func anotherFieldOfTheSameAppForgetsTheWordBefore() {
+        let text = Self.typeAfterRussianWord(limit: 8) { $0.send(.focusChanged(Desk.textEdit, .moved)) }
+        #expect(text == "привет yf ")
+    }
+
+    @Test func aClickForgetsTheWordBefore() {
+        let text = Self.typeAfterRussianWord(limit: 8) { $0.send(.click(time: $0.time)) }
+        #expect(text == "привет yf ")
+    }
+
+    @Test func theLastWordOfTheSentenceBeforeIsNoWordBefore() {
+        // The pairs of the model hold the words of one sentence, as the corpus of the sweep does.
+        #expect(Machine.typeAfterRussianWord(limit: 8, before: "привет! ") == "привет! yf ")
+        #expect(Machine.typeAfterRussianWord(limit: 8, before: "привет ") == "привет на ")
+    }
+
+    @Test func aBackspaceThroughTheBoundaryForgetsTheWordBefore() {
+        var desk = Machine.desk(limit: 8)
+        desk.appLayout = Fixture.russian.id
+        desk.send(.layoutChanged(Fixture.russian.id))
+        desk.type("привет ", on: Fixture.russian)
+        desk.appLayout = Fixture.abc.id
+        desk.send(.layoutChanged(Fixture.abc.id))
+        desk.type("yf")
+        // "f", "y", then the space: the caret is in the word before.
+        for _ in 0..<3 { desk.press(KeyCode.delete) }
+        desk.type(" yf ")
+        #expect(desk.text == "привет yf ")
+        #expect(desk.machine.judge.contextAtJudge.previousWord == nil)
+    }
+
+    @Test func aBackspaceInsideTheWordKeepsTheWordBefore() {
+        var desk = Machine.desk(limit: 8)
+        desk.appLayout = Fixture.russian.id
+        desk.send(.layoutChanged(Fixture.russian.id))
+        desk.type("привет ", on: Fixture.russian)
+        desk.appLayout = Fixture.abc.id
+        desk.send(.layoutChanged(Fixture.abc.id))
+        desk.type("yfx")
+        desk.press(KeyCode.delete)
+        desk.type(" ")
+        #expect(desk.text == "привет на ")
+    }
+
+    @Test func aRelabelledPhraseIsReadInTheLayoutItWasGiven() throws {
+        var desk = Machine.desk(limit: 8)
+        desk.type("hello yf")
+        let judge = desk.machine.judge
+        let layouts = desk.machine.layouts
+        var buffer = desk.machine.buffer
+        let before = judge.realWordBefore(buffer, layouts: layouts)
+        #expect(before?.language == "en")
+        #expect(before?.fingerprint == ModelFixture.fingerprint("hello"))
+        let phrase = try #require(buffer.phrase(words: 2)).map { entry -> WordBuffer.Entry in
+            var entry = entry
+            entry.layout = Fixture.russian.id
+            return entry
+        }
+        buffer.relabelPhrase(phrase)
+        let after = judge.realWordBefore(buffer, layouts: layouts)
+        #expect(after?.language == "ru")
+        #expect(after?.fingerprint == ModelFixture.fingerprint(Fixture.russian.type(Fixture.abc.strokes("hello"))))
+    }
+
+    @Test func aWordSwitchedByTheMachineIsTheWordBeforeInTheLayoutItWasSwitchedTo() {
+        // "yj" is English of rank 235 and "но" of 205 on the Russian keys: only the pair after "привет" turns it.
+        let model = ModelFixture.model(withEnglishWords: [("yj", 235)], russianPairs: [("привет", "но", 255)])
+        func run(limit: Double) -> String {
+            var options = Classifier.Options()
+            options.personalNoiseCost = .infinity
+            options.wordContextLimit = limit
+            var desk = Desk(Settings(), classifier: Classifier(model: model, options: options))
+            desk.type("ghbdtn ")
+            // The switch left the Russian layout selected; the user goes back to ABC for the next word.
+            desk.appLayout = Fixture.abc.id
+            desk.send(.layoutChanged(Fixture.abc.id))
+            desk.type("yj ")
+            return desk.text
+        }
+        #expect(run(limit: 8) == "привет но ")
+        #expect(run(limit: 0) == "привет yj ")
+    }
+
+    @Test func limitZeroReadsNoWordBefore() {
+        for limit in [0.0, 8.0] {
+            var desk = Machine.desk(limit: limit)
+            desk.appLayout = Fixture.russian.id
+            desk.send(.layoutChanged(Fixture.russian.id))
+            desk.type("привет ", on: Fixture.russian)
+            desk.appLayout = Fixture.abc.id
+            desk.send(.layoutChanged(Fixture.abc.id))
+            desk.type("yf ")
+            #expect((desk.machine.judge.contextAtJudge.previousWord != nil) == (limit > 0), "limit \(limit)")
+        }
+    }
+
+    @Test func theExplanationAndTheChoiceBeforeTheVerdictUseTheWordBeforeToo() throws {
+        for limit in [0.0, 8.0] {
+            var desk = Machine.desk(limit: limit)
+            desk.appLayout = Fixture.russian.id
+            desk.send(.layoutChanged(Fixture.russian.id))
+            desk.type("привет ", on: Fixture.russian)
+            desk.appLayout = Fixture.abc.id
+            desk.send(.layoutChanged(Fixture.abc.id))
+            desk.type("yf")
+            let machine = desk.machine
+            let context = machine.judge.manualContext(focus: Desk.textEdit, buffer: machine.buffer,
+                                                      layouts: machine.layouts)
+            #expect((context.previousWord != nil) == (limit > 0), "choice, limit \(limit)")
+            let decision = machine.judge.decisionForManualRetype(
+                buffer: machine.buffer, layouts: machine.layouts, settings: machine.settings,
+                focus: Desk.textEdit, secureInput: false, target: Fixture.russian.id)
+            #expect(decision?.verdict == (limit > 0 ? .switch(to: Fixture.russian.id) : .keep), "explanation, limit \(limit)")
+        }
+    }
+
+    /// Without any pair in the model a limit changes nothing: the machine at limit 0
+    /// with the pairs decides as the machine at limit 8 without them, text and effects.
+    @Test func limitZeroWithPairsDecidesLikeNoPairsAtAll() {
+        func run(model: LanguageModel, limit: Double) -> (String, Int) {
+            var options = Classifier.Options()
+            options.personalNoiseCost = .infinity
+            options.wordContextLimit = limit
+            var desk = Desk(Settings(), classifier: Classifier(model: model, options: options))
+            var count = 0
+            for (line, layout) in [("привет ", Fixture.russian), ("yf yj ", Fixture.abc), ("ghbdtn yf yj ", Fixture.abc),
+                                   ("see yf. yj vbh ", Fixture.abc), ("yf ghbdtn ", Fixture.abc)]
+            {
+                desk.appLayout = layout.id
+                desk.send(.layoutChanged(layout.id))
+                desk.type(line, on: layout)
+                count += desk.log.count
+            }
+            return (desk.text, count)
+        }
+        let withPairs = ModelFixture.model(withEnglishWords: [("yf", 230), ("yj", 235)],
+                                           englishPairs: [("see", "yf", 60)],
+                                           russianPairs: [("привет", "на", 255), ("привет", "но", 255)])
+        let without = ModelFixture.model(withEnglishWords: [("yf", 230), ("yj", 235)], pairs: [])
+        let off = run(model: withPairs, limit: 0)
+        let bare = run(model: without, limit: 8)
+        #expect(off.0 == bare.0)
+        #expect(off.1 == bare.1)
+    }
+}

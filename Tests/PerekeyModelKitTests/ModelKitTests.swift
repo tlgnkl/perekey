@@ -775,3 +775,38 @@ import Testing
         #expect(words["по-доброму"] == .po)
     }
 }
+
+/// The word before a corpus word, as the sweep of the word context reads it.
+@Suite struct WordContextEvaluationTests {
+    static func fingerprint(_ text: String) -> UInt64 { ModelFormat.Fingerprint.of(text.unicodeScalars, folded: true) }
+
+    static func item(_ previous: [String]?) -> CorpusItem {
+        CorpusItem(category: "prose", language: "en", recent: ["ru"], text: "hello", previousWords: previous)
+    }
+
+    static func evaluation(wrong: Bool) -> Evaluation {
+        var evaluation = Evaluation(model: TypoEvaluationTests.model, layouts: ["en": TypoEvaluationTests.abc,
+                                                                                "ru": TypoEvaluationTests.russian])
+        evaluation.previousWordInWrongLayout = wrong
+        return evaluation
+    }
+
+    @Test func theWordBeforeIsTheWordAsMeantByDefault() {
+        let ref = Self.evaluation(wrong: false).previousWord(Self.item(["привет"]))
+        #expect(ref?.language == "ru")
+        #expect(ref?.fingerprint == Self.fingerprint("привет"))
+    }
+
+    @Test func theWrongLayoutReadsTheSameKeysInTheOtherLanguage() {
+        let ref = Self.evaluation(wrong: true).previousWord(Self.item(["привет"]))
+        #expect(ref?.language == "en")
+        #expect(ref?.fingerprint == Self.fingerprint("ghbdtn"))
+    }
+
+    @Test(arguments: [false, true])
+    func theStartOfASentenceAndAnUnknownWordHaveNoWordBefore(wrong: Bool) {
+        let evaluation = Self.evaluation(wrong: wrong)
+        #expect(evaluation.previousWord(Self.item([])) == nil)
+        #expect(evaluation.previousWord(Self.item(nil)) == nil)
+    }
+}

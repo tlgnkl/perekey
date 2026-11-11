@@ -12,7 +12,7 @@
 //                    [--real-word-sweep [--real-word-lifts 4,5,6,...] [--real-word-slacks 0,16,32,...]]
 //                    [--context-bonus B] [--context-decay D] [--context-sweep [--bonuses 3,4] [--decays 0,1]]
 //                    [--prior-scale S] [--prior-limit L] [--prior-sweep]
-//                    [--word-context L] [--word-context-sweep [--word-limits 0,2,4]]
+//                    [--word-context L] [--word-context-sweep [--word-limits 0,2,4] [--wrong-previous-word]]
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
 //                     [--previous ru,en,...]
 //   perekey-eval coverage --model <file> --language <code> [--cache <dir>]
@@ -129,7 +129,9 @@
 // `--word-context` sets `Classifier.Options.wordContextLimit`, the most bits the
 // pair (the word before, the reading) may move a short word or a decision in the
 // band of doubt; `--word-context-sweep` prints the same line per limit of
-// `--word-limits` (docs/classifier.md, «Слова в контексте»).
+// `--word-limits` (docs/classifier.md, «Слова в контексте»). With
+// `--wrong-previous-word` the word before is the keys of the word typed in the
+// other layout and left there, the negative side of the limit.
 
 import Foundation
 import PerekeyCore
@@ -162,7 +164,7 @@ var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
     if ["--sweep", "--typo-sweep", "--typo-context-sweep", "--context-sweep", "--prior-sweep", "--word-context-sweep",
-        "--margin-sweep",
+        "--wrong-previous-word", "--margin-sweep",
         "--lead", "--real-words", "--real-word-sweep", "--off", "--real-word-no-ending", "--real-word-swaps-only",
         "--personal-rank-sweep", "--personal-noise-sweep"].contains(argument) {
         flags[argument] = "1"
@@ -495,6 +497,12 @@ do {
                           recall("mixed") * 100, recall("apps") * 100, falseRate("apps") * 100)
         }
         if flags["--word-context-sweep"] != nil {
+            // The sweep prints points, not examples: a count other than 0 would be asked for in vain.
+            if let errors = flags["--errors"], errors != "0" {
+                fail("--word-context-sweep prints no examples of errors: --errors \(errors) is not used, give 0 or leave it out")
+            }
+            var evaluation = evaluation
+            evaluation.previousWordInWrongLayout = flags["--wrong-previous-word"] != nil
             let limits: [Double] = flags["--word-limits"].map { list in
                 list.split(separator: ",").map { part -> Double in
                     guard let limit = Double(part), limit.isFinite, limit >= 0 else {
@@ -504,10 +512,13 @@ do {
                 }
             } ?? [0, 1, 2, 3, 4, 6, 8]
             let points = evaluation.wordContextSweep(items, limits: limits)
-            print("\nword context sweep: limit")
+            print(evaluation.previousWordInWrongLayout
+                ? "\nword context sweep: limit (the word before typed in the wrong layout, left there)"
+                : "\nword context sweep: limit")
             for point in points {
                 print(sweepLine(String(format: "%4.1f", point.options.wordContextLimit), point))
             }
+            json["wordContextSweepPreviousWord"] = evaluation.previousWordInWrongLayout ? "wrongLayout" : "asMeant"
             json["wordContextSweep"] = points.map { point -> [String: Any] in
                 ["limit": point.options.wordContextLimit, "falseRate": point.total.falseRate,
                  "textRecall": point.textRecall,

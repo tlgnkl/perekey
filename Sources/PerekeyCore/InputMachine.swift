@@ -694,7 +694,7 @@ public struct InputMachine: Sendable {
                                          phrases: settings.corrections.phraseRetype, isSecureField: isSecureField,
                                          classifier: judge.classifier,
                                          // Only more than two layouts rank readings by it.
-                                         context: layouts.order.count > 2 ? judge.manualContext(focus: focus)
+                                         context: layouts.order.count > 2 ? judge.manualContext(focus: focus, buffer: buffer, layouts: layouts)
                                              : Classifier.Context(mode: .manual))
             run(plan, as: action, fixedByAutoswitch: fixedByAutoswitch, at: time, effects: &effects)
 

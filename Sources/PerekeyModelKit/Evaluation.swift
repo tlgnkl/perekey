@@ -143,6 +143,10 @@ public struct Evaluation {
     /// The personal lexicon every word is judged with (`perekey-eval
     /// personal`): `.off`, the default, judges as before, byte for byte.
     public var personal = PersonalLexicon.off
+    /// The word before a corpus word is the keys of the word typed in the other
+    /// layout and left there (`previousWord`), the negative side of
+    /// `Classifier.Options.wordContextLimit`; off, it is the word as meant.
+    public var previousWordInWrongLayout = false
     /// Look for words that are words too (`TypoCorrector.correct(…, realWords:)`); off is the run as before.
     public var realWords = false
     let model: LanguageModel
@@ -195,7 +199,7 @@ public struct Evaluation {
             let context = Classifier.Context(recent: RecentLanguages(item.recent),
                                              prior: item.app.map { LanguagePrior(counts: $0) } ?? LanguagePrior(),
                                              personal: personal,
-                                             previousWord: Self.previousWord(item))
+                                             previousWord: previousWord(item))
             // As the word judge: the typo step leaves a word of the lexicon alone.
             let typoStep = classifier.isPersonal(strokes, in: own, personal: personal) ? nil : corrector
             // Without a word before it the word starts the text: a capital is allowed.
@@ -394,13 +398,34 @@ public struct Evaluation {
 
     /// The word before a corpus word with its language, for
     /// `Classifier.Options.wordContextLimit`: nil at the start of a sentence
-    /// and where the corpus does not say.
-    static func previousWord(_ item: CorpusItem) -> Classifier.PreviousWordRef? {
-        guard let text = item.previousWords?.first, let first = item.recent.first, let language = first,
-              let fingerprint = PreviousWord.fingerprint(of: text.unicodeScalars),
-              fingerprint != ModelFormat.sentenceStart
-        else { return nil }
-        return Classifier.PreviousWordRef(language: language, fingerprint: fingerprint)
+    /// and where the corpus does not say. With `previousWordInWrongLayout`
+    /// the word before is what the machine would hold had the user typed it
+    /// in the other layout and Perekey left it alone: the same keys read in
+    /// the other language.
+    func previousWord(_ item: CorpusItem) -> Classifier.PreviousWordRef? {
+        guard let text = item.previousWords?.first, let first = item.recent.first, let language = first else {
+            return nil
+        }
+        var scalars = text.unicodeScalars.map { $0 }
+        var read = language
+        if previousWordInWrongLayout {
+            guard let intended = layouts[language], let wrong = layouts.first(where: { $0.key != language }) else {
+                return nil
+            }
+            var typed = ""
+            for character in text {
+                guard let stroke = intended.stroke(for: character), let letter = wrong.value.text(for: stroke) else {
+                    return nil
+                }
+                typed += letter
+            }
+            scalars = typed.unicodeScalars.map { $0 }
+            read = wrong.key
+        }
+        guard let fingerprint = PreviousWord.fingerprint(of: scalars), fingerprint != ModelFormat.sentenceStart else {
+            return nil
+        }
+        return Classifier.PreviousWordRef(language: read, fingerprint: fingerprint)
     }
 
     /// Runs the corpus at each limit of the word context: the points to pick

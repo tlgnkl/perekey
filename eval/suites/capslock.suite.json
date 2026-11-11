@@ -1,0 +1,32 @@
+{
+ "about": "Tatoeba sentences (ru, en) typed with Caps Lock on: «ПРИВЕТ МИР»",
+ "correction": {
+  "kind": "capslock"
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 12,
+  "minTokens": 2
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": ["fix"],
+ "seed": 1,
+ "settings": "all",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "capslock",
+ "tags": ["caps", "natural"],
+ "tiers": {
+  "ci": 6000,
+  "full": 150000
+ },
+ "version": 1
+}

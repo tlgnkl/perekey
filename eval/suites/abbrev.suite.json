@@ -1,0 +1,33 @@
+{
+ "about": "An abbreviation in small letters in a Tatoeba sentence (ru, en); and in capitals, as written",
+ "balance": false,
+ "correction": {
+  "kind": "abbrev"
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 20,
+  "minTokens": 3
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": ["fix", "keep"],
+ "seed": 1,
+ "settings": "all",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "abbrev",
+ "tags": ["abbrev", "natural"],
+ "tiers": {
+  "ci": 4000,
+  "full": 100000
+ },
+ "version": 1
+}

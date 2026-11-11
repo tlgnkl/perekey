@@ -66,10 +66,14 @@ enum SuiteFixtures {
 @Suite struct SuiteManifestTests {
     @Test func theManifestsOfTheRepositoryRead() throws {
         let manifests = try SuiteManifestFiles.read(directory: Repo.path("eval/suites"))
-        #expect(manifests.map(\.suite).sorted() == [
-            "chat.tatoeba", "lang.rus-se", "lang.russian-se", "mixed.uk-se", "prose.be", "prose.kk", "prose.tatoeba",
-            "prose.uk", "tech.ruso",
-        ])
+        // The corpus suites are there; the suites of other lanes (corrections, classes) come beside them.
+        let names = Set(manifests.map(\.suite))
+        for name in ["chat.tatoeba", "lang.rus-se", "lang.russian-se", "mixed.uk-se", "prose.be", "prose.kk",
+                     "prose.tatoeba", "prose.uk", "tech.ruso"]
+        {
+            #expect(names.contains(name), "no manifest \(name)")
+        }
+        #expect(names.count == manifests.count)
         for manifest in manifests {
             #expect(manifest.problems().isEmpty)
             for set in manifest.layoutSets { _ = try LayoutSet(names: set, library: Repo.library) }

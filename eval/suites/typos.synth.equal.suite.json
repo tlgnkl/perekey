@@ -1,0 +1,39 @@
+{
+ "about": "Tatoeba sentences (ru, en), one made-up typo in each; every kind of slip 20 %, not the corrector's own 40/20/20/10/10",
+ "correction": {
+  "kind": "typo.synth",
+  "weights": {
+   "double": 20,
+   "drop": 20,
+   "neighbor": 20,
+   "stray": 20,
+   "swap": 20
+  }
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 12,
+  "minTokens": 3
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": ["fix"],
+ "seed": 1,
+ "settings": "all",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "typos.synth.equal",
+ "tags": ["typo", "synthetic"],
+ "tiers": {
+  "ci": 12000,
+  "full": 300000
+ },
+ "version": 1
+}

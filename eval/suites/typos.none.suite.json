@@ -1,0 +1,29 @@
+{
+ "about": "Tatoeba sentences (ru, en) as written, preset default: what the typo corrector does to correct text",
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 20,
+  "minTokens": 3
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": ["clean.cold"],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "typos.none",
+ "tags": ["typo", "natural"],
+ "tiers": {
+  "ci": 12000,
+  "full": 400000
+ },
+ "version": 1
+}

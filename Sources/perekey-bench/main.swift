@@ -10,6 +10,9 @@
 
 import Foundation
 import PerekeyCore
+#if PEREKEY_RECORD
+import PerekeyInput
+#endif
 
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else {
@@ -192,6 +195,18 @@ let typoWords: [(String, LayoutMap)] = [
     ("будте", russian), ("code", abc), ("https://example.com", abc), ("клавиатура", russian), ("the", abc),
 ]
 
+#if PEREKEY_RECORD
+/// The typing recorder's buffer, while a session runs with it
+/// (PEREKEY_RECORD): each event goes into it right after the machine, as in
+/// the engine, inside the timed span. A full batch is taken and counted as
+/// written at once: memory only, no disk, as the tap thread has it.
+var recordingBuffer: RecordingBuffer?
+var recordedEntries = 0
+#endif
+
+// On the main actor, as the top-level code that calls it: the recorder's
+// buffer above is a top-level variable.
+@MainActor
 func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutMap)],
                        layouts: [LayoutMap] = [abc, russian], classifier: Classifier = classifier) -> AutoswitchRun
 {
@@ -200,6 +215,10 @@ func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutM
     var machine = InputMachine(settings: settings, layouts: layouts, currentLayout: abc.id,
                                classifier: classifier)
     _ = machine.handle(.focusChanged(Focus(bundleID: "app.perekey.bench")))
+    #if PEREKEY_RECORD
+    // The recording starts at a quiet point, as in the app: this one.
+    _ = recordingBuffer?.record(.focusChanged(Focus(bundleID: "app.perekey.bench")), Output(), machine: machine)
+    #endif
     var time = 0.0
     var held: [KeyEvent] = []
     var retypes: [Retype] = []
@@ -208,6 +227,12 @@ func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutM
     func handle(_ event: InputEvent) -> Output {
         let start = clock.now
         let output = machine.handle(event)
+        #if PEREKEY_RECORD
+        if recordingBuffer?.record(event, output, machine: machine) == true, let batch = recordingBuffer?.take() {
+            recordedEntries += batch.count
+            recordingBuffer?.written(batch.count, newDay: false)
+        }
+        #endif
         run.samples.append(nanoseconds(clock.now - start))
         run.events += 1
         for effect in output.effects {
@@ -286,6 +311,28 @@ if autoswitch.corrections == 0 {
     print("FAIL: the autoswitch session switched nothing")
     failed = true
 }
+
+#if PEREKEY_RECORD
+// The same session with the typing recorder's buffer on: what recording adds
+// to each event on the tap thread. Its own budget is the tap's, 1 ms at p99.
+recordingBuffer = RecordingBuffer()
+var recorded = correctionSession(rounds: 6000, settings: Settings(), words: autoswitchWords)
+recordedEntries += recordingBuffer?.entries.count ?? 0
+recordingBuffer = nil
+recorded.samples.sort()
+let recordedMean = recorded.samples.reduce(0, +) / Double(recorded.samples.count)
+let recordedP99 = recorded.samples[recorded.samples.count * 99 / 100]
+print(String(format: "autoswitch, recording: %d events, %d entries recorded: mean %.0f ns, p99 %.0f ns, max %.0f ns",
+             recorded.events, recordedEntries, recordedMean, recordedP99, recorded.samples.last!))
+if recordedP99 > 1_000_000 {
+    print("FAIL: autoswitch p99 with the recorder exceeds the 1 ms tap callback budget")
+    failed = true
+}
+if recordedEntries < recorded.events {
+    print("FAIL: the recorder did not record every event of the session")
+    failed = true
+}
+#endif
 
 // Three layouts (stage 8): a word typed on ABC is weighed against Russian
 // and Ukrainian; words of all three languages, typed in the wrong layout

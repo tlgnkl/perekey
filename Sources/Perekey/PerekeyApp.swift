@@ -141,7 +141,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsWindow(recording: recording) { section, scrollTarget in
             #if PEREKEY_VOICE
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
-                                    languages: input.languages, initial: section, scrollTarget: scrollTarget)
+                                    languages: input.languages, personal: input.personal, initial: section,
+                                    scrollTarget: scrollTarget)
             view.voiceController = voiceModels
             view.voiceModes = voiceModes
             view.voiceTextController = voiceText
@@ -161,7 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return view
             #else
             var view = SettingsView(store: store, recording: recording, sources: sources, updates: updates, usage: usage,
-                                    languages: input.languages, initial: section, scrollTarget: scrollTarget)
+                                    languages: input.languages, personal: input.personal, initial: section,
+                                    scrollTarget: scrollTarget)
             view.hasAccess = { input.hasAccess }
             view.openAccess = { onboarding.show(at: .access) }
             view.launch = launchAtLogin
@@ -278,6 +280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Counters reach the disk at most every few seconds, and here at quit.
         usage.flush()
+        input.personal.flush()
         #if PEREKEY_VOICE
         // The history writes off the main thread: let the last one land.
         voiceText.history.flush()
@@ -407,7 +410,8 @@ final class MenuBarShell {
                 report: { word, reason in
                     menu.close()
                     reportWindow.show(word: word, reason: reason, layouts: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
-                }
+                },
+                forgetWord: { input.personal.forget($0) }
             )
             extend(&actions)
             #if PEREKEY_VOICE

@@ -20,6 +20,9 @@ struct MenuActions {
     /// Opens the report form with this word and the classifier's decision
     /// (names and numbers) filled in.
     var report: (String, String) -> Void = { _, _ in }
+    /// «Forget the word» under the reasons of a switch to a word of the user's own.
+    /// Returns whether the lexicon had the word.
+    var forgetWord: (PersonalWordRef) -> Bool = { _ in false }
     var close: () -> Void = {}
     #if PEREKEY_VOICE
     /// The voice mode switch; nil hides it.
@@ -556,6 +559,7 @@ struct MenuContent: View {
                     ForEach(entries) { entry in
                         CorrectionRow(entry: entry, isLatest: entry.id == latest, store: store, nav: nav,
                                       onReport: { word, reason in actions.report(word, reason) },
+                                      onForget: { word in actions.forgetWord(word) },
                                       explained: entry.id == explainedEntry)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                     }
@@ -1005,17 +1009,23 @@ struct CorrectionRow: View {
     let store: SettingsStore
     let nav: MenuNav
     let onReport: (String, String) -> Void
+    /// «Forget the word»: the switch went to a word of the personal lexicon.
+    let onForget: (PersonalWordRef) -> Bool
     /// «Why?» is open: the reasons show under the row.
     private let explained: State<Bool>
+    /// What «Forget the word» did, once pressed: the row says it, by the answer of the lexicon.
+    private let forgetResult = State<Bool?>(initialValue: nil)
 
     init(entry: CorrectionLog.Entry, isLatest: Bool, store: SettingsStore, nav: MenuNav,
-         onReport: @escaping (String, String) -> Void, explained: Bool = false)
+         onReport: @escaping (String, String) -> Void, onForget: @escaping (PersonalWordRef) -> Bool = { _ in false },
+         explained: Bool = false)
     {
         self.entry = entry
         self.isLatest = isLatest
         self.store = store
         self.nav = nav
         self.onReport = onReport
+        self.onForget = onForget
         self.explained = State(initialValue: explained)
     }
 
@@ -1044,6 +1054,23 @@ struct CorrectionRow: View {
                     .font(PK.Font.caption)
                     .foregroundStyle(Color.pkInk2)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if !entry.undone, let language = entry.personalLanguage.flatMap({ LanguageCode($0) }) {
+                if let forgot = forgetResult.wrappedValue {
+                    // Two literals, not a ternary: a ternary of literals is a String and is not localized.
+                    (forgot ? Text("Forgotten") : Text("Not in the lexicon"))
+                        .font(PK.Font.caption.weight(.semibold))
+                        .foregroundStyle(Color.pkInk2)
+                        .padding(.top, 2)
+                } else {
+                    Button("Forget the word") {
+                        forgetResult.wrappedValue = onForget(PersonalWordRef(text: entry.replacement, language: language))
+                    }
+                    .buttonStyle(.plain)
+                    .font(PK.Font.caption.weight(.semibold))
+                    .foregroundStyle(Color.pkIndigoInk)
+                    .padding(.top, 2)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

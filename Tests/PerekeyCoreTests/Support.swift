@@ -20,6 +20,15 @@ enum Fixture {
 }
 
 extension LayoutMap {
+    /// The same keys under another id and without a language, as a layout
+    /// the model knows nothing about.
+    func withoutLanguage(id: String) -> LayoutMap {
+        var object = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(self)) as! [String: Any]
+        object["id"] = id
+        object["language"] = nil
+        return try! JSONDecoder().decode(LayoutMap.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
     /// The text these strokes type in this layout.
     func type(_ strokes: [KeyStroke]) -> String {
         strokes.map { text(for: $0)! }.joined()

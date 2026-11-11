@@ -130,6 +130,9 @@ public struct InputMachine: Sendable {
     /// lexicon was just turned on, 1 after a batch left, 0 when it is off.
     public var personalRoomsWanted: Int { judge.personalRoomsWanted }
 
+    /// The personal lexicon the machine looks words up in now (`.off` when none).
+    public var personalLexicon: PersonalLexicon { judge.personal }
+
     /// The bundle ID of the focus, as the undos and the per-app exceptions see it.
     public var focusApp: String? { focus?.bundleID }
 
@@ -694,7 +697,8 @@ public struct InputMachine: Sendable {
                                          phrases: settings.corrections.phraseRetype, isSecureField: isSecureField,
                                          classifier: judge.classifier,
                                          // Only more than two layouts rank readings by it.
-                                         context: layouts.order.count > 2 ? judge.manualContext(focus: focus)
+                                         context: layouts.order.count > 2
+                                             ? judge.manualContext(focus: focus, buffer: buffer, layouts: layouts)
                                              : Classifier.Context(mode: .manual))
             run(plan, as: action, fixedByAutoswitch: fixedByAutoswitch, at: time, effects: &effects)
 

@@ -15,6 +15,9 @@ struct WordsPane: View {
     var layouts: [LayoutMap] = []
     /// Says whether a word is among the 1000 most frequent. The classifier model will provide it.
     var isFrequent: (String) -> Bool = { _ in false }
+    /// The link to «My words» in Privacy: shown when the window has the lexicon's store.
+    var showsMyWords = false
+    var openPrivacy: () -> Void = {}
 
     /// Where the answers given here are written, as `InputController.answer` writes them.
     var learningJournal = LearningJournalFile()
@@ -24,9 +27,12 @@ struct WordsPane: View {
     private let found = State(initialValue: FoundTracker())
 
     init(store: SettingsStore, layouts: [LayoutMap] = [], isFrequent: @escaping (String) -> Bool = { _ in false },
+         showsMyWords: Bool = false, openPrivacy: @escaping () -> Void = {},
          initialDraft: String = "", initialAlwaysDraft: String = "")
     {
         self.store = store
+        self.showsMyWords = showsMyWords
+        self.openPrivacy = openPrivacy
         self.layouts = layouts
         self.isFrequent = isFrequent
         draft = State(initialValue: initialDraft)
@@ -54,6 +60,20 @@ struct WordsPane: View {
             if !words.pendingCandidates.isEmpty { candidatesSection }
             learnedSection
             alwaysSection
+            if showsMyWords { myWordsSection }
+        }
+    }
+
+    /// Words the user types again and again are not a list one can show: the
+    /// lexicon keeps fingerprints, not text. The group points to where it is set.
+    private var myWordsSection: some View {
+        PKGroup(header: Text("Words you often type"), anchor: "words.often") {
+            PKRow(Text("Learn my words"),
+                  detail: Text("Perekey can remember them as fingerprints, not as text, and stop switching and fixing them. The switch is in Privacy."),
+                  anchor: "words.my-words") {
+                Button("Open Privacy", action: openPrivacy)
+                    .buttonStyle(.pkSecondary)
+            }
         }
     }
 

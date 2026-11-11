@@ -6,7 +6,10 @@ import SwiftUI
 
 /// What the caret hint says.
 enum HintContent: Equatable {
-    case corrected(original: String, replacement: String)
+    /// An automatic switch. `forgettable`: it was made because the word is
+    /// one of the user's own (`PersonalLexicon`); the hint says so and offers
+    /// «Forget the word» next to «Undo».
+    case corrected(original: String, replacement: String, forgettable: Bool = false)
     /// The user's own retype: «привет · ⌥ — вернуть». `shortcut` is the key of
     /// the action that ran, nil if it has none. A small «Почему?» when `why`
     /// is there; otherwise no button.
@@ -102,14 +105,19 @@ struct HintBubbleContent: View {
     var explain: () -> Void = {}
     var alwaysFix: () -> Void = {}
     var answer: (LearningAnswer) -> Void = { _ in }
+    var forget: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 switch model.content {
-                case let .corrected(original, replacement):
+                case let .corrected(original, replacement, forgettable):
                     correction(original: original, replacement: replacement)
+                    if forgettable {
+                        Text("Your word").font(.system(size: 12)).foregroundStyle(Color.pkInk3)
+                    }
                     chip(Text("Undo"), keycap: "⌫")
+                    if forgettable { smallChip(Text("Forget the word"), run: forget) }
                 case let .retyped(original, word, shortcut, why, offersAlways):
                     retyped(original: original, word: word, shortcut: shortcut)
                     if offersAlways, !model.expanded { smallChip(Text("Always fix"), run: alwaysFix) }
@@ -264,6 +272,7 @@ struct HintView: View {
     var explain: () -> Void = {}
     var alwaysFix: () -> Void = {}
     var answer: (LearningAnswer) -> Void = { _ in }
+    var forget: () -> Void = {}
     @Environment(\.colorScheme) private var scheme
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 13, style: .continuous) }
@@ -288,7 +297,8 @@ struct HintView: View {
 
     private func bubble(size: CGSize?) -> some View {
         let dark = scheme == .dark
-        return HintBubbleContent(model: model, action: action, explain: explain, alwaysFix: alwaysFix, answer: answer)
+        return HintBubbleContent(model: model, action: action, explain: explain, alwaysFix: alwaysFix, answer: answer,
+                          forget: forget)
             .frame(width: size?.width, height: size?.height, alignment: .leading)
             .clipShape(shape)
             .pkGlass(in: shape)

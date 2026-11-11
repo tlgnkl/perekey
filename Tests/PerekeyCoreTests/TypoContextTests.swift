@@ -262,6 +262,23 @@ private func fingerprint(_ text: String) -> UInt64 { ModelFixture.fingerprint(te
         #expect(desk.text == "привет thenm ")
     }
 
+    @Test func aWordInALayoutWithoutALanguageIsStillTheContext() {
+        // The typo corrector reads the word before in any layout, as it did before the word context
+        // of the classifier: only that context asks for a language.
+        let bare = Fixture.abc.withoutLanguage(id: "Bare")
+        var classifier = Classifier(model: Self.model)
+        classifier.typoContextWeight = 1
+        var desk = Desk(Settings(typoCorrection: true), layouts: [Fixture.abc, bare], classifier: classifier)
+        desk.appLayout = bare.id
+        desk.send(.layoutChanged(bare.id))
+        desk.type("to ", on: bare)
+        desk.appLayout = Fixture.abc.id
+        desk.send(.layoutChanged(Fixture.abc.id))
+        desk.type("thenm ")
+        // ("to", "then") speaks; without the word before "then" and "them" tie and nothing is fixed.
+        #expect(desk.text == "to then ")
+    }
+
     @Test func aClickForgetsTheWordBefore() {
         var desk = Self.desk(weight: 1)
         desk.type("to ")

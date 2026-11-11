@@ -48,6 +48,17 @@ import Testing
         #expect(ManagedSettings { $0 == "VoiceDisabled" ? 1 as Int : nil }.voiceDisabled == false)
     }
 
+    @Test func personalWordsAreOffOnlyWhenForcedTrue() {
+        let none = ManagedSettings { _ in nil }
+        #expect(!none.personalWordsDisabled && !none.forcesAnyKey)
+        let forced = ManagedSettings { $0 == "PersonalWordsDisabled" ? true : nil }
+        #expect(forced.personalWordsDisabled && forced.forcesAnyKey)
+        #expect(!forced.voiceDisabled && !forced.updatesDisabled)
+        #expect(ManagedSettings { $0 == "PersonalWordsDisabled" ? false : nil }.personalWordsDisabled == false)
+        #expect(ManagedSettings { $0 == "PersonalWordsDisabled" ? "yes" : nil }.personalWordsDisabled == false)
+        #expect(ManagedSettings.Key.personalWordsDisabled == "PersonalWordsDisabled")
+    }
+
     @Test func feedNeedsHTTPSAndA32ByteKey() {
         let key = Data(repeating: 7, count: 32).base64EncodedString()
         #expect(UpdateFeed.isConfigured(feedURL: UpdateFeed.url, publicKey: key))

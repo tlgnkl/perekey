@@ -92,7 +92,10 @@ comes with a `.sha256` file:
 - **Transcripts and call recording.** Turn an audio or video file into text
   with timestamps and speakers, or record a call (your microphone and the
   sound of an app, as two tracks). See "Transcripts and calls" below.
-- **Private.** Typed text is never saved. Speech models run on your Mac. The
+- **Private.** Typed text is never saved: it lives in memory only. If you turn
+  on "My words", Perekey keeps keyed fingerprints of the words you type often,
+  and the key is in your keychain, so the words cannot be read from the file.
+  Speech models run on your Mac. The
   network is used to check for updates, and for what you start yourself:
   downloading a speech model and sending text or sound to a server you set up.
   Nothing is sent before that (see "Network").
@@ -166,8 +169,10 @@ first launch after the update asks first.
 
 ## What is stored
 
-Typed text is never saved: the word you are typing lives in memory. Perekey
-keeps four files in `~/Library/Application Support/Perekey/`:
+Typed text is never saved: the word you are typing lives in memory. If you turn
+on "My words", Perekey also keeps keyed fingerprints of the words you type
+often (below); it never keeps the words. Perekey keeps up to five files in
+`~/Library/Application Support/Perekey/`:
 
 - `settings.json`: settings and your word lists ("Mine", "Learned",
   "Always fix"), with dates, undo counts and app IDs, and the words you
@@ -180,8 +185,22 @@ keeps four files in `~/Library/Application Support/Perekey/`:
 - `learning-journal.json`: the last 500 undos and answers about learning a
   word, to tune when Perekey asks: how you undid, what you typed next (as a
   kind: space, punctuation), the app ID and the time. No words.
+- `lexicon.json`: only with "My words" on (Settings → Privacy; off by
+  default). For each word you keep typing: a keyed fingerprint (SipHash-2-4, 64
+  bits, in hex), the language code, how many times and on how many days you
+  typed it and the day of the last time; for a word Perekey has taken, also the
+  fingerprints of its first three and four letters. No words, no lengths, no
+  order. The key is 16 random bytes in your Keychain (service
+  `app.perekey.Perekey.lexicon`, this Mac only, never synchronized), not in a
+  file, so the fingerprints say nothing without it. If the Keychain does not
+  give the key, "My words" stays off: there is no spare key. A word enters the
+  file only after you typed it, kept it, and Perekey was free to act in that
+  app (not in terminals and editors, not in password fields). "Erase my words"
+  deletes the file and the key. Someone who has both the file and the key (a
+  process running as you, with the Keychain open) can test guessed words
+  against it; that is why it is off until you turn it on.
 
-Settings → Privacy erases the counts.
+Settings → Privacy erases the counts and the words.
 
 Voice adds its own files in the same folder: dictation history (7 days by
 default, can be off), your dictionary and modes, and, if you use them,

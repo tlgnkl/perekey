@@ -78,6 +78,12 @@ public struct AppSettings: Hashable, Sendable {
     public var caretHint: CaretHintMode
     /// Opt-in counters of corrections per day (`UsageStats`). Off by default.
     public var statistics = false
+    /// «Мои слова»: Perekey keeps keyed fingerprints of the words the user
+    /// often types, so it does not switch or fix them (docs/classifier.md,
+    /// «Личный словарь»). Off by default, until the measure on live typing
+    /// says otherwise. The words themselves are not a setting: the export
+    /// carries this switch and not the lexicon.
+    public var personalWords = false
     /// How the menu bar item looks (Settings → General, «Menu bar»).
     public var menuBarIcon: MenuBarIconStyle = .capsule
     /// When the menu bar item is on screen.
@@ -160,7 +166,8 @@ public struct AppSettings: Hashable, Sendable {
 extension AppSettings: Codable {
     private enum CodingKeys: String, CodingKey {
         case hotkeys, capsLock, autoswitch, onboardingDone, apps, words, sites, layoutSound, correctionSound
-        case checkForUpdates, typoCorrection, corrections, caretHint, statistics, menuBarIcon, menuBarVisibility, menu
+        case checkForUpdates, typoCorrection, corrections, caretHint, statistics, personalWords, menuBarIcon, menuBarVisibility
+        case menu
     }
 
     public init(from decoder: any Decoder) throws {
@@ -182,6 +189,7 @@ extension AppSettings: Codable {
         typoCorrection = (try? container.decodeIfPresent(Bool.self, forKey: .typoCorrection)) ?? defaults.typoCorrection
         caretHint = (try? container.decodeIfPresent(CaretHintMode.self, forKey: .caretHint)) ?? defaults.caretHint
         statistics = (try? container.decodeIfPresent(Bool.self, forKey: .statistics)) ?? defaults.statistics
+        personalWords = (try? container.decodeIfPresent(Bool.self, forKey: .personalWords)) ?? defaults.personalWords
         menuBarIcon = (try? container.decodeIfPresent(MenuBarIconStyle.self, forKey: .menuBarIcon)) ?? defaults.menuBarIcon
         menuBarVisibility = (try? container.decodeIfPresent(MenuBarVisibility.self, forKey: .menuBarVisibility))
             ?? defaults.menuBarVisibility

@@ -92,6 +92,10 @@ public struct Evaluation {
         public var realWords = false
         public var categories: [Category]
         public var untypeable = 0
+        /// Words before that `previousWordInWrongLayout` could not read in the
+        /// other layout (a character without a key there): the sweep ran those
+        /// words with no word before.
+        public var previousWordsUntranslated = 0
         public var errors: [Case]
 
         /// Recall over prose and chat: the plan's target applies to text.
@@ -143,6 +147,10 @@ public struct Evaluation {
     /// The personal lexicon every word is judged with (`perekey-eval
     /// personal`): `.off`, the default, judges as before, byte for byte.
     public var personal = PersonalLexicon.off
+    /// The word before a corpus word is the keys of the word typed in the other
+    /// layout and left there (`previousWord`), the negative side of
+    /// `Classifier.Options.wordContextLimit`; off, it is the word as meant.
+    public var previousWordInWrongLayout = false
     /// Look for words that are words too (`TypoCorrector.correct(…, realWords:)`); off is the run as before.
     public var realWords = false
     let model: LanguageModel
@@ -192,9 +200,12 @@ public struct Evaluation {
                 continue
             }
             var category = categories[item.category, default: Category(name: item.category)]
+            let translated = readPreviousWord(item)
+            if translated.untranslatable { results.previousWordsUntranslated += 1 }
             let context = Classifier.Context(recent: RecentLanguages(item.recent),
                                              prior: item.app.map { LanguagePrior(counts: $0) } ?? LanguagePrior(),
-                                             personal: personal)
+                                             personal: personal,
+                                             previousWord: translated.ref)
             // As the word judge: the typo step leaves a word of the lexicon alone.
             let typoStep = classifier.isPersonal(strokes, in: own, personal: personal) ? nil : corrector
             // Without a word before it the word starts the text: a capital is allowed.
@@ -391,6 +402,55 @@ public struct Evaluation {
         return PreviousWord.fingerprint(of: latest.unicodeScalars)
     }
 
+    /// The word before a corpus word with its language, for
+    /// `Classifier.Options.wordContextLimit`: nil at the start of a sentence
+    /// and where the corpus does not say. With `previousWordInWrongLayout`
+    /// the word before is what the machine would hold had the user typed it
+    /// in the other layout and Perekey left it alone: the same keys read in
+    /// the other language.
+    func previousWord(_ item: CorpusItem) -> Classifier.PreviousWordRef? {
+        readPreviousWord(item).ref
+    }
+
+    /// `previousWord(_:)` and whether the word before could not be read in
+    /// the other layout. The other layout is the first other key in order:
+    /// the run does not depend on the order of the dictionary.
+    func readPreviousWord(_ item: CorpusItem) -> (ref: Classifier.PreviousWordRef?, untranslatable: Bool) {
+        guard let text = item.previousWords?.first, let first = item.recent.first, let language = first else {
+            return (nil, false)
+        }
+        var scalars = text.unicodeScalars.map { $0 }
+        var read = language
+        if previousWordInWrongLayout {
+            guard let intended = layouts[language],
+                  let wrong = layouts.filter({ $0.key != language }).min(by: { $0.key < $1.key })
+            else { return (nil, false) }
+            var typed = ""
+            for character in text {
+                guard let stroke = intended.stroke(for: character), let letter = wrong.value.text(for: stroke) else {
+                    return (nil, true)
+                }
+                typed += letter
+            }
+            scalars = typed.unicodeScalars.map { $0 }
+            read = wrong.key
+        }
+        guard let fingerprint = PreviousWord.fingerprint(of: scalars), fingerprint != ModelFormat.sentenceStart else {
+            return (nil, false)
+        }
+        return (Classifier.PreviousWordRef(language: read, fingerprint: fingerprint), false)
+    }
+
+    /// Runs the corpus at each limit of the word context: the points to pick
+    /// `Classifier.Options.wordContextLimit` from.
+    public func wordContextSweep(_ items: [CorpusItem], limits: [Double]) -> [Results] {
+        limits.map { limit in
+            var evaluation = self
+            evaluation.options.wordContextLimit = limit
+            return evaluation.run(items, maxErrors: 0)
+        }
+    }
+
     /// Runs the corpus at each weight of the word before the typo: the
     /// points to pick `TypoCorrector.Options.contextWeight` from.
     public func typoContextSweep(_ items: [CorpusItem], weights: [Double]) -> [Results] {
@@ -438,6 +498,9 @@ public struct Evaluation {
                           + "prior ×%.2f up to %.1f bits; %d words skipped (not typeable)\n", results.threshold,
                           results.options.contextBonus, results.options.contextDecay,
                           results.options.priorScale, results.options.priorLimit, results.untypeable)
+        if results.previousWordsUntranslated > 0 {
+            text += "\(results.previousWordsUntranslated) words before not translated to the other layout (run with no word before)\n"
+        }
         text += "category    words   false switches     rate   wrong layout  switched   recall\n"
         for category in results.categories + [results.total] {
             text += String(format: "%-9@ %7d %16d %7.3f%% %14d %9d %7.2f%%\n", category.name as NSString,

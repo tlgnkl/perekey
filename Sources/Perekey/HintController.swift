@@ -48,9 +48,12 @@ final class HintController {
 
     /// After a correction: `original` struck out, `replacement` underlined, an
     /// «Undo» chip that calls `onUndo`.
-    func show(original: String, replacement: String, onUndo: @escaping () -> Void) {
+    /// `onForget` is there when the switch was made because the word is one
+    /// of the user's own: the hint says so and offers «Forget the word».
+    func show(original: String, replacement: String, onForget: (() -> Void)? = nil, onUndo: @escaping () -> Void) {
         alwaysFixAction = nil
-        present(.corrected(original: original, replacement: replacement), action: onUndo)
+        forgetAction = onForget
+        present(.corrected(original: original, replacement: replacement, forgettable: onForget != nil), action: onUndo)
     }
 
     /// After the user's own retype: «word · ⌥ — revert». No button.
@@ -92,6 +95,7 @@ final class HintController {
 
     func hide() {
         alwaysFixAction = nil
+        forgetAction = nil
         answerAction = nil
         generation += 1
         dismiss()
@@ -211,6 +215,7 @@ final class HintController {
     private var remainingGlide = 0
     private var lastCaret: CaretAnchor?
     private var alwaysFixAction: (() -> Void)?
+    private var forgetAction: (() -> Void)?
     private var answerAction: ((LearningAnswer) -> Void)?
     /// The hint is showing and its buttons take clicks.
     private var buttonActive = false
@@ -355,7 +360,7 @@ final class HintController {
             let action = self.answerAction
             self.hide()
             action?(choice)
-        })
+        }, forget: { [weak self] in self?.forgetAction?() })
         return HintPanel(rootView: view, model: model)
     }
 }

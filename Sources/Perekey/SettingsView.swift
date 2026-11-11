@@ -71,6 +71,8 @@ struct SettingsView: View {
     let sources: InputSources
     let updates: Updates
     let languages: LanguageStatsStore?
+    /// `nil` hides «My words» in Privacy (snapshots, tests).
+    let personal: PersonalLexiconStore?
     let usage: UsageRecorder?
     /// Whether Perekey has access; read in `body`, so the banner follows it.
     var hasAccess: @MainActor () -> Bool = { true }
@@ -98,14 +100,15 @@ struct SettingsView: View {
     private let search: State<SettingsSearchModel>
 
     init(store: SettingsStore, recording: ShortcutRecording, sources: InputSources, updates: Updates,
-         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, initial: SettingsSection = .general,
-         scrollTarget: String? = nil, searchQuery: String = "") {
+         usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil, personal: PersonalLexiconStore? = nil,
+         initial: SettingsSection = .general, scrollTarget: String? = nil, searchQuery: String = "") {
         self.scrollTarget = State(initialValue: scrollTarget)
         let search = SettingsSearchModel()
         if !searchQuery.isEmpty { search.setQuery(searchQuery) }
         self.search = State(initialValue: search)
         self.usage = usage
         self.languages = languages
+        self.personal = personal
         self.updates = updates
         self.store = store
         self.recording = recording
@@ -168,6 +171,7 @@ struct SettingsView: View {
             if store.settings.statistics { shown.insert(.statisticsOn) }
         }
         if languages != nil { shown.insert(.languageStats) }
+        if personal != nil { shown.insert(.personalStore) }
         #if PEREKEY_VOICE
         if let voiceController {
             if voiceController.settings.isOn && voiceController.isSupported { shown.insert(.voiceOn) }
@@ -190,6 +194,12 @@ struct SettingsView: View {
         search.wrappedValue.forget()
         direction.wrappedValue = new.rawValue > current.rawValue ? 1 : -1
         withAnimation(reduceMotionFree(PK.Motion.easeOut(0.32))) { selection.wrappedValue = new }
+    }
+
+    /// The link of Words: Privacy, scrolled to «My words».
+    private func showMyWords() {
+        select(.privacy)
+        scrollTarget.wrappedValue = "privacy.my-words" // search: title in PrivacyPane.swift
     }
 
     /// A click on a section. With a query typed, the section also shows its first match.
@@ -239,8 +249,11 @@ struct SettingsView: View {
         case .apps: AppsPane(store: store, sources: sources, languages: languages)
         #endif
         case .sites: SitesPane(store: store, sources: sources)
-        case .words: WordsPane(store: store, layouts: sources.layouts)
-        case .privacy: PrivacyPane(store: store, usage: usage, languages: languages, layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
+        case .words:
+            WordsPane(store: store, layouts: sources.layouts, showsMyWords: personal != nil, openPrivacy: showMyWords)
+        case .privacy:
+            PrivacyPane(store: store, usage: usage, languages: languages, personal: personal,
+                        layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
         }
     }
 }

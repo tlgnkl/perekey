@@ -775,3 +775,63 @@ import Testing
         #expect(words["по-доброму"] == .po)
     }
 }
+
+/// The word before a corpus word, as the sweep of the word context reads it.
+@Suite struct WordContextEvaluationTests {
+    static func fingerprint(_ text: String) -> UInt64 { ModelFormat.Fingerprint.of(text.unicodeScalars, folded: true) }
+
+    static func item(_ previous: [String]?) -> CorpusItem {
+        CorpusItem(category: "prose", language: "en", recent: ["ru"], text: "hello", previousWords: previous)
+    }
+
+    static func evaluation(wrong: Bool) -> Evaluation {
+        var evaluation = Evaluation(model: TypoEvaluationTests.model, layouts: ["en": TypoEvaluationTests.abc,
+                                                                                "ru": TypoEvaluationTests.russian])
+        evaluation.previousWordInWrongLayout = wrong
+        return evaluation
+    }
+
+    @Test func theWordBeforeIsTheWordAsMeantByDefault() {
+        let ref = Self.evaluation(wrong: false).previousWord(Self.item(["привет"]))
+        #expect(ref?.language == "ru")
+        #expect(ref?.fingerprint == Self.fingerprint("привет"))
+    }
+
+    @Test func theWrongLayoutReadsTheSameKeysInTheOtherLanguage() {
+        let ref = Self.evaluation(wrong: true).previousWord(Self.item(["привет"]))
+        #expect(ref?.language == "en")
+        #expect(ref?.fingerprint == Self.fingerprint("ghbdtn"))
+    }
+
+    @Test func theWrongLayoutIsTheFirstOtherKeyInOrderWhateverTheDictionaryOrder() {
+        // Three layouts: "ee" sorts before "ru" and is not the intended "ru" of the word before.
+        for _ in 0..<20 {
+            var evaluation = Evaluation(model: TypoEvaluationTests.model, layouts: [
+                "en": TypoEvaluationTests.abc, "ru": TypoEvaluationTests.russian, "ee": TypoEvaluationTests.abc,
+            ])
+            evaluation.previousWordInWrongLayout = true
+            let ref = evaluation.previousWord(Self.item(["привет"]))
+            #expect(ref?.language == "ee")
+            #expect(ref?.fingerprint == Self.fingerprint("ghbdtn"))
+        }
+    }
+
+    @Test func wordsThatCannotBeTranslatedAreCountedAndLeftOut() {
+        let evaluation = Self.evaluation(wrong: true)
+        let results = evaluation.run([Self.item(["привет"]), Self.item(["привет😀"]), Self.item(["мир😀"]), Self.item([])],
+                                     maxErrors: 0)
+        #expect(results.previousWordsUntranslated == 2)
+        #expect(Evaluation.report(results).contains("2 words before not translated"))
+        // Not asked for, not counted: the report is as before.
+        let asMeant = Self.evaluation(wrong: false).run([Self.item(["привет😀"])], maxErrors: 0)
+        #expect(asMeant.previousWordsUntranslated == 0)
+        #expect(!Evaluation.report(asMeant).contains("not translated"))
+    }
+
+    @Test(arguments: [false, true])
+    func theStartOfASentenceAndAnUnknownWordHaveNoWordBefore(wrong: Bool) {
+        let evaluation = Self.evaluation(wrong: wrong)
+        #expect(evaluation.previousWord(Self.item([])) == nil)
+        #expect(evaluation.previousWord(Self.item(nil)) == nil)
+    }
+}

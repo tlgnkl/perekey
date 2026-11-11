@@ -159,4 +159,32 @@ import Testing
         #expect(log.entries.map(\.undone) == [false, true])
         #expect(log.entries.map(\.count) == [1, 1])
     }
+
+    @Test func aSwitchToAPersonalWordKeepsItsLanguageForForgetting() {
+        var personal = correction(1, "Lfirf")
+        var decision = Classifier.Decision(verdict: .switch(to: "ru"), score: 30, reason: .compared, language: "ru",
+                                           typedLanguage: "en", otherLanguage: "ru")
+        decision.otherPersonal = true
+        personal.decision = decision
+        var log = CorrectionLog()
+        log.record(personal)
+        log.record(correction(2, "ghbdtn"))
+        #expect(log.entries.map(\.personalLanguage) == [nil, "ru"])
+        // The row of several keeps it, and so does the struck row an undo splits off.
+        log.record(personal)
+        log.markUndone(seq: 1)
+        #expect(log.entries.first { $0.undone }?.personalLanguage == "ru")
+        #expect(log.entries.first { !$0.undone && $0.original == "Lfirf" }?.personalLanguage == "ru")
+    }
+
+    @Test func aSwitchTheLexiconDidNotMakeOffersNothingToForget() {
+        var plain = correction(1)
+        var decision = Classifier.Decision(verdict: .switch(to: "ru"), score: 30, reason: .compared, language: "ru",
+                                           typedLanguage: "en", otherLanguage: "ru")
+        decision.typedPersonal = true
+        plain.decision = decision
+        var log = CorrectionLog()
+        log.record(plain)
+        #expect(log.entries[0].personalLanguage == nil)
+    }
 }

@@ -32,6 +32,10 @@ final class InputController {
     let appModes: AppModeController
     /// Language counts per app and site; the prior of the one in front goes to the tap.
     let languages: LanguageStatsStore
+    /// «Мои слова»: the words the user often types, as keyed fingerprints.
+    let personal: PersonalLexiconStore
+    /// The setting, the snapshot for the tap and the retries of the key: all in `PersonalLexiconWiring`.
+    @ObservationIgnored private var personalWiring: PersonalLexiconWiring!
 
     @ObservationIgnored private let sources: InputSources
     @ObservationIgnored private let store: SettingsStore
@@ -79,6 +83,8 @@ final class InputController {
     @ObservationIgnored var onUnlearned: ((Unlearned) -> Void)?
     /// The shadow journal of learning, written on the main thread: undos are rare.
     @ObservationIgnored private let learningJournal = LearningJournalFile()
+    /// The undos and retypes that say a personal word is not the user's after all.
+    @ObservationIgnored private var personalSignals = PersonalSignals()
     /// Corrections of the onboarding demo, by `seq`: they count for nothing,
     /// neither the menu's list nor the statistics, nor their undo.
     @ObservationIgnored private var demoCorrections = Set<UInt32>()
@@ -98,12 +104,24 @@ final class InputController {
     #endif
 
     init(sources: InputSources, store: SettingsStore, pause: PauseState,
-         languages: LanguageStatsStore = LanguageStatsStore())
+         languages: LanguageStatsStore = LanguageStatsStore(), personal: PersonalLexiconStore? = nil)
     {
         self.sources = sources
         self.store = store
         self.pause = pause
         self.languages = languages
+        #if PEREKEY_RECORD
+        // The typing recording's build has no real key and no working fingerprints: the store works under a
+        // key of the run, in memory. The recording holds that session key and the fingerprints of the words
+        // under it (`wordsKept`, `personalLexiconChanged`); the text of the typing is in it anyway.
+        let sessionOnly = true
+        #else
+        let sessionOnly = false
+        #endif
+        // The profile is read here, once, as it is at launch; the store is the only one that knows it afterwards.
+        self.personal = personal ?? PersonalLexiconStore(
+            keys: KeychainLexiconKeyStore(), today: { InputController.day(of: Date()) },
+            allowed: !ManagedPreferences.read().personalWordsDisabled, sessionOnly: sessionOnly)
         appModes = AppModeController(sources: sources, store: store, pause: pause)
         lastSettings = store.snapshot
         lastSettings = effectiveSettings
@@ -166,6 +184,9 @@ final class InputController {
         // After start: before it the tap thread has no run loop, and the
         // context of the first app would be dropped.
         observeLanguageContext()
+        personalWiring = PersonalLexiconWiring(store: self.personal) { engine.send(.personalLexiconChanged($0)) }
+        personalWiring.observe()
+        applyPersonalWords()
         focus.start()
     }
 
@@ -222,7 +243,14 @@ final class InputController {
         return settings
     }
 
+    /// The switch «Мои слова» goes to the store, which reaches the key and
+    /// the file only while it is on, and the tap gets its snapshot from there.
+    private func applyPersonalWords() {
+        personalWiring?.settingsChanged(personalWords: store.settings.personalWords)
+    }
+
     private func pushSettings() {
+        applyPersonalWords()
         let settings = effectiveSettings
         guard settings != lastSettings else { return }
         lastSettings = settings
@@ -371,6 +399,8 @@ final class InputController {
             SystemSounds.play(store.settings.correctionSound)
             // An automatic switch has its own hint, from `corrected`; an undo hides it.
             if manualAction(of: origin) != nil, !isDemo(original, text) {
+                // A word of the lexicon retyped by hand into another layout was no word of the user's.
+                if let word = PersonalWordRef(retyped: original, decision: decision) { personal.forget(word) }
                 onManualRetype?()
                 if manualAction(of: origin)?.action == .convertLastWord { unlearn(original, text, app: app) }
             }
@@ -399,8 +429,16 @@ final class InputController {
                 shownCorrection = correction.seq
                 let engine = engine!
                 let seq = correction.seq
+                // A switch made because the word is a personal one says so, and offers to forget it.
+                var onForget: (() -> Void)?
+                if let word = PersonalWordRef(switchedTo: correction) {
+                    onForget = { [weak self] in
+                        self?.personal.forget(word)
+                        self?.hint.hide()
+                    }
+                }
                 // The button undoes this correction only, never a newer one.
-                hint.show(original: correction.original, replacement: correction.replacement) {
+                hint.show(original: correction.original, replacement: correction.replacement, onForget: onForget) {
                     engine.undoLastCorrection(seq: seq)
                 }
             } else {
@@ -412,9 +450,11 @@ final class InputController {
             if isDemo(correction.original, correction.replacement) {
                 demoCorrections.insert(correction.seq)
             } else {
+                personalSignals.corrected(correction)
                 onCorrection?(correction)
             }
         case let .correctionUndone(seq):
+            personalSignals.undone(seq: seq)
             if shownCorrection == seq {
                 shownCorrection = nil
                 hint.hide()
@@ -428,6 +468,7 @@ final class InputController {
                 hint.hide()
             }
         case let .undoSettled(report):
+            if let word = personalSignals.settled(report) { personal.forget(word) }
             countUndo(report)
         case let .alwaysFixWithdrawn(word):
             store.update { $0.words.stopFixing(word) }
@@ -438,6 +479,14 @@ final class InputController {
         case let .languagesCounted(tally):
             // The demo's words count for no app, whatever the context said.
             if !appModes.isDemoFront { languages.record(tally) }
+        case let .wordsKept(tally):
+            // The demo's words count for no lexicon; its buffer goes back all the same.
+            engine.send(.personalRoomReturned(personal.record(tally, counting: !appModes.isDemoFront)))
+        case let .personalRoomsWanted(count):
+            for _ in 0..<count { engine.send(.personalRoomReturned(PersonalRoom())) }
+        case .personalLexiconReleased:
+            // The old lexicon is freed here, as the message goes: nothing else to do.
+            break
         }
     }
 
@@ -603,9 +652,9 @@ final class InputController {
         {
             on(workspace, name) { engine.checkTaps() }
         }
-        on(DistributedNotificationCenter.default(), Notification.Name("com.apple.screenIsUnlocked")) {
-            engine.checkTaps()
-        }
+        on(DistributedNotificationCenter.default(), PersonalLexiconWiring.screenUnlocked) { engine.checkTaps() }
+        // The keychain may have been locked when «Мои слова» started: `PersonalLexiconWiring` asks for the
+        // key again when the app is activated and when the screen is unlocked (the pane asks too, when it opens).
         // Leaving the session: let held keys go.
         on(workspace, NSWorkspace.sessionDidResignActiveNotification) { engine.send(.inputLost) }
         // Access can be revoked at any time. Three triggers, because none is sure:

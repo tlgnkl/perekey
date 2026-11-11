@@ -266,7 +266,9 @@ enum Runs {
         defer { try? FileManager.default.removeItem(atPath: directory) }
         try RunDirectory.play(RunDirectory.cases(), to: directory, system: .oracle)
         let run = try RunData.load(directory)
-        let gates = try GateFile.read(Repo.path("eval/gates.json"))
+        var gates = try GateFile.read(Repo.path("eval/gates.json"))
+        // The oracle has the text and nothing else: the checks of a case read the layout and the counts of the system.
+        gates.zero.removeAll { $0.metric == "checksFailed" }
         let statuses = Dictionary(uniqueKeysWithValues: try RunDirectory.cases().compactMap { item in item.status.map { (item.id, $0) } })
         let result = Gate.check(gates, head: run, base: run, profiles: nil, statusOf: statuses)
         #expect(result.passed, "\(GateRender.text(result))")
@@ -342,7 +344,7 @@ enum Runs {
         let finding = { (ordinary: Int, mutated: Int) in Mutants.judge(slip, ordinary: misses(ordinary), mutated: misses(mutated)).first!.verdict }
         #expect(finding(100, 90) == .ok)
         #expect(finding(100, 100) == .fail, "no loss is no shift")
-        #expect(finding(100, 98) == .fail, "2 % is below the bar of 2.5 %")
+        #expect(finding(100, 99) == .fail, "1 % is below the bar of 2 %")
         #expect(finding(0, 0) == .fail, "nothing to lose is not a shift")
     }
 

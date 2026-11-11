@@ -88,7 +88,8 @@ jobs:
       - name: Quality bench against the base commit
         run: scripts/quality.sh --self-check --model .build/model
         env:
-          QUALITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          # A manual run has neither: it compares with main.
+          QUALITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
       - run: scripts/bundle.sh
       - name: No typing recorder in the app
         run: scripts/check-no-recorder.sh .build/app/Perekey.app

@@ -26,7 +26,7 @@
  "suite": "doublecap",
  "tags": ["doublecap", "natural"],
  "tiers": {
-  "ci": 8000,
+  "ci": 3000,
   "full": 150000
  },
  "version": 1

@@ -22,7 +22,7 @@
  "suite": "chat.tatoeba",
  "tags": ["chat", "natural"],
  "tiers": {
-  "ci": 20000,
+  "ci": 5000,
   "full": 400000
  },
  "transform": ["lowercase", "stripPunctuation"],

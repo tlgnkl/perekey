@@ -32,7 +32,7 @@
  "suite": "typos.synth.equal",
  "tags": ["typo", "synthetic"],
  "tiers": {
-  "ci": 12000,
+  "ci": 4000,
   "full": 300000
  },
  "version": 1

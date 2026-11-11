@@ -540,6 +540,7 @@ struct WordJudge: Sendable {
             // A switch inside the word that stood: the word now reads in the
             // layout it went to, and the one it came from is its rival.
             if personal.isOn, switchingBefore == .switchedInside, let auto, wordIsPlain(buffer, layouts: layouts),
+               !auto.classifier.isPlainlyKnown(buffer.entries.lazy.map(\.stroke), in: auto.typed),
                let source = switchedFrom.flatMap({ layouts[$0] }),
                !isException(buffer, in: auto.typed, settings, focus)
             {
@@ -626,7 +627,8 @@ struct WordJudge: Sendable {
                 }
                 guard var retype = autoRetype(auto, buffer.entries[...], held: boundary, heldKeyCode: key.keyCode,
                                               midWord: false, undoable: !endsLine, corrects: !forced,
-                                              spelling: spelling, layouts: layouts, settings: settings)
+                                              spelling: spelling, personal: switches ? found.otherPersonal : nil,
+                                              layouts: layouts, settings: settings)
                 else {
                     if tracing { traceKept(buffer, auto: auto, layouts: layouts, focus: focus) }
                     return .keep
@@ -643,7 +645,9 @@ struct WordJudge: Sendable {
                 // The switched word, if nothing but its layout changed: it
                 // waits for the next word, so a cancelled or undone switch
                 // drops it.
-                if personal.isOn, switches, !forced, listed == nil, retype.pending.correction.kind == .layout {
+                if personal.isOn, switches, !forced, listed == nil, retype.pending.correction.kind == .layout,
+                   !found.otherKnown
+                {
                     observe(retype.word ?? buffer.entries.map(\.stroke), in: auto.other,
                             rivals: CollectionOfOne(auto.typed), classifier: auto.classifier, confirm: false)
                 }
@@ -665,7 +669,7 @@ struct WordJudge: Sendable {
               var retype = phraseRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary,
                                         undoable: !endsLine, layouts: layouts, settings: settings, focus: focus)
               ?? typoRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary, undoable: !endsLine,
-                            layouts: layouts, settings: settings)
+                            personal: decision?.typedPersonal, layouts: layouts, settings: settings)
         else {
             if tracing {
                 if let keptAuto {
@@ -675,8 +679,9 @@ struct WordJudge: Sendable {
                 }
             }
             // Kept as typed, by a decision to keep and no correction.
-            if personal.isOn, let auto, decision?.verdict == .keep, !isException(buffer, in: auto.typed, settings, focus),
-               alwaysFixSpelling(buffer, in: auto.typed, settings) == nil
+            // A word the model knows is the common case: the decision says so already.
+            if personal.isOn, let auto, let decision, decision.verdict == .keep, !decision.typedKnown,
+               !isException(buffer, in: auto.typed, settings, focus), alwaysFixSpelling(buffer, in: auto.typed, settings) == nil
             {
                 observe(buffer.entries.lazy.map(\.stroke), in: auto.typed, rivals: auto.candidates,
                         classifier: auto.classifier, confirm: endsLine)
@@ -917,7 +922,8 @@ struct WordJudge: Sendable {
     /// report once posted. Nil when the word cannot be typed there.
     private func autoRetype(_ context: AutoContext, _ entries: ArraySlice<WordBuffer.Entry>, held: KeyStroke?,
                             heldKeyCode: UInt16, midWord: Bool, undoable: Bool, corrects: Bool = true,
-                            spelling: [KeyStroke]? = nil, layouts: LayoutState, settings: Settings) -> WordRetype?
+                            spelling: [KeyStroke]? = nil, personal: Bool? = nil, layouts: LayoutState,
+                            settings: Settings) -> WordRetype?
     {
         guard case let .keys(word) = layouts.retypeKeys(for: entries, into: context.other) else { return nil }
         var strokes = entries.map(\.stroke)
@@ -930,7 +936,7 @@ struct WordJudge: Sendable {
         var keys = word.keys
         var fix: WordFix?
         let spelt = spelling.map { WordFix(strokes: $0, kind: .layout) }
-        if !midWord, let found = spelt ?? (corrects ? correctWord(entries, in: context.other, layouts: layouts, settings: settings) : nil) {
+        if !midWord, let found = spelt ?? (corrects ? correctWord(entries, in: context.other, personal: personal, layouts: layouts, settings: settings) : nil) {
             keys.removeAll(keepingCapacity: true)
             for stroke in found.strokes {
                 guard let text = context.other.text(for: stroke) else { return nil }
@@ -960,9 +966,11 @@ struct WordJudge: Sendable {
     /// The word in the buffer corrected in its own layout, as `autoRetype`
     /// does for a switch. Nil when there is nothing to correct.
     private func typoRetype(_ buffer: WordBuffer, in typed: LayoutMap, heldKeyCode: UInt16, held: KeyStroke?,
-                            undoable: Bool, layouts: LayoutState, settings: Settings) -> WordRetype?
+                            undoable: Bool, personal: Bool?, layouts: LayoutState, settings: Settings) -> WordRetype?
     {
-        guard let fix = correctWord(buffer.entries[...], in: typed, layouts: layouts, settings: settings) else { return nil }
+        guard let fix = correctWord(buffer.entries[...], in: typed, personal: personal, layouts: layouts,
+                                    settings: settings)
+        else { return nil }
         var keys: [Retype.Key] = []
         var expected = ""
         keys.reserveCapacity(fix.strokes.count)
@@ -1057,13 +1065,16 @@ struct WordJudge: Sendable {
     /// 2. The dictionary steps of `WordCorrections`: Caps Lock, double
     ///    capitals, abbreviations, "ё".
     /// The kind of the first step that changed the word names the correction.
-    private func correctWord(_ entries: ArraySlice<WordBuffer.Entry>, in map: LayoutMap, layouts: LayoutState,
-                             settings: Settings) -> WordFix?
+    /// - Parameter personal: whether the word in `map` is a word of the
+    ///   personal lexicon, when the classifier said so already; nil looks it up.
+    private func correctWord(_ entries: ArraySlice<WordBuffer.Entry>, in map: LayoutMap, personal known: Bool? = nil,
+                             layouts: LayoutState, settings: Settings) -> WordFix?
     {
         var fix: WordFix?
         // A word of the personal lexicon is no typo: the corrector does not see it.
         if settings.typoCorrection, let typoCorrector, layouts.correctsTypos(map.id),
-           !(classifier?.isPersonal(entries.lazy.map(\.stroke), in: map, personal: personal) ?? false),
+           !(known ?? (personal.hasWords
+               && classifier?.isPersonal(entries.lazy.map(\.stroke), in: map, personal: personal) == true)),
            let candidate = typoCorrector.correct(entries.lazy.map(\.stroke), inAllowed: map, sentenceStart: sentenceStart,
                                                  previous: previousForTypo)
         {

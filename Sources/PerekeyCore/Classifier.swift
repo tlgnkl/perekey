@@ -174,9 +174,14 @@ public struct Classifier: Sendable {
         public var typedRank: UInt8?
         public var otherRank: UInt8?
         /// The reading is a word of the personal lexicon the model does not
-        /// know: «a word you often type». Filled with the forms.
+        /// know: «a word you often type». Filled by every judgement of two
+        /// readings, explained or not.
         public var typedPersonal = false
         public var otherPersonal = false
+        /// The reading is a known form of the model, the personal lexicon
+        /// aside: a word the lexicon need not observe. Set by every judgement.
+        var typedKnown = false
+        var otherKnown = false
         /// The languages of the two layouts, e.g. "en" and "ru".
         public var typedLanguage: String?
         public var otherLanguage: String?
@@ -590,14 +595,18 @@ public struct Classifier: Sendable {
                         context: Context, explaining: Bool) -> Decision
     {
         var decision = compare(typed, other, typed: typedLayout, other: otherLayout, context: context)
+        // Always: the word judge leaves a personal word to no typo step,
+        // and asking again would cost a reading of the word.
+        decision.typedPersonal = typed.personal
+        decision.otherPersonal = other.personal
+        decision.typedKnown = !typed.personal && typed.isWord && isKnown(typed)
+        decision.otherKnown = !other.personal && other.isWord && isKnown(other)
         guard explaining else { return decision }
         decision.margin = isKnown(other) ? options.threshold : options.threshold + options.unknownWordExtra
         decision.typedForm = form(of: typed)
         decision.otherForm = form(of: other)
         decision.typedRank = typed.rank
         decision.otherRank = other.rank
-        decision.typedPersonal = typed.personal
-        decision.otherPersonal = other.personal
         decision.typedLanguage = typedLayout.language
         decision.otherLanguage = otherLayout.language
         return decision
@@ -831,8 +840,12 @@ struct Reading {
     }
 
     /// Reads `count` strokes. `nil` when they type more scalars than fit.
+    /// - Parameter measuring: also its n-gram `cost` and `prefixPossible`;
+    ///   without, only what the form and the rank need (the personal
+    ///   lexicon's checks, on every word).
     init?(_ strokes: some Collection<KeyStroke>, count: Int, in layout: LayoutMap, language: LanguageModel.Language,
-          scalars: Slice<UnsafeMutableBufferPointer<UInt32>>, symbols: Slice<UnsafeMutableBufferPointer<UInt8>>)
+          scalars: Slice<UnsafeMutableBufferPointer<UInt32>>, symbols: Slice<UnsafeMutableBufferPointer<UInt8>>,
+          measuring: Bool = true)
     {
         let scalars = UnsafeMutableBufferPointer(rebasing: scalars)
         let symbols = UnsafeMutableBufferPointer(rebasing: symbols)
@@ -899,7 +912,7 @@ struct Reading {
         exactFingerprint = exact.value
         guard isWord else { return }
         rank = language.rank(of: fingerprint)
-        if letters >= 3 {
+        if measuring, letters >= 3 {
             prefixPossible = language.isPossiblePrefix(UnsafeBufferPointer(rebasing: symbols[0..<min(4, letters)]))
         }
 
@@ -912,7 +925,7 @@ struct Reading {
         var partsKnown = true
         for position in 0...letters where position == letters || symbols[position] == hyphen {
             if position > start {
-                cost += language.cost(UnsafeBufferPointer(rebasing: symbols[start..<position]))
+                if measuring { cost += language.cost(UnsafeBufferPointer(rebasing: symbols[start..<position])) }
                 parts += 1
                 if rank == nil, partsKnown {
                     var part = ModelFormat.Fingerprint()

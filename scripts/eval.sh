@@ -21,7 +21,9 @@
 # is built once per size into .build/eval/ and reused. Exit status 1 when the
 # plan's targets are missed: false switches < 0.1 % of words, recall ≥ 95 %,
 # for the ru ↔ en corpus and then for the en ↔ uk one; and a wrong Cyrillic
-# language < 0.5 % with context when ABC, Russian and Ukrainian are installed.
+# language < 0.5 % with context when ABC, Russian and Ukrainian are installed;
+# and for the personal lexicon: a false switch or a correction of a personal
+# word, poison accepted, or a category of the corpus worse with the lexicon.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -107,6 +109,15 @@ echo "en → ru | be:"
 echo
 echo "en → ru | uk | be:"
 "$bin" cyrillic --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE" --languages ru,uk,be
+
+# The personal lexicon (docs/classifier.md, «Личный словарь»): GeoNames names
+# typed and kept until the lexicon takes them, then judged with it, poison
+# that must never get in, and the corpus judged with the lexicon full, where
+# no category may get worse.
+echo
+echo "personal:"
+"$bin" personal --model "$MODEL" --layouts "$PWD/Tests/PerekeyCoreTests/Fixtures" --cache "$CACHE" --corpus "$corpus" \
+    --json ".build/eval/personal-$WORDS.json"
 
 # The hyphen step: recovery on held-out text, and no word of data/ru/hyphen.txt
 # changed by the typo step, which runs before it.

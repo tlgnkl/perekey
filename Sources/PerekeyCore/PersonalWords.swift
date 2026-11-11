@@ -34,7 +34,7 @@ extension Classifier {
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) { scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
                 guard var reading = Reading(strokes, count: count, in: layout, language: language,
-                                            scalars: scalars[...], symbols: symbols[...])
+                                            scalars: scalars[...], symbols: symbols[...], measuring: false)
                 else { return false }
                 markPersonal(&reading, language: code, scalars: scalars[...], personal)
                 return reading.personal
@@ -44,27 +44,44 @@ extension Classifier {
 
     /// Whether the 3 or 4 strokes so far, read in `layout`, start a word
     /// of `personal`: a switch inside the word must wait for its end
-    /// (`WordJudge.insideWord`). Only letters, from the first key.
+    /// (`WordJudge.insideWord`). Only letters of the language, from the first
+    /// key; no reading of the word, so asking it on every early switch costs
+    /// a key lookup and a hash.
     public func startsPersonalWord(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap,
                                    personal: PersonalLexicon) -> Bool
     {
         guard personal.hasWords, let key = personal.key, let code = layout.language,
               let language = model.language(code)
         else { return false }
-        let count = Self.wordLength(strokes)
-        guard count == 3 || count == 4 else { return false }
-        return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) { scalars in
-            withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
-                guard let reading = Reading(strokes, count: count, in: layout, language: language,
-                                            scalars: scalars[...], symbols: symbols[...]),
-                      reading.isWord, reading.digits == 0, reading.coreStart == 0, reading.coreEnd == reading.count,
-                      reading.letters == reading.count
+        return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: 4) { start in
+            var letters = 0
+            for stroke in strokes {
+                guard letters < 4, let text = layout.text(for: stroke) else { return false }
+                var scalars = text.unicodeScalars.makeIterator()
+                guard let scalar = scalars.next()?.value, scalars.next() == nil, scalar < 0x30 || scalar > 0x39,
+                      language.symbol(scalar) >= 2
                 else { return false }
-                let start = UnsafeBufferPointer(rebasing: scalars[0..<reading.letters])
-                return personal.containsStart(key.fingerprint(reading.letters == 3 ? .start3 : .start4,
-                                                              language: code, start))
+                start[letters] = scalar
+                letters += 1
             }
+            guard letters == 3 || letters == 4 else { return false }
+            return personal.containsStart(key.fingerprint(letters == 3 ? .start3 : .start4, language: code,
+                                                          UnsafeBufferPointer(rebasing: start[0..<letters])))
         }
+    }
+
+    /// Whether the word is a known form of the model by its exact keys,
+    /// without a reading: the cheap answer for the common word. False for a
+    /// word with marks around it, which a reading has to strip.
+    func isPlainlyKnown(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap) -> Bool {
+        guard let code = layout.language, let language = model.language(code) else { return false }
+        var fingerprint = ModelFormat.Fingerprint()
+        for stroke in strokes where stroke.keyCode != KeyCode.space {
+            guard let text = layout.text(for: stroke) else { return false }
+            for scalar in text.unicodeScalars { fingerprint.add(ModelFormat.fold(scalar.value)) }
+        }
+        guard let rank = language.rank(of: fingerprint.value) else { return false }
+        return rank == 0 || rank >= options.knownRank
     }
 
     /// What the personal lexicon may learn from a word kept as it reads in
@@ -96,7 +113,7 @@ extension Classifier {
             scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
                 guard let reading = Reading(strokes, count: count, in: result, language: language,
-                                            scalars: scalars[...], symbols: symbols[...]),
+                                            scalars: scalars[...], symbols: symbols[...], measuring: false),
                       reading.isWord, reading.digits == 0, reading.upperInside == 0, !reading.isPasswordLike,
                       reading.letters >= personal.minLetters, reading.letters <= personal.maxLetters,
                       reading.coreEnd - reading.coreStart == reading.letters,
@@ -126,7 +143,7 @@ extension Classifier {
         return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) { scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
                 guard let reading = Reading(strokes, count: count, in: layout, language: language,
-                                            scalars: scalars[...], symbols: symbols[...])
+                                            scalars: scalars[...], symbols: symbols[...], measuring: false)
                 else { return false }
                 return reading.isWord && isKnown(reading)
             }

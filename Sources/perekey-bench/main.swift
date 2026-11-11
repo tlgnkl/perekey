@@ -193,13 +193,17 @@ let typoWords: [(String, LayoutMap)] = [
 ]
 
 func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutMap)],
-                       layouts: [LayoutMap] = [abc, russian], classifier: Classifier = classifier) -> AutoswitchRun
+                       layouts: [LayoutMap] = [abc, russian], classifier: Classifier = classifier,
+                       counted: Bool = false, personal: PersonalLexicon = .off) -> AutoswitchRun
 {
     var run = AutoswitchRun()
     run.samples.reserveCapacity(rounds * 80)
     var machine = InputMachine(settings: settings, layouts: layouts, currentLayout: abc.id,
                                classifier: classifier)
     _ = machine.handle(.focusChanged(Focus(bundleID: "app.perekey.bench")))
+    // The app's words count (the language tally, and the personal lexicon's observations).
+    if counted { _ = machine.handle(.languageContextChanged(LanguageContext(app: "app.perekey.bench"))) }
+    _ = machine.handle(.personalLexiconChanged(personal))
     var time = 0.0
     var held: [KeyEvent] = []
     var retypes: [Retype] = []
@@ -305,6 +309,87 @@ if autoswitch3P99 > 1_000_000 {
     failed = true
 }
 
+// The personal lexicon (docs/classifier.md, «Личный словарь»): a snapshot of
+// 2000 words, one of them a word of the session the model does not know
+// («дашка», typed "lfirf" on ABC). The same session with the words counted
+// and no lexicon is the one to compare it with: the lexicon adds a lookup of
+// each unknown reading and the observation of each word kept.
+let personalKey = PersonalKey(k0: 0x0706_0504_0302_0100, k1: 0x0F0E_0D0C_0B0A_0908)
+var personalWords: [UInt64] = []
+var personalStarts: [UInt64] = []
+var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+for _ in 0..<1999 {
+    for _ in 0..<3 {
+        seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        personalStarts.append(seed)
+    }
+    personalWords.append(personalStarts.removeLast())
+}
+let dashka = "дашка".unicodeScalars.map(\.value)
+personalWords.append(personalKey.fingerprint(.word, language: "ru", dashka))
+personalStarts += [personalKey.fingerprint(.start3, language: "ru", dashka.prefix(3)),
+                   personalKey.fingerprint(.start4, language: "ru", dashka.prefix(4))]
+let personal = PersonalLexicon(key: personalKey, words: personalWords, starts: personalStarts)
+let personalSessionWords = autoswitchWords + [("layout", abc), ("дашка", russian)]
+
+// The two in turns, five times, the best mean of each: a difference of a few
+// per cent drowns in the noise of a single run.
+var counted = AutoswitchRun()
+var withLexicon = AutoswitchRun()
+var countedMean = Double.infinity
+var personalMean = Double.infinity
+for _ in 0..<5 {
+    var run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords, counted: true)
+    run.samples.sort()
+    countedMean = min(countedMean, run.samples.reduce(0, +) / Double(run.samples.count))
+    counted = run
+    run = correctionSession(rounds: 6000, settings: Settings(), words: personalSessionWords, counted: true,
+                            personal: personal)
+    run.samples.sort()
+    personalMean = min(personalMean, run.samples.reduce(0, +) / Double(run.samples.count))
+    withLexicon = run
+}
+let personalP99 = withLexicon.samples[withLexicon.samples.count * 99 / 100]
+// The lexicon is looked up: "lfirf" reads as «дашка», a word it has. The
+// small model's n-grams know too little Russian for the switch itself.
+let dashkaDecision = classifier.classify(abc.strokes("lfirf"), typed: abc, other: russian,
+                                         context: Classifier.Context(recent: RecentLanguages(), personal: personal),
+                                         explaining: true)
+
+print(String(format: "autoswitch, words counted: %d events, %d corrections: mean %.0f ns, p99 %.0f ns",
+             counted.events, counted.corrections, countedMean, counted.samples[counted.samples.count * 99 / 100]))
+print(String(format: "autoswitch, personal lexicon of %d words: %d events, %d corrections: mean %.0f ns (%+.1f%%), "
+             + "p99 %.0f ns, max %.0f ns", personal.wordCount, withLexicon.events, withLexicon.corrections,
+             personalMean, (personalMean / countedMean - 1) * 100, personalP99, withLexicon.samples.last!))
+if personalP99 > 1_000_000 {
+    print("FAIL: autoswitch p99 with a personal lexicon exceeds the 1 ms tap callback budget")
+    failed = true
+}
+if !dashkaDecision.otherPersonal {
+    print("FAIL: the personal lexicon found no word")
+    failed = true
+}
+
+// The classifier with the lexicon: every unknown reading is looked up.
+let personalContext = Classifier.Context(recent: RecentLanguages(), personal: personal)
+var personalClassifierSamples: [Double] = []
+for _ in 0..<200 {
+    for strokes in wordStrokes {
+        let start = clock.now
+        sink &+= classifier.classify(strokes, typed: abc, other: russian, context: personalContext).score > 0 ? 1 : 0
+        personalClassifierSamples.append(nanoseconds(clock.now - start))
+    }
+}
+personalClassifierSamples.sort()
+let personalClassifierMean = personalClassifierSamples.reduce(0, +) / Double(personalClassifierSamples.count)
+let personalClassifierP99 = personalClassifierSamples[personalClassifierSamples.count * 99 / 100]
+print(String(format: "classifier with the personal lexicon: mean %.0f ns per word, p99 %.0f ns",
+             personalClassifierMean, personalClassifierP99))
+if personalClassifierP99 > 100_000 {
+    print("FAIL: classifier p99 with a personal lexicon exceeds 100 µs")
+    failed = true
+}
+
 // Typo correction: the corrector alone on words with one key off, then the
 // machine with the setting on, typing typos among clean words in their own
 // layouts (autoswitch off, so the session measures the typo path by itself).
@@ -366,7 +451,10 @@ if arguments.count >= 3 {
                               "autoswitch3": autoswitch3Mean, "autoswitch3P99": autoswitch3P99,
                               "corrector": correctorMean, "correctorP99": correctorP99,
                               "typos": typosMean, "typosP99": typosP99,
-                              "typosContext": typosContextMean, "typosContextP99": typosContextP99])
+                              "typosContext": typosContextMean, "typosContextP99": typosContextP99,
+                              "autoswitchCounted": countedMean, "autoswitchPersonal": personalMean,
+                              "autoswitchPersonalP99": personalP99, "classifierPersonal": personalClassifierMean,
+                              "classifierPersonalP99": personalClassifierP99])
         .write(to: URL(fileURLWithPath: arguments[2]))
 }
 exit(failed ? 1 : 0)

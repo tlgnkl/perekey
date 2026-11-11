@@ -119,6 +119,9 @@ public struct Evaluation {
     public let layouts: [String: LayoutMap]
     public var options: Classifier.Options
     public var typoOptions: TypoCorrector.Options
+    /// The personal lexicon every word is judged with (`perekey-eval
+    /// personal`): `.off`, the default, judges as before, byte for byte.
+    public var personal = PersonalLexicon.off
     let model: LanguageModel
 
     /// - Parameter layouts: one layout per language code, e.g. ["ru": Russian, "en": ABC].
@@ -166,7 +169,10 @@ public struct Evaluation {
             }
             var category = categories[item.category, default: Category(name: item.category)]
             let context = Classifier.Context(recent: RecentLanguages(item.recent),
-                                             prior: item.app.map { LanguagePrior(counts: $0) } ?? LanguagePrior())
+                                             prior: item.app.map { LanguagePrior(counts: $0) } ?? LanguagePrior(),
+                                             personal: personal)
+            // As the word judge: the typo step leaves a word of the lexicon alone.
+            let typoStep = classifier.isPersonal(strokes, in: own, personal: personal) ? nil : corrector
             // Without a word before it the word starts the text: a capital is allowed.
             let sentenceStart = item.previous == nil
             // The word before it for the corrector's context, as the machine reads it from the keys typed.
@@ -174,7 +180,9 @@ public struct Evaluation {
 
             let kept = classifier.classify(strokes, typed: own, other: other, context: context)
             category.keepWords += 1
-            if classifier.marksAfterSwitch(strokes, in: own, from: other) > 0 { category.marksWrong += 1 }
+            if classifier.marksAfterSwitch(strokes, in: own, from: other, personal: personal) > 0 {
+                category.marksWrong += 1
+            }
             var keptInOwnLayout = true
             if case .switch = kept.verdict {
                 category.falseSwitches += 1
@@ -193,7 +201,7 @@ public struct Evaluation {
                     category.typosThatAreWords += 1
                 }
                 let fix = keptInOwnLayout
-                    ? corrector.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before)?.text : nil
+                    ? typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before)?.text : nil
                 if fix == item.expected {
                     category.typosFixed += 1
                 } else {
@@ -204,7 +212,7 @@ public struct Evaluation {
                 category.switchWords += 1
                 if wrong.verdict == .switch(to: own.id) {
                     category.switches += 1
-                    if corrector.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before)?.text
+                    if typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before)?.text
                         == item.expected
                     {
                         category.typosFixedAfterSwitch += 1
@@ -217,7 +225,7 @@ public struct Evaluation {
             if keptInOwnLayout {
                 // A right word the corrector changes is a wrong correction.
                 category.checkedWords += 1
-                if let fix = corrector.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before) {
+                if let fix = typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before) {
                     category.wrongCorrections += 1
                     record(item, typed: own.id, expectSwitch: false, decision: kept, correction: fix.text)
                 }
@@ -241,9 +249,10 @@ public struct Evaluation {
                     }
                     if [3, 4].contains(where: {
                         $0 <= habit.count && classifier.impossiblePrefix(habit.prefix($0), typed: other, other: own)
+                            && !classifier.startsPersonalWord(habit.prefix($0), in: other, personal: personal)
                     }) {
                         category.punctuationEarly += 1
-                        if classifier.marksAfterSwitch(habit, in: own, from: other) > 0 {
+                        if classifier.marksAfterSwitch(habit, in: own, from: other, personal: personal) > 0 {
                             category.punctuationEarlyFixed += 1
                         }
                     }

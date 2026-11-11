@@ -58,6 +58,18 @@ private let ru = Fixture.russian.id
         #expect(!plain.otherPersonal && !plain.typedPersonal)
     }
 
+    @Test func theDecisionSaysWhatTheModelKnowsWithoutTheLexicon() {
+        // What the word judge skips the observation by.
+        let known = decide("привет", typed: Fixture.russian, other: Fixture.abc, personal: dashka)
+        #expect(known.typedKnown && !known.otherKnown)
+        let personal = decide("lfirf", typed: Fixture.abc, other: Fixture.russian, personal: dashka)
+        #expect(!personal.typedKnown && !personal.otherKnown && personal.otherPersonal)
+        #expect(classifier.isPlainlyKnown(Fixture.russian.strokes("Привет "), in: Fixture.russian))
+        #expect(!classifier.isPlainlyKnown(Fixture.russian.strokes("дашка"), in: Fixture.russian))
+        // Marks around the word: no plain answer, the reading decides.
+        #expect(!classifier.isPlainlyKnown(Fixture.russian.strokes("привет!"), in: Fixture.russian))
+    }
+
     @Test func aKnownWordIsNotLookedUp() {
         // «привет» is in the model: its rank stays the model's.
         let lexicon = personalLexicon([("привет", "ru")])

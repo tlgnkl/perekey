@@ -22,6 +22,8 @@
 //   perekey-eval cases|play|case|selfcheck ...: the quality bench (docs/eval.md, PerekeyEvalKit)
 //   perekey-eval replay check|words|compare <.pksession files> --model <dir> [--json <file>] [--show-words]
 //                       [--candidate-model <dir>] [--candidate-options <json or file>]
+//   perekey-eval personal --model <dir> --layouts <dir> [--cache <dir>] [--names N] [--seed S] [--corpus <file>]
+//                         [--personal-rank R] [--personal-rank-sweep] [--json <file>]
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -72,6 +74,17 @@
 // recording (exit status 1); `words` prints the labelled words by outcome;
 // `compare` where a candidate model or `Classifier.Options` decides
 // otherwise. Typed words are printed only with `--show-words`.
+// `personal` measures the personal lexicon (`PersonalEvaluation`,
+// docs/classifier.md, «Личный словарь»): N GeoNames names the model does not
+// know (default 200, half Cyrillic, half Latin) are typed and kept on a
+// schedule of days through `PersonalLexiconModel`, then judged in both
+// layouts with the lexicon empty and full; three kinds of poison are typed
+// ten times over five days and must never be accepted. With `--corpus` the
+// corpus is judged with the lexicon empty and full too, and no category may
+// get worse. Exit status 1 for a false switch or a correction of a personal
+// word, poison accepted or a category worse; recall under 90 % is reported.
+// `--personal-rank-sweep` repeats it for `Classifier.Options.personalRank`
+// 0, 80, 96 and 128.
 // `corpus` writes a TSV of words by category (about N words, default 50 000,
 // plus a tenth of typos).
 // `run` types every word in its own layout and in the other one and prints
@@ -116,16 +129,16 @@ if CommandLine.arguments.dropFirst().first == "replay" {
 }
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen", "pairs"]
-    .contains(command)
+guard let command = arguments.next(),
+      ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen", "pairs", "personal"].contains(command)
 else {
-    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen|pairs|replay ... (see the source header)")
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen|pairs|personal|replay ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
     if ["--sweep", "--typo-sweep", "--typo-context-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep",
-        "--lead"].contains(argument) {
+        "--lead", "--personal-rank-sweep"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -149,6 +162,49 @@ func layout(_ name: String, in directory: String) -> LayoutMap {
 
 do {
     switch command {
+    case "personal":
+        guard let modelPath = flags["--model"], let layouts = flags["--layouts"] else {
+            fail("--model and --layouts are required")
+        }
+        let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
+        let model = try ModelFile.load(modelPath, languages: ["ru", "en"])
+        let seed = UInt64(flags["--seed"] ?? "1") ?? 1
+        var options = Classifier.Options()
+        if let text = flags["--personal-rank"] {
+            guard let rank = UInt8(text) else { fail("--personal-rank: \"\(text)\" is not a rank 0…255") }
+            options.personalRank = rank
+        }
+        let names = try PersonalEvaluation.names(cache: cache, model: model, options: options,
+                                                 count: Int(flags["--names"] ?? "200") ?? 200, seed: seed)
+        let corpus = try flags["--corpus"].map(Corpus.read)
+        let evaluation = PersonalEvaluation(model: model, layouts: [
+            "ru": layout("Russian", in: layouts), "en": layout("ABC", in: layouts),
+        ], options: options, seed: seed)
+        let results = try evaluation.run(names: names, cache: cache, corpus: corpus)
+        print(PersonalEvaluation.report(results), terminator: "")
+        var json = PersonalEvaluation.json(results)
+        if flags["--personal-rank-sweep"] != nil {
+            let points = try evaluation.sweep(ranks: [0, 80, 96, 128], names: names, cache: cache, corpus: corpus)
+            print("\npersonal rank sweep: rank, accepted, recall, false switches, wrong corrections of accepted, "
+                + "poison accepted, corpus: false switches, recall, wrong corrections")
+            for point in points {
+                let poison = point.poisons.reduce(0) { $0 + $1.accepted }
+                let corpus = point.corpus.map { corpus in
+                    String(format: "  %6.3f%%  %6.2f%%  %6.3f%%", corpus.full.total.falseRate * 100,
+                           corpus.full.total.recall * 100, corpus.full.total.wrongCorrectionRate * 100)
+                } ?? ""
+                print(String(format: "  %3d  %4d  %6.2f%%  %3d  %3d  %3d", Int(point.personalRank), point.accepted,
+                             point.recall * 100, point.full.all.falseSwitches, point.full.accepted.wrongCorrections,
+                             poison) + corpus)
+            }
+            json["sweep"] = points.map(PersonalEvaluation.json)
+        }
+        if let path = flags["--json"] {
+            try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+                .write(to: URL(fileURLWithPath: path))
+        }
+        if !results.failures.isEmpty { exit(1) }
+
     case "corpus":
         let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
         let code = flags["--code"] ?? "Sources"

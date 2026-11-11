@@ -223,6 +223,15 @@ struct WordJudge: Sendable {
     /// The layout the word was typed in before a switch inside it
     /// (`.switchedInside`).
     private var switchedFrom: LayoutID?
+    /// Keep a `JudgeTrace` of every word (`InputMachine.tracesJudgements`).
+    /// Off on the tap thread of the app: then no trace is made and nothing
+    /// is classified twice.
+    var tracing = false
+    /// The last word traced, while `tracing`.
+    private(set) var lastTrace: JudgeTrace?
+    /// The word being typed has a trace already (a switch inside it, or its
+    /// end before a letter was added): its end left alone makes no second one.
+    private var wordTraced = false
 
     init(classifier: Classifier?) {
         setClassifier(classifier)
@@ -249,6 +258,7 @@ struct WordJudge: Sendable {
         if startsWord {
             switching = .allowed
             languageRecorded = false
+            wordTraced = false
         }
         judged = false
     }
@@ -288,6 +298,20 @@ struct WordJudge: Sendable {
     /// it ends.
     mutating func learnAtWordEnd() {
         switching = .learnAtEnd
+    }
+
+    /// Words judged since the last tally, by language.
+    var tallyCounts: [String: Int] { tally }
+
+    /// Goes on with the languages of another judge (`InputMachine.init(snapshot:)`).
+    mutating func restore(languageContext: LanguageContext, recent: RecentLanguages, sentenceStart: Bool,
+                          tally: [String: Int], tallied: Int)
+    {
+        self.languageContext = languageContext
+        self.recent = recent
+        self.sentenceStart = sentenceStart
+        self.tally = tally
+        self.tallied = tallied
     }
 
     /// The text before the caret is unknown now.
@@ -371,7 +395,13 @@ struct WordJudge: Sendable {
         let stroke = KeyStroke(key.keyCode, LayoutModifiers(eventFlags: key.flags))
         let auto = autoContext(layouts: layouts, settings: settings, focus: focus, secureInput: secureInput)
         let typo = typoLayout(layouts: layouts, settings: settings, focus: focus, secureInput: secureInput)
-        guard auto != nil || typo != nil else { return .keep }
+        guard auto != nil || typo != nil else {
+            if tracing, endsLine || stroke.keyCode == KeyCode.space {
+                trace(.notJudged(skip(layouts: layouts, settings: settings, focus: focus, secureInput: secureInput)),
+                      buffer, layouts: layouts, context: nil, decision: nil, focus: focus)
+            }
+            return .keep
+        }
         // Russian letters sit on punctuation keys: the other layout says
         // whether the key ends the word.
         let other = auto?.other ?? layouts.current.flatMap { layouts.counterpart(of: $0) }.flatMap { layouts[$0] }
@@ -392,6 +422,7 @@ struct WordJudge: Sendable {
         contextAtJudge = context(focus: focus)
         previousForTypo = wordBefore(buffer, layouts: layouts)
         defer { previousForTypo = nil }
+        let switchingBefore = switching
         // The word after this key starts a sentence after `. ! ?` or a line
         // end. The space after "hello." judges the word again: the period is
         // in the buffer then.
@@ -428,14 +459,27 @@ struct WordJudge: Sendable {
                 }
             }
             record(typed.language)
+            // A word switched inside, or undone there, has its trace from then.
+            if tracing, switchingBefore == .suppressed, !wordTraced {
+                trace(.notJudged(.leftAlone), buffer, layouts: layouts, context: contextAtJudge, decision: nil,
+                      focus: focus)
+            }
             return ruling
         }
-        guard wordIsPlain(buffer, layouts: layouts) else { return .keep }
+        guard wordIsPlain(buffer, layouts: layouts) else {
+            if tracing {
+                trace(.notJudged(.notPlain), buffer, layouts: layouts, context: contextAtJudge, decision: nil,
+                      focus: focus)
+            }
+            return .keep
+        }
 
         // The held key goes back into the text after the word; Return and Tab
         // end the line, so there is nothing to undo after them.
         let boundary: KeyStroke? = endsLine ? nil : stroke
         var decision: Classifier.Decision?
+        // The context of a word kept by the classifier, for its trace.
+        var keptAuto: AutoContext?
         if var auto {
             let strokes = buffer.entries.lazy.map(\.stroke)
             // The candidates passed the rule of automatic switching in
@@ -474,6 +518,7 @@ struct WordJudge: Sendable {
                     || alwaysFixSpelling(buffer, in: auto.typed, settings) != nil
                 {
                     record(auto.typed.language)
+                    if tracing { traceKept(buffer, auto: auto, layouts: layouts, focus: focus) }
                     return .keep
                 }
                 // The listed form is what the user wants, spelt as listed
@@ -487,6 +532,7 @@ struct WordJudge: Sendable {
                                                          in: auto.other)
                     else {
                         record(auto.typed.language)
+                        if tracing { traceKept(buffer, auto: auto, layouts: layouts, focus: focus) }
                         return .keep
                     }
                     spelling = marked
@@ -494,7 +540,10 @@ struct WordJudge: Sendable {
                 guard var retype = autoRetype(auto, buffer.entries[...], held: boundary, heldKeyCode: key.keyCode,
                                               midWord: false, undoable: !endsLine, corrects: !forced,
                                               spelling: spelling, layouts: layouts, settings: settings)
-                else { return .keep }
+                else {
+                    if tracing { traceKept(buffer, auto: auto, layouts: layouts, focus: focus) }
+                    return .keep
+                }
                 // The facts behind «why?», only for the rare word that switches.
                 retype.decision = auto.classifier.classify(
                     buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
@@ -504,9 +553,14 @@ struct WordJudge: Sendable {
                 // list instead of learning, whoever decided the switch.
                 retype.pending.alwaysFix = listed
                 record(auto.other.language)
+                if tracing {
+                    trace(.switched(to: auto.other.id, early: false), buffer, layouts: layouts, context: contextAtJudge,
+                          decision: retype.decision, focus: focus)
+                }
                 return .retype(retype)
             }
             record(found.language)
+            if tracing { keptAuto = auto }
         } else {
             record(typed.language)
         }
@@ -518,8 +572,21 @@ struct WordJudge: Sendable {
                                         undoable: !endsLine, layouts: layouts, settings: settings, focus: focus)
               ?? typoRetype(buffer, in: typo, heldKeyCode: key.keyCode, held: boundary, undoable: !endsLine,
                             layouts: layouts, settings: settings)
-        else { return .keep }
+        else {
+            if tracing {
+                if let keptAuto {
+                    traceKept(buffer, auto: keptAuto, layouts: layouts, focus: focus)
+                } else {
+                    trace(.kept, buffer, layouts: layouts, context: contextAtJudge, decision: nil, focus: focus)
+                }
+            }
+            return .keep
+        }
         retype.decision = decision
+        if tracing {
+            trace(.corrected(retype.pending.correction.kind), buffer, layouts: layouts, context: contextAtJudge,
+                  decision: keptAuto.map { explained(buffer, auto: $0) }, focus: focus)
+        }
         return .retype(retype)
     }
 
@@ -600,6 +667,13 @@ struct WordJudge: Sendable {
         // Decided for the whole word: the end of it must not switch it back.
         switching = .switchedInside
         switchedFrom = context.typed.id
+        if tracing {
+            let wordContext = self.context(focus: focus)
+            trace(.switched(to: other.id, early: true), buffer, layouts: layouts, context: wordContext,
+                  decision: context.classifier.classify(buffer.entries.lazy.map(\.stroke), typed: context.typed,
+                                                        other: other, context: wordContext, explaining: true),
+                  focus: focus)
+        }
         return retype
     }
 
@@ -626,6 +700,59 @@ struct WordJudge: Sendable {
         retype.decision = auto.classifier.classify(strokes, typed: source, other: auto.typed,
                                                    context: contextAtJudge, explaining: true)
         return retype
+    }
+
+    // MARK: - Traces
+
+    /// A word ended where nothing may judge it (`Gate.mayJudge` said no for
+    /// its flags): trace why, at a space or a line end.
+    mutating func traceUnjudged(endedBy key: KeyEvent, held: UInt8, buffer: WordBuffer, layouts: LayoutState,
+                                settings: Settings, focus: Focus?)
+    {
+        guard tracing, !judged, let last = buffer.entries.last, !last.isGap,
+              held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit | ModifierKind.option.maskBit) == 0,
+              Self.endsLine(key) || key.keyCode == KeyCode.space,
+              !gate.autoswitchMayAct(settings), !gate.wordFixMayAct(settings)
+        else { return }
+        let skip: JudgeTrace.Skip = classifier == nil ? .noClassifier : appMode != .auto ? .appMode : .autoswitchOff
+        trace(.notJudged(skip), buffer, layouts: layouts, context: nil, decision: nil, focus: focus)
+    }
+
+    /// The retype `seq` carries the switch or the correction traced last.
+    mutating func traceRetype(seq: UInt32) {
+        lastTrace?.seq = seq
+    }
+
+    private mutating func trace(_ action: JudgeTrace.Action, _ buffer: WordBuffer, layouts: LayoutState,
+                                context: Classifier.Context?, decision: Classifier.Decision?, focus: Focus?)
+    {
+        wordTraced = true
+        var keys: [KeyStroke] = []
+        for entry in buffer.entries where !entry.isGap { keys.append(entry.stroke) }
+        lastTrace = JudgeTrace(serial: (lastTrace?.serial ?? 0) + 1, keys: keys, layout: layouts.current,
+                               context: context, decision: decision, app: focus?.bundleID, action: action)
+    }
+
+    /// A word the classifier kept, with its decision explained.
+    private mutating func traceKept(_ buffer: WordBuffer, auto: AutoContext, layouts: LayoutState, focus: Focus?) {
+        trace(.kept, buffer, layouts: layouts, context: contextAtJudge, decision: explained(buffer, auto: auto),
+              focus: focus)
+    }
+
+    private func explained(_ buffer: WordBuffer, auto: AutoContext) -> Classifier.Decision {
+        auto.classifier.classify(buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
+                                 context: contextAtJudge, explaining: true)
+    }
+
+    /// Why automatic switching and the word corrections cannot act here.
+    private func skip(layouts: LayoutState, settings: Settings, focus: Focus?, secureInput: Bool) -> JudgeTrace.Skip {
+        if secureInput { return .secureInput }
+        guard let focus, focus.isKnown else { return .unknownFocus }
+        if focus.isSecureField { return .secureField }
+        if appMode != .auto { return .appMode }
+        if classifier == nil { return .noClassifier }
+        if !settings.autoswitch { return .autoswitchOff }
+        return .noOtherLayout
     }
 
     // MARK: - Gates

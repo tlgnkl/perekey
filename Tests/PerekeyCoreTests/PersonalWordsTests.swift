@@ -33,10 +33,11 @@ private let ru = Fixture.russian.id
     }
 
     @Test func theRankIsAnOption() {
-        let classifier = Classifier(model: ModelFixture.model)
         var options = Classifier.Options()
-        options.personalRank = 128
-        let higher = Classifier(model: ModelFixture.model, options: options)
+        #expect(options.personalRank == 128)
+        options.personalRank = 0
+        let classifier = Classifier(model: ModelFixture.model, options: options)
+        let higher = Classifier(model: ModelFixture.model)
         let context = Classifier.Context(recent: RecentLanguages(), personal: dashka)
         let strokes = Fixture.abc.strokes("lfirf")
         let low = classifier.classify(strokes, typed: Fixture.abc, other: Fixture.russian, context: context,

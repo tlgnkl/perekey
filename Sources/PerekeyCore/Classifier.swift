@@ -66,11 +66,13 @@ public struct Classifier: Sendable {
         /// unit of Zipf.
         public var shortWordRank: UInt8 = 160
         /// The rank a word of the personal lexicon reads with when the model
-        /// does not know it (`PersonalLexicon`): 0 is a form without a
-        /// frequency, as Hunspell's forms are (known, a bonus of 3.5 bits).
-        /// First guess; `perekey-eval personal --personal-rank-sweep`
-        /// prints 0, 80, 96 and 128 (docs/classifier.md, «Личный словарь»).
-        public var personalRank: UInt8 = 0
+        /// does not know it (`PersonalLexicon`): 128 is Zipf 4, a bonus of
+        /// 7.25 bits. From `perekey-eval personal --personal-rank-sweep` over
+        /// 0, 80, 96, 128 (docs/classifier.md, «Личный словарь»): 128 brings
+        /// the names back 90 % of the time against 87 % at 0 (a form without
+        /// a frequency, as Hunspell's), with no false switch, and no category
+        /// of the corpus, 50 k or 1 M words, worse than at 0.
+        public var personalRank: UInt8 = 128
 
         public init() {}
     }
@@ -690,10 +692,11 @@ public struct Classifier: Sendable {
                             language: wins ? otherCode : nil)
         }
         if typed.upperInside > 0, typed.lower > 0,
-           typed.upperInside > 1 || (other.rank ?? 0) < options.mixedCaseRank
+           typed.upperInside > 1 || other.personal || (other.rank ?? 0) < options.mixedCaseRank
         {
             // Shift inside a word, and nothing frequent to switch to: a captcha,
-            // a product name, an identifier.
+            // a product name, an identifier. A word of the personal lexicon
+            // is no frequent form here, whatever `personalRank` says.
             return Decision(verdict: .keep, score: score, reason: .mixedCase, language: nil)
         }
         if !known, typed.cost / Double(typed.letters + 1) < options.noiseCost {

@@ -1,0 +1,30 @@
+{
+ "about": "Questions and answers of ru.stackoverflow.com: Russian technical text with English terms; blocks of code are cut out, code in a line stays a token tagged code",
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 40,
+  "minTokens": 3,
+  "requireScripts": ["cyrillic"]
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY-SA 2.5/3.0/4.0 (by the post's ContentLicense)",
+ "normalize": "keyboard",
+ "reader": "stackexchange",
+ "sampling": "token",
+ "scenarios": ["clean.cold", "clean.warm", "slip.cold", "slip.warm", "stuck", "clean.toggle"],
+ "seed": 1,
+ "settings": "default",
+ "source": "stackexchange/ru.stackoverflow.com.7z",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "tech.ruso",
+ "tags": ["tech", "natural"],
+ "tiers": {
+  "ci": 20000,
+  "full": 400000
+ },
+ "version": 1
+}

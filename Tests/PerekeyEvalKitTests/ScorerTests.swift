@@ -20,6 +20,21 @@ import Testing
         scorer.score(item, null: result(null), out: result(out)).tokens.map(\.outcome)
     }
 
+    @Test func aRunOfWrongTokensStaysOnItsPlaces() {
+        // Chat line typed on the wrong layout: nine tokens each side, five wrong. A split and
+        // a merge at 2.5 each (5.0) used to beat three 1:1 pairs (6.0).
+        let line = item("он не подаёт признаков жизни", err: .layout)
+        let wrong = "jy yt gjlf\\n ghbpyfrjd ;bpyb"
+        let score = scorer.score(line, null: result(wrong), out: result("jy не подаёт признаков жизни"))
+        #expect(score.tokens.map(\.null) == ["jy", "yt", "gjlf\\n", "ghbpyfrjd", ";bpyb"])
+        #expect(score.tokens.map(\.outcome) == [.miss, .fixed, .fixed, .fixed, .fixed])
+    }
+
+    @Test func aWrongMergeStillLinesUpAsOneGroup() {
+        let two = item("во первых")
+        #expect(outcomes(two, null: "во первых", out: "вопервых") == [.harm, .harm])
+    }
+
     @Test func rightWithoutRightWithIsOK() {
         #expect(outcomes(item(), null: "привет ", out: "привет ") == [.ok])
     }
@@ -55,6 +70,17 @@ import Testing
         let ops = Aligner().align(want: ["во", "первых", "да"], out: ["во-первых", "да"],
                                   judge: Scorer.judge(want: ["во", "первых", "да"], fold: [], accept: { _ in [] }))
         #expect(ops == [.merge(w: 0, o: 0), .pair(w: 2, o: 1)])
+    }
+
+    /// A merge with no glue match costs `otherJoin` (3.5); a 1:1 mismatch and a gone token cost 2 + 2.
+    @Test func anUnrelatedMergeAndCutAreGroupsAtTheOtherJoinCost() {
+        func ops(_ want: [String], _ out: [String]) -> [Aligner.Op] {
+            Aligner().align(want: want, out: out, judge: Scorer.judge(want: want, fold: [], accept: { _ in [] }))
+        }
+        #expect(ops(["да", "нет"], ["xyz"]) == [.merge(w: 0, o: 0)])
+        #expect(ops(["xyz"], ["да", "нет"]) == [.split(w: 0, o: 0)])
+        // Cheaper than the join: a single wrong token stays 1:1.
+        #expect(ops(["да", "нет"], ["xyz", "нет"]) == [.pair(w: 0, o: 0), .pair(w: 1, o: 1)])
     }
 
     @Test func aCutGluedWithAHyphenIsNotTheMeantToken() {

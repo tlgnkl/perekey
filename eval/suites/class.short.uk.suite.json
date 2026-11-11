@@ -1,0 +1,47 @@
+{
+ "about": "Words of one or two letters with Zipf 3 and above in en ↔ uk: «я», «в», «a», «ok». The rule over the lexicon",
+ "class": {
+  "languages": [
+   "uk",
+   "en"
+  ],
+  "maxLetters": 2,
+  "requireDictionary": false,
+  "rule": "short",
+  "seeds": "class.short.uk.txt"
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Ukrainian-PC"
+  ]
+ ],
+ "license": "wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.cold",
+  "clean.warm",
+  "slip.cold",
+  "slip.warm"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/ukr_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.short.uk",
+ "tags": [
+  "class",
+  "short"
+ ],
+ "tiers": {
+  "ci": 600,
+  "full": 100000
+ },
+ "version": 1
+}

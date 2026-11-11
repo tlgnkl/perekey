@@ -1,0 +1,23 @@
+# Затравка набора class.oov.uk: украинская пара. Написана для этого лейна, не из пробы (пробы для uk нет).
+шо	slang.uk
+чо	slang.uk
+норм	slang.uk
+кринж	slang.uk
+кароч	slang.uk
+типу	slang.uk
+тіпа	slang.uk
+дякс	slang.uk
+пліз	slang.uk
+ліл	slang.uk
+збс	slang.uk
+задеплоїти	devjargon.uk
+закомітити	devjargon.uk
+пушнути	devjargon.uk
+змерджити	devjargon.uk
+пофіксити	devjargon.uk
+дедлайн	devjargon.uk
+мітинг	devjargon.uk
+тікет	devjargon.uk
+беклог	devjargon.uk
+бекенд	devjargon.uk
+фронтенд	devjargon.uk

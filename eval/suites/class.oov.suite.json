@@ -1,0 +1,47 @@
+{
+ "about": "Words of ru.stackoverflow.com that the dictionary lacks: slang and jargon, found by their count (ru). The rule over a corpus",
+ "class": {
+  "ciPosts": 100000,
+  "corpus": "stackexchange/ru.stackoverflow.com.7z",
+  "languages": [
+   "ru"
+  ],
+  "minPerMillion": 20.0,
+  "rule": "oov",
+  "seeds": "class.oov.txt"
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "CC BY-SA (Stack Exchange); wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.cold",
+  "clean.warm",
+  "slip.cold",
+  "slip.warm"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.oov",
+ "tags": [
+  "class",
+  "oov"
+ ],
+ "tiers": {
+  "ci": 500,
+  "full": 50000
+ },
+ "version": 1
+}

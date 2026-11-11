@@ -1,0 +1,41 @@
+{
+ "about": "The 2000 most frequent Russian words in Latin letters (GOST 7.79 system B without marks), typed on ABC: they must stay",
+ "class": {
+  "minZipf": 0.0,
+  "rule": "translit",
+  "seeds": "class.translit.txt",
+  "top": 2000
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.cold",
+  "clean.warm"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.translit",
+ "tags": [
+  "class",
+  "translit"
+ ],
+ "tiers": {
+  "ci": 600,
+  "full": 4000
+ },
+ "version": 1
+}

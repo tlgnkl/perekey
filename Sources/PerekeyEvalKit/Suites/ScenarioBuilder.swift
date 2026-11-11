@@ -186,6 +186,7 @@ struct ScenarioBuilder {
     static func sourceName(_ manifest: SuiteManifest) -> String {
         switch manifest.reader {
         case .tatoeba: "tatoeba"
+        case .class: "class.\(manifest.classSpec?.rule.rawValue ?? "?")"
         case .misspellings: "wikipedia-misspellings"
         case .typopairs: "local-typopairs"
         case .stackexchange:

@@ -135,6 +135,33 @@ public struct Lexicon: Sendable {
         try Runner.sha256(file: (directory as NSString).appendingPathComponent(fileName(language)))
     }
 
+    // MARK: - Words
+
+    /// The words and Zipf values of a lexicon file, in file order (byte order of the words).
+    static func entries(_ path: String) throws -> [(word: String, zipf: Double)] {
+        let text = try String(contentsOfFile: path, encoding: .utf8)
+        var result: [(word: String, zipf: Double)] = []
+        for line in text.split(separator: "\n") {
+            guard let tab = line.firstIndex(of: "\t"), let zipf = Double(line[line.index(after: tab)...]) else {
+                throw EvalError.input("\(path): bad line \(line.debugDescription)")
+            }
+            result.append((String(line[..<tab]), zipf))
+        }
+        return result
+    }
+
+    /// The word forms of the language's spelling dictionary (Hunspell, SCOWL),
+    /// as `key` hashes; nil for a language the cache has no dictionary of.
+    static func dictionaryKeys(language: String, cache: String) throws -> Set<UInt64>? {
+        guard let (dic, aff) = try spellingDictionary(language, cache: cache) else { return nil }
+        let hunspell = Hunspell(affix: aff)
+        var keys: Set<UInt64> = []
+        for entry in Hunspell.entries(dic: dic) {
+            hunspell.expand(entry.stem, flags: entry.flags) { keys.insert(key($0)) }
+        }
+        return keys
+    }
+
     // MARK: - Building
 
     /// The words of a language with their Zipf from the cache files that the
@@ -164,7 +191,7 @@ public struct Lexicon: Sendable {
         return words
     }
 
-    private static func spellingDictionary(_ language: String, cache: String) throws -> (dic: String, aff: String)? {
+    static func spellingDictionary(_ language: String, cache: String) throws -> (dic: String, aff: String)? {
         switch language {
         case "ru":
             return try (String(contentsOfFile: "\(cache)/hunspell-ru/ru_RU.dic", encoding: .utf8),

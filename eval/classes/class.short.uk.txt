@@ -1,0 +1,26 @@
+# Затравка набора class.short.uk: украинская пара. Написана для этого лейна, не из пробы (пробы для uk нет).
+я	short.uk
+і	short.uk
+в	short.uk
+у	short.uk
+з	short.uk
+а	short.uk
+о	short.uk
+ні	short.uk
+та	short.uk
+до	short.uk
+за	short.uk
+по	short.uk
+на	short.uk
+це	short.uk
+ти	short.uk
+ми	short.uk
+ви	short.uk
+він	short.uk
+ми	short.uk
+але	short.uk
+чи	short.uk
+ось	short.uk
+от	short.uk
+ну	short.uk
+ок	short.uk

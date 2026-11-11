@@ -1,0 +1,45 @@
+{
+ "about": "Words with a capital, in capitals, in CamelCase, and the acronyms a corpus uses (en ↔ ru). The rule over the lexicon and a corpus",
+ "class": {
+  "corpus": "stackexchange/rus.stackexchange.com.7z,stackexchange/russian.stackexchange.com.7z",
+  "languages": [
+   "ru",
+   "en"
+  ],
+  "minPerMillion": 5.0,
+  "rule": "caps",
+  "top": 1500
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.cold",
+  "slip.cold"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.caps",
+ "tags": [
+  "class",
+  "caps"
+ ],
+ "tiers": {
+  "ci": 800,
+  "full": 6000
+ },
+ "version": 1
+}

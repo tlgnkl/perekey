@@ -1,0 +1,16 @@
+{
+ "about": "The case «jrtq» (memory undo-learning-redesign, 2026-10-22): the word is always meant as «окей», and every time a Backspace meant for the space before a comma undoes the switch. Nothing may be learned",
+ "accident": 1.0,
+ "accidentContinues": 0.0,
+ "accidentRetypes": 0.0,
+ "answer": "everywhere",
+ "backspaceShare": 0.5,
+ "days": 30,
+ "layouts": ["ABC", "Russian"],
+ "meantOther": 1.0,
+ "messagesPerDay": 3,
+ "name": "learning.jrtq",
+ "seed": 1,
+ "vocabulary": "learning.jrtq.tsv",
+ "zipf": 1.0
+}

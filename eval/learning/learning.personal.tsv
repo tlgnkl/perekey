@@ -1,0 +1,54 @@
+# Личный словарь набора learning.*: слова, которые Perekey ложно переключает (вред формы layout, ошибка none, сценарий clean.*, часть dev).
+# Отбор: слова из букв, не короче двух; по числу вредов (убывание), затем по алфавиту; первые 50.
+# Источник: .build/quality/runs/main (commit 8645a66); команда: perekey-eval learning vocabulary --run <каталог прогона> --out <файл> --size 50
+# Столбцы: слово, раскладка, в которой человек его пишет, число вредов в части dev.
+vs	ABC	9
+шт	Russian	9
+bp	ABC	8
+nj	ABC	6
+nt	ABC	6
+dj	ABC	5
+cn	ABC	4
+lf	ABC	4
+ns	ABC	4
+ot	ABC	4
+tt	ABC	4
+ye	ABC	4
+yt	ABC	4
+гл	Russian	4
+ин	Russian	4
+мб	Russian	4
+ру	Russian	4
+ща	Russian	3
+byt	ABC	2
+chto	ABC	2
+db	ABC	2
+dlya	ABC	2
+ds	ABC	2
+dva	ABC	2
+dvc	ABC	2
+dve	ABC	2
+gcrane	ABC	2
+jq	ABC	2
+kb	ABC	2
+lt	ABC	2
+nb	ABC	2
+ne	ABC	2
+oj	ABC	2
+rv	ABC	2
+sv	ABC	2
+tldr	ABC	2
+tlmgr	ABC	2
+tot	ABC	2
+vb	ABC	2
+vtoroj	ABC	2
+ws	ABC	2
+wt	ABC	2
+ву	Russian	2
+дю	Russian	2
+ем	Russian	2
+сэ	Russian	2
+фе	Russian	2
+хе	Russian	2
+хк	Russian	2
+цб	Russian	2

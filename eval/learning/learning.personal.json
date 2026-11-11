@@ -1,0 +1,16 @@
+{
+ "about": "A person with a personal vocabulary of 50 words Perekey falsely switches, who types them by Zipf's law for 30 days, undoes the wrong switches and answers «Везде»; one occurrence in ten means the other reading",
+ "accident": 0.1,
+ "accidentContinues": 0.1,
+ "accidentRetypes": 0.3,
+ "answer": "everywhere",
+ "backspaceShare": 0.5,
+ "days": 30,
+ "layouts": ["ABC", "Russian"],
+ "meantOther": 0.1,
+ "messagesPerDay": 40,
+ "name": "learning.personal",
+ "seed": 1,
+ "vocabulary": "learning.personal.tsv",
+ "zipf": 1.0
+}

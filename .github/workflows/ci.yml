@@ -85,11 +85,26 @@ jobs:
       # The bars of eval/gates.json over the cases of the quality bench, and no
       # worse than the base commit (docs/eval.md). The model files are the ones
       # built above. On a failure the step lists the cases that broke a bar.
+      # The binary of the base (and its model, when it needs its own) is built in the quality step in
+      # four minutes. It depends on the base commit and on the bench laid over it, so the key has both;
+      # scripts/quality.sh checks a fingerprint of the same inputs and builds over a folder that does not match.
+      - name: Resolve the base of the quality bench
+        id: quality-base
+        run: |
+          ref="${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --verify --quiet "$ref^{commit}" || echo none)" >> "$GITHUB_OUTPUT"
+      - name: Cache the built base of the quality bench
+        uses: actions/cache@v4
+        with:
+          path: .build/quality-base
+          key: quality-base-${{ steps.quality-base.outputs.sha }}-${{ hashFiles('Sources/PerekeyEvalKit/**', 'Sources/PerekeyDesk/**', 'Sources/perekey-eval/**', 'Package.swift', 'data/**', 'scripts/build-model.sh', 'scripts/fetch-data.sh', 'scripts/wiki-freq.py', 'scripts/build-pairs.sh', 'scripts/wiki-text.py', 'Sources/perekey-model/**', 'Sources/PerekeyModelKit/**', 'Sources/PerekeyCore/ModelFormat.swift') }}
       - name: Quality bench against the base commit
         run: scripts/quality.sh --self-check --model .build/model
         env:
           # A manual run has neither: it compares with main.
-          QUALITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
+          QUALITY_BASE: ${{ steps.quality-base.outputs.ref }}
+          QUALITY_BASE_CACHE: ${{ github.workspace }}/.build/quality-base
       - run: scripts/bundle.sh
       - name: No typing recorder in the app
         run: scripts/check-no-recorder.sh .build/app/Perekey.app

@@ -138,44 +138,75 @@ if [[ -z "$MODEL" ]]; then
 fi
 
 # The base builds in the background from the start, while the cases are built and the head is checked and played.
+# QUALITY_BASE_CACHE is a folder kept between runs (actions/cache, key by the SHA of the base): the binary of the
+# base and, when it needs its own, its model. What was built is told by `fingerprint`; a folder that does not
+# match is built over.
 base_run=""
 base_pid=""
+BASE_CACHE="${QUALITY_BASE_CACHE:-}"
 if [[ -n "$base_ref" ]]; then
     base_tree="$tmp/base"
     git worktree add --detach "$base_tree" "$base_ref" >/dev/null 2>&1
     if [[ ! -d "$base_tree/Sources/PerekeyEvalKit" ]]; then
         base_note="Base $base_ref has no bench: nothing to compare with."
     else
+        model_inputs=(data scripts/build-model.sh scripts/fetch-data.sh scripts/wiki-freq.py scripts/build-pairs.sh
+                      scripts/wiki-text.py Sources/perekey-model Sources/PerekeyModelKit Sources/PerekeyCore/ModelFormat.swift)
+        # What the base binary and its model are made of: the base commit, the bench of this tree laid over it,
+        # and the difference of the model inputs.
+        fingerprint="$( {
+            git rev-parse "$base_ref^{commit}"
+            find Sources/PerekeyEvalKit Sources/PerekeyDesk Sources/perekey-eval Package.swift -type f | LC_ALL=C sort | xargs shasum -a 256
+            git diff "$base_ref" -- "${model_inputs[@]}"
+        } | shasum -a 256 | cut -d' ' -f1)"
         (
             t_base=$SECONDS
-            t=$SECONDS
-            # The bench of this tree over the base, so that only the core differs.
-            for dir in Sources/PerekeyEvalKit Sources/PerekeyDesk Sources/perekey-eval eval; do
-                rsync -a --delete "$dir/" "$base_tree/$dir/"
-            done
-            grep -q 'PerekeyEvalKit' "$base_tree/Package.swift" || cp Package.swift "$base_tree/Package.swift"
-            lap "base: worktree and bench" "$t"
-            t=$SECONDS
-            stand="the bench of this tree"
-            if ! (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null); then
-                echo "quality: the base does not build with this bench; building it with its own"
-                git -C "$base_tree" checkout -q -- .
-                git -C "$base_tree" clean -fdq
-                stand="the bench of the base"
-                (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null) \
-                    || { echo "quality: the base does not build" >&2; exit 1; }
+            base_bin="$tmp/base-build/release/perekey-eval"
+            if [[ -n "$BASE_CACHE" && "$(cat "$BASE_CACHE/fingerprint" 2>/dev/null)" == "$fingerprint" ]]; then
+                echo "quality: the base ${base_ref:0:9} comes from the cache"
+                base_bin="$BASE_CACHE/perekey-eval"
+                base_model="$MODEL"
+                [[ ! -d "$BASE_CACHE/model" ]] || base_model="$BASE_CACHE/model"
+                stand="$(cat "$BASE_CACHE/stand")"
+                lap "base: from the cache" "$t_base"
+            else
+                t=$SECONDS
+                # The bench of this tree over the base, so that only the core differs.
+                for dir in Sources/PerekeyEvalKit Sources/PerekeyDesk Sources/perekey-eval eval; do
+                    rsync -a --delete "$dir/" "$base_tree/$dir/"
+                done
+                grep -q 'PerekeyEvalKit' "$base_tree/Package.swift" || cp Package.swift "$base_tree/Package.swift"
+                lap "base: bench over the worktree" "$t"
+                t=$SECONDS
+                stand="the bench of this tree"
+                if ! (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null); then
+                    echo "quality: the base does not build with this bench; building it with its own"
+                    git -C "$base_tree" checkout -q -- .
+                    git -C "$base_tree" clean -fdq
+                    stand="the bench of the base"
+                    (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null) \
+                        || { echo "quality: the base does not build" >&2; exit 1; }
+                fi
+                lap "base: build perekey-eval" "$t"
+                t=$SECONDS
+                base_model="$MODEL"
+                # One model when nothing that makes it differs; the base's own otherwise.
+                if ! git diff --quiet "$base_ref" -- "${model_inputs[@]}"; then
+                    (cd "$base_tree" && PEREKEY_DATA_CACHE="$CACHE" scripts/build-model.sh --out "$tmp/base-model" >/dev/null)
+                    base_model="$tmp/base-model"
+                fi
+                lap "base: build model" "$t"
+                if [[ -n "$BASE_CACHE" ]]; then
+                    rm -rf "$BASE_CACHE"
+                    mkdir -p "$BASE_CACHE"
+                    cp "$base_bin" "$BASE_CACHE/perekey-eval"
+                    [[ "$base_model" == "$MODEL" ]] || cp -R "$base_model" "$BASE_CACHE/model"
+                    echo "$stand" >"$BASE_CACHE/stand"
+                    echo "$fingerprint" >"$BASE_CACHE/fingerprint"
+                fi
+                lap "base: all" "$t_base"
             fi
-            lap "base: build perekey-eval" "$t"
-            t=$SECONDS
-            base_model="$MODEL"
-            # One model when nothing that makes it differs; the base's own otherwise.
-            if ! git diff --quiet "$base_ref" -- data scripts/build-model.sh scripts/fetch-data.sh scripts/wiki-freq.py \
-                scripts/build-pairs.sh scripts/wiki-text.py Sources/perekey-model Sources/PerekeyModelKit Sources/PerekeyCore/ModelFormat.swift; then
-                (cd "$base_tree" && PEREKEY_DATA_CACHE="$CACHE" scripts/build-model.sh --out "$tmp/base-model" >/dev/null)
-                base_model="$tmp/base-model"
-            fi
-            lap "base: build model" "$t"
-            lap "base: all" "$t_base"
+            echo "$base_bin" >"$tmp/base-bin-path"
             echo "$base_model" >"$tmp/base-model-path"
             echo "Compared with ${base_ref:0:9}, played with $stand." >"$tmp/base-note"
         ) &
@@ -207,14 +238,10 @@ build_suite() {
     lap "case: $1" "$t"
 }
 t_cases=$SECONDS
-build_pids=()
-for suite in "${suites[@]}"; do
-    while [[ "$(jobs -r | wc -l)" -ge "$JOBS" ]]; do sleep 0.5; done
-    build_suite "$suite" &
-    build_pids+=($!)
-done
-# Only the case builds: a bare `wait` would also reap the base build, which is awaited later.
-wait "${build_pids[@]}"
+# xargs keeps JOBS builds running and counts only its own: the background build of the base is not one of them.
+export -f build_suite lap
+export OUT TIER CACHE bin timings
+printf '%s\n' "${suites[@]}" | xargs -P "$JOBS" -I{} bash -c 'build_suite "$1"' _ {}
 lap "cases: all ($JOBS at a time)" "$t_cases"
 : >"$OUT/build.txt"
 for suite in "${suites[@]}"; do
@@ -251,7 +278,7 @@ ls "$CASES"/*.jsonl >/dev/null 2>&1 || { echo "quality: no suite was built: no s
 failed=0
 
 
-stage "self-check and the head, together"
+stage "self-check, the head and the base, side by side"
 selfargs=(selfcheck --cases eval/cases "$CASES" --split dev --model "$MODEL" --cache "$CACHE"
           --suites eval/suites --tier "$TIER" --built "$CASES" --skip-missing)
 if [[ "$TIER" == ci ]]; then selfargs+=(--only "$(join "${SELF_SUITES[@]}")" --rebuild "$(join "${REBUILD_SUITES[@]}")"); fi
@@ -264,25 +291,31 @@ if [[ "$SELF_CHECK" == 1 ]]; then selfargs+=(--mutants); fi
     exit "$status"
 ) &
 self_pid=$!
-t=$SECONDS
-"$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" --out "$OUT/run-head" >"$OUT/play-head.txt"
-lap "head: play" "$t"
-stage "head played"
-wait "$self_pid" || failed=1
-cat "$OUT/selfcheck.txt"
-
+(
+    t=$SECONDS
+    "$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" --out "$OUT/run-head" >"$OUT/play-head.txt"
+    lap "head: play" "$t"
+) &
+head_pid=$!
+# The base plays as soon as it is built, beside the head and the self-check.
 if [[ -n "$base_pid" ]]; then
     wait "$base_pid" || { echo "quality: the base did not build" >&2; exit 1; }
-    stage "play the base"
+    base_bin="$(cat "$tmp/base-bin-path")"
     base_model="$(cat "$tmp/base-model-path")"
     t=$SECONDS
-    (cd "$base_tree" && "$tmp/base-build/release/perekey-eval" play --cases "$ROOT/eval/cases" "$CASES" \
+    (cd "$base_tree" && "$base_bin" play --cases "$ROOT/eval/cases" "$CASES" \
         --model "$base_model" --cache "$CACHE" --data "$ROOT/data" --noise "$ROOT/eval/noise" \
         --layouts "$ROOT/eval/layouts" --lexicon "$OUT" --out "$OUT/run-base" >"$OUT/play-base.txt")
     lap "base: play" "$t"
     base_run="$OUT/run-base"
     base_note="$(cat "$tmp/base-note")"
+    stage "base played"
 fi
+wait "$head_pid" || { echo "quality: the head did not play" >&2; exit 1; }
+stage "head played"
+wait "$self_pid" || failed=1
+stage "self-check done"
+cat "$OUT/selfcheck.txt"
 
 # A pull request that changes the stand and not the core: noWorse is shown, not a bar. The gate decides
 # by the white list of StandChange (docs/eval.md, «Планки»): every changed file must lie in the stand.

@@ -22,7 +22,7 @@
  "suite": "typos.none",
  "tags": ["typo", "natural"],
  "tiers": {
-  "ci": 4000,
+  "ci": 12000,
   "full": 400000
  },
  "version": 1

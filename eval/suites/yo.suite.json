@@ -25,7 +25,7 @@
  "suite": "yo",
  "tags": ["yo", "natural"],
  "tiers": {
-  "ci": 3000,
+  "ci": 8000,
   "full": 150000
  },
  "version": 1

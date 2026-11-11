@@ -32,7 +32,7 @@
  "suite": "typos.synth.neighbor",
  "tags": ["typo", "synthetic"],
  "tiers": {
-  "ci": 4000,
+  "ci": 12000,
   "full": 300000
  },
  "version": 1

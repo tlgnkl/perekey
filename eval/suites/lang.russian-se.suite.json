@@ -23,7 +23,7 @@
  "suite": "lang.russian-se",
  "tags": ["language", "natural"],
  "tiers": {
-  "ci": 5000,
+  "ci": 20000,
   "full": 400000
  },
  "version": 1

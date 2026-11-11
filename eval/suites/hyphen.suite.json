@@ -25,7 +25,7 @@
  "suite": "hyphen",
  "tags": ["hyphen", "natural"],
  "tiers": {
-  "ci": 3000,
+  "ci": 6000,
   "full": 100000
  },
  "version": 1

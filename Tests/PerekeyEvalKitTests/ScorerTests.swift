@@ -72,6 +72,17 @@ import Testing
         #expect(ops == [.merge(w: 0, o: 0), .pair(w: 2, o: 1)])
     }
 
+    /// A merge with no glue match costs `otherJoin` (3.5); a 1:1 mismatch and a gone token cost 2 + 2.
+    @Test func anUnrelatedMergeAndCutAreGroupsAtTheOtherJoinCost() {
+        func ops(_ want: [String], _ out: [String]) -> [Aligner.Op] {
+            Aligner().align(want: want, out: out, judge: Scorer.judge(want: want, fold: [], accept: { _ in [] }))
+        }
+        #expect(ops(["да", "нет"], ["xyz"]) == [.merge(w: 0, o: 0)])
+        #expect(ops(["xyz"], ["да", "нет"]) == [.split(w: 0, o: 0)])
+        // Cheaper than the join: a single wrong token stays 1:1.
+        #expect(ops(["да", "нет"], ["xyz", "нет"]) == [.pair(w: 0, o: 0), .pair(w: 1, o: 1)])
+    }
+
     @Test func aCutGluedWithAHyphenIsNotTheMeantToken() {
         let hyphened = item("по-новому")
         let score = scorer.score(hyphened, null: result("по новому"), out: result("по новому"))

@@ -11,8 +11,11 @@ public struct Aligner: Sendable {
         public var mismatch = 1.0
         /// 2:1 or 1:2 where the two tokens glued without a space or with a hyphen give the one.
         public var gluedJoin = 0.5
-        /// 2:1 or 1:2 otherwise.
-        public var otherJoin = 2.5
+        /// 2:1 or 1:2 otherwise. 3.5, not less: a split and a merge over three
+        /// wholly wrong tokens (2 × this) must cost more than three 1:1 pairs
+        /// (at most 3 × 2), or a run of wrong tokens slides out of place
+        /// (docs/eval.md, «История определений», счётчик 3).
+        public var otherJoin = 3.5
         /// 1:0, a token of W is gone.
         public var dropped = 2.0
         /// 0:1, an extra token of O.

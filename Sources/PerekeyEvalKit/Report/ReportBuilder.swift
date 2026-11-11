@@ -136,7 +136,8 @@ public enum ReportBuilder {
             let wanted = options.profiles ?? file.profiles.keys.sorted()
             for name in wanted {
                 guard let weights = file.profiles[name] else { throw EvalError.input("\(path): no profile \(name)") }
-                let row = ProfileEstimator.row(name, weights: weights, rows: run.rows, stats: options.stats)
+                var row = ProfileEstimator.row(name, weights: weights, rows: run.rows, stats: options.stats)
+                row.caveat = file.caveats?[name]
                 if !row.missing.isEmpty {
                     notes.append("профиль \(name) неполный: нет наборов \(row.missing.joined(separator: ", ")); веса остальных пересчитаны")
                 }

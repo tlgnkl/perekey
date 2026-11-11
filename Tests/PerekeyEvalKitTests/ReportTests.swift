@@ -211,6 +211,29 @@ enum RunDirectory {
         #expect(Set(repo.profiles.keys) == ["chat", "dev", "office"])
     }
 
+    @Test func aProfileNamesOnlySuitesThatHaveAManifest() throws {
+        let built = Set(try SuiteManifestFiles.read(directory: Repo.path("eval/suites")).map(\.suite))
+        let repo = try ProfileFile.read(Repo.path("eval/profiles.json"))
+        for (name, weights) in repo.profiles {
+            #expect(Set(weights.keys).isSubset(of: built), "\(name): \(Set(weights.keys).subtracting(built))")
+            #expect(abs(weights.values.reduce(0, +) - 1) < 1e-9, "\(name) sums to \(weights.values.reduce(0, +))")
+        }
+        #expect(repo.caveats?["chat"]?.contains("social.ru не построен") == true)
+    }
+
+    @Test func aCaveatOfAProfileIsPrintedUnderTheProfileTable() throws {
+        let (directory, data) = try run()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let profiles = NSTemporaryDirectory() + "profiles-\(UUID().uuidString).json"
+        try #"{"caveats":{"office":"без разговорного русского"},"profiles":{"office":{"incidents":1}},"version":1}"#
+            .write(toFile: profiles, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: profiles) }
+        var options = ReportOptions()
+        options.profilesFile = profiles
+        let text = ReportRender.text(try ReportBuilder.build(data, options: options))
+        #expect(text.contains("ВНИМАНИЕ, профиль office: без разговорного русского"))
+    }
+
     @Test func aGroupHasItsIntervalAndCounts() throws {
         let (directory, data) = try run()
         defer { try? FileManager.default.removeItem(atPath: directory) }

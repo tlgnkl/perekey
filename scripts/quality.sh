@@ -179,8 +179,9 @@ if [[ -n "$base_ref" ]]; then
                 lap "base: bench over the worktree" "$t"
                 t=$SECONDS
                 stand="the bench of this tree"
-                if ! (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >/dev/null); then
-                    echo "quality: the base does not build with this bench; building it with its own"
+                if ! (cd "$base_tree" && swift build -c release --product perekey-eval --scratch-path "$tmp/base-build" >"$OUT/base-build.log" 2>&1); then
+                    echo "quality: the base does not build with this bench; building it with its own. The end of the log:"
+                    tail -n 40 "$OUT/base-build.log"
                     git -C "$base_tree" checkout -q -- .
                     git -C "$base_tree" clean -fdq
                     stand="the bench of the base"

@@ -14,6 +14,9 @@ struct ClassItem: Hashable {
     var tags: [String] = []
     /// Where the fingers aim a token with no letter in it (`15:30`).
     var aim: Aim = .latin
+    /// Kept whatever the tier's cap says, like a seed: a part of the class that is light but not to be cut away
+    /// (the hyphenated words of `punct` weigh less than the 1500 most frequent words).
+    var pinned = false
 
     enum Aim: String, Hashable { case latin, cyrillic }
 
@@ -140,6 +143,7 @@ final class ClassContext {
     private var dictionaries: [String: Set<UInt64>?] = [:]
     private var corpora: [String: CorpusStats] = [:]
     private var zipfTables: [String: [UInt64: Double]] = [:]
+    private var hyphenTables: [String: HyphenStats] = [:]
     var warmups: [String: [LetterScript: [SuiteBuilder.Pooled]]] = [:]
 
     init(cache: String, lexiconDirectory: String, classesDirectory: String) {
@@ -186,6 +190,36 @@ final class ClassContext {
     /// Sets the counts of a corpus by hand, so that a test needs no dump.
     func setCorpus(_ stats: CorpusStats, file: String, posts: Int? = nil) {
         corpora[posts.map { "\(file)#\($0)" } ?? file] = stats
+    }
+
+    /// Hyphenated words of one Tatoeba file: lower case, one script, letters on both sides of each hyphen; and the
+    /// tokens of the file, for per-million weights.
+    struct HyphenStats {
+        var counts: [String: Int] = [:]
+        var total = 0
+    }
+
+    func hyphens(file: String, script: Lexicon.Script) throws -> HyphenStats {
+        let key = "\(file)|\(script.rawValue)"
+        if let known = hyphenTables[key] { return known }
+        let path = (cache as NSString).appendingPathComponent(file)
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw EvalError.input("no source file \(path); run scripts/fetch-data.sh heldout")
+        }
+        var stats = HyphenStats()
+        try TatoebaReader.forEachUnit(path: path) { unit in
+            for piece in unit.text.split(whereSeparator: { $0.isWhitespace }) {
+                stats.total += 1
+                let core = CorpusStats.core(String(piece)).lowercased()
+                guard core.contains("-") else { continue }
+                let parts = core.split(separator: "-", omittingEmptySubsequences: false)
+                if parts.count >= 2, parts.allSatisfy({ ClassRules.isWord(String($0), script: script) }) {
+                    stats.counts[core, default: 0] += 1
+                }
+            }
+        }
+        hyphenTables[key] = stats
+        return stats
     }
 
     func seeds(_ name: String?) throws -> SeedList {

@@ -160,12 +160,25 @@ enum ClassFixtures {
         for index in 0..<200 { words.append(("слово" + String(UnicodeScalar(0x430 + UInt32(index % 32))!) + String(UnicodeScalar(0x430 + UInt32(index / 32))!), 4.0)) }
         let manifest = try ClassFixtures.manifest(rule: "punct", classBody: "\"languages\":[\"ru\"],\"top\":200",
                                                   layoutSets: "[[\"ABC\",\"Russian\"],[\"ABC\",\"RussianWin\"]]")
-        let hyphenated: [(String, Double)] = [("кто-то", 5.0), ("что-нибудь", 4.5), ("а-б-в", 4.0), ("слово-", 4.0), ("-слово", 4.0)]
-        let (rules, _) = try ClassFixtures.rules(manifest, lexicon: ["ru": words + hyphenated])
-        let items = try rules.punct()
-        // 200 decorated words and the two real hyphenated words of the lexicon; «а-б-в» has three parts, the others a bare hyphen.
+        let (_, context) = try ClassFixtures.rules(manifest, lexicon: ["ru": words])
+        // Tatoeba rus: «по-новому» and «кто-то» are written often, «слово-ABC» mixes scripts, «а-б» is rare, «Кто-То» counts as «кто-то».
+        var text = ""
+        for index in 0..<6 { text += "\(index)\trus\tОн сделал это по-новому, а кто-то Кто-То слово-ABC.\n" }
+        text += "9\trus\tСлово а-б и x-y.\n"
+        let source = try SuiteFixtures.directory()
+        try FileManager.default.createDirectory(atPath: source + "/tatoeba", withIntermediateDirectories: true)
+        try text.write(toFile: source + "/tatoeba/rus_sentences.tsv", atomically: true, encoding: .utf8)
+        try SuiteFixtures.run("/usr/bin/bzip2", ["-f", source + "/tatoeba/rus_sentences.tsv"], in: source)
+        let reading = ClassContext(cache: source, lexiconDirectory: context.lexiconDirectory, classesDirectory: source)
+        reading.setDictionary(nil, for: "ru")
+        let sets = [try LayoutSet(names: ["ABC", "Russian"], library: Repo.library), try LayoutSet(names: ["ABC", "RussianWin"], library: Repo.library)]
+        let withCorpus = ClassRules(manifest: manifest, spec: manifest.classSpec!, context: reading, library: Repo.library, sets: sets, tier: .ci)
+        let items = try withCorpus.punct()
+        // 200 decorated words and the two hyphenated words of the corpus.
         #expect(items.count == 202)
-        #expect(Set(ClassFixtures.texts(items.filter { $0.tags.contains("punct:hyphen") })) == ["кто-то", "что-нибудь"])
+        let hyphenated = items.filter { $0.tags.contains("punct:hyphen") }
+        #expect(Set(ClassFixtures.texts(hyphenated)) == ["по-новому", "кто-то"])
+        #expect(hyphenated.first { $0.text == "кто-то" }!.weight > hyphenated.first { $0.text == "по-новому" }!.weight)
         let kinds = Set(items.flatMap { $0.tags.filter { $0.hasPrefix("punct:") } })
         #expect(kinds == ["punct:lead", "punct:trail", "punct:both", "punct:hyphen"])
         for item in items where !item.tags.contains("punct:hyphen") {
@@ -174,13 +187,19 @@ enum ClassFixtures {
             #expect(item.text.contains("слово"))
         }
         // The same words give the same items.
-        #expect(try rules.punct() == items)
+        #expect(try withCorpus.punct() == items)
         // `'`, `[` and `]` have no key on RussianWin: a Russian word never gets them, an English one does.
         #expect(!items.contains { $0.text.contains("'") || $0.text.contains("[") || $0.text.contains("]") })
         var english: [(String, Double)] = []
         for index in 0..<200 { english.append(("word" + String(UnicodeScalar(0x61 + UInt32(index % 26))!) + String(UnicodeScalar(0x61 + UInt32(index / 26))!), 4.0)) }
-        let latin = try ClassFixtures.rules(ClassFixtures.manifest(rule: "punct", classBody: "\"languages\":[\"en\"],\"top\":200"),
-                                            lexicon: ["en": english]).0
+        let latinManifest = try ClassFixtures.manifest(rule: "punct", classBody: "\"languages\":[\"en\"],\"top\":200")
+        let (_, englishContext) = try ClassFixtures.rules(latinManifest, lexicon: ["en": english])
+        try "1\teng\tA well-known case, a well-known day, well-known, well-known, well-known.\n".write(toFile: source + "/tatoeba/eng_sentences.tsv", atomically: true, encoding: .utf8)
+        try SuiteFixtures.run("/usr/bin/bzip2", ["-f", source + "/tatoeba/eng_sentences.tsv"], in: source)
+        let englishReading = ClassContext(cache: source, lexiconDirectory: englishContext.lexiconDirectory, classesDirectory: source)
+        englishReading.setDictionary(nil, for: "en")
+        let latin = ClassRules(manifest: latinManifest, spec: latinManifest.classSpec!, context: englishReading, library: Repo.library,
+                               sets: [try LayoutSet(names: ["ABC", "Russian"], library: Repo.library)], tier: .ci)
         let marked = try latin.punct()
         #expect(marked.contains { $0.text.contains("[") } && marked.contains { $0.text.contains("'") })
     }
@@ -601,6 +620,21 @@ enum ClassFixtures {
             let token = try #require(item.tokens?.first)
             #expect(token.tags == (token.t == "zoom" ? ["frequent", "seed"] : ["seed"]))
         }
+    }
+
+    @Test func aPinnedItemSurvivesTheCap() throws {
+        let manifest = try ClassFixtures.manifest(rule: "punct", classBody: "\"languages\":[\"en\"],\"top\":3", tier: 2)
+        let cache = try SuiteFixtures.directory()
+        try FileManager.default.createDirectory(atPath: cache + "/tatoeba", withIntermediateDirectories: true)
+        for (code, text) in [("rus", "1\trus\tТо\n"), ("eng", (0..<6).map { "\($0)\teng\tA well-known day.\n" }.joined())] {
+            try text.write(toFile: cache + "/tatoeba/\(code)_sentences.tsv", atomically: true, encoding: .utf8)
+            try SuiteFixtures.run("/usr/bin/bzip2", ["-f", cache + "/tatoeba/\(code)_sentences.tsv"], in: cache)
+        }
+        let output = try build(manifest, lexicon: ["en": [("aa", 7), ("bb", 6), ("cc", 5)]], cache: cache)
+        let texts = output.cases.compactMap { $0.tokens?.first?.t }
+        // Two decorated words under the cap of 2, and the hyphenated word, which weighs less than all of them.
+        #expect(texts.count == 3 && texts.contains("well-known"))
+        #expect(output.report.classes?.cut == 1)
     }
 
     @Test func aLanguageOfNoLayoutSetIsAnError() throws {

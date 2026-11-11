@@ -38,8 +38,12 @@ struct ClassRules {
         var decoratedTop = 1500
         /// How many most frequent Russian words `translit` writes in Latin letters: «2000 самых частых русских слов».
         var translitTop = 2000
-        /// How many words with a hyphen `punct` takes from the lexicon per language: a first guess.
+        /// How many words with a hyphen `punct` takes per language: a first guess.
         var hyphenTop = 150
+        /// The fewest occurrences of a hyphenated word in the Tatoeba sentences of its language: a first guess, that
+        /// keeps the words people write often («по-новому») and drops a hyphen used once as a dash. Check:
+        /// `perekey-eval cases build --only class.punct` prints the class counts.
+        var hyphenMinCount = 5
         /// The least occurrences per million tokens of a corpus word: «от 20 вхождений на миллион» (plan, 8.4).
         var minPerMillion = 20.0
         /// The fewest letters of a word that `oov` and `brands` read from a corpus: one letter is a mark or a preposition.
@@ -232,16 +236,23 @@ struct ClassRules {
         }
     }
 
-    /// Words of the lexicon with a hyphen between two parts of the language's letters («кто-то»), the most frequent first.
-    func hyphenWords(_ language: String) throws -> [(word: String, zipf: Double)] {
-        let script = script(of: language)
-        let found = try context.lexiconWords(language).filter { entry in
-            guard entry.zipf >= (spec.minZipf ?? 0) else { return false }
-            let parts = entry.word.split(separator: "-", omittingEmptySubsequences: false)
-            return parts.count == 2 && parts.allSatisfy { Self.isWord(String($0), script: script) }
-        }
-        return found.sorted { $0.zipf != $1.zipf ? $0.zipf > $1.zipf : $0.word.utf8.lexicographicallyPrecedes($1.word.utf8) }
+    /// Words with a hyphen between letters of one script («по-новому»), counted in the Tatoeba sentences of the
+    /// language (the manifest's `source`, the same reader as the corpus suites): from `hyphenMinCount` times, the
+    /// most frequent first, weighted by occurrences per million tokens. The lexicon has none (wordfreq cuts at a
+    /// hyphen), and `data/` is not read (rule 2.3).
+    func hyphenWords(_ language: String) throws -> [(word: String, weight: Double)] {
+        guard let code = Self.tatoebaCodes[language],
+              let file = manifest.sources.first(where: { $0.contains("/\(code)_sentences") })
+        else { return [] }
+        let stats = try context.hyphens(file: file, script: script(of: language))
+        let found = stats.counts.filter { $0.value >= options.hyphenMinCount }
+            .map { (word: $0.key, weight: Double($0.value) * 1_000_000 / Double(max(stats.total, 1)), count: $0.value) }
+        return found.sorted { $0.count != $1.count ? $0.count > $1.count : $0.word.utf8.lexicographicallyPrecedes($1.word.utf8) }
+            .map { ($0.word, $0.weight) }
     }
+
+    /// Tatoeba's code of a language in the names of its files.
+    static let tatoebaCodes = ["ru": "rus", "en": "eng", "uk": "ukr"]
 
     /// The most frequent words, each with one decoration the word's hash picks (plan, 8.4); and the hyphenated words of the lexicon.
     func punct() throws -> [ClassItem] {
@@ -255,7 +266,7 @@ struct ClassRules {
                 items.append(item(text, zipf: entry.zipf, tags: ["punct", "punct:\(decoration.name)"]))
             }
             for entry in try hyphenWords(language).prefix(options.hyphenTop) {
-                items.append(item(entry.word, zipf: entry.zipf, tags: ["punct", "punct:hyphen"]))
+                items.append(ClassItem(text: entry.word, weight: entry.weight, tags: ["punct", "punct:hyphen"], pinned: true))
             }
         }
         return items

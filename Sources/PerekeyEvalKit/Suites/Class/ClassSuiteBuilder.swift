@@ -38,6 +38,7 @@ struct ClassSuiteBuilder {
         for item in produced.derived + produced.seeds {
             if var known = merged[item.text] {
                 known.weight = max(known.weight, item.weight)
+                known.pinned = known.pinned || item.pinned
                 known.tags = Set(known.tags + item.tags).sorted()  // a Set has no stable order between runs
                 merged[item.text] = known
             } else {
@@ -48,8 +49,8 @@ struct ClassSuiteBuilder {
         }
         let derivedKeys = Set(produced.derived.map(\.key))
         let seedKeys = Set(produced.seeds.map(\.key))
-        // The most frequent first; the draw of the seed and the epoch decides between equals, then the text. Seeds stay
-        // whatever the cap.
+        // The most frequent first; the draw of the seed and the epoch decides between equals, then the text. Seeds and pinned
+        // items stay whatever the cap.
         let order = { (a: ClassItem, b: ClassItem) -> Bool in
             if a.weight != b.weight { return a.weight > b.weight }
             let (x, y) = (SuiteBuilder.rank(ref: a.key, seed: manifest.seed, epoch: manifest.epoch),
@@ -61,7 +62,7 @@ struct ClassSuiteBuilder {
         var taken = 0
         var chosen: [ClassItem] = []
         for item in sorted {
-            if item.tags.contains("seed") {
+            if item.tags.contains("seed") || item.pinned {
                 chosen.append(item)
             } else if taken < budget {
                 taken += 1

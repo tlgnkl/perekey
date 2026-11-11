@@ -1062,7 +1062,7 @@ extension Classifier.Options: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
-             personalRank, personalNoiseCost
+             personalRank, personalNoiseCost, wordContextLimit
     }
 
     /// The keys the file format knows, one per stored property (a test holds
@@ -1092,6 +1092,7 @@ extension Classifier.Options: Codable {
         try read(.shortWordRank, &shortWordRank)
         try read(.personalRank, &personalRank)
         try read(.personalNoiseCost, &personalNoiseCost)
+        try read(.wordContextLimit, &wordContextLimit)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -1113,5 +1114,6 @@ extension Classifier.Options: Codable {
         try container.encode(shortWordRank, forKey: .shortWordRank)
         try container.encode(personalRank, forKey: .personalRank)
         try container.encode(personalNoiseCost, forKey: .personalNoiseCost)
+        try container.encode(wordContextLimit, forKey: .wordContextLimit)
     }
 }

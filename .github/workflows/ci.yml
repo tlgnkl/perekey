@@ -83,6 +83,8 @@ jobs:
       - name: Evaluate the classifier on the held-out sample
         run: scripts/eval.sh
       - run: scripts/bundle.sh
+      - name: No typing recorder in the app
+        run: scripts/check-no-recorder.sh .build/app/Perekey.app
       - name: Benchmark InputMachine against the base commit
         run: scripts/bench.sh
         env:
@@ -157,6 +159,48 @@ jobs:
           path: .build/crash-reports
           if-no-files-found: ignore
 
+  # The typing recorder for the live measure, built only with PEREKEY_RECORD=1
+  # (Package.swift, CONTRIBUTING.md); releases never set it. Its own scratch
+  # path, as locally.
+  record:
+    runs-on: macos-latest
+    env:
+      PEREKEY_RECORD: 1
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build --scratch-path .build/record
+      - run: scripts/test.sh
+      # The check of the release must catch the recorder: it fails here.
+      - name: The release check fails on a build with the recorder
+        run: |
+          bin="$(swift build --scratch-path .build/record --show-bin-path)/Perekey"
+          status=0
+          scripts/check-no-recorder.sh "$bin" || status=$?
+          if [[ $status -ne 1 ]]; then
+            echo "::error::scripts/check-no-recorder.sh gave $status on a build with PEREKEY_RECORD=1, not 1 (recorder found)"
+            exit 1
+          fi
+      # The machine with the recorder's buffer on keeps the 1 ms budget.
+      - run: scripts/bench.sh
+      # A test process that dies on a signal prints little; its crash report
+      # has the message and the stack. ReportCrash writes it a moment later.
+      - name: Collect crash reports
+        if: failure()
+        run: |
+          mkdir -p .build/crash-reports
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            ls ~/Library/Logs/DiagnosticReports/*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          cp ~/Library/Logs/DiagnosticReports/*.ips .build/crash-reports/ 2>/dev/null || true
+          ls -l .build/crash-reports
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: crash-reports-record
+          path: .build/crash-reports
+          if-no-files-found: ignore
+
   # The release configuration, as release.yml builds it: universal, with voice
   # input, packed into a DMG. Ad hoc signed, since the signing secrets live in
   # the release environment. Fails here, not on the tag, when a slice stops
@@ -201,4 +245,6 @@ jobs:
       - run: scripts/voice-pins.sh use
       - run: scripts/build-universal.sh
       - run: scripts/check-release-app.sh
+      - name: No typing recorder in the release app
+        run: scripts/check-no-recorder.sh .build/voice-universal/app/Perekey.app
       - run: scripts/dmg.sh .build/voice-universal/app/Perekey.app

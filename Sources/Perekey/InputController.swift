@@ -164,6 +164,25 @@ final class InputController {
         focus.start()
     }
 
+    #if PEREKEY_RECORD
+    /// The typing recording of the dev build (`SessionRecording`).
+    func startRecording(_ recorder: SessionRecorder, excludedApps: Set<String>) {
+        engine.startRecording(recorder, excludedApps: excludedApps)
+    }
+
+    func stopRecording() {
+        engine.stopRecording()
+    }
+
+    func setRecordingExclusions(_ apps: Set<String>) {
+        engine.setRecordingExclusions(apps)
+    }
+
+    func eraseRecordings(_ recorder: SessionRecorder) {
+        engine.eraseRecordings(recorder)
+    }
+    #endif
+
     /// Maps the files of languages that came with new layouts and lets the
     /// files of removed ones go: the tap drops its classifier for the new one.
     private func loadModel(for layouts: [LayoutMap]) {

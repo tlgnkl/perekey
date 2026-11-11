@@ -36,6 +36,10 @@ struct MenuActions {
     var transcribeFile: (() -> Void)?
     var canTranscribeFiles: () -> Bool = { false }
     #endif
+    #if PEREKEY_RECORD
+    /// «Typing recording (dev)»; nil hides its rows.
+    var recording: SessionRecording?
+    #endif
 }
 
 // MARK: - Keyboard navigation
@@ -626,6 +630,11 @@ struct MenuContent: View {
                 }
             }
             #endif
+            #if PEREKEY_RECORD
+            if let recording = actions.recording {
+                recordingRows(recording)
+            }
+            #endif
             MenuCommandRow(id: "settings", title: "Settings…", shortcut: "⌘,", nav: nav, run: actions.openSettings)
             if let updates {
                 UpdatesMenuRow(updates: updates, nav: nav, checkShown: shows(.updates), blockMenu: menu(.updates),
@@ -642,6 +651,30 @@ struct MenuContent: View {
             MenuCommandRow(id: "quit", title: "Quit Perekey", shortcut: "⌘Q", nav: nav, run: actions.quit)
         }
     }
+
+    #if PEREKEY_RECORD
+    /// The typing recording of the dev build: the switch, «not here» for the
+    /// app in front, erase and the folder. Not in a release.
+    @ViewBuilder private func recordingRows(_ recording: SessionRecording) -> some View {
+        switchRow(id: "record", title: "Typing recording (dev)", subtitle: nil,
+                  isOn: Binding(get: { recording.isOn }, set: { recording.setOn($0) }))
+        if recording.isOn, let app = appModes.frontmost, recording.canChange(app.bundleID) {
+            switchRow(id: "record-app", title: "Do not record here", subtitle: app.name,
+                      isOn: Binding(get: { recording.isExcluded(app.bundleID) },
+                                    set: { recording.setExcluded(app.bundleID, $0) }))
+        }
+        MenuCommandRow(id: "record-erase", title: "Erase Recordings…", nav: nav) {
+            guard editable else { return }
+            actions.close()
+            recording.confirmErase()
+        }
+        MenuCommandRow(id: "record-show", title: "Show Recordings in Finder", nav: nav) {
+            guard editable else { return }
+            actions.close()
+            recording.showInFinder()
+        }
+    }
+    #endif
 
     /// The first row while Perekey has no access: the one thing that matters.
     private var accessRow: some View {

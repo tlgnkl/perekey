@@ -11,10 +11,18 @@ public struct ProfileFile: Hashable, Sendable, Codable {
     public var version: Int
     /// Profile → suite → weight.
     public var profiles: [String: [String: Double]]
+    /// Profile → a line the report prints large under the profile table: what the profile lacks.
+    public var caveats: [String: String]?
+    /// Profile → why the weights are what they are; for readers of the file, the report ignores it.
+    public var notes: [String: String]?
 
-    public init(version: Int = ProfileFile.version, profiles: [String: [String: Double]]) {
+    public init(version: Int = ProfileFile.version, profiles: [String: [String: Double]],
+                caveats: [String: String]? = nil, notes: [String: String]? = nil)
+    {
         self.version = version
         self.profiles = profiles
+        self.caveats = caveats
+        self.notes = notes
     }
 
     public static func read(_ path: String) throws -> ProfileFile {
@@ -39,6 +47,8 @@ public struct ProfileRow: Hashable, Sendable, Codable {
     public var name: String
     /// Suites of the profile the run lacks; the weights of the others are renormalized.
     public var missing: [String]
+    /// From the file's `caveats`.
+    public var caveat: String?
     public var harm: Estimate
     public var rest: Estimate
     public var restNull: Estimate
@@ -102,7 +112,7 @@ enum ProfileEstimator {
         }
         let all: (String, [RunData.Row]) -> [RunData.Row] = { $1 }
         return ProfileRow(
-            name: name, missing: suites.filter { !present.contains($0) },
+            name: name, missing: suites.filter { !present.contains($0) }, caveat: nil,
             harm: estimate(.harm) { _, list in list.filter { row in options.harmPrefixes.contains { row.scenario.hasPrefix($0) } } },
             rest: estimate(.rest) { _, list in restRows(list, options) },
             restNull: estimate(.restNull) { _, list in restRows(list, options) },

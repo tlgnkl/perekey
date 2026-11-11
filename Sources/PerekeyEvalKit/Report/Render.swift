@@ -79,6 +79,7 @@ enum ReportRender {
                      Fmt.scaled(row.restNull.value, scale: 1000), Fmt.scaled(row.silent.value, scale: 1000),
                      Fmt.scaled(row.exact.value, scale: 100)]
                 })))
+            for row in data.profiles { if let caveat = row.caveat { blocks.append(.line("ВНИМАНИЕ, профиль \(row.name): \(caveat)")) } }
         }
         func measure(_ group: GroupRow, _ measure: Measure, interval: Bool = false) -> String {
             guard let estimate = group.estimates[measure.rawValue] else { return "—" }

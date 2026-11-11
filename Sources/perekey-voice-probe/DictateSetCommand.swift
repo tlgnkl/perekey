@@ -23,7 +23,8 @@ import PerekeyVoiceCore
 /// - `--both`: each dictation both ways, back to back and in alternating
 ///   order, so a busy machine and a warm model touch both arms alike.
 /// - `--minimum`, `--pause`, `--prompt-words`: the pieces' options in place
-///   of `SegmentedRecognizer.Options.standard`.
+///   of the model's (`SpeechEngine.pieces`) and
+///   `SegmentedRecognizer.Options.standard`.
 @MainActor
 enum DictateSetCommand {
     struct Dictation {
@@ -55,6 +56,8 @@ enum DictateSetCommand {
         var instant = false
         var arms = [false]
         var options = SegmentedRecognizer.Options.standard
+        var minimum: Double?
+        var pause: Double?
         var rest = arguments.dropFirst(2)[...]
         while let argument = rest.popFirst() {
             switch argument {
@@ -63,8 +66,8 @@ enum DictateSetCommand {
             case "--instant": instant = true
             case "--pieces": arms = [true]
             case "--both": arms = [false, true]
-            case "--minimum": options.segments.minimumPiece = Double(rest.popFirst() ?? "") ?? options.segments.minimumPiece
-            case "--pause": options.segments.pause = Double(rest.popFirst() ?? "") ?? options.segments.pause
+            case "--minimum": minimum = Double(rest.popFirst() ?? "")
+            case "--pause": pause = Double(rest.popFirst() ?? "")
             case "--prompt-words": options.promptWords = Int(rest.popFirst() ?? "") ?? options.promptWords
             default: throw ProbeError.message("unknown option \(argument)")
             }
@@ -81,6 +84,11 @@ enum DictateSetCommand {
                                            coreMLCache: models.appending(path: "../coreml-cache").standardized),
             managed: ManagedSettings())
         guard await store.status(of: id)?.state == .ready else { throw ProbeError.message("\(id) is not ready") }
+        guard let model = VoiceEngines.make(model: id, store: store) else { throw ProbeError.message("\(id) is no speech model") }
+        var segments = model.pieces
+        segments.minimumPiece = minimum ?? segments.minimumPiece
+        segments.pause = pause ?? segments.pause
+        if minimum != nil || pause != nil { options.segments = segments }
 
         let microphone = FileMicrophone()
         let paster = PrintPaster()
@@ -92,7 +100,7 @@ enum DictateSetCommand {
             preferences: preferences(pieces: arms[0]), microphone: microphone, paster: paster, secureInput: nil,
             detector: SileroVAD(store: store), makeEngine: { VoiceEngines.make(model: $0, store: store) },
             hooks: VoiceController.Hooks(play: { _ in }), pieces: options)
-        print("options\tminimum=\(options.segments.minimumPiece)\tpause=\(options.segments.pause)"
+        print("options\tminimum=\(segments.minimumPiece)\tpause=\(segments.pause)"
             + "\tprompt_words=\(options.promptWords)")
 
         // Warm-up: the model loads and CoreML compiles; its time is not the model's.
@@ -117,7 +125,8 @@ enum DictateSetCommand {
             }
         }
         await controller.unloadModels()
-        summary(id: id, seconds: seconds, instant: instant, options: options, rows: rows)
+        summary(id: id, seconds: seconds, instant: instant, segments: segments, promptWords: options.promptWords,
+                rows: rows)
     }
 
     /// The recordings of each language, in the order of `refs.tsv`, joined
@@ -193,16 +202,16 @@ enum DictateSetCommand {
 
     /// Per arm and language: the errors over all runs, and the stop-to-text
     /// time of a dictation as the median of its runs.
-    static func summary(id: String, seconds: Double, instant: Bool, options: SegmentedRecognizer.Options,
-                        rows: [Row])
+    static func summary(id: String, seconds: Double, instant: Bool, segments: SpeechSegmenter.Options,
+                        promptWords: Int, rows: [Row])
     {
         for arm in Set(rows.map(\.arm)).sorted() {
             let mine = rows.filter { $0.arm == arm }
             var result: [String: Any] = ["model": id, "arm": arm, "seconds": seconds, "instant": instant]
             if arm == "pieces" {
-                result["minimum"] = options.segments.minimumPiece
-                result["pause"] = options.segments.pause
-                result["prompt_words"] = options.promptWords
+                result["minimum"] = segments.minimumPiece
+                result["pause"] = segments.pause
+                result["prompt_words"] = promptWords
             }
             var all = SpeechScore.Tally()
             var allTimes: [Double] = []

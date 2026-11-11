@@ -87,6 +87,7 @@ private final class FakeMicrophone: DictationMicrophone, @unchecked Sendable {
 private actor FakeEngine: SpeechEngine {
     nonisolated let id: String
     nonisolated let acceptsLanguageHint: Bool
+    nonisolated let pieces: SpeechSegmenter.Options
     private var text: String
     private var gate: CheckedContinuation<Void, Never>?
     private var holds = false
@@ -95,9 +96,12 @@ private actor FakeEngine: SpeechEngine {
     private(set) var heard: [Int] = []
     private var prepared = false
 
-    init(id: String = "fake", text: String = "Привет, мир.", acceptsLanguageHint: Bool = true) {
+    init(id: String = "fake", text: String = "Привет, мир.", acceptsLanguageHint: Bool = true,
+         pieces: SpeechSegmenter.Options = .standard)
+    {
         self.id = id
         self.acceptsLanguageHint = acceptsLanguageHint
+        self.pieces = pieces
         self.text = text
     }
 
@@ -313,9 +317,10 @@ private final class Rig {
 
     init(preferences: DictationPreferences = DictationPreferences(modelID: "fake", silenceStop: nil),
          limitSeconds: Int = DictationAudio.limitSeconds, engineAcceptsHint: Bool = true,
-         clock: VirtualClock? = nil)
+         clock: VirtualClock? = nil, enginePieces: SpeechSegmenter.Options = .standard,
+         pieces: SegmentedRecognizer.Options = .standard)
     {
-        engine = FakeEngine(acceptsLanguageHint: engineAcceptsHint)
+        engine = FakeEngine(acceptsLanguageHint: engineAcceptsHint, pieces: enginePieces)
         let engines: [String: any SpeechEngine] = ["fake": engine, "fake2": otherEngine, cloud.id: cloud]
         controller = VoiceController(
             preferences: preferences, microphone: microphone, paster: paster, secureInput: secureInput,
@@ -342,6 +347,7 @@ private final class Rig {
                     return self?.signs
                 }),
             limitSeconds: limitSeconds,
+            pieces: pieces,
             sleep: { [sleeps] duration in
                 sleeps.withLock { $0 += 1 }
                 if let clock {
@@ -1912,6 +1918,32 @@ struct VoiceControllerPieceTests {
         #expect(await rig.engine.heard == [firstCut, 144_000 - firstCut])
         #expect(await rig.engine.prompts == [nil, "Один."], "Whisper reads the text before the cut")
         #expect(rig.records.map { $0.audio?.count } == [144_000], "the history gets the whole recording")
+    }
+
+    @Test func theModelSetsItsOwnPause() async {
+        let clock = VirtualClock()
+        // A model that cuts only at a pause of 2 s: the pause of 1 s is not one.
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: nil, recognizesWhileSpeaking: true),
+                      clock: clock, enginePieces: SpeechSegmenter.Options(minimumPiece: 5, pause: 2))
+        await rig.startRecording()
+        sayAPhrase(rig)
+        rig.microphone.speak(seconds: 2)
+        await look(rig, clock)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.heard == [144_000])
+    }
+
+    @Test func cutsGivenToTheControllerOverrideTheModels() async {
+        let clock = VirtualClock()
+        let rig = Rig(preferences: DictationPreferences(modelID: "fake", silenceStop: nil, recognizesWhileSpeaking: true),
+                      clock: clock, enginePieces: SpeechSegmenter.Options(minimumPiece: 5, pause: 2),
+                      pieces: SegmentedRecognizer.Options(segments: .standard, promptWords: 12))
+        await firstPieceHeard(rig, clock)
+        rig.microphone.speak(seconds: 2)
+        rig.controller.voice(.toggle)
+        #expect(await rig.until { rig.hud == .pasted })
+        #expect(await rig.engine.heard == [firstCut, 144_000 - firstCut])
     }
 
     @Test func offTheWholeRecordingIsRecognizedAfterTheStop() async {

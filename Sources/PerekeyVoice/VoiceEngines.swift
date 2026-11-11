@@ -38,6 +38,7 @@ public actor FluidAudioEngine: SpeechEngine {
     }
 
     public nonisolated var acceptsLanguageHint: Bool { false }
+    public nonisolated var pieces: SpeechSegmenter.Options { .betweenPhrases }
 
     private var version: AsrModelVersion { id == "parakeet-ultra" ? .ultra : .v3 }
 

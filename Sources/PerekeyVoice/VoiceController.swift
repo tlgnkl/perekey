@@ -627,7 +627,7 @@ public final class VoiceController {
         if preferences.recognizesWhileSpeaking, detector != nil, let engine = work.model?.engine,
            CloudSpeechModel(id: engine.id) == nil
         {
-            work.segmenter = SpeechSegmenter(options: pieceOptions.segments)
+            work.segmenter = SpeechSegmenter(options: pieceOptions.segments ?? engine.pieces)
         }
         current?.stopTimers()
         current = work

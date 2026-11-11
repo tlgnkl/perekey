@@ -12,7 +12,9 @@ import PerekeyVoiceCore
 /// so far (`SegmentedText.prompt`). Parakeet takes no prompt, and its
 /// decoder starts afresh on every call (`FluidAudioEngine` makes a new
 /// `TdtDecoderState` each time, as FluidAudio does for each 15 s chunk of
-/// long audio): its pieces are as independent as its own chunks.
+/// long audio): its pieces are as independent as its own chunks. It is cut
+/// only between phrases (`SpeechEngine.pieces`): after a shorter pause it
+/// lost the first words of the next piece.
 ///
 /// A piece that fails ends the pieces: `finish` returns nil and the
 /// controller recognizes the whole recording, as without pieces.
@@ -22,7 +24,9 @@ import PerekeyVoiceCore
 /// model only once nothing runs on it.
 public actor SegmentedRecognizer {
     public struct Options: Sendable, Equatable {
-        public var segments: SpeechSegmenter.Options
+        /// Where the pieces are cut; nil: where the model wants
+        /// (`SpeechEngine.pieces`).
+        public var segments: SpeechSegmenter.Options?
         /// Words of the text so far Whisper reads before the next piece: the
         /// end of a phrase, enough to carry the language and the casing over
         /// the cut, short enough that the dictionary's words keep their room
@@ -31,9 +35,9 @@ public actor SegmentedRecognizer {
         /// dictate-set --prompt-words`, report of stage 5, L5b.
         public var promptWords: Int
 
-        public static let standard = Options(segments: .standard, promptWords: 12)
+        public static let standard = Options(segments: nil, promptWords: 12)
 
-        public init(segments: SpeechSegmenter.Options, promptWords: Int) {
+        public init(segments: SpeechSegmenter.Options?, promptWords: Int) {
             self.segments = segments
             self.promptWords = promptWords
         }

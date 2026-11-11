@@ -33,6 +33,14 @@ public struct SpeechSegmenter: Sendable, Equatable {
         public var pause: Double
 
         public static let standard = Options(minimumPiece: 5, pause: 0.25)
+        /// Cuts only at a pause of half a second, between phrases. Parakeet
+        /// v3 with `standard` lost the first words of a piece: 8,42 % word
+        /// errors against 7,58 % for the whole recording; with this, 7,32 %
+        /// and a median of 0,02 s from the stop to the text
+        /// (`perekey-voice-probe dictate-set parakeet-tdt-v3
+        /// .build/data-cache/speech --pieces --pause 0.5`; `--both` for the
+        /// whole recording; report of stage 5, L5b).
+        public static let betweenPhrases = Options(minimumPiece: 5, pause: 0.5)
 
         public init(minimumPiece: Double, pause: Double) {
             self.minimumPiece = minimumPiece

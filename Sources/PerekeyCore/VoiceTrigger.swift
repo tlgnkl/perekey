@@ -440,3 +440,6 @@ extension VoiceSettings: Codable {
         }
     }
 }
+
+// For the session format (`RecordedEvent`).
+extension PointerLocation: Codable {}

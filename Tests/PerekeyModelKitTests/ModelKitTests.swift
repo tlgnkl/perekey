@@ -279,11 +279,56 @@ import Testing
             CorpusItem(category: "prose", language: "en", previous: "ru", text: "world"),
             CorpusItem(category: "url", language: "en", previous: nil, text: "https://a.b/c?d=1"),
             CorpusItem(category: "typos", language: "en", previous: "en", text: "wrold", expected: "world"),
+            CorpusItem(category: "prose", language: "en", recent: [], text: "Hello", previousWords: []),
+            CorpusItem(category: "chat", language: "en", recent: ["en", "ru"], text: "world",
+                       previousWords: ["hello,", "привет"]),
+            CorpusItem(category: "typos", language: "en", recent: ["en"], text: "wrold", expected: "world",
+                       previousWords: ["-"]),
+            CorpusItem(category: "typos", language: "en", recent: ["en"], text: "wrold", expected: "world",
+                       previousWords: ["^"]),
         ]
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("perekey-corpus-\(UUID()).tsv").path
         defer { try? FileManager.default.removeItem(atPath: path) }
         try Corpus.write(items, to: path)
         #expect(try Corpus.read(path) == items)
+    }
+
+    @Test func filesFromBeforeTheWordsStillRead() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("perekey-corpus-\(UUID()).tsv").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try "# category\tlanguage\trecent\ttext\texpected\tapp\nprose\ten\ten\tworld\t-\ten:3,ru:1\n"
+            .write(toFile: path, atomically: true, encoding: .utf8)
+        let item = try #require(try Corpus.read(path).first)
+        #expect(item.previousWords == nil)
+        #expect(item.app == ["en": 3, "ru": 1])
+    }
+
+    @Test func aSentenceKeepsTheWordsBeforeEachWord() {
+        var items: [CorpusItem] = []
+        let added = Corpus.add(["Hello,", "my", "12", "friend."], category: "prose", to: &items)
+        #expect(added == 3) // "12" has no language
+        #expect(items.map(\.text) == ["Hello,", "my", "friend."])
+        #expect(items.map(\.previousWords) == [[], ["Hello,"], ["12", "my", "Hello,"]])
+        // As many as the languages before it: `RecentLanguages.capacity`.
+        var long: [CorpusItem] = []
+        Corpus.add(["a", "b", "c", "d", "e"], category: "chat", to: &long)
+        #expect(long.last?.previousWords == ["d", "c", "b"])
+        #expect(long.last?.previousWords?.count == RecentLanguages.capacity)
+    }
+
+    @Test func aTypoKeepsTheWordsBeforeIt() {
+        let tokens = ["so", "the", "wrold", "is", "big"]
+        #expect(Corpus.wordsBefore(tokens, at: 0) == [])
+        #expect(Corpus.wordsBefore(tokens, at: 2) == ["the", "so"])
+        #expect(Corpus.wordsBefore(tokens, at: 4) == ["is", "wrold", "the"])
+    }
+
+    @Test func wordsWithoutASentenceSayNothing() {
+        // Code, URLs, passwords and captchas have no sentence: no start-of-sentence pair for them.
+        var random = SplitMix64(seed: 1)
+        let captcha = CorpusItem(category: "captcha", language: "en", previous: nil,
+                                 text: Synthetic.captcha(language: "en", random: &random))
+        #expect(captcha.previousWords == nil)
     }
 
     @Test func syntheticTyposAreOneEditAway() {
@@ -304,6 +349,43 @@ import Testing
         #expect(kinds == [-1, 0, 1], "drops, substitutions and insertions all happen")
         #expect(Synthetic.neighbours(of: "g", language: "en").sorted() == ["b", "f", "h", "t", "v", "y"])
         #expect(Synthetic.typo(of: "abc", language: "en", random: &random) == nil)
+    }
+}
+
+/// `PreviousWord` (what the machine hands the corrector) reads text the way
+/// `PairText` (what the pair counts were made of) does.
+@Suite struct PreviousWordAgreementTests {
+    /// The last word of `text`, or the start of a sentence when one ended after it, by the scanner of the counts.
+    static func byPairText(_ text: String) -> UInt64? {
+        var events: [PairText.Event] = []
+        PairText.scan(text + " x") { events.append($0) }
+        // The probe word and the sentence end the scan adds at the end of the text.
+        events.removeLast(2)
+        switch events.last {
+        case .sentenceEnd: return ModelFormat.sentenceStart
+        case let .word(fingerprint): return fingerprint
+        case nil: return nil
+        }
+    }
+
+    @Test(arguments: [
+        "hello", "Hello", "hello.", "hello!", "hello?", "hello…", "hello?!", "hello. ", "hello,", "(hello)", "«привет»",
+        "don't", "don’t", "don'", "-hello-", "кто-то", "a-----b", "a/b", "said hello", "hello. said", "hello.\tsaid",
+        "mp3", "2026", "", " ", "...", "--", "(!)", ",", "Ёлка", "café", "naïve", "a'b-c", "x--y", "e.g.", "3.14",
+        "hello —", "hello — ", "hello. —", "ok.)", "ok.\"", "ok.»", "'", "a'", "'a", "ё", "ǰ", "ʼn", "dʼn",
+    ])
+    func theSameWord(text: String) {
+        #expect(PreviousWord.fingerprint(of: text.unicodeScalars) == Self.byPairText(text), "\(text)")
+    }
+
+    @Test func onRunningText() {
+        let text = "The quick brown fox, who said \"hello!\" to the (very) tired dog, jumped over it. Then he left… "
+            + "Привет, мир! Как дела? Кто-то сказал: «что-то не так». It's 3.14 o'clock — don’t be late."
+        var prefix = ""
+        for character in text {
+            prefix.append(character)
+            #expect(PreviousWord.fingerprint(of: prefix.unicodeScalars) == Self.byPairText(prefix), "\(prefix)")
+        }
     }
 }
 
@@ -360,6 +442,72 @@ import Testing
         #expect(results.total.fixedShare == 0.5)
         #expect(!results.typoTargetsMet)
         #expect(Evaluation.report(results).contains("typo correction"))
+    }
+}
+
+/// The word before in the evaluation.
+@Suite struct TypoContextEvaluationTests {
+    static let model: LanguageModel = {
+        var builder = ModelBuilder()
+        builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
+        builder.addLanguage("ru", alphabet: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя-")
+        for word in ["hello", "world", "word", "then", "them", "of", "to"] {
+            builder.addForm(word, language: "en", rank: 200, weight: 100)
+        }
+        builder.addForm("привет", language: "ru", rank: 200, weight: 100)
+        builder.addPair(previous: fingerprint("of"), word: fingerprint("them"), lift: 80, language: "en")
+        builder.addPair(previous: fingerprint("to"), word: fingerprint("then"), lift: 80, language: "en")
+        builder.addPair(previous: ModelFormat.sentenceStart, word: fingerprint("world"), lift: 80, language: "en")
+        return try! LanguageModel(bytes: builder.build())
+    }()
+
+    static func fingerprint(_ text: String) -> UInt64 { ModelFormat.Fingerprint.of(text.unicodeScalars, folded: true) }
+
+    static let items = [
+        CorpusItem(category: "typos", language: "en", recent: ["en"], text: "thenm", expected: "them",
+                   previousWords: ["of"]),
+        CorpusItem(category: "typos", language: "en", recent: ["en"], text: "thenm", expected: "then",
+                   previousWords: ["to"]),
+        CorpusItem(category: "typos", language: "en", recent: ["en"], text: "thenm", expected: "them",
+                   previousWords: ["said"]),
+        CorpusItem(category: "typos", language: "en", recent: [], text: "thenm", expected: "them", previousWords: nil),
+        CorpusItem(category: "typos", language: "en", recent: [], text: "wrld", expected: "world", previousWords: []),
+        CorpusItem(category: "prose", language: "en", recent: ["en"], text: "hello", previousWords: ["of"]),
+    ]
+
+    static func run(weight: Double, items: [CorpusItem] = items) -> Evaluation.Results {
+        var options = TypoCorrector.Options()
+        options.contextWeight = weight
+        return Evaluation(model: model, layouts: ["en": TypoEvaluationTests.abc, "ru": TypoEvaluationTests.russian],
+                          typoOptions: options).run(items)
+    }
+
+    @Test func theWordBeforeFixesWhatIsOtherwiseAmbiguous() {
+        let without = Self.run(weight: 0).categories.first { $0.name == "typos" }
+        // Only "wrld" is fixed without the word before.
+        #expect(without?.typosFixed == 1)
+        let with = Self.run(weight: 1).categories.first { $0.name == "typos" }
+        #expect(with?.typosFixed == 3, "of→them, to→then; unknown, 'said' and the plain 'wrld' stay as they were")
+        #expect(with?.wrongCorrections == 0)
+    }
+
+    @Test func weightZeroIsTheEvaluationWithoutWords() {
+        let stripped = Self.items.map { item -> CorpusItem in
+            var item = item
+            item.previousWords = nil
+            return item
+        }
+        #expect(Self.run(weight: 0).categories == Self.run(weight: 0, items: stripped).categories)
+        #expect(Self.run(weight: 0).total.wrongCorrectionRate == Self.run(weight: 0, items: stripped).total.wrongCorrectionRate)
+    }
+
+    @Test func theSweepRunsEveryWeightAndWeightZeroIsTheBase() {
+        let evaluation = Evaluation(model: Self.model, layouts: ["en": TypoEvaluationTests.abc,
+                                                                 "ru": TypoEvaluationTests.russian])
+        let points = evaluation.typoContextSweep(Self.items, weights: [0, 0.5, 1])
+        #expect(points.map(\.typoOptions.contextWeight) == [0, 0.5, 1])
+        #expect(points[0].categories == evaluation.run(Self.items, maxErrors: 0).categories)
+        #expect(points[2].total.typosFixed > points[0].total.typosFixed)
     }
 }
 

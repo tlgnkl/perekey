@@ -138,6 +138,18 @@ public struct WordBuffer: Hashable, Sendable {
         return Array(history[start...]) + entries
     }
 
+    /// The keys of the word typed right before the current one, with its
+    /// marks and the spaces after it; `nil` when the buffer does not know it
+    /// (nothing before, or the caret left the text since). No allocation: a
+    /// slice of `history`.
+    public var previousWord: ArraySlice<Entry>? {
+        guard !entries.isEmpty, historyCount > 0 else { return nil }
+        var start = history.endIndex
+        while start > history.startIndex, history[start - 1].isGap { start -= 1 }
+        while start > history.startIndex, !history[start - 1].isGap { start -= 1 }
+        return history[start...]
+    }
+
     /// Puts other layouts on the last `phrase.count` keys: the phrase, or the
     /// end of the word, as a retype left it. The keys themselves must be the same.
     public mutating func relabelPhrase(_ phrase: [Entry]) {

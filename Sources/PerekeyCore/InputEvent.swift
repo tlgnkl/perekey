@@ -153,3 +153,11 @@ public enum InputEvent: Sendable {
     /// (`VoiceSignal.cancel`) and goes no further.
     case voiceSession(Bool)
 }
+
+// The session format (`RecordedEvent`) writes these as they are. Synthesized
+// here: Swift derives `Codable` only in the file of the type.
+extension EventOrigin: Codable {}
+extension KeyEvent.Phase: Codable {}
+extension KeyEvent: Codable {}
+extension Focus: Codable {}
+extension FocusChange: Codable {}

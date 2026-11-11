@@ -61,7 +61,8 @@ var targets: [Target] = [
     .executableTarget(name: "perekey-e2e"),
     // Readers of third-party data and corpora for the two tools below.
     // Foundation is fine here: nothing of it ships in the app.
-    .target(name: "PerekeyModelKit", dependencies: ["PerekeyCore"]),
+    // PerekeyDesk: a simulated replay of a recorded session runs on its desk.
+    .target(name: "PerekeyModelKit", dependencies: ["PerekeyCore", "PerekeyDesk"]),
     // Builds the language model from the data cache; scripts/build-model.sh.
     .executableTarget(name: "perekey-model", dependencies: ["PerekeyCore", "PerekeyModelKit"]),
     // The system around InputMachine in memory: a text field with a caret,
@@ -75,9 +76,11 @@ var targets: [Target] = [
     // Measures the classifier on the held-out corpus (scripts/eval.sh) and
     // plays the cases of the quality bench.
     .executableTarget(name: "perekey-eval", dependencies: ["PerekeyCore", "PerekeyModelKit", "PerekeyEvalKit"]),
+    // PerekeyModelKit for the replay of recorded sessions: its tests record
+    // sessions on the test desk of these.
     .testTarget(
         name: "PerekeyCoreTests",
-        dependencies: ["PerekeyCore"],
+        dependencies: ["PerekeyCore", "PerekeyModelKit"],
         resources: [.copy("Fixtures")]
     ),
     .testTarget(name: "PerekeyInputTests", dependencies: ["PerekeyCore", "PerekeyInput", "PerekeyVoiceCore"]),

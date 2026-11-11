@@ -188,8 +188,22 @@ struct WordJudge: Sendable {
     /// Observations confirmed since the last batch (`takeKept()`). Its room
     /// is reserved for a whole batch: no allocation per word.
     private var kept: [PersonalObservation] = []
+    /// The second buffer, reserved too. A batch leaves with its buffer
+    /// (the effect owns it), and this one takes its place at once: the words
+    /// after the batch grow no array. The next spare is reserved in the same
+    /// call, once per batch, never in the word's own path.
+    private var spare: [PersonalObservation] = []
+    /// Room for a whole batch: it goes out at `tallySize` words, and the word
+    /// that fills it may be confirmed in the same event.
+    static let keptCapacity = tallySize + 1
+    /// A letter has been typed in the word that is being typed: the next
+    /// letter does not confirm the pending observation again.
+    private var tokenHasLetter = false
     /// How many observations wait for the next batch.
     var keptCount: Int { kept.count }
+    /// The room of the two buffers, for the test that no word grows one.
+    var keptCapacity: Int { kept.capacity }
+    var spareCapacity: Int { spare.capacity }
     /// The observations waiting for the next batch, for `MachineSnapshot`.
     var keptObservations: [PersonalObservation] { kept }
 
@@ -271,14 +285,29 @@ struct WordJudge: Sendable {
 
     /// A key that types a character went into the buffer. `startsWord`: it
     /// began a new word, and whatever was decided about the last one is over.
-    mutating func typed(startsWord: Bool) {
+    ///
+    /// The pending observation of the word before is taken by the first
+    /// letter of the next word (plan 7.2, item 6). A digit or a mark that
+    /// starts the next token leaves it waiting for that letter ("слово 5
+    /// привет", "слово (привет"), and a character in the middle of a word
+    /// drops it: what was observed is not the word that goes on.
+    /// - Parameter isLetter: the character typed is a letter.
+    mutating func typed(startsWord: Bool, isLetter: Bool) {
         if startsWord {
             switching = .allowed
             languageRecorded = false
             wordTraced = false
-            confirmObservation()
-        } else {
-            // The word goes on after its end: what was observed is not it.
+            tokenHasLetter = false
+        }
+        if isLetter {
+            if tokenHasLetter {
+                // The word goes on after its end: what was observed is not it.
+                pendingObservation = nil
+            } else {
+                tokenHasLetter = true
+                confirmObservation()
+            }
+        } else if !startsWord {
             pendingObservation = nil
         }
         judged = false
@@ -362,7 +391,14 @@ struct WordJudge: Sendable {
             pendingObservation = nil
         }
         personal = lexicon
-        if lexicon.isOn, kept.capacity < Self.tallySize + 1 { kept.reserveCapacity(Self.tallySize + 1) }
+        guard lexicon.isOn else {
+            // Off keeps nothing, not even the room.
+            kept = []
+            spare = []
+            return
+        }
+        if kept.capacity < Self.keptCapacity { kept.reserveCapacity(Self.keptCapacity) }
+        if spare.capacity < Self.keptCapacity { spare.reserveCapacity(Self.keptCapacity) }
     }
 
     /// The pending observation stands: the next word started, or the line ended.
@@ -376,8 +412,9 @@ struct WordJudge: Sendable {
     mutating func takeKept() -> PersonalTally? {
         guard !kept.isEmpty else { return nil }
         let tally = PersonalTally(observations: kept, generation: personal.generation)
-        kept = []
-        kept.reserveCapacity(Self.tallySize + 1)
+        kept = spare
+        spare = []
+        spare.reserveCapacity(Self.keptCapacity)
         return tally
     }
 
@@ -386,13 +423,21 @@ struct WordJudge: Sendable {
     /// waits for the next word. Only where automatic switching could act
     /// and words count (`counting`): not in «manual only» or «off», not in a
     /// password field or on an unknown focus, not in Perekey's own windows.
+    /// - Parameter known: the fingerprint the classifier found the word under
+    ///   in the lexicon (`Decision.typedPersonalWord`): the word counts
+    ///   without a second look at its rival, its typo and its hash.
     private mutating func observe(_ strokes: some Collection<KeyStroke>, in result: LayoutMap,
-                                  rivals: some Collection<LayoutMap>, classifier: Classifier, confirm: Bool)
+                                  rivals: some Collection<LayoutMap>, classifier: Classifier, settings: Settings,
+                                  known: UInt64? = nil, confirm: Bool)
     {
-        guard personal.isOn, counting,
-              let observation = classifier.personalObservation(strokes, in: result, rivals: rivals,
-                                                               personal: personal, corrector: typoCorrector,
-                                                               sentenceStart: sentenceStart)
+        guard personal.isOn, counting else { return }
+        // The corrector is asked as `correctWord` asks it: with the word before.
+        let typo = typoCorrector.map {
+            TypoCheck(corrector: $0, sentenceStart: sentenceStart, previous: previousForTypo,
+                      realWords: settings.corrections.realWords)
+        }
+        guard let observation = classifier.personalObservation(strokes, in: result, rivals: rivals,
+                                                               personal: personal, typo: typo, known: known)
         else { return }
         pendingObservation = observation
         if confirm { confirmObservation() }
@@ -496,8 +541,14 @@ struct WordJudge: Sendable {
         judged = true
         counting = inContextApp(focus)
         contextAtJudge = context(focus: focus)
-        // The word is judged again ("hello." and a space): its new end decides.
-        pendingObservation = nil
+        if tokenHasLetter {
+            // The word is judged again ("hello." and a space): its new end decides.
+            pendingObservation = nil
+        } else if endsLine {
+            // Only digits or marks since the word observed, and the line ends:
+            // no letter will come to take it.
+            confirmObservation()
+        }
         previousForTypo = wordBefore(buffer, layouts: layouts,
                                      realWords: settings.typoCorrection && settings.corrections.realWords)
         defer { previousForTypo = nil }
@@ -543,10 +594,11 @@ struct WordJudge: Sendable {
             if personal.isOn, switchingBefore == .switchedInside, let auto, wordIsPlain(buffer, layouts: layouts),
                !auto.classifier.isPlainlyKnown(buffer.entries.lazy.map(\.stroke), in: auto.typed),
                let source = switchedFrom.flatMap({ layouts[$0] }),
-               !isException(buffer, in: auto.typed, settings, focus)
+               !isException(buffer, in: auto.typed, settings, focus),
+               alwaysFixSpelling(buffer, in: auto.typed, settings) == nil
             {
                 observe(buffer.entries.lazy.map(\.stroke), in: auto.typed, rivals: CollectionOfOne(source),
-                        classifier: auto.classifier, confirm: endsLine)
+                        classifier: auto.classifier, settings: settings, confirm: endsLine)
             }
             // A word switched inside, or undone there, has its trace from then.
             if tracing, switchingBefore == .suppressed, !wordTraced {
@@ -649,8 +701,10 @@ struct WordJudge: Sendable {
                 if personal.isOn, switches, !forced, listed == nil, retype.pending.correction.kind == .layout,
                    !found.otherKnown
                 {
-                    observe(retype.word ?? buffer.entries.map(\.stroke), in: auto.other,
-                            rivals: CollectionOfOne(auto.typed), classifier: auto.classifier, confirm: false)
+                    // Nothing but the layout changed, so the word is the buffer's keys.
+                    observe(buffer.entries.lazy.map(\.stroke), in: auto.other, rivals: CollectionOfOne(auto.typed),
+                            classifier: auto.classifier, settings: settings,
+                            known: found.otherPersonal ? found.otherPersonalWord : nil, confirm: false)
                 }
                 if tracing {
                     trace(.switched(to: auto.other.id, early: false), buffer, layouts: layouts, context: contextAtJudge,
@@ -682,10 +736,20 @@ struct WordJudge: Sendable {
             // Kept as typed, by a decision to keep and no correction.
             // A word the model knows is the common case: the decision says so already.
             if personal.isOn, let auto, let decision, decision.verdict == .keep, !decision.typedKnown,
-               !isException(buffer, in: auto.typed, settings, focus), alwaysFixSpelling(buffer, in: auto.typed, settings) == nil
+               !isException(buffer, in: auto.typed, settings, focus),
+               alwaysFixSpelling(buffer, in: auto.typed, settings) == nil
             {
-                observe(buffer.entries.lazy.map(\.stroke), in: auto.typed, rivals: auto.candidates,
-                        classifier: auto.classifier, confirm: endsLine)
+                if decision.typedPersonal {
+                    // A word of the lexicon: its count, unless the other reading is a known word.
+                    if !decision.otherKnown {
+                        observe(buffer.entries.lazy.map(\.stroke), in: auto.typed, rivals: EmptyCollection(),
+                                classifier: auto.classifier, settings: settings, known: decision.typedPersonalWord,
+                                confirm: endsLine)
+                    }
+                } else {
+                    observe(buffer.entries.lazy.map(\.stroke), in: auto.typed, rivals: auto.candidates,
+                            classifier: auto.classifier, settings: settings, confirm: endsLine)
+                }
             }
             return .keep
         }

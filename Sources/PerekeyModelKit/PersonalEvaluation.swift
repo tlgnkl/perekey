@@ -110,6 +110,7 @@ public struct PersonalEvaluation {
     /// letters, unknown to the model in their language: `count` of them, half
     /// Cyrillic, half Latin, picked with `seed`.
     public static func names(cache: String, model: LanguageModel, options: Classifier.Options = .init(),
+                             personalOptions: PersonalOptions = PersonalOptions(),
                              count: Int, seed: UInt64) throws -> [CorpusItem]
     {
         var random = SplitMix64(seed: seed)
@@ -118,7 +119,7 @@ public struct PersonalEvaluation {
         for name in try Corpus.geonames("\(cache)/geonames/cities15000.zip") {
             for token in name.split(separator: " ").map(String.init) {
                 guard let language = Corpus.language(of: token), token.allSatisfy(\.isLetter),
-                      (3...24).contains(token.count), let first = token.first, first.isUppercase,
+                      (personalOptions.minLetters...personalOptions.maxLetters).contains(token.count), let first = token.first, first.isUppercase,
                       token.dropFirst().allSatisfy(\.isLowercase), seen.insert(token.lowercased()).inserted,
                       !isKnown(token, language: language, model: model, options: options)
                 else { continue }
@@ -185,7 +186,8 @@ public struct PersonalEvaluation {
         }
         let lexicon = learn(typings, classifier: classifier).snapshot(key: key)
         let acceptedNames = names.filter { item in
-            lexicon.containsWord(key.fingerprint(ofWord: item.text, language: item.language))
+            LanguageCode(item.language).map { lexicon.containsWord(key.fingerprint(ofWord: item.text, language: $0)) }
+                ?? false
         }
 
         // Phase 2: judged as the corpus is, with the lexicon empty and full.
@@ -253,8 +255,8 @@ public struct PersonalEvaluation {
                     guard decision.verdict == .keep else { continue }
                 }
                 if let observation = classifier.personalObservation(
-                    typing.strokes, in: typing.result, rivals: typing.rivals, personal: lexicon, corrector: corrector,
-                    sentenceStart: false
+                    typing.strokes, in: typing.result, rivals: typing.rivals, personal: lexicon,
+                    typo: TypoCheck(corrector: corrector, sentenceStart: false)
                 ) {
                     observations.append(observation)
                 }
@@ -353,7 +355,8 @@ public struct PersonalEvaluation {
             let typed = strokes.compactMap { result.text(for: $0) }.joined()
             let rank = model.language(result.language ?? "")?.rank(of: ModelFormat.Fingerprint.of(typed.unicodeScalars,
                                                                                                    folded: true))
-            accepted[typed] = (key.fingerprint(ofWord: typed, language: result.language ?? ""), rank != nil)
+            guard let code = result.language.flatMap({ LanguageCode($0) }) else { continue }
+            accepted[typed] = (key.fingerprint(ofWord: typed, language: code), rank != nil)
         }
         let lexicon = learn(typings, classifier: classifier).snapshot(key: key)
         let found = accepted.values.filter { lexicon.containsWord($0.fingerprint) }

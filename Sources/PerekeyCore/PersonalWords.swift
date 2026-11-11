@@ -4,22 +4,43 @@
 /// словарь»): a word the user keeps typing reads as a known form, and the
 /// words that may become such words are picked here. No allocation: the
 /// readings go into stack buffers, as `judgeWord`'s do.
+/// What the typo corrector needs to say whether it would fix a word
+/// (condition 6): the same inputs `WordJudge.correctWord` gives it.
+public struct TypoCheck {
+    public var corrector: TypoCorrector
+    public var sentenceStart: Bool
+    /// The fingerprint of the word before (`TypoCorrector.correct(previous:)`).
+    public var previous: UInt64?
+    public var realWords: Bool
+
+    public init(corrector: TypoCorrector, sentenceStart: Bool, previous: UInt64? = nil, realWords: Bool = false) {
+        self.corrector = corrector
+        self.sentenceStart = sentenceStart
+        self.previous = previous
+        self.realWords = realWords
+    }
+}
+
 extension Classifier {
     /// Marks a reading the model does not know as personal when `personal`
     /// has it: its rank becomes `Options.personalRank`. Only a word of
-    /// letters, as long as the lexicon keeps; an empty lexicon computes no
-    /// fingerprint.
+    /// letters, as long as the lexicon keeps, in a language the lexicon has
+    /// words in; an empty lexicon computes no fingerprint, and the cheap
+    /// checks come before the hash.
     /// - Parameter scalars: the buffer `reading` was read into.
     func markPersonal(_ reading: inout Reading, language: String, scalars: Slice<UnsafeMutableBufferPointer<UInt32>>,
                       _ personal: PersonalLexicon)
     {
-        guard personal.hasWords, let key = personal.key, reading.isWord, reading.digits == 0,
-              reading.letters >= personal.minLetters, reading.letters <= personal.maxLetters, !isKnown(reading)
+        guard personal.hasWords, reading.isWord, reading.digits == 0, reading.letters >= personal.minLetters,
+              reading.letters <= personal.maxLetters, !isKnown(reading), let key = personal.key,
+              let code = LanguageCode(language), personal.mayHold(code)
         else { return }
         let buffer = UnsafeMutableBufferPointer(rebasing: scalars)
         let core = UnsafeBufferPointer(rebasing: buffer[reading.coreStart..<reading.coreEnd])
-        guard personal.containsWord(key.fingerprint(.word, language: language, core)) else { return }
+        let fingerprint = key.fingerprint(.word, language: code, core)
+        guard personal.containsWord(fingerprint) else { return }
         reading.personal = true
+        reading.personalFingerprint = fingerprint
         reading.rank = options.personalRank
     }
 
@@ -50,22 +71,23 @@ extension Classifier {
     public func startsPersonalWord(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap,
                                    personal: PersonalLexicon) -> Bool
     {
-        guard personal.hasWords, let key = personal.key, let code = layout.language,
-              let language = model.language(code)
+        guard personal.hasWords, let key = personal.key, let name = layout.language, let code = LanguageCode(name),
+              personal.mayHold(code), let language = model.language(name)
         else { return false }
-        return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: 4) { start in
+        return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: PersonalKey.longStart) { start in
             var letters = 0
             for stroke in strokes {
-                guard letters < 4, let text = layout.text(for: stroke) else { return false }
+                guard letters < PersonalKey.longStart, let text = layout.text(for: stroke) else { return false }
                 var scalars = text.unicodeScalars.makeIterator()
-                guard let scalar = scalars.next()?.value, scalars.next() == nil, scalar < 0x30 || scalar > 0x39,
+                guard let scalar = scalars.next()?.value, scalars.next() == nil, !Reading.isDigit(scalar),
                       language.symbol(scalar) >= 2
                 else { return false }
                 start[letters] = scalar
                 letters += 1
             }
-            guard letters == 3 || letters == 4 else { return false }
-            return personal.containsStart(key.fingerprint(letters == 3 ? .start3 : .start4, language: code,
+            guard letters == PersonalKey.shortStart || letters == PersonalKey.longStart else { return false }
+            let domain: PersonalKey.Domain = letters == PersonalKey.shortStart ? .start3 : .start4
+            return personal.containsStart(key.fingerprint(domain, language: code,
                                                           UnsafeBufferPointer(rebasing: start[0..<letters])))
         }
     }
@@ -91,26 +113,37 @@ extension Classifier {
     ///   long, without digits, without a capital inside, not like a
     ///   password, not on the model's never-switch list;
     /// - unknown to the model (not `isKnown`): a known word needs no lexicon;
+    /// - no random string: its n-gram cost per letter is at most
+    ///   `Options.personalNoiseCost`;
     /// - without a rival: no reading in `rivals` (the layouts it could have
     ///   gone to, or came from) is a known form. "ghbdtn" kept by oversight
     ///   has "привет" for a rival and never becomes a word;
     /// - no typo the corrector would fix, whether typo correction is on or
-    ///   not (`corrector`): a habitual "превет" stays a typo.
+    ///   not (`typo`), asked as `WordJudge.correctWord` asks: a habitual
+    ///   "превет" stays a typo.
     ///
-    /// The caller decides the rest: the word was kept by a `.keep` decision
-    /// (never `.unsure`) or switched there and the switch stood, nothing
-    /// else corrected it, automatic switching could act there. Nil when
-    /// `personal` is off.
+    /// The cheap checks come first, then the rival, the corrector and, last,
+    /// the hashes: the word the model knows (the common one) costs one
+    /// reading. The caller decides the rest: the word was kept by a `.keep`
+    /// decision (never `.unsure`) or switched there and the switch stood,
+    /// nothing else corrected it, automatic switching could act there. Nil
+    /// when `personal` is off.
+    /// - Parameters:
+    ///   - typo: the corrector and what it is asked with; nil asks none.
+    ///   - known: the fingerprint of the word when the classifier found it in
+    ///     `personal` already (`Decision.typedPersonalWord`): the word is
+    ///     accepted, so its rival, its noise and its typo were looked at, and
+    ///     the observation is only its count. No hash, no rival, no corrector;
+    ///     its starts are in the snapshot, so they are left out.
     public func personalObservation(_ strokes: some Collection<KeyStroke>, in result: LayoutMap,
                                     rivals: some Collection<LayoutMap>, personal: PersonalLexicon,
-                                    corrector: TypoCorrector?, sentenceStart: Bool) -> PersonalObservation?
+                                    typo: TypoCheck?, known: UInt64? = nil) -> PersonalObservation?
     {
-        guard let key = personal.key, let code = result.language, let language = model.language(code) else {
-            return nil
-        }
+        guard let key = personal.key, let name = result.language, let code = LanguageCode(name),
+              let language = model.language(name)
+        else { return nil }
         let count = Self.wordLength(strokes)
-        let found: PersonalObservation? = withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) {
-            scalars in
+        return withUnsafeTemporaryAllocation(of: UInt32.self, capacity: Self.maxScalars) { scalars in
             withUnsafeTemporaryAllocation(of: UInt8.self, capacity: Self.maxScalars) { symbols in
                 guard let reading = Reading(strokes, count: count, in: result, language: language,
                                             scalars: scalars[...], symbols: symbols[...], measuring: false),
@@ -119,21 +152,43 @@ extension Classifier {
                       reading.coreEnd - reading.coreStart == reading.letters,
                       !isKnown(reading), !model.isKept(reading.exactFingerprint)
                 else { return nil }
+                if let known {
+                    return PersonalObservation(word: known, start3: nil, start4: nil, language: code)
+                }
+                let cost = Self.cost(of: UnsafeBufferPointer(rebasing: symbols[0..<reading.letters]), in: language)
+                guard cost / Double(reading.letters + 1) <= options.personalNoiseCost else { return nil }
+                for rival in rivals where rival.language != name {
+                    if isKnownForm(strokes, count: count, in: rival) { return nil }
+                }
+                if let typo,
+                   typo.corrector.correct(strokes, in: result, sentenceStart: typo.sentenceStart,
+                                          previous: typo.previous, realWords: typo.realWords) != nil
+                {
+                    return nil
+                }
                 let core = UnsafeBufferPointer(rebasing: scalars[reading.coreStart..<reading.coreEnd])
                 return PersonalObservation(
                     word: key.fingerprint(.word, language: code, core),
-                    start3: key.fingerprint(.start3, language: code, core.prefix(3)),
-                    start4: reading.letters >= 4 ? key.fingerprint(.start4, language: code, core.prefix(4)) : nil,
+                    start3: key.fingerprint(.start3, language: code, core.prefix(PersonalKey.shortStart)),
+                    start4: reading.letters >= PersonalKey.longStart
+                        ? key.fingerprint(.start4, language: code, core.prefix(PersonalKey.longStart)) : nil,
                     language: code
                 )
             }
         }
-        guard let found else { return nil }
-        for rival in rivals where rival.language != code {
-            if isKnownForm(strokes, count: count, in: rival) { return nil }
+    }
+
+    /// The n-gram cost of a word's letters in bits, as `Reading` measures it:
+    /// each part between hyphens on its own.
+    private static func cost(of symbols: UnsafeBufferPointer<UInt8>, in language: LanguageModel.Language) -> Double {
+        let hyphen = language.symbol(Reading.hyphen)
+        var cost = 0.0
+        var start = 0
+        for position in 0...symbols.count where position == symbols.count || symbols[position] == hyphen {
+            if position > start { cost += language.cost(UnsafeBufferPointer(rebasing: symbols[start..<position])) }
+            start = position + 1
         }
-        if corrector?.correct(strokes, in: result, sentenceStart: sentenceStart) != nil { return nil }
-        return found
+        return cost
     }
 
     /// The strokes read in `layout` are a known form of its language, by

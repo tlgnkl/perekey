@@ -73,6 +73,14 @@ public struct Classifier: Sendable {
         /// a frequency, as Hunspell's), with no false switch, and no category
         /// of the corpus, 50 k or 1 M words, worse than at 0.
         public var personalRank: UInt8 = 128
+        /// The most n-gram cost per letter (bits, over the letters + 1 as
+        /// `noiseCost` counts) a word may have to become a candidate of the
+        /// personal lexicon: a random string costs more, a name costs less.
+        /// From `perekey-eval personal --personal-noise-sweep` (docs/classifier.md,
+        /// «Личный словарь»): at 11 the names still come back 90 % of the
+        /// time, as with no limit, and 65 % of the random strings that stood
+        /// the other rules are cut off; at 10 the recall is 88 %.
+        public var personalNoiseCost = 11.0
 
         public init() {}
     }
@@ -184,6 +192,10 @@ public struct Classifier: Sendable {
         /// aside: a word the lexicon need not observe. Set by every judgement.
         var typedKnown = false
         var otherKnown = false
+        /// The fingerprints of the personal readings (`typedPersonal`,
+        /// `otherPersonal`): the word judge counts the word with them.
+        var typedPersonalWord: UInt64 = 0
+        var otherPersonalWord: UInt64 = 0
         /// The languages of the two layouts, e.g. "en" and "ru".
         public var typedLanguage: String?
         public var otherLanguage: String?
@@ -601,8 +613,13 @@ public struct Classifier: Sendable {
         // and asking again would cost a reading of the word.
         decision.typedPersonal = typed.personal
         decision.otherPersonal = other.personal
-        decision.typedKnown = !typed.personal && typed.isWord && isKnown(typed)
-        decision.otherKnown = !other.personal && other.isWord && isKnown(other)
+        // Only for a lexicon that is on: the word judge asks for nothing else.
+        if context.personal.isOn {
+            decision.typedPersonalWord = typed.personalFingerprint
+            decision.otherPersonalWord = other.personalFingerprint
+            decision.typedKnown = !typed.personal && typed.isWord && isKnown(typed)
+            decision.otherKnown = !other.personal && other.isWord && isKnown(other)
+        }
         guard explaining else { return decision }
         decision.margin = isKnown(other) ? options.threshold : options.threshold + options.unknownWordExtra
         decision.typedForm = form(of: typed)
@@ -816,6 +833,17 @@ struct Reading {
     /// A word of the personal lexicon the model does not know: `rank` is
     /// `Classifier.Options.personalRank` then (`Classifier.markPersonal`).
     var personal = false
+    /// Its fingerprint in the lexicon, when `personal`: the observation of
+    /// the word takes it instead of hashing the word a second time.
+    var personalFingerprint: UInt64 = 0
+
+    /// The ASCII digits "0" to "9".
+    static func isDigit(_ scalar: UInt32) -> Bool {
+        scalar >= 0x30 && scalar <= 0x39
+    }
+
+    /// The hyphen-minus, which joins the parts of a word.
+    static let hyphen: UInt32 = 0x2D
 
     /// Only letters (and digits, which the automatic mode refuses earlier)
     /// inside the core: a word the model can measure.
@@ -892,7 +920,7 @@ struct Reading {
             let foldedScalar = ModelFormat.fold(scalar)
             folded.add(foldedScalar)
             exact.add(scalar)
-            if scalar >= 0x30, scalar <= 0x39 {
+            if Self.isDigit(scalar) {
                 digits += 1
                 continue
             }
@@ -921,7 +949,7 @@ struct Reading {
 
         // Hyphens join words: "кто-то", "out-of-date". The word lists rarely
         // have them, so each part is measured and looked up on its own.
-        let hyphen = language.symbol(0x2D)
+        let hyphen = language.symbol(Self.hyphen)
         var start = 0
         var parts = 0
         var partRank: UInt8 = 255
@@ -963,7 +991,7 @@ extension Classifier.Options: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
-             personalRank
+             personalRank, personalNoiseCost
     }
 
     /// The keys the file format knows, one per stored property (a test holds
@@ -992,6 +1020,7 @@ extension Classifier.Options: Codable {
         try read(.priorScale, &priorScale)
         try read(.shortWordRank, &shortWordRank)
         try read(.personalRank, &personalRank)
+        try read(.personalNoiseCost, &personalNoiseCost)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -1012,5 +1041,6 @@ extension Classifier.Options: Codable {
         try container.encode(priorScale, forKey: .priorScale)
         try container.encode(shortWordRank, forKey: .shortWordRank)
         try container.encode(personalRank, forKey: .personalRank)
+        try container.encode(personalNoiseCost, forKey: .personalNoiseCost)
     }
 }

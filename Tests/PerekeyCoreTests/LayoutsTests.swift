@@ -465,9 +465,9 @@ extension ModelFixture {
     @Test func aManualRetypeBreaksTheChainOfSameScriptGuesses() {
         var judge = WordJudge(classifier: UkrainianFixture.classifier)
         judge.languageChosen("uk")
-        judge.typed(startsWord: true)
+        judge.typed(startsWord: true, isLetter: true)
         judge.languageChosen("uk")
-        judge.typed(startsWord: true)
+        judge.typed(startsWord: true, isLetter: true)
         judge.languageChosen("ru")
         #expect(judge.recent == RecentLanguages(["ru"]))
     }
@@ -475,9 +475,9 @@ extension ModelFixture {
     @Test func aManualRetypeKeepsWordsOfAnotherScript() {
         var judge = WordJudge(classifier: UkrainianFixture.classifier)
         judge.languageChosen("ru")
-        judge.typed(startsWord: true)
+        judge.typed(startsWord: true, isLetter: true)
         judge.languageChosen("ru")
-        judge.typed(startsWord: true)
+        judge.typed(startsWord: true, isLetter: true)
         judge.languageChosen("en")
         #expect(judge.recent == RecentLanguages(["en", "ru", "ru"]))
     }

@@ -77,7 +77,7 @@ import Testing
 let personalKey = PersonalKey(k0: SipHashTests.k0, k1: SipHashTests.k1)
 
 /// The observation of a word, as the machine makes it.
-func personalObservation(_ word: String, _ language: String, key: PersonalKey = personalKey) -> PersonalObservation {
+func personalObservation(_ word: String, _ language: LanguageCode, key: PersonalKey = personalKey) -> PersonalObservation {
     let scalars = word.unicodeScalars.map(\.value)
     return PersonalObservation(word: key.fingerprint(.word, language: language, scalars),
                                start3: key.fingerprint(.start3, language: language, scalars.prefix(3)),
@@ -86,11 +86,11 @@ func personalObservation(_ word: String, _ language: String, key: PersonalKey = 
 }
 
 /// A lexicon that has these words, each in its language.
-func personalLexicon(_ words: [(String, String)], generation: UInt32 = 0) -> PersonalLexicon {
+func personalLexicon(_ words: [(String, LanguageCode)], generation: UInt32 = 0) -> PersonalLexicon {
     let observations = words.map { personalObservation($0.0, $0.1) }
     return PersonalLexicon(key: personalKey, words: observations.map(\.word),
-                           starts: observations.flatMap { [$0.start3] + ($0.start4.map { [$0] } ?? []) },
-                           generation: generation)
+                           starts: observations.flatMap { [$0.start3, $0.start4].compactMap { $0 } },
+                           languages: observations.map(\.language), generation: generation)
 }
 
 @Suite struct PersonalFingerprintTests {
@@ -179,7 +179,7 @@ func personalLexicon(_ words: [(String, String)], generation: UInt32 = 0) -> Per
         #expect(model.acceptedCount == 1 && model.candidateCount == 0)
         let snapshot = model.snapshot(key: personalKey)
         #expect(snapshot.words == [word.word])
-        #expect(Set(snapshot.starts) == [word.start3, word.start4!])
+        #expect(Set(snapshot.starts) == [word.start3!, word.start4!])
         // Seen again: still one word, nothing changed for the tap.
         do { let changed = model.record(batch([word]), day: 13); #expect(!changed) }
     }
@@ -246,5 +246,157 @@ func personalLexicon(_ words: [(String, String)], generation: UInt32 = 0) -> Per
         model.record(batch([c]), day: 5)
         // c is accepted, b was seen longer ago and goes.
         #expect(model.acceptedCount == 1 && model.entries[c.word]?.accepted == true && model.entries[b.word] == nil)
+    }
+}
+
+/// What the personal lexicon keeps and what it never prints (docs/classifier.md,
+/// «Личный словарь», «Риск»).
+@Suite struct PersonalPrivacyTests {
+    let word = personalObservation("дашка", "ru")
+
+    func batch(_ observations: [PersonalObservation]) -> PersonalTally {
+        PersonalTally(observations: observations, generation: 0)
+    }
+
+    @Test func aCandidateHoldsNoStartFingerprints() throws {
+        var model = PersonalLexiconModel()
+        // Four observations on three days: still a candidate.
+        model.record(batch([word, word]), day: 1)
+        model.record(batch([word]), day: 2)
+        model.record(batch([word]), day: 3)
+        let candidate = try #require(model.entries[word.word])
+        #expect(!candidate.accepted && candidate.count == 4)
+        #expect(candidate.start3 == nil && candidate.start4 == nil)
+        // Nothing of it reaches the tap either.
+        let snapshot = model.snapshot(key: personalKey)
+        #expect(snapshot.words.isEmpty && snapshot.starts.isEmpty)
+    }
+
+    @Test func theStartsComeWithTheAcceptanceAndOnlyThen() throws {
+        var model = PersonalLexiconModel()
+        model.record(batch([word, word]), day: 1)
+        model.record(batch([word, word]), day: 2)
+        #expect(model.entries[word.word]?.start3 == nil)
+        model.record(batch([word]), day: 3)
+        let accepted = try #require(model.entries[word.word])
+        #expect(accepted.accepted && accepted.start3 == word.start3 && accepted.start4 == word.start4)
+        #expect(Set(model.snapshot(key: personalKey).starts) == [word.start3!, word.start4!])
+    }
+
+    @Test func aWordTheTapHadAsksForNoStarts() throws {
+        // The tap counts a word it has by its fingerprint alone.
+        var tapHad = word
+        tapHad.start3 = nil
+        tapHad.start4 = nil
+        var model = PersonalLexiconModel()
+        for day in 1...5 { model.record(batch([tapHad]), day: day) }
+        let entry = try #require(model.entries[word.word])
+        #expect(entry.accepted && entry.start3 == nil && entry.start4 == nil)
+        #expect(model.snapshot(key: personalKey).starts.isEmpty)
+    }
+
+    @Test func anAllZeroKeyIsRejected() throws {
+        #expect(PersonalKey(bytes: [UInt8](repeating: 0, count: 16)) == nil)
+        #expect(PersonalKey(bytes: [UInt8](repeating: 0, count: 15) + [1]) != nil)
+        #expect(PersonalKey(k0: 0, k1: 0).isZero && !personalKey.isZero)
+        let zero = #"{"key":"00000000000000000000000000000000","words":[],"starts":[],"generation":0,"minLetters":3,"maxLetters":24}"#
+        #expect(throws: DecodingError.self) { try JSONDecoder().decode(PersonalLexicon.self, from: Data(zero.utf8)) }
+    }
+
+    @Test func theKeyAndTheLexiconPrintAsRedacted() {
+        let lexicon = personalLexicon([("дашка", "ru")])
+        for value in [personalKey as Any, lexicon as Any] {
+            #expect(String(describing: value) == "<redacted>")
+            #expect(String(reflecting: value) == "<redacted>")
+            #expect("\(value)" == "<redacted>")
+            var dumped = ""
+            dump(value, to: &dumped)
+            // `dump` walks the children: none is left to print.
+            #expect(!dumped.contains("k0") && !dumped.contains("words") && !dumped.contains("storage"))
+        }
+        #expect(!String(describing: lexicon).contains("0706"))
+    }
+
+    @Test func aDecodingErrorNamesNoValue() {
+        let secret = "SECRETSECRETSECR"
+        let key = "07060504030201000f0e0d0c0b0a0908"
+        let bad = [
+            #"{"key":"\#(key)","words":["\#(secret)"],"starts":[],"generation":0,"minLetters":3,"maxLetters":24}"#,
+            #"{"key":"\#(secret)\#(secret)","words":[],"starts":[],"generation":0,"minLetters":3,"maxLetters":24}"#,
+            #"{"key":"\#(key)","words":[],"starts":["\#(secret)"],"generation":0,"minLetters":3,"maxLetters":24}"#,
+            #"{"key":"\#(key)","words":[],"starts":[],"languages":["\#(secret)"],"generation":0,"minLetters":3,"maxLetters":24}"#,
+        ]
+        for json in bad {
+            do {
+                _ = try JSONDecoder().decode(PersonalLexicon.self, from: Data(json.utf8))
+                Issue.record("decoded: \(json)")
+            } catch {
+                #expect(!"\(error)".contains("SECRET") && !String(reflecting: error).contains("SECRET"))
+            }
+        }
+        let observation = #"{"word":"\#(secret)","start3":null,"language":"ru"}"#
+        do {
+            _ = try JSONDecoder().decode(PersonalObservation.self, from: Data(observation.utf8))
+            Issue.record("decoded an observation")
+        } catch {
+            #expect(!"\(error)".contains("SECRET"))
+        }
+    }
+
+    @Test func anObservationIsPlainNumbers() {
+        // No reference count to take on every key.
+        #expect(_isPOD(PersonalObservation.self))
+        #expect(_isPOD(LanguageCode.self))
+    }
+}
+
+/// The language as one number (`LanguageCode`) and the languages of the words
+/// (`PersonalLexicon.mayHold`).
+@Suite struct PersonalLanguageTests {
+    /// A code read from a string, as the classifier reads the layout's.
+    func read(_ text: String) -> LanguageCode? { LanguageCode(text) }
+
+    @Test func aCodeIsTwoPrintableCharacters() {
+        #expect(read("ru")?.text == "ru")
+        #expect(read("ru")?.rawValue == 0x7572)
+        for text in ["", "r", "rus", "р\u{0443}", "r\u{0}", " r"] { #expect(read(text) == nil, "\(text)") }
+        #expect(read("ru") == "ru" && read("ru") != "uk")
+    }
+
+    @Test func theHeaderIsOneStepOfFourBytes() {
+        // Domain, "ru", 0: the bytes of the old header, one word at a time.
+        var bytes = SipHash24(key: personalKey)
+        for byte: UInt8 in [3, 0x72, 0x75, 0] { bytes.append(byte) }
+        for scalar: UInt32 in [0x434, 0x430, 0x448] { bytes.append(littleEndian: scalar) }
+        #expect(personalKey.fingerprint(.start3, language: "ru", [0x434, 0x430, 0x448]) == bytes.finalize())
+    }
+
+    @Test func aLexiconNamesTheLanguagesOfItsWords() {
+        let lexicon = personalLexicon([("дашка", "ru"), ("колян", "ru")])
+        #expect(lexicon.languages == ["ru"])
+        #expect(lexicon.mayHold("ru") && !lexicon.mayHold("en"))
+        // A snapshot made by hand does not say: every language is looked up.
+        let unsaid = PersonalLexicon(key: personalKey, words: [1], starts: [])
+        #expect(unsaid.languages == nil && unsaid.mayHold("en"))
+    }
+
+    @Test func aReadingInAnotherLanguageIsNotHashed() {
+        // «дашка» in the lexicon: the English reading of "lfirf" is not looked
+        // up, whatever the fingerprint of "lfirf" is.
+        let classifier = Classifier(model: ModelFixture.model)
+        let strokes = Fixture.abc.strokes("lfirf")
+        let english = PersonalLexicon(key: personalKey,
+                                      words: [personalKey.fingerprint(ofWord: "lfirf", language: "en")], starts: [],
+                                      languages: ["ru"])
+        #expect(!classifier.isPersonal(strokes, in: Fixture.abc, personal: english))
+        let unsaid = PersonalLexicon(key: personalKey,
+                                     words: [personalKey.fingerprint(ofWord: "lfirf", language: "en")], starts: [])
+        #expect(classifier.isPersonal(strokes, in: Fixture.abc, personal: unsaid))
+    }
+
+    @Test func theLanguagesTravelInTheSessionFormat() throws {
+        let lexicon = personalLexicon([("дашка", "ru"), ("kolyan", "en")])
+        let read = try JSONDecoder().decode(PersonalLexicon.self, from: JSONEncoder().encode(lexicon))
+        #expect(read == lexicon && read.languages == ["en", "ru"])
     }
 }

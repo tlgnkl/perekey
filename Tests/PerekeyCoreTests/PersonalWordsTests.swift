@@ -176,7 +176,15 @@ private let ru = Fixture.russian.id
 /// When a word may teach the lexicon, and what drops it (plan 7.2, items 5–6).
 @Suite struct PersonalObservationTests {
     static let textEdit = LanguageContext(app: "com.apple.TextEdit")
-    let classifier = Classifier(model: ModelFixture.model)
+    /// The fixture model has no n-grams worth the name: every word costs more
+    /// than the real limit, so these tests run without it
+    /// (`theNoiseLimitIsAnOption`; the real model is `perekey-eval personal`'s).
+    static let classifier: Classifier = {
+        var options = Classifier.Options()
+        options.personalNoiseCost = .infinity
+        return Classifier(model: ModelFixture.model, options: options)
+    }()
+    let classifier = PersonalObservationTests.classifier
     let corrector = TypoCorrector(model: ModelFixture.model)
     let on = personalLexicon([])
 
@@ -184,7 +192,7 @@ private let ru = Fixture.russian.id
     func desk(_ settings: Settings = Settings(), current: LayoutID = ru, personal: PersonalLexicon? = nil,
               counted: Bool = true, focus: Focus? = Desk.textEdit) -> Desk
     {
-        var desk = Desk(settings, current: current, focus: focus)
+        var desk = Desk(settings, current: current, classifier: classifier, focus: focus)
         if counted { desk.send(.languageContextChanged(Self.textEdit)) }
         desk.send(.personalLexiconChanged(personal ?? on))
         return desk
@@ -198,7 +206,7 @@ private let ru = Fixture.russian.id
                  personal: PersonalLexicon? = nil) -> PersonalObservation?
     {
         classifier.personalObservation(layout.strokes(text), in: layout, rivals: rivals, personal: personal ?? on,
-                                       corrector: corrector, sentenceStart: false)
+                                       typo: TypoCheck(corrector: corrector, sentenceStart: false))
     }
 
     // MARK: Conditions 3–6, in the classifier
@@ -232,12 +240,14 @@ private let ru = Fixture.russian.id
         builder.addLanguage("en", alphabet: "abcdefghijklmnopqrstuvwxyz'-")
         builder.addForm("hello", language: "en", rank: 200, weight: 200)
         builder.addKeep("zork")
-        let classifier = Classifier(model: try LanguageModel(bytes: builder.build()))
+        var options = Classifier.Options()
+        options.personalNoiseCost = .infinity
+        let classifier = Classifier(model: try LanguageModel(bytes: builder.build()), options: options)
         let strokes = Fixture.abc.strokes("zork")
         #expect(classifier.personalObservation(strokes, in: Fixture.abc, rivals: [Fixture.russian], personal: on,
-                                               corrector: nil, sentenceStart: false) == nil)
+                                               typo: nil) == nil)
         #expect(classifier.personalObservation(Fixture.abc.strokes("zorg"), in: Fixture.abc, rivals: [Fixture.russian],
-                                               personal: on, corrector: nil, sentenceStart: false) != nil)
+                                               personal: on, typo: nil) != nil)
     }
 
     @Test func aKnownWordIsNoCandidate() {
@@ -253,8 +263,8 @@ private let ru = Fixture.russian.id
     @Test func aTypoTheCorrectorFixesIsNoCandidate() {
         #expect(observe("прмвет", in: Fixture.russian, rivals: [Fixture.abc]) == nil)
         #expect(classifier.personalObservation(Fixture.russian.strokes("прмвет"), in: Fixture.russian,
-                                               rivals: [Fixture.abc], personal: on, corrector: nil,
-                                               sentenceStart: false) != nil)
+                                               rivals: [Fixture.abc], personal: on,
+                                               typo: nil) != nil)
     }
 
     // MARK: Conditions 1, 2, 5, 7, 8 and the confirmation, in the machine
@@ -351,13 +361,15 @@ private let ru = Fixture.russian.id
     }
 
     @Test func aSwitchThatStoodTeachesItsResult() {
-        // "lfirf" goes to «Дашка» thanks to the lexicon; the result is seen again.
+        // "lfirf" goes to «Дашка» thanks to the lexicon; the result is seen again,
+        // by its fingerprint alone: the lexicon has its starts.
         var desk = desk(current: en, personal: personalLexicon([("дашка", "ru")]))
         desk.type("lfirf ")
         #expect(desk.text == "дашка ")
         #expect(kept(desk).isEmpty)
         desk.type("b")
-        #expect(kept(desk) == [personalObservation("дашка", "ru")])
+        let fingerprint = personalKey.fingerprint(ofWord: "дашка", language: "ru")
+        #expect(kept(desk) == [PersonalObservation(word: fingerprint, start3: nil, start4: nil, language: "ru")])
     }
 
     @Test func aSwitchInsideTheWordThatStoodTeachesItsResult() {
@@ -493,5 +505,175 @@ private let ru = Fixture.russian.id
         #expect(!json.contains("дашка") && !json.contains("даш") && !json.contains("lfirf"))
         let unkeyed = String(ModelFormat.Fingerprint.of("дашка".unicodeScalars, folded: true), radix: 16)
         #expect(!json.contains(unkeyed))
+    }
+}
+
+// MARK: - The review of the core: the tap's work, the privacy, the order of the checks
+
+extension PersonalObservationTests {
+    // MARK: The batch buffers (plan 2.2: nothing allocates per word)
+
+    @Test func theBuffersKeepTheirRoomThroughABatch() {
+        var desk = desk()
+        let room = WordJudge.keptCapacity
+        #expect(room == WordJudge.tallySize + 1)
+        #expect(desk.machine.judge.keptCapacity >= room)
+        #expect(desk.machine.judge.spareCapacity >= room)
+        // A batch leaves with its buffer; the spare takes its place at once.
+        for _ in 0..<WordJudge.tallySize { desk.type("дашка ", on: Fixture.russian) }
+        desk.type("и ", on: Fixture.russian)
+        #expect(desk.log.contains { if case .wordsKept = $0 { true } else { false } })
+        let after = desk.machine.judge.keptCapacity
+        #expect(after >= room && desk.machine.judge.spareCapacity >= room)
+        // The words of the next batch grow nothing.
+        for _ in 0..<(WordJudge.tallySize / 2) { desk.type("колян ", on: Fixture.russian) }
+        #expect(desk.machine.judge.keptCapacity == after)
+    }
+
+    @Test func offKeepsNoRoom() {
+        var desk = desk()
+        desk.send(.personalLexiconChanged(.off))
+        #expect(desk.machine.judge.keptCapacity == 0 && desk.machine.judge.spareCapacity == 0)
+    }
+
+    // MARK: A word the lexicon has is counted by the fingerprint the classifier found
+
+    @Test func aWordOfTheLexiconIsCountedWithoutStarts() {
+        var desk = desk(personal: personalLexicon([("дашка", "ru")]))
+        desk.type("дашка и", on: Fixture.russian)
+        let fingerprint = personalKey.fingerprint(ofWord: "дашка", language: "ru")
+        #expect(kept(desk) == [PersonalObservation(word: fingerprint, start3: nil, start4: nil, language: "ru")])
+    }
+
+    @Test func aKnownFingerprintSkipsTheRivalTheTypoAndTheHash() {
+        // "прмвет" is a typo the corrector fixes, and «привет» is its rival in
+        // English layout: an unknown word is no candidate...
+        let strokes = Fixture.russian.strokes("прмвет")
+        #expect(classifier.personalObservation(strokes, in: Fixture.russian, rivals: [Fixture.abc], personal: on,
+                                               typo: TypoCheck(corrector: corrector, sentenceStart: false)) == nil)
+        // ...and a word the lexicon already has is counted whatever they say.
+        let counted = classifier.personalObservation(strokes, in: Fixture.russian, rivals: [Fixture.abc], personal: on,
+                                                     typo: TypoCheck(corrector: corrector, sentenceStart: false),
+                                                     known: 42)
+        #expect(counted == PersonalObservation(word: 42, start3: nil, start4: nil, language: "ru"))
+    }
+
+    @Test func aKnownFingerprintStillNeedsAWordOfLetters() {
+        for text in ["дашка1", "дш", "даШка"] {
+            let strokes = Fixture.russian.strokes(text)
+            #expect(classifier.personalObservation(strokes, in: Fixture.russian, rivals: [Fixture.abc], personal: on,
+                                                   typo: nil, known: 42) == nil, "\(text)")
+        }
+    }
+
+    @Test func theDecisionKnowsNothingAboutTheModelWhileTheLexiconIsOff() {
+        let classifier = Classifier(model: ModelFixture.model)
+        func decide(_ personal: PersonalLexicon) -> Classifier.Decision {
+            classifier.classify(Fixture.abc.strokes("ghbdtn"), typed: Fixture.abc, other: Fixture.russian,
+                                context: Classifier.Context(recent: RecentLanguages(), personal: personal))
+        }
+        let off = decide(.off)
+        #expect(!off.typedKnown && !off.otherKnown && off.typedPersonalWord == 0)
+        let on = decide(personalLexicon([]))
+        #expect(on.otherKnown && !on.typedKnown)
+    }
+
+    // MARK: Condition 6 as the corrector is asked
+
+    @Test func theCorrectorIsAskedWithTheWordBefore() {
+        var options = Classifier.Options()
+        options.personalNoiseCost = .infinity
+        var classifier = Classifier(model: TypoContextCorrectorTests.model, options: options)
+        classifier.typoContextWeight = 1
+        func pending(_ text: String) -> PersonalObservation? {
+            // The typo step is off: it would fix "of thenm" itself. The
+            // observation asks the corrector all the same, with the word before.
+            var desk = Desk(Settings(typoCorrection: false), classifier: classifier)
+            desk.send(.languageContextChanged(Self.textEdit))
+            desk.send(.personalLexiconChanged(on))
+            desk.type(text)
+            #expect(desk.text == text)
+            return desk.machine.judge.pendingObservation
+        }
+        // "of thenm" is "of them" for the corrector; after "said" it is no typo it would fix.
+        #expect(pending("of thenm ") == nil)
+        #expect(pending("said thenm ") != nil)
+    }
+
+    // MARK: The confirmation is the first letter of the next word
+
+    @Test func aDigitDoesNotTakeIt() {
+        var desk = desk()
+        desk.type("дашка 5", on: Fixture.russian)
+        #expect(kept(desk).isEmpty)
+        #expect(desk.machine.judge.pendingObservation == personalObservation("дашка", "ru"))
+        desk.type(" и", on: Fixture.russian)
+        #expect(kept(desk) == [personalObservation("дашка", "ru")])
+    }
+
+    @Test func aMarkDoesNotTakeItAndTheLetterAfterItDoes() {
+        var desk = desk()
+        desk.type("дашка (", on: Fixture.russian)
+        #expect(kept(desk).isEmpty)
+        #expect(desk.machine.judge.pendingObservation != nil)
+        desk.type("и", on: Fixture.russian)
+        #expect(kept(desk) == [personalObservation("дашка", "ru")])
+    }
+
+    @Test func aLetterTakesItOnlyOnce() {
+        var desk = desk()
+        desk.type("дашка и", on: Fixture.russian)
+        desk.type("ну", on: Fixture.russian)
+        #expect(kept(desk).count == 1)
+    }
+
+    // MARK: A switch inside the word follows the always-fix list too
+
+    @Test func aSwitchInsideTheWordOfTheAlwaysFixListTeachesNothing() {
+        var listed = desk(Settings(alwaysFix: WordRules(always: ["приветик"]).alwaysFixTable), current: en)
+        listed.type("ghbdtnbr ")
+        listed.type("и", on: Fixture.russian)
+        #expect(kept(listed).isEmpty)
+    }
+
+    // MARK: Condition 3: not a random string
+
+    @Test func theNoiseLimitIsAnOption() {
+        func observed(_ limit: Double) -> PersonalObservation? {
+            var options = Classifier.Options()
+            options.personalNoiseCost = limit
+            return Classifier(model: ModelFixture.model, options: options)
+                .personalObservation(Fixture.russian.strokes("дашка"), in: Fixture.russian, rivals: [Fixture.abc],
+                                     personal: on, typo: nil)
+        }
+        #expect(observed(.infinity) == personalObservation("дашка", "ru"))
+        #expect(observed(0) == nil)
+        #expect(Classifier.Options().personalNoiseCost == 11)
+    }
+
+    // MARK: No typed word on disk or in a log (plan 2.1, items 1–2)
+
+    @Test func noTypedWordInAnyEncodedForm() throws {
+        var desk = desk(personal: personalLexicon([("колян", "ru")], generation: 2))
+        let typed = ["дашка", "dashka", "лиза", "zorg", "колян"]
+        for word in typed {
+            let cyrillic = word.unicodeScalars.first!.value > 0x400
+            desk.type("\(word) \(cyrillic ? "и" : "a") ", on: cyrillic ? Fixture.russian : Fixture.abc)
+        }
+        desk.send(.languageContextChanged(LanguageContext(app: "com.apple.Notes")))
+        let effects = desk.log.filter { if case .wordsKept = $0 { true } else { false } }
+        #expect(!effects.isEmpty)
+        let tallies = effects.compactMap { if case let .wordsKept(tally) = $0 { tally } else { nil } }
+        var encoded: [Data] = []
+        encoded.append(try JSONEncoder().encode(effects.map(EffectDigest.init)))
+        encoded.append(try JSONEncoder().encode(tallies))
+        encoded.append(try JSONEncoder().encode(desk.machine.snapshot.personalLexicon))
+        encoded.append(try JSONEncoder().encode(desk.machine.snapshot.personalKept ?? []))
+        encoded.append(try JSONEncoder().encode(desk.machine.snapshot))
+        let words = typed + ["дашк", "даш", "dash", "lfirf", "kbpf", "ккуяу"]
+        for data in encoded {
+            let text = String(decoding: data, as: UTF8.self)
+            for word in words { #expect(!text.contains(word), "\(word) in \(text.prefix(80))") }
+        }
     }
 }

@@ -108,7 +108,11 @@ public struct InputMachine: Sendable {
     public var isQuiet: Bool {
         buffer.isEmpty && buffer.history.isEmpty && !fence.isHolding && fence.returning == .nothing
             && undo.last == nil && undoWatch == nil && openUndo == nil && languageChoice == nil
-            && typingKeyUps.isEmpty && shortcuts.isIdle && manual.isIdle && judge.pendingObservation == nil
+            && typingKeyUps.isEmpty && shortcuts.isIdle && manual.isIdle
+            // A word waiting for the next one is state the snapshot does not carry
+            // (`MachineSnapshot` has the confirmed observations only): a recording
+            // that began here would miss it and its replay would differ.
+            && judge.pendingObservation == nil
     }
 
     /// The classifier automatic switching runs, if any.
@@ -475,9 +479,10 @@ public struct InputMachine: Sendable {
             // A dead key and the next key make one character, so keys and
             // characters no longer match one to one. Give up on this word.
             buffer.abandonWord()
-        } else if map.text(for: stroke) != nil {
+        } else if let text = map.text(for: stroke) {
             if stroke.keyCode != KeyCode.space {
-                judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isGap == true)
+                judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isGap == true,
+                            isLetter: text.unicodeScalars.first?.properties.isAlphabetic == true)
             }
             // The part stays whole when it is no word where it ended up:
             // "github.com/" kept in ABC is code, and so is the rest of it.

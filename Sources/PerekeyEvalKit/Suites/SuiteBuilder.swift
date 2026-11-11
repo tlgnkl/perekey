@@ -274,6 +274,8 @@ public struct BuildReport: Hashable, Sendable, Codable {
         public var drops: [String: Int] = [:]
         /// Tokens short of the tier: the source ran out.
         public var shortfall = 0
+        /// Tokens with a slip put in (`err` other than none), in the correction suites; absent in the others.
+        public var errors: Int?
 
         public init() {}
     }

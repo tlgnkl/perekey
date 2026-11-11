@@ -8,10 +8,13 @@ import PerekeyDesk
 /// selections, and nothing else (docs/eval.md, «Проверка случая»).
 public enum TargetText {
     public static func render(_ steps: [Step], into field: inout TextField) {
+        // Caps Lock turned on by a step: the letters typed after it come out in capitals, as the
+        // person's keyboard prints them. Only the steps of one list are followed.
+        var capsLock = false
         for step in steps {
             switch step {
             case let .type(text, _):
-                field.insert(text)
+                field.insert(capsLock ? text.uppercased() : text)
             case let .key(name, n, mods):
                 let option = mods?.contains(.option) ?? false
                 let shift = mods?.contains(.shift) ?? false
@@ -40,7 +43,9 @@ public enum TargetText {
                 for _ in 0..<max(count, 0) { field.extendLeft() }
             case .focus:
                 field = TextField()
-            case .layout, .hotkey, .mode, .capsLock, .secureInput, .wait, .pace, .undo:
+            case let .capsLock(on):
+                capsLock = on
+            case .layout, .hotkey, .mode, .secureInput, .wait, .pace, .undo:
                 break
             }
         }
@@ -137,7 +142,17 @@ public enum CaseCheck {
                 problems.append("want has \(measuredWant.count) measured tokens, tokens has \(tokens.count)")
             }
             if measuredTarget.count != tokens.count {
-                problems.append("the steps give \(measuredTarget.count) measured tokens, tokens has \(tokens.count)")
+                if tokens.contains(where: { $0.err == .hyphen }) {
+                    // A hyphen typed as a space splits a token: the tokens do not line up, the letters do.
+                    func letters(_ list: some Sequence<String>) -> String {
+                        list.joined().filter { $0 != "-" && !$0.isWhitespace }
+                    }
+                    if letters(measuredTarget) != letters(tokens.map(\.t)) {
+                        problems.append("the steps give other letters than the tokens, apart from hyphens and spaces")
+                    }
+                } else {
+                    problems.append("the steps give \(measuredTarget.count) measured tokens, tokens has \(tokens.count)")
+                }
             } else {
                 for (index, (typed, spec)) in zip(measuredTarget, tokens).enumerated() {
                     let same = typed == spec.t

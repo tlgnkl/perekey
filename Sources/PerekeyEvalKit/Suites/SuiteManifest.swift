@@ -8,6 +8,8 @@ import Foundation
 public struct SuiteManifest: Hashable, Sendable {
     /// The scenarios a corpus suite may list, in the order they are built.
     public static let scenarioNames = ["clean.cold", "clean.warm", "slip.cold", "slip.warm", "stuck", "clean.toggle"]
+    /// The scenarios of the correction suites (`correction` in the manifest).
+    public static let correctionScenarioNames = ["fix", "fix.merged", "fix.spaced", "keep"]
 
     public var suite: String
     public var version: Int
@@ -40,9 +42,49 @@ public struct SuiteManifest: Hashable, Sendable {
     public var balance: Bool?
     public var fold: [String]?
     public var tags: [String]?
+    /// Set for a suite of word corrections (docs/eval.md, «Наборы правок слова»): built by `CorrectionBuilder`.
+    public var correction: Correction?
+    /// With the `misspellings` reader: the Tatoeba file whose sentences carry the misspelled word.
+    public var carrier: String?
 
     public enum Reader: String, Hashable, Sendable, Codable, CaseIterable {
         case tatoeba, stackexchange
+        /// Wikipedia's «Lists of common misspellings / For machines»: `misspelling->correction` per line.
+        case misspellings
+        /// A file the person put there: `typo<TAB>correct` or `sentence<TAB>corrected sentence` per line.
+        case typopairs
+    }
+
+    /// What a correction suite makes of its sentences.
+    public struct Correction: Hashable, Sendable {
+        public var kind: Kind
+        /// The shares of the kinds of slip (typo.synth only), in percent.
+        public var weights: TypoWeights?
+
+        public enum Kind: String, Hashable, Sendable, Codable, CaseIterable {
+            case typoSynth = "typo.synth", yo, hyphen, doublecap, capslock, abbrev, typoReal = "typo.real"
+
+            /// The scenarios a suite of this kind may list.
+            public var scenarios: [String] {
+                switch self {
+                case .hyphen: ["fix.merged", "fix.spaced", "keep"]
+                case .doublecap, .abbrev: ["fix", "keep"]
+                case .typoSynth, .yo, .capslock, .typoReal: ["fix"]
+                }
+            }
+        }
+    }
+
+    /// How a typo is made, in percent of the typos: a neighbouring key, two
+    /// letters swapped, a letter dropped, a letter doubled, a stray letter.
+    public struct TypoWeights: Hashable, Sendable {
+        public var neighbor: Int
+        public var swap: Int
+        public var drop: Int
+        public var double: Int
+        public var stray: Int
+
+        public var total: Int { neighbor + swap + drop + double + stray }
     }
 
     public enum Sampling: String, Hashable, Sendable, Codable {
@@ -126,7 +168,23 @@ public struct SuiteManifest: Hashable, Sendable {
             problems.append("layout set \(set) must be two different layouts")
         }
         if scenarios.isEmpty { problems.append("no scenarios") }
-        for name in scenarios where !Self.scenarioNames.contains(name) { problems.append("unknown scenario \(name)") }
+        let known = correction.map { Set($0.kind.scenarios) } ?? Set(Self.scenarioNames)
+        for name in scenarios where !known.contains(name) { problems.append("unknown scenario \(name)") }
+        if let correction {
+            let pairs = reader == .misspellings || reader == .typopairs
+            if (correction.kind == .typoReal) != pairs { problems.append("kind \(correction.kind.rawValue) and reader \(reader.rawValue) do not go together") }
+            if correction.kind == .typoSynth {
+                if let weights = correction.weights, weights.total == 100,
+                   [weights.neighbor, weights.swap, weights.drop, weights.double, weights.stray].allSatisfy({ $0 >= 0 }) {} else {
+                    problems.append("typo.synth needs weights that are not negative and add up to 100")
+                }
+            } else if correction.weights != nil {
+                problems.append("weights belong to typo.synth")
+            }
+        } else if reader == .misspellings || reader == .typopairs {
+            problems.append("reader \(reader.rawValue) needs a correction of kind typo.real")
+        }
+        if carrier != nil, reader != .misspellings { problems.append("carrier goes with the misspellings reader") }
         if Set(scenarios).count != scenarios.count { problems.append("a scenario is listed twice") }
         if !(0...100).contains(split.dev) { problems.append("split.dev must be 0…100") }
         if split.by != "unit" { problems.append("split.by \(split.by): only unit is known") }
@@ -145,6 +203,7 @@ extension SuiteManifest: Codable {
     private static let fields: Set<String> = [
         "suite", "version", "epoch", "seed", "about", "reader", "source", "license", "sampling", "layoutSets",
         "scenarios", "settings", "end", "filter", "tiers", "split", "normalize", "transform", "balance", "fold", "tags",
+        "correction", "carrier",
     ]
 
     public init(from decoder: any Decoder) throws {
@@ -171,6 +230,8 @@ extension SuiteManifest: Codable {
         balance = try c.optional(Bool.self, "balance")
         fold = try c.optional([String].self, "fold")
         tags = try c.optional([String].self, "tags")
+        correction = try c.optional(Correction.self, "correction")
+        carrier = try c.optional(String.self, "carrier")
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -196,6 +257,44 @@ extension SuiteManifest: Codable {
         try c.encodeIfPresent(balance, forKey: AnyKey("balance"))
         try c.encodeIfPresent(fold, forKey: AnyKey("fold"))
         try c.encodeIfPresent(tags, forKey: AnyKey("tags"))
+        try c.encodeIfPresent(correction, forKey: AnyKey("correction"))
+        try c.encodeIfPresent(carrier, forKey: AnyKey("carrier"))
+    }
+}
+
+extension SuiteManifest.Correction: Codable {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        try c.onlyKeys(["kind", "weights"], in: "correction")
+        kind = try c.required(Kind.self, "kind")
+        weights = try c.optional(SuiteManifest.TypoWeights.self, "weights")
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: AnyKey.self)
+        try c.encode(kind, forKey: AnyKey("kind"))
+        try c.encodeIfPresent(weights, forKey: AnyKey("weights"))
+    }
+}
+
+extension SuiteManifest.TypoWeights: Codable {
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: AnyKey.self)
+        try c.onlyKeys(["neighbor", "swap", "drop", "double", "stray"], in: "weights")
+        neighbor = try c.required(Int.self, "neighbor")
+        swap = try c.required(Int.self, "swap")
+        drop = try c.required(Int.self, "drop")
+        double = try c.required(Int.self, "double")
+        stray = try c.required(Int.self, "stray")
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: AnyKey.self)
+        try c.encode(neighbor, forKey: AnyKey("neighbor"))
+        try c.encode(swap, forKey: AnyKey("swap"))
+        try c.encode(drop, forKey: AnyKey("drop"))
+        try c.encode(double, forKey: AnyKey("double"))
+        try c.encode(stray, forKey: AnyKey("stray"))
     }
 }
 

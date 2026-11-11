@@ -20,6 +20,9 @@
 #             and checks every model file, shipped or not
 #   model     lexicon + text + wikifreq (default)
 #   heldout   held-out corpus sources, used only for evaluation (~141 MB)
+#   bench     small sources of the quality bench (`perekey-eval`, docs/eval.md):
+#             the Wikipedia list of common misspellings. Evaluation only, not
+#             in CI's default fetch (~0.1 MB)
 #   heavy     large optional held-out source: ru.stackoverflow.com (~1 GB)
 #   fallback  needs a legal decision before use: OpenCorpora (ru), Wiktionary
 #             forms (uk, ~300 MB)
@@ -52,11 +55,13 @@ WIKI_REV=b04c8d1ceb2f5cd4588862100d08de323dccfbaa       # huggingface wikimedia/
 WIKI_SNAPSHOT=20231101
 FLEURS_REV=70bb2e84b976b7e960aa89f1c648e09c59f894dd     # huggingface google/fleurs, CC BY 4.0
 SPEECH_COUNT=50                                         # recordings kept per language
+WM_REV=1199637275                                       # en.wikipedia.org, Wikipedia:Lists of common misspellings/For machines, 2024-01-27, CC BY-SA 4.0
 
 GH_RAW=https://raw.githubusercontent.com
 HF_WIKI="https://huggingface.co/datasets/wikimedia/wikipedia/resolve/$WIKI_REV/$WIKI_SNAPSHOT"
 IA_SE=https://archive.org/download/stackexchange
 HF_FLEURS="https://huggingface.co/datasets/google/fleurs/resolve/$FLEURS_REV/data"
+WM_RAW="https://en.wikipedia.org/w/index.php?title=Wikipedia:Lists_of_common_misspellings/For_machines&oldid=$WM_REV&action=raw"
 
 # group|path in cache|url|sha256 ("-" = rolling source, not pinned)
 SOURCES="
@@ -97,6 +102,7 @@ speech|fleurs/ru_ru.dev.tsv|$HF_FLEURS/ru_ru/dev.tsv|25d9dc88a7533fc0f303354a8e6
 speech|fleurs/en_us.dev.tsv|$HF_FLEURS/en_us/dev.tsv|9d57ee7e91e9d4c92edb39f6bbea668ef8dc2a3ff96eb510d5580b2ad05d17ec
 speech|fleurs/ru_ru.dev.tar.gz|$HF_FLEURS/ru_ru/audio/dev.tar.gz|4dc533cd0f312f749bd6d0fe968f3183288d938e07ed97dc141d9f10570457f9
 speech|fleurs/en_us.dev.tar.gz|$HF_FLEURS/en_us/audio/dev.tar.gz|2658fda72f199e12676ecac9415094667a4e14e149b146e568ea00b2a2f0954c
+bench|wikipedia-misspellings/for-machines.txt|$WM_RAW|3b6a9290e5aaad968da7ec769a5174adb45247688ef7ae097fd2dd80237a3050
 heavy|stackexchange/ru.stackoverflow.com.7z|$IA_SE/ru.stackoverflow.com.7z|sha1:32a8897c021e9c943b93f8fd70dfafb180925451
 fallback|opencorpora/dict.opcorpora.xml.bz2|https://opencorpora.org/files/export/dict/dict.opcorpora.xml.bz2|-
 fallback|wiktionary/kaikki-uk.jsonl|https://kaikki.org/dictionary/Ukrainian/kaikki.org-dictionary-Ukrainian.jsonl|-
@@ -221,11 +227,11 @@ if [[ $# -eq 0 ]]; then
 fi
 for arg in "$@"; do
     case "$arg" in
-        lexicon|text|pairs|wikifreq|heldout|speech|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
+        lexicon|text|pairs|wikifreq|heldout|speech|bench|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
         model) GROUPS_WANTED+=(lexicon text pairs wikifreq) ;;
         all) GROUPS_WANTED+=(lexicon text pairs wikifreq heldout) ;;
-        -h|--help) sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, speech, heavy, fallback, all)" ;;
+        -h|--help) sed -n '3,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, speech, bench, heavy, fallback, all)" ;;
     esac
 done
 

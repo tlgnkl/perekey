@@ -1,0 +1,33 @@
+{
+ "about": "Real misspellings of English words from the Wikipedia list, in a Tatoeba eng sentence that has the word, or alone",
+ "carrier": "tatoeba/eng_sentences.tsv.bz2",
+ "correction": {
+  "kind": "typo.real"
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 20,
+  "minTokens": 1
+ },
+ "layoutSets": [["ABC", "Russian"]],
+ "license": "CC BY-SA 4.0 (Wikipedia, Lists of common misspellings/For machines)",
+ "normalize": "keyboard",
+ "reader": "misspellings",
+ "sampling": "token",
+ "scenarios": ["fix"],
+ "seed": 1,
+ "settings": "all",
+ "source": "wikipedia-misspellings/for-machines.txt",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "typos.real.en",
+ "tags": ["typo", "real"],
+ "tiers": {
+  "ci": 4000,
+  "full": 60000
+ },
+ "version": 1
+}

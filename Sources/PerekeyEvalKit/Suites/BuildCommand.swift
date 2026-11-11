@@ -57,8 +57,11 @@ extension EvalCommands {
     }
 
     static func builtSuite(_ manifest: SuiteManifest, settings: BuildSettings, library: LayoutLibrary) throws -> BuiltSuite {
-        let output = try SuiteBuilder(manifest: manifest, library: library)
-            .build(tier: settings.tier, cache: settings.cache)
+        let output = if manifest.correction != nil {
+            try CorrectionBuilder(manifest: manifest, library: library).build(tier: settings.tier, cache: settings.cache)
+        } else {
+            try SuiteBuilder(manifest: manifest, library: library).build(tier: settings.tier, cache: settings.cache)
+        }
         let bytes = Data(try CaseCodec.write(output.cases).utf8)
         return BuiltSuite(report: output.report, bytes: bytes, sha256: Runner.sha256(bytes))
     }
@@ -99,10 +102,11 @@ extension Console {
     /// One line per built suite: counts, no words.
     static func buildLine(_ report: BuildReport, sha256: String) -> String {
         var line = "\(report.suite)  units \(report.units)  pooled \(report.pooled)  sha256 \(sha256.prefix(16))"
-        for name in SuiteManifest.scenarioNames {
+        for name in SuiteManifest.scenarioNames + SuiteManifest.correctionScenarioNames {
             guard let stats = report.scenarios[name] else { continue }
             line += "\n  \(name.padding(toLength: 12, withPad: " ", startingAt: 0))"
                 + String(format: "%7d cases %8d tokens  dev %6d  test %6d", stats.cases, stats.tokens, stats.dev, stats.test)
+                + (stats.errors.map { "  slips \($0)" } ?? "")
                 + (stats.shortfall > 0 ? "  short \(stats.shortfall)" : "")
         }
         return line

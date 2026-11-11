@@ -365,7 +365,10 @@ if personalP99 > 1_000_000 {
     print("FAIL: autoswitch p99 with a personal lexicon exceeds the 1 ms tap callback budget")
     failed = true
 }
-if !dashkaDecision.otherPersonal {
+// A real model may know «дашка» itself; then the lexicon has nothing to add.
+let dashkaRank = model.language("ru")?.rank(of: ModelFormat.Fingerprint.of("дашка".unicodeScalars, folded: true))
+let dashkaKnown = dashkaRank.map { $0 == 0 || $0 >= classifier.options.knownRank } ?? false
+if !dashkaKnown, !dashkaDecision.otherPersonal {
     print("FAIL: the personal lexicon found no word")
     failed = true
 }

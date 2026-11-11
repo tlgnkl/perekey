@@ -221,7 +221,10 @@ do {
         var counts: [String: Int] = [:]
         for item in items { counts[item.category, default: 0] += 1 }
         print("wrote \(out): \(items.count) words")
-        for category in Corpus.categories { print(String(format: "  %-9@ %7d", category as NSString, counts[category] ?? 0)) }
+        // `personal` comes from `perekey-eval personal`, never from here.
+        for category in Corpus.categories where category != "personal" {
+            print(String(format: "  %-9@ %7d", category as NSString, counts[category] ?? 0))
+        }
 
     case "run":
         guard let modelPath = flags["--model"], let corpusPath = flags["--corpus"], let layouts = flags["--layouts"] else {

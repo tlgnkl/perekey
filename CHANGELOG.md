@@ -13,6 +13,19 @@ differently, what was fixed.
 
 ### Added
 
+- **My words.** In Settings → Privacy you can turn on «Learn the words I
+  often type» (it is off until you do). Perekey then notices the words you
+  type and keep, such as names, terms and slang, on at least three different
+  days, and stops switching and fixing them; it also switches to such a word
+  from the other layout. It keeps only a keyed fingerprint of each word, never
+  the word: the key lives in your keychain, so the words cannot be read from
+  the file, and nothing is learned in password fields, terminals and editors.
+  When Perekey switches a word because it is yours, the hint and «Why?» in the
+  menu say so and offer «Forget the word». Undoing such a switch, or retyping
+  the word by hand, forgets it too. Settings → Privacy shows how many words
+  are remembered and erases them, with the key, after you confirm; turning the
+  switch off keeps what was remembered. An administrator can forbid it
+  with the `PersonalWordsDisabled` profile key.
 - **Dictation language: as in the app.** In Settings → Voice you can pick
   «As in the app» for the dictation language. When the app you dictate into is
   one you type in one language and your layout is that language too, the

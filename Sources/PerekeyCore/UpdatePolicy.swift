@@ -28,6 +28,9 @@ public struct ManagedSettings: Hashable, Sendable {
         public static let callAudioKeepDisabled = "CallAudioKeepDisabled"
         /// Bool. `true`: recordings and transcripts stay out of Time Machine, and the user cannot include them.
         public static let transcriptsBackupDisabled = "TranscriptsBackupDisabled"
+        /// Bool. `true`: «Мои слова» (the personal lexicon) is off and cannot be turned on;
+        /// no key is made and the file it keeps is removed.
+        public static let personalWordsDisabled = "PersonalWordsDisabled"
     }
 
     public var updatesDisabled: Bool
@@ -39,11 +42,12 @@ public struct ManagedSettings: Hashable, Sendable {
     public var callRecordingDisabled: Bool
     public var callAudioKeepDisabled: Bool
     public var transcriptsBackupDisabled: Bool
+    public var personalWordsDisabled: Bool
 
     public init(updatesDisabled: Bool = false, voiceDisabled: Bool = false, voiceModelDownloadsDisabled: Bool = false,
                 voiceCloudDisabled: Bool = false, voiceHistoryMaxDays: Int? = nil,
                 callRecordingDisabled: Bool = false, callAudioKeepDisabled: Bool = false,
-                transcriptsBackupDisabled: Bool = false)
+                transcriptsBackupDisabled: Bool = false, personalWordsDisabled: Bool = false)
     {
         self.updatesDisabled = updatesDisabled
         self.voiceDisabled = voiceDisabled
@@ -53,6 +57,7 @@ public struct ManagedSettings: Hashable, Sendable {
         self.callRecordingDisabled = callRecordingDisabled
         self.callAudioKeepDisabled = callAudioKeepDisabled
         self.transcriptsBackupDisabled = transcriptsBackupDisabled
+        self.personalWordsDisabled = personalWordsDisabled
     }
 
     /// Reads the keys through `forced`, which returns a value only when a profile forces the key.
@@ -65,13 +70,14 @@ public struct ManagedSettings: Hashable, Sendable {
         callRecordingDisabled = (forced(Key.callRecordingDisabled) as? Bool) ?? false
         callAudioKeepDisabled = (forced(Key.callAudioKeepDisabled) as? Bool) ?? false
         transcriptsBackupDisabled = (forced(Key.transcriptsBackupDisabled) as? Bool) ?? false
+        personalWordsDisabled = (forced(Key.personalWordsDisabled) as? Bool) ?? false
     }
 
     /// True when a profile forces any key, updates or voice. A pane with a
     /// "Managed by your organization" note asks about its own key instead.
     public var forcesAnyKey: Bool {
         updatesDisabled || voiceDisabled || voiceModelDownloadsDisabled || voiceCloudDisabled || voiceHistoryMaxDays != nil
-            || callRecordingDisabled || callAudioKeepDisabled || transcriptsBackupDisabled
+            || callRecordingDisabled || callAudioKeepDisabled || transcriptsBackupDisabled || personalWordsDisabled
     }
 }
 

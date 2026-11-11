@@ -65,6 +65,7 @@ enum DebugSnapshot {
         renderOnboarding(in: directory)
         renderMenuBar(into: directory)
         renderStatistics(in: directory)
+        renderMyWords(in: directory)
         renderThreeLayouts(in: directory)
         renderCrowdedMenus(in: directory)
         renderMenuCustomize(in: directory)
@@ -541,6 +542,52 @@ enum DebugSnapshot {
         return recorder
     }
 
+    /// Settings → Privacy → «My words»: off, on with words, held back by a profile or by the keychain; and
+    /// the Words pane's link to it.
+    private static func renderMyWords(in directory: URL) {
+        let size = CGSize(width: 560, height: 1500)
+        func lexicon(words: Int, enabled: Bool, keychain: Bool = true, managed: Bool = false) -> PersonalLexiconStore {
+            let keys = MemoryLexiconKeyStore()
+            if !keychain { keys.setFailure(LexiconKeyFailure.status(-25293)) }
+            var day = 20_000
+            let store = PersonalLexiconStore(file: nil, keys: keys, today: { day }, allowed: !managed)
+            store.apply(enabled)
+            if let key = try? keys.load(), words > 0 {
+                let observations = (0..<words).map { index in
+                    PersonalObservation(word: key.fingerprint(.word, language: "ru", [UInt32(index + 0x430)]),
+                                        start3: nil, start4: nil, language: "ru")
+                }
+                for _ in 0..<3 {
+                    for _ in 0..<2 { store.record(PersonalTally(observations: observations, generation: 0)) }
+                    day += 1
+                }
+            }
+            return store
+        }
+        let cases: [(String, Bool, Int, Bool, Bool, Bool)] = [
+            ("my-words-off-light", false, 0, true, false, false),
+            ("my-words-on-light", true, 12, true, false, false),
+            ("my-words-on-dark", true, 12, true, false, true),
+            ("my-words-managed-light", true, 0, true, true, false),
+            ("my-words-keychain-light", true, 0, false, false, false),
+        ]
+        for (name, on, words, keychain, managed, dark) in cases {
+            let file = SettingsFile(url: directory.appending(path: "\(name).json"), defaults: debugDefaults())
+            var settings = AppSettings()
+            settings.personalWords = on
+            try? file.save(settings)
+            let store = SettingsStore(file: file)
+            let personal = lexicon(words: words, enabled: on, keychain: keychain, managed: managed)
+            render(PrivacyPane(store: store, languages: LanguageStatsStore(file: nil), personal: personal)
+                        .frame(width: size.width, height: size.height),
+                   dark: dark, size: size, to: directory.appending(path: "\(name).png"))
+        }
+        let file = SettingsFile(url: directory.appending(path: "my-words-link.json"), defaults: debugDefaults())
+        try? file.save(AppSettings())
+        render(WordsPane(store: SettingsStore(file: file), showsMyWords: true).frame(width: 560, height: 1100),
+               dark: false, size: CGSize(width: 560, height: 1100), to: directory.appending(path: "my-words-link.png"))
+    }
+
     /// Settings → General with statistics off and on, and the menu line.
     private static func renderStatistics(in directory: URL) {
         let size = CGSize(width: 560, height: 1500)
@@ -674,6 +721,7 @@ enum DebugSnapshot {
     private static func renderHint(in directory: URL) {
         let states: [(String, HintContent)] = [
             ("corrected", .corrected(original: "ghbdtn", replacement: "привет")),
+            ("corrected-personal", .corrected(original: "Lfirf", replacement: "Дашка", forgettable: true)),
             ("retyped", .retyped(original: "ghbdtn", word: "привет", shortcut: "⌥", why: nil, offersAlways: false)),
             ("retyped-why", .retyped(original: "Fyz", word: "Аня", shortcut: "⌥", why: Self.sampleWhy, offersAlways: true)),
             ("always-fixed", .alwaysFixed(word: "аня")),

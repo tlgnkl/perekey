@@ -42,7 +42,8 @@ after Perekey.
   remembered word and offers "Forget".
 - **Honest about code:** terminals and IDEs default to manual-only switching.
 - **Verifiable privacy:** open code (GPL-3.0-or-later), typed text stays in
-  memory only, no device or install identifiers. The network is used for the
+  memory only (with "My words" on, Perekey also keeps keyed fingerprints of
+  the words you type often, never the words), no device or install identifiers. The network is used for the
   update check and for what the user starts: a speech model download, or a
   cloud mode they set up with their own key. Speech models run on the Mac.
 - **Voice next to the layout switcher:** voice input (tap the right Option),

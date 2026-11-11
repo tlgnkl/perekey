@@ -19,6 +19,25 @@ struct SettingsTransferTests {
         #expect(try SettingsTransfer.importSettings(from: data) == settings)
     }
 
+    @Test func theExportCarriesTheSwitchOfMyWordsAndNeverTheWords() throws {
+        #expect(!AppSettings().personalWords, "off by default (plan, R3)")
+        var settings = AppSettings()
+        settings.personalWords = true
+        let data = try SettingsTransfer.export(settings)
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(text.contains("\"personalWords\" : true"))
+        #expect(try SettingsTransfer.importSettings(from: data).personalWords)
+        // A file with only the switch is still a settings file.
+        #expect(try SettingsTransfer.importSettings(from: Data(#"{"personalWords":true}"#.utf8)).personalWords)
+        // Nothing of the lexicon is a setting: no fingerprint, key or entry in the export.
+        for word in ["fingerprint", "entries", "keyCheck", "lexicon"] { #expect(!text.contains(word)) }
+    }
+
+    @Test func aFileWithoutTheSwitchLoadsWithItOff() throws {
+        let old = try SettingsTransfer.importSettings(from: Data(#"{"autoswitch":false}"#.utf8))
+        #expect(!old.personalWords)
+    }
+
     @Test func rejectsForeignJSON() {
         for text in ["", "[]", "{}", #"{"name":"x"}"#, #"{"hotkeys":"nope"}"#, #"{"autoswitch":true,"version":"x"}"#] {
             #expect(throws: SettingsTransfer.ImportError.self) {

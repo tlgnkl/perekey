@@ -26,6 +26,8 @@ enum SettingsFlag: String, Hashable {
     case usage
     case statisticsOn
     case languageStats
+    /// Privacy shows «My words» (the window has the lexicon's store).
+    case personalStore
 }
 
 /// The state of the Settings search for SwiftUI: `SearchSession` in PerekeyCore

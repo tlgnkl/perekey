@@ -51,6 +51,16 @@ public enum EngineMessage: Sendable {
     /// Languages of judged words, counts only (`Effect.languagesCounted`):
     /// add them to the language statistics.
     case languagesCounted(LanguageTally)
+    /// Words the user kept, as keyed fingerprints and never text
+    /// (`Effect.wordsKept`): the personal lexicon counts them. The main thread
+    /// gives the tap's buffer back, emptied, with `send(.personalRoomReturned(_))`
+    /// (`PersonalLexiconStore.record`).
+    case wordsKept(PersonalTally)
+    /// The machine waits for this many empty buffers for the words it keeps
+    /// (`InputMachine.personalRoomsWanted`), after a new lexicon came in: make
+    /// them on the main thread (`PersonalRoom()` allocates) and send each with
+    /// `send(.personalRoomReturned(_))`. The tap allocates none on a word.
+    case personalRoomsWanted(Int)
     /// The voice trigger fired (`Effect.voice`). While a hold is on, check
     /// its keys on the main thread (`VoiceTrigger.isHeldNow`) and send
     /// `.voiceHoldLost` if they are up: a key up can be lost.
@@ -641,9 +651,12 @@ public final class InputEngine: @unchecked Sendable {
     }
     #endif
 
-    private func handle(_ event: InputEvent) {
+    // Internal, not private: the tests of the lexicon wiring (`EnginePersonalTests`) call `handle` and `execute`
+    // on the test thread, with no tap running.
+    func handle(_ event: InputEvent) {
         guard case let .focusChanged(focus, change) = event else {
             execute(step(event).effects)
+            if case .personalLexiconChanged = event { askForPersonalRooms() }
             return
         }
         let word = wordInProgress
@@ -655,12 +668,20 @@ public final class InputEngine: @unchecked Sendable {
         focusLog.info("Focus \(String(describing: change), privacy: .public) in \(app, privacy: .public): \(kept ? "kept" : "dropped", privacy: .public) a word of \(word, privacy: .public) keys")
     }
 
+    /// A new lexicon is in: the buffers the machine lacks come from the main
+    /// thread. One message per lexicon, not one per word: the tap asks nothing
+    /// on a key.
+    private func askForPersonalRooms() {
+        let wanted = machine.personalRoomsWanted
+        if wanted > 0 { toMain(.personalRoomsWanted(wanted)) }
+    }
+
     /// Keys of the word being typed: after the last space or part end.
     private var wordInProgress: Int {
         machine.buffer.entries.reversed().prefix { !$0.isGap }.count
     }
 
-    private func execute(_ effects: [Effect]) {
+    func execute(_ effects: [Effect]) {
         var index = effects.startIndex
         while index < effects.endIndex {
             switch effects[index] {
@@ -701,12 +722,8 @@ public final class InputEngine: @unchecked Sendable {
                 toMain(.capsLockOff)
             case let .languagesCounted(tally):
                 toMain(.languagesCounted(tally))
-            case .wordsKept:
-                // The app sends no personal lexicon (`.personalLexiconChanged`)
-                // and the machine observes nothing without one: the store
-                // that counts these comes with the setting (docs/classifier.md,
-                // «Личный словарь»).
-                break
+            case let .wordsKept(tally):
+                toMain(.wordsKept(tally))
             case let .refused(refusal):
                 toMain(.refused(refusal))
             case let .convertSelection(seq):

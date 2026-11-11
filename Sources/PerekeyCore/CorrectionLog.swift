@@ -27,6 +27,10 @@ public struct CorrectionLog: Equatable, Sendable {
         public var summary: String
         public var date: Date
         public var undone = false
+        /// The language code of the word the switch went to, when it went
+        /// there because the word is one of the user's own (the personal
+        /// lexicon): the menu offers to forget it. Nil for any other correction.
+        public var personalLanguage: String?
         /// How many times this same correction happened: the menu shows «×3».
         public var count: Int { seqs.count }
     }
@@ -61,7 +65,9 @@ public struct CorrectionLog: Equatable, Sendable {
         entries.insert(Entry(id: id, seqs: seqs, original: correction.original,
                              replacement: correction.replacement, kind: correction.kind,
                              explanation: Explanation(correction: correction),
-                             summary: FalseSwitchReport.summary(of: correction), date: date), at: 0)
+                             summary: FalseSwitchReport.summary(of: correction), date: date,
+                             personalLanguage: correction.decision.flatMap { $0.otherPersonal ? $0.otherLanguage : nil }),
+                       at: 0)
         trim()
     }
 
@@ -83,7 +89,7 @@ public struct CorrectionLog: Equatable, Sendable {
         entries.insert(Entry(id: nextID, seqs: struck.seqs, original: struck.original,
                              replacement: struck.replacement, kind: struck.kind,
                              explanation: struck.explanation, summary: struck.summary,
-                             date: struck.date, undone: true), at: index)
+                             date: struck.date, undone: true, personalLanguage: struck.personalLanguage), at: index)
         nextID += 1
         trim()
         return true

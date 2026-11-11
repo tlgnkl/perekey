@@ -17,10 +17,12 @@ public enum SettingsTransfer {
     /// Learning by evidence (`words.learning`, `words.candidates`, the `app`
     /// of a learned word) needs no new version: older builds read the file
     /// and drop those keys, and a file without `words.learning` migrates once,
-    /// on load (`SettingsFile`), not on import.
+    /// on load (`SettingsFile`), not on import. The same for `personalWords`:
+    /// the export carries the switch of «Мои слова» and never the lexicon,
+    /// which is fingerprints under a key of this Mac.
     public static let currentVersion = 2
 
-    private static let knownKeys: Set<String> = ["hotkeys", "capsLock", "autoswitch", "onboardingDone", "words"]
+    private static let knownKeys: Set<String> = ["hotkeys", "capsLock", "autoswitch", "onboardingDone", "words", "personalWords"]
 
     public enum ImportError: Error, Equatable, LocalizedError {
         case notSettings

@@ -16,15 +16,22 @@ struct PrivacyPane: View {
     let usage: UsageRecorder?
     /// `nil` hides the row about the languages of apps.
     let languages: LanguageStatsStore?
+    /// `nil` hides the group «My words».
+    let personal: PersonalLexiconStore?
+    /// A profile forbids «My words» (`ManagedSettings.personalWordsDisabled`).
+    let personalManaged: Bool
 
     private let reporting: State<Bool>
 
     init(store: SettingsStore, usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil,
+         personal: PersonalLexiconStore? = nil, personalManaged: Bool = false,
          layoutNames: [String] = [], isReporting: Bool = false)
     {
         self.store = store
         self.usage = usage
         self.languages = languages
+        self.personal = personal
+        self.personalManaged = personalManaged
         self.layoutNames = layoutNames
         reporting = State(initialValue: isReporting)
     }
@@ -32,7 +39,7 @@ struct PrivacyPane: View {
     var body: some View {
         PKPane(title: Text("Privacy")) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts), learning-journal.json (the last 500 undos and answers about learning a word: kinds, app IDs and times, no words). Site counts stay in memory.")
+                Text("Typed text is never saved and never leaves this Mac. Files on this Mac: settings.json (settings and your word lists, with dates and undo counts), statistics.json (only with “Count corrections” on: counts, no words), languages.json (how many words of each language per app: app IDs and counts), learning-journal.json (the last 500 undos and answers about learning a word: kinds, app IDs and times, no words), lexicon.json (only with “Learn the words I often type” on: keyed fingerprints of those words, counts and days; the words cannot be read from it). Site counts stay in memory.")
                 networkNote
             }
             .font(PK.Font.body)
@@ -42,6 +49,7 @@ struct PrivacyPane: View {
             guaranteesSection
             if let usage { statisticsSection(usage) }
             if let languages { languagesSection(languages) }
+            if let personal { personalSection(personal) }
             PKGroup(header: Text("Settings file"), anchor: "privacy.file") {
                 PKRow(Text("Back up or move settings"), detail: Text("Shortcuts, apps and words as a JSON file."),
                       anchor: "privacy.backup") {
@@ -108,6 +116,49 @@ struct PrivacyPane: View {
                 Button("Erase") { languages.resetAll() }
                     .buttonStyle(.pkSecondary)
                     .disabled(languages.stats.apps.isEmpty && languages.stats.sites.isEmpty)
+            }
+        }
+    }
+
+    /// «My words»: off until the user turns it on. The words themselves are
+    /// not shown, because the file has no text; what the user sees is how many
+    /// there are, and why a switch happened (the hint and «Why?» of the menu).
+    private func personalSection(_ personal: PersonalLexiconStore) -> some View {
+        PKGroup(header: Text("My words"), anchor: "privacy.my-words") {
+            PKRow(Text("Learn the words I often type"),
+                  detail: Text("Perekey remembers words you type again and again, like names and terms, so it stops switching and fixing them. It keeps a keyed fingerprint of each word, not the word. The key is in your keychain, and the words cannot be read from the file."),
+                  anchor: "privacy.learn-words") {
+                Toggle(isOn: Binding(get: { store.settings.personalWords && !personalManaged }, set: { on in
+                    store.update { $0.personalWords = on }
+                })) {
+                    Text("Learn the words I often type")
+                }
+                .labelsHidden()
+                .toggleStyle(.pkSwitch)
+                .disabled(personalManaged)
+            }
+            if personalManaged {
+                PKCallout(Text("Managed by your organization. “My words” is off."), symbol: "building.2.fill", quiet: true)
+            } else if personal.unavailable == .keychain {
+                PKCallout(Text("The keychain does not give Perekey its key, so “My words” stays off. Perekey keeps no spare key in a file."),
+                          symbol: "key.fill")
+            }
+            if personal.isActive {
+                PKDivider()
+                PKRow(Text("Remembered words"), anchor: "privacy.remembered-words") {
+                    Text(verbatim: "\(personal.wordCount)")
+                        .font(PK.Font.body)
+                        .foregroundStyle(Color.pkInk2)
+                        .monospacedDigit()
+                }
+            }
+            PKDivider()
+            PKRow(Text("Erase my words"),
+                  detail: Text("Deletes the file and the key. Perekey starts again from nothing."),
+                  anchor: "privacy.erase-words") {
+                Button("Erase") { personal.erase() }
+                    .buttonStyle(.pkSecondary)
+                    .disabled(!personal.hasStored)
             }
         }
     }

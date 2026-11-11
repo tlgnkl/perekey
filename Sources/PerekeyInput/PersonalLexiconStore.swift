@@ -1,0 +1,392 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+import Observation
+import os
+import PerekeyCore
+
+/// A word of the personal lexicon as the main thread knows it for a moment:
+/// its text, in the hint or the menu, and its language. It is never stored.
+public struct PersonalWordRef: Hashable, Sendable {
+    public var text: String
+    public var language: LanguageCode
+
+    public init(text: String, language: LanguageCode) {
+        self.text = text
+        self.language = language
+    }
+
+    /// The word a correction switched to, when it switched to it because the
+    /// personal lexicon has it (`Classifier.Decision.otherPersonal`).
+    public init?(switchedTo correction: Correction) {
+        guard let decision = correction.decision, decision.otherPersonal, let name = decision.otherLanguage,
+              let language = LanguageCode(name)
+        else { return nil }
+        self.init(text: correction.replacement, language: language)
+    }
+
+    /// The word the user typed and then retyped by hand into another layout,
+    /// when it was in the personal lexicon (`Classifier.Decision.typedPersonal`).
+    public init?(retyped original: String, decision: Classifier.Decision?) {
+        guard let decision, decision.typedPersonal, let name = decision.typedLanguage,
+              let language = LanguageCode(name)
+        else { return nil }
+        self.init(text: original, language: language)
+    }
+}
+
+/// The main thread's side of the strong signals against a personal word
+/// (docs/classifier.md, «Личный словарь»): the undo of a switch to it, by the
+/// hint's button, by the shortcut or by a Backspace that settled as «keep it
+/// as typed», and a retype of it by hand into another layout. Each says the
+/// word is not the user's after all, and the lexicon drops it at once.
+public struct PersonalSignals: Sendable {
+    /// The switches to a personal word that still stand, by `Correction.seq`.
+    private var switches: [(seq: UInt32, word: PersonalWordRef)] = []
+    /// The word of an undo that is not settled yet.
+    private var undone: PersonalWordRef?
+
+    /// How many switches are remembered: the hint offers an undo for the
+    /// newest one only, and the menu's few rows are older than that.
+    static let remembered = 8
+
+    public init() {}
+
+    /// A switch was posted.
+    public mutating func corrected(_ correction: Correction) {
+        guard let word = PersonalWordRef(switchedTo: correction) else { return }
+        switches.append((correction.seq, word))
+        if switches.count > Self.remembered { switches.removeFirst() }
+    }
+
+    /// The switch with this `seq` was undone; whether the undo counts is
+    /// known once it settles (`settled`).
+    public mutating func undone(seq: UInt32) {
+        guard let index = switches.lastIndex(where: { $0.seq == seq }) else {
+            undone = nil
+            return
+        }
+        undone = switches.remove(at: index).word
+    }
+
+    /// The undo settled. The word to drop, if it was the undo of a switch to
+    /// a personal word and meant «keep it as typed»: the button and the
+    /// shortcut always mean it, a Backspace only when the user typed on with
+    /// the word as typed (`UndoFollowUp.continued`).
+    public mutating func settled(_ report: UndoReport) -> PersonalWordRef? {
+        defer { undone = nil }
+        guard let word = undone else { return nil }
+        switch report.channel {
+        case .button, .shortcut: return word
+        case .backspace: return report.followUp == .continued ? word : nil
+        }
+    }
+}
+
+/// The personal lexicon in memory, on the main thread: it takes the batches
+/// the tap counted, runs `PersonalLexiconModel`, keeps the file and the key,
+/// and tells the tap when the set of accepted words changes. The settings
+/// switch «Мои слова» is the only way in: off, the store reaches no key and
+/// no file, observes nothing and the snapshot is empty.
+///
+/// The path is the one of the language counts (`LanguageStatsStore`):
+/// `Effect.wordsKept` → `InputEngine` → `record` → `onLexiconChanged` →
+/// `InputEvent.personalLexiconChanged`; the generation drops a batch counted
+/// before an erase. Text is in memory for a moment only: `forget` takes the
+/// word's text and keeps nothing of it.
+@MainActor
+@Observable
+public final class PersonalLexiconStore {
+    /// Why the lexicon is off though the user asked for it.
+    public enum Unavailable: Hashable, Sendable {
+        /// A profile forbids it (`ManagedSettings.personalWordsDisabled`).
+        case managed
+        /// The Keychain does not give the key, and there is no spare one.
+        case keychain
+    }
+
+    /// The user asked for the lexicon and nothing stands in the way.
+    public private(set) var isActive = false
+    public private(set) var unavailable: Unavailable?
+    /// Accepted words, for the privacy pane.
+    public private(set) var wordCount = 0
+    /// Something of the lexicon is on disk or in the Keychain: the pane offers «Erase».
+    public private(set) var hasStored = false
+    /// The lexicon the tap has now.
+    @ObservationIgnored public private(set) var lexicon = PersonalLexicon.off
+
+    /// Called when the snapshot for the tap changes: the set of accepted
+    /// words, the key or the generation.
+    @ObservationIgnored public var onLexiconChanged: (@MainActor (PersonalLexicon) -> Void)?
+
+    @ObservationIgnored private let file: PersonalLexiconFile?
+    @ObservationIgnored private let keys: any LexiconKeyStore
+    @ObservationIgnored private let options: PersonalOptions
+    @ObservationIgnored private let saveInterval: Double
+    @ObservationIgnored private let today: @MainActor () -> Int
+    @ObservationIgnored private let clock: @MainActor () -> Double
+    @ObservationIgnored private let sessionOnly: Bool
+    @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "lexicon")
+
+    @ObservationIgnored private var key: PersonalKey?
+    @ObservationIgnored private var model: PersonalLexiconModel
+    @ObservationIgnored private var dirty = false
+    @ObservationIgnored private var lastSave: Double?
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// The latest day a batch was counted on: a clock set back shows as a day before it.
+    @ObservationIgnored private var latestDay = Int.min
+
+    /// - Parameters:
+    ///   - file: nil keeps nothing on disk (snapshots).
+    ///   - saveInterval: the file is written at most this often, in seconds,
+    ///     and when `flush` says so (quit).
+    ///   - today: the calendar day, as the app numbers days.
+    ///   - sessionOnly: the typing recording's build (`PEREKEY_RECORD`): the
+    ///     store draws a key of its own for the run, in memory, reads no
+    ///     keychain and no file, and keeps no word, so the recording holds
+    ///     neither the real key nor a fingerprint of the user's words. The
+    ///     machine observes under the session key and finds nothing.
+    public init(file: PersonalLexiconFile? = PersonalLexiconFile(), keys: any LexiconKeyStore,
+                options: PersonalOptions = PersonalOptions(), saveInterval: Double = 30,
+                today: @escaping @MainActor () -> Int, sessionOnly: Bool = false,
+                clock: @escaping @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime })
+    {
+        self.file = file
+        self.keys = keys
+        self.options = options
+        self.saveInterval = saveInterval
+        self.today = today
+        self.sessionOnly = sessionOnly
+        self.clock = clock
+        model = PersonalLexiconModel(options: options)
+        hasStored = !sessionOnly && file?.exists == true
+    }
+
+    // MARK: - The switch
+
+    /// Applies the setting «Мои слова». `allowed` is false under a profile
+    /// that forbids the lexicon: then nothing is read or kept, and what an
+    /// earlier run left on disk goes.
+    public func setEnabled(_ wanted: Bool, allowed: Bool = true) {
+        if !allowed {
+            if wanted || file?.exists == true { eraseStorage() }
+            deactivate(unavailable: wanted ? .managed : nil)
+            return
+        }
+        guard wanted else {
+            deactivate(unavailable: nil)
+            return
+        }
+        guard !isActive else { return }
+        activate()
+    }
+
+    private func activate() {
+        if sessionOnly {
+            guard let session = try? LexiconKeyGenerator.make() else {
+                return deactivate(unavailable: .keychain)
+            }
+            key = session
+            model = PersonalLexiconModel(options: options)
+            finishActivation()
+            return
+        }
+        let loaded: PersonalKey
+        do {
+            loaded = try keys.load() ?? keys.create()
+        } catch {
+            log.error("The key of the personal lexicon is not available: \(String(describing: error), privacy: .private)")
+            return deactivate(unavailable: .keychain)
+        }
+        key = loaded
+        hasStored = true
+        var counted = file?.load(key: loaded, options: options, generation: model.generation)
+            ?? PersonalLexiconModel(options: options, generation: model.generation)
+        let day = today()
+        var changed = Self.clampFuture(&counted, to: day)
+        // A candidate that expires is not a change of the accepted set, but the file has it still.
+        let before = counted.entries.count
+        if counted.expire(today: day) || counted.entries.count != before { changed = true }
+        model = counted
+        finishActivation()
+        if changed { markDirty() }
+    }
+
+    private func finishActivation() {
+        isActive = true
+        unavailable = nil
+        publish()
+    }
+
+    private func deactivate(unavailable reason: Unavailable?) {
+        saveNow()
+        saveTask?.cancel()
+        saveTask = nil
+        isActive = false
+        unavailable = reason
+        key = nil
+        wordCount = 0
+        guard lexicon.isOn else { return }
+        lexicon = .off
+        onLexiconChanged?(.off)
+    }
+
+    // MARK: - Counting
+
+    /// Counts a batch of the tap and gives its buffer back, emptied, for the
+    /// tap's next batch (`InputEvent.personalRoomReturned`). The room goes
+    /// back whatever happened to the batch (`counting: false` counts nothing): a store that is off or a batch of
+    /// an older generation must not leave the tap without a buffer.
+    @discardableResult
+    public func record(_ tally: PersonalTally, counting: Bool = true) -> PersonalRoom {
+        if counting, isActive, !sessionOnly { count(tally) }
+        // The array may be shared with the message that brought it: then this
+        // makes a new one of the same capacity, on the main thread.
+        var buffer = tally.observations
+        buffer.removeAll(keepingCapacity: true)
+        return PersonalRoom(emptied: buffer)
+    }
+
+    private func count(_ tally: PersonalTally) {
+        let day = today()
+        if day < latestDay { Self.clampFuture(&model, to: day) }
+        latestDay = day
+        let acceptedChanged = model.record(tally, day: day)
+        if acceptedChanged { publish() }
+        markDirty()
+    }
+
+    /// Drops the word: «Забыть» in the hint, or a strong signal against it.
+    /// Returns whether the lexicon had it.
+    @discardableResult
+    public func forget(_ word: PersonalWordRef) -> Bool {
+        guard isActive, !sessionOnly, let key else { return false }
+        let fingerprint = key.fingerprint(ofWord: Self.core(of: word.text), language: word.language)
+        let before = model.entries.count
+        let acceptedChanged = model.forget(fingerprint)
+        guard model.entries.count != before else { return false }
+        if acceptedChanged { publish() }
+        markDirty()
+        return true
+    }
+
+    /// «Стереть»: deletes the file and the key and starts a new generation,
+    /// so the batches counted before are dropped. With the lexicon on it
+    /// goes on empty under a new key.
+    public func erase() {
+        saveTask?.cancel()
+        saveTask = nil
+        dirty = false
+        model.erase()
+        wordCount = 0
+        eraseStorage()
+        guard isActive else { return }
+        if sessionOnly {
+            publish()
+            return
+        }
+        do {
+            key = try keys.create()
+            hasStored = true
+        } catch {
+            log.error("The key of the personal lexicon is not available: \(String(describing: error), privacy: .private)")
+            deactivate(unavailable: .keychain)
+            return
+        }
+        publish()
+    }
+
+    private func eraseStorage() {
+        guard !sessionOnly else { return }
+        do { try file?.remove() } catch {
+            log.error("The file of the personal lexicon is not removed: \(error.localizedDescription, privacy: .private)")
+        }
+        do { try keys.delete() } catch {
+            log.error("The key of the personal lexicon is not removed: \(String(describing: error), privacy: .private)")
+        }
+        dirty = false
+        hasStored = false
+    }
+
+    // MARK: - The snapshot
+
+    private func publish() {
+        guard let key else { return }
+        wordCount = model.acceptedCount
+        let snapshot = sessionOnly
+            ? PersonalLexicon(key: key, words: [UInt64](), starts: [UInt64](), generation: model.generation, options: options)
+            : model.snapshot(key: key)
+        guard snapshot != lexicon else { return }
+        lexicon = snapshot
+        onLexiconChanged?(snapshot)
+    }
+
+    // MARK: - The file
+
+    /// Writes at once when the last write is `saveInterval` back, else later.
+    private func markDirty() {
+        dirty = true
+        guard !sessionOnly, file != nil, saveTask == nil else { return }
+        let waited = lastSave.map { clock() - $0 } ?? saveInterval
+        if waited >= saveInterval {
+            saveNow()
+            return
+        }
+        let delay = saveInterval - waited
+        saveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            saveTask = nil
+            saveNow()
+        }
+    }
+
+    /// Writes what is not written (quit, turning the lexicon off).
+    public func flush() {
+        saveTask?.cancel()
+        saveTask = nil
+        saveNow()
+    }
+
+    private func saveNow() {
+        guard dirty, !sessionOnly, let file, let key else { return }
+        dirty = false
+        lastSave = clock()
+        do {
+            try file.save(model, key: key)
+            hasStored = true
+        } catch {
+            dirty = true
+            log.error("The personal lexicon is not saved: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// The core of a word as the fingerprint takes it: the letters, without
+    /// the marks around them ("Дашка," → "Дашка"; `Reading.coreStart`).
+    static func core(of text: String) -> String {
+        let scalars = Array(text.unicodeScalars)
+        guard let first = scalars.firstIndex(where: { $0.properties.isAlphabetic }),
+              let last = scalars.lastIndex(where: { $0.properties.isAlphabetic })
+        else { return "" }
+        var core = String.UnicodeScalarView()
+        core.append(contentsOf: scalars[first...last])
+        return String(core)
+    }
+
+    /// A clock set back leaves entries seen «tomorrow»: new observations
+    /// would not count as a new day, and the lifetime would not run out.
+    /// They are moved to today. Returns whether any moved.
+    @discardableResult
+    static func clampFuture(_ model: inout PersonalLexiconModel, to day: Int) -> Bool {
+        guard model.entries.values.contains(where: { $0.lastDay > day }) else { return false }
+        var entries = model.entries
+        for (fingerprint, var entry) in entries where entry.lastDay > day {
+            entry.lastDay = day
+            entries[fingerprint] = entry
+        }
+        model = PersonalLexiconModel(options: model.options, entries: entries, generation: model.generation)
+        return true
+    }
+}

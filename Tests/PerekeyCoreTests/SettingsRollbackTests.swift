@@ -39,7 +39,7 @@ import Testing
     }
 
     /// Keys a later version added to `settings.json`; 0.1.1 does not write them back.
-    static let addedSince0_1_1: Set<String> = ["menuBarIcon", "menuBarVisibility", "menu"]
+    static let addedSince0_1_1: Set<String> = ["menuBarIcon", "menuBarVisibility", "menu", "personalWords"]
 
     /// Keys of `corrections` that a later version added.
     static let addedToCorrectionsSince0_1_1: Set<String> = ["hyphen", "realWords"]
@@ -107,6 +107,19 @@ import Testing
         let resaved = try Self.encode(legacy)
         #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true), "0.1.1 writes back what it read")
         #expect(try JSONDecoder().decode(AppSettings.self, from: resaved) == settings)
+    }
+
+    /// «Мои слова» is a new key: 0.1.1 ignores it and drops it on save, and the rest of the file is read as before.
+    @Test func personalWordsSwitchIsDroppedBy0_1_1ButTheFileOpens() throws {
+        var settings = Self.filled
+        settings.personalWords = true
+        let saved = try Self.encode(settings)
+        let legacy = try JSONDecoder().decode(LegacyAppSettings_0_1_1.self, from: saved)
+        let resaved = try Self.encode(legacy)
+        #expect(try Self.object(resaved, as0_1_1: true) == Self.object(saved, as0_1_1: true))
+        var expected = settings
+        expected.personalWords = false
+        #expect(try JSONDecoder().decode(AppSettings.self, from: resaved) == expected)
     }
 
     @Test func hyphenSwitchSurvivesSavingIn0_1_1() throws {

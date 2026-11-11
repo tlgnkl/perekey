@@ -3,6 +3,8 @@
 #
 # Runs `swift test`. Extra arguments are passed through. With PEREKEY_VOICE=1
 # it tests the voice build, in .build/voice unless --scratch-path is given.
+# With PEREKEY_RECORD=1 it tests the build with the typing recorder, in
+# .build/record (.build/voice-record with both).
 #
 # Command Line Tools (without Xcode) ship the Swift Testing macro plugin outside
 # the default search path, and `swift test` fails with "plugin for module
@@ -36,9 +38,16 @@ if [[ "$(xcode-select -p)" == "$clt" ]]; then
     fi
 fi
 
+scratch=""
 if [[ "${PEREKEY_VOICE:-}" == 1 ]]; then
     scripts/voice-pins.sh use
-    [[ " $* " == *" --scratch-path "* ]] || extra+=(--scratch-path .build/voice)
+    scratch=.build/voice
+fi
+if [[ "${PEREKEY_RECORD:-}" == 1 ]]; then
+    if [[ -n "$scratch" ]]; then scratch=.build/voice-record; else scratch=.build/record; fi
+fi
+if [[ -n "$scratch" && " $* " != *" --scratch-path "* ]]; then
+    extra+=(--scratch-path "$scratch")
 fi
 
 # PEREKEY_TEST_SCRIBBLE=1 fills freed memory with a pattern (MallocScribble),

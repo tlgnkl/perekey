@@ -370,7 +370,7 @@ public final class InputEngine: @unchecked Sendable {
                  time: time)
         }
 
-        let output = machine.handle(input)
+        let output = step(input)
         let result: Unmanaged<CGEvent>?
         switch output.disposition {
         case .pass:
@@ -546,13 +546,19 @@ public final class InputEngine: @unchecked Sendable {
         }
     }
 
+    /// The one way into the machine: every event the tap thread hands it
+    /// passes here, the keys from `keyboard` and the rest from `handle`.
+    private func step(_ event: InputEvent) -> Output {
+        machine.handle(event)
+    }
+
     private func handle(_ event: InputEvent) {
         guard case let .focusChanged(focus, change) = event else {
-            execute(machine.handle(event).effects)
+            execute(step(event).effects)
             return
         }
         let word = wordInProgress
-        execute(machine.handle(event).effects)
+        execute(step(event).effects)
         guard word > 0 else { return }
         // Numbers only. A lost first word after an app switch shows here.
         let app = focus.bundleID ?? "?"

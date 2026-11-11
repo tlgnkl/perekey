@@ -152,3 +152,47 @@ import Testing
             == with.classify(abc.strokes("yf"), typed: abc, other: russian, context: bare))
     }
 }
+
+/// The word before, inside the machine: the judge reads it from the buffer
+/// with the language of the layout it was typed in.
+@Suite struct WordContextMachineTests {
+    static let model = ModelFixture.model(withEnglishWords: [("yf", 230)],
+                                          russianPairs: [("привет", "на", 40)])
+
+    static func desk(limit: Double) -> Desk {
+        var options = Classifier.Options()
+        options.personalNoiseCost = .infinity
+        options.wordContextLimit = limit
+        return Desk(Settings(), classifier: Classifier(model: model, options: options))
+    }
+
+    /// "привет" on the Russian layout, then "yf" on ABC: "на" and "yf" tie on rank.
+    static func typeAfterRussianWord(limit: Double, before: String = "привет ") -> String {
+        var desk = Self.desk(limit: limit)
+        desk.appLayout = Fixture.russian.id
+        desk.send(.layoutChanged(Fixture.russian.id))
+        desk.type(before, on: Fixture.russian)
+        desk.appLayout = Fixture.abc.id
+        desk.send(.layoutChanged(Fixture.abc.id))
+        desk.type("yf ")
+        return desk.text
+    }
+
+    @Test func thePairOfTheWordBeforeSwitchesAShortWord() {
+        #expect(Self.typeAfterRussianWord(limit: 8) == "привет на ")
+    }
+
+    @Test func withLimitZeroTheTextIsAsBefore() {
+        #expect(Self.typeAfterRussianWord(limit: 0) == "привет yf ")
+    }
+
+    @Test func aWordWithoutThePairChangesNothing() {
+        #expect(Self.typeAfterRussianWord(limit: 8, before: "мир ") == "мир yf ")
+    }
+
+    @Test func theFirstWordOfTheFieldHasNoWordBefore() {
+        var desk = Self.desk(limit: 8)
+        desk.type("yf ")
+        #expect(desk.text == "yf ")
+    }
+}

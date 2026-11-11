@@ -92,6 +92,13 @@ jobs:
         id: quality-base
         run: |
           ref="${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}"
+          # A pull request is checked out as a merge with the tip of its base *now*; base.sha is the tip when the
+          # event came. When main has moved in between, base.sha lacks code the bench of the merge uses, the base
+          # builds twice (with its own bench, with its own model) and the step doubles. The first parent of the merge
+          # is the base the tree was merged with.
+          if [[ "${{ github.event_name }}" == pull_request ]] && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            ref="$(git rev-parse HEAD^1)"
+          fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse --verify --quiet "$ref^{commit}" || echo none)" >> "$GITHUB_OUTPUT"
       - name: Cache the built base of the quality bench

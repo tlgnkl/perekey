@@ -1,0 +1,1727 @@
+# Given names of Wikidata (male, female, unisex), 8 or more sitelinks. License: CC0.
+# Snapshot of 2026-11-11 by scripts/wikidata-names.sh; the query:
+#   SELECT ?ru ?en ?uk ?links WHERE {
+#     VALUES ?type { wd:Q12308941 wd:Q11879590 wd:Q3409032 }
+#     ?item wdt:P31 ?type; wikibase:sitelinks ?links.
+#     FILTER(?links >= 8)
+#     OPTIONAL { ?item rdfs:label ?ru. FILTER(LANG(?ru) = "ru") }
+#     OPTIONAL { ?item rdfs:label ?en. FILTER(LANG(?en) = "en") }
+#     OPTIONAL { ?item rdfs:label ?uk. FILTER(LANG(?uk) = "uk") }
+#   }
+ru	en	uk	links
+Пифагор	Pythagoras	Піфагор	212
+Хатун	Khatun	Хатун	39
+Анна	Anna	Анна	35
+Даниэль / Дэниел / Даниел	Daniel	Данієль / Денієл	33
+Роберт / Робер		Роберт	32
+Адольф	Adolf	Адольф	31
+Александр	Alexander	Александер	31
+Альберт / Альбер	Albert	Альберт	31
+Джон	John	Джон	30
+Лора / Лаура	Laura	Лаура	30
+Андреа	Andrea	Андреа	29
+Дэвид / Дейвид / Давид	David	Девід / Давид / Дейвід	29
+Мария	Maria	Марія	29
+Варвара / Барбара	Barbara	Барбара	28
+Гуго / Хьюго / Юго / Уго / Хуго	Hugo	Гуго	28
+Аманда	Amanda	Аманда	27
+Габриэль / Гэбриел	Gabriel	Ґабрієль / Ґебріел	27
+Мухаммед	Muhammad	Мохаммад / Мухаммат	27
+Абдалла / Абдаллах / Абдуллах / Абдулла	Abdullah	Абдаллах	26
+Али	Ali		26
+Диана	Diana	Діана	26
+Линда	Linda	Лінда	26
+Артур / Артюр	Arthur	Артур	25
+Иван	Ivan	Іван	25
+Иоханнес / Иоганнес	Johannes	Йоганнес	25
+Ольга	Olga	Ольга	25
+Питер / Петер	Peter	Петер / Пітер	25
+Саймон / Симон / Шимон	Simon	Саймон	25
+Ада	Ada	Ада	24
+Адам	Adam	Адам	24
+Анжела / Анджела / Ангела	Angela	Анґела / Анджела / Анжела / Анґеля	24
+Кевин	Kevin	Кевін	24
+Оливия	Olivia	Олівія	24
+Сэмюэл / Самуэль / Замуэль	Samuel	Семюел / Самуель	24
+Элена	Elena	Елена	24
+Эмиль	Emil	Еміль	24
+Ян / Жан	Jan	Ян	24
+Абдуррахман	Abd al-Rahman	Абдаррахман	23
+Агнес	Agnes	Аґнес	23
+Аида	Aida	Аїда	23
+Алина	Alina	Аліна	23
+Богдан	Bogdan	Боґдан	23
+Герхард	Gerhard	Герхард	23
+Джессика	Jessica	Джессіка	23
+Джозеф / Жозеф / Йозеф	Joseph	Джозеф / Йозеф / Жозеф	23
+Ева / Эва	Eva	Ева	23
+Леонард	Leonard	Леонард	23
+Марио	Mario	Маріо	23
+Рональд	Ronald	Рональд	23
+Сандра	Sandra	Сандра	23
+Томас / Тома	Thomas	Томас	23
+Шайлапутри	Shailaputri		23
+Эммануэль	Emanuel	Емануель	23
+	Ishana	Ішана	22
+Аврора	Aurora	Аврора (ім'я)	22
+Аксель	Axel	Аксель	22
+Алиса / Элис	Alice	Аліса/Еліс	22
+Анита	Anita	Аніта	22
+Бенджамин / Бенжамин / Бенжамен / Бенхамин / Беньямин	Benjamin	Бенджамін	22
+Борис	Boris	Борис	22
+Вера	Vera	Вера	22
+Викентий / Винсент / Венсан	Vincent	Вінсент	22
+Густав / Гюстав	Gustav	Ґустав	22
+Елена / Элена / Хелена	Helena	Гелена	22
+Ингрид	Ingrid	Інґрід	22
+Казимир	Kasimir	Казимир	22
+Кристофер	Christopher	Крістофер	22
+Лина	Lina	Ліна	22
+Марина	Marina	Марина	22
+Мелисса	Melissa	Мелісса	22
+Тобиас / Тубиас	Tobias	Тобіас	22
+Андреас / Анджей / Андрей	Andreas	Андреас	21
+Герберт / Херберт	Herbert	Герберт	21
+Карим	Karim	Карім	21
+Нина	Nina	Ніна	21
+Норберт	Norbert	Норберт	21
+Паула / Пола	Paula	Паула	21
+Петра	Petra	Петра	21
+Рита	Rita	Рита	21
+Ричард / Рихард / Ришар / Рикард	Richard	Річард	21
+Роман	Roman	Роман	21
+Сара	Sara	Сара	21
+Уильям	William	Вільям	21
+Умар / Омар	Omar	Умар	21
+Филип	Filip	Філіп	21
+Хасан	Hassan	Хассан	21
+Эдвард	Edward	Едвард	21
+Эльвира	Elvira		21
+Эмма	Emma	Емма	21
+Эрик	Erik	Ерік	21
+	Vārāhī		20
+Алекс	Alex	Алекс	20
+Ахмад	Ahmad	Ахмад	20
+Дагмар	Dagmar		20
+Дина		Діна	20
+Ибрахим	Ibrahim	Ібрагім	20
+Карл	Karl	Карл	20
+Лена	Lena	Лена	20
+Магдалена	Magdalena	Маґдалена	20
+Меган	Megan	Меган	20
+Мириам	Miriam	Міріам	20
+Натан / Нейтан	Nathan	Натан	20
+Нора	Nora	Нора	20
+Отто	Otto	Отто	20
+Пол / Поль / Пауль	Paul	Пауль	20
+Роджер / Роже / Рогер	Roger	Роджер / Роже	20
+Роланд / Ролан	Roland	Роланд	20
+Тамара	Tamara	Тамара	20
+Харальд	Harald	Гаральд / Гаралл	20
+Хлоя	Chloe		20
+Чарльз / Шарль	Charles	Чарлз / Шарль	20
+Эрнст	Ernst	Ернст	20
+	Mahagauri		19
+Абель	Abel	Абель	19
+Аменхотеп	Amenhotep	Аменхотеп	19
+Анастасия	Anastasia	Анастасія	19
+Ангелина	Angelina	Ангеліна	19
+Антонио / Антониу	Antonio	Антоніо	19
+Астрид	Astrid	Астрід	19
+Брахмани	Brahmani	Брахмані	19
+Ганс / Ханс	Hans	Ганс	19
+Лейла	Leila		19
+Лусия / Люсия / Люция	Lucia	Лукія	19
+Марта	Marta	Марта	19
+Рудольф	Rudolf	Рудольф	19
+Свен	Sven	Свен	19
+Сильвия	Silvia	Сільвія	19
+Эбигейл	Abigail	Ебіґейл	19
+Алоиз	Alois	Алоїс	18
+Альфонс	Alfons		18
+Арнольд	Arnold	Арнольд	18
+Астика (риши)	Āstīka		18
+Ахиноама	Ahinoam		18
+Белинда	Belinda	Белінда	18
+Бернард / Бернгард / Бернхард	Bernhard	Бернгард	18
+Брайан	Brian	Браян	18
+Варуни	Varuni	Варуні	18
+Вольфганг	Wolfgang	Вольфґанґ	18
+Златан	Zlatan	Златан	18
+Иво	Ivo	Іво	18
+Икшваку	Ikshvaku		18
+Ирен / Ирене / Айрин	Irene	Ірен	18
+Ирма	Irma	Ірма	18
+Кармен	Carmen	Кармен	18
+Клара	Clara	Клара	18
+Кнут	Knut	Кнут	18
+Леон	Leon	Леон	18
+Марк	Mark	Марк	18
+Мартина	Martina		18
+Миа	Mia		18
+Милена	Milena	Мілена	18
+Мустафа	Mustafa	Мустафа	18
+Наталия	Natalia	Наталія	18
+Никола	Nikola	Нікола	18
+Памела	Pamela	Памела	18
+Педро / Педру	Pedro	Педро	18
+Притху	Prithu		18
+Ратри	Ratri	Ратрі	18
+Рене	René		18
+Стефан / Штефан	Stefan	Стефан	18
+Тереза	Teresa	Тереса	18
+Хильдегард	Hildegard	Гільдеґард	18
+Эдмунд	Edmund	Едмунд	18
+Элиас / Элайс	Elias		18
+Эми	Amy	Емі	18
+Эндрю	Andrew	Ендрю	18
+	Panchakanya		17
+Абд аль-Кадир	Abd al-Qadir	Абдулкадир	17
+Август / Аугуст	August	Август	17
+Адела	Adela		17
+Адриан / Эдриан	Adrian	Адріян	17
+Адриана	Adriana	Адріана	17
+Аиша	A'isha		17
+Алан	Alan	Алан	17
+Александра	Alexandra	Александра	17
+Альба	Alba	Альба	17
+Амира	Amira		17
+Ангелика	Angelika	Анґеліка	17
+Армин	Armin	Армін	17
+Аттила	Attila		17
+Бен	Ben	Бен	17
+Ванесса	Vanessa	Ванесса	17
+Вернер	Werner	Вернер	17
+Владислав	Vladislav	Владіслав	17
+Герман / Херман	Herman	Герман	17
+Дана	Dana	Дейна	17
+Дана	Dana	Дейна	17
+Дорис	Doris		17
+Зои	Zoe		17
+Золтан	Zoltán	Золтан	17
+Игорь	Igor	Ігор	17
+Ида	Ida	Іда	17
+Ингеборг	Ingeborg	Інгеборга	17
+Иоганн	Johann	Йоганн	17
+Ирис	Iris	Іріс	17
+Йоахим	Joachim	Йоахім	17
+Камиль	Kamil	Каміль	17
+Карен	Karen	Карен	17
+Ким	Kim	Кім	17
+Кирилл	Kirill	Кирило	17
+Кристина	Christina	Христина	17
+Ларс	Lars	Ларс	17
+Леопольд	Leopold	Леопольд	17
+Маргарет	Margaret	Маргарет	17
+Марта	Martha	Марта	17
+Милан	Milan	Мілан	17
+Милан	Milan	Мілан	17
+Моника	Monika	Моніка	17
+Оливер	Oliver	Олівер	17
+Патриция / Патрисия / Патриша / Патрича	Patricia	Патрісія	17
+Пьер	Pierre	П'єр	17
+Пьер	Pierre	П'єр	17
+Реджина / Регина	Regina	Регіна / Реджина	17
+Фатима	Fatima	Фатіма	17
+Хельмут	Helmut	Гельмут	17
+Хильда	Hilda		17
+Хосе / Жозе	José	Хосе	17
+Элеанор	Eleanor	Елеанор	17
+Элла	Ella	Елла	17
+Энн / Анн / Анне	Anne	Енн	17
+Эрнест	Ernest	Ернест	17
+	Bakasura		16
+	Edvin	Едвін	16
+	Vināyakī		16
+Адиль	Adil	Аділь	16
+Алексей	Aleksey	Олексій	16
+Алисия / Алиша	Alicia	Алісія	16
+Альма	Alma		16
+Альфред	Alfred	Альфред	16
+Андерс	Anders	Андерс	16
+Андре	André	Андре	16
+Артур	Artur	Артур	16
+Белла	Bella	Белла	16
+Бернард / Бернар	Bernard	Бернард / Бернар	16
+Берта	Berta	Берта	16
+Валентина	Valentina	Валентина	16
+Георг	Georg	Ґеорґ	16
+Дебора	Debora		16
+Джеймс	James	Джеймс	16
+Джейн	Jane	Джейн	16
+Дженифер / Еннифер	Jennifer	Дженніфер / Єнніфер	16
+Диего	Diego	Дієґо	16
+Долорес	Dolores		16
+Ивар	Ivar	Івар	16
+Илона	Ilona	Ілона	16
+Инес		Інес	16
+Йосеф / Йозеф	Josef	Йозеф	16
+Крис	Chris	Кріс	16
+Кристиан	Christian	Крістіан	16
+Леа / Лиа / Лея	Lea	Леа	16
+Лео	Leo	Лео	16
+Лиам	Liam	Ліам	16
+Луиза	Louise	Луїза	16
+Люси	Lucy	Люсі	16
+Маргит	Margit		16
+Матильда	Matilda	Матильда	16
+Мина	Mina	Міна	16
+Миранда	Miranda	Міранда	16
+Немайн	Nemain	Немайн	16
+Нэнси	Nancy	Ненсі	16
+Олег	Oleg	Олег	16
+Сабрина	Sabrina		16
+Сальма	Salma	Сальма	16
+Саманта	Samantha	Саманта	16
+Самир	Samir	Самір	16
+Сигрид / Зигрид	Sigrid	Сіґрід	16
+Симеон	Simeon	Симеон	16
+Стелла	Stella	Стелла	16
+Стефани/Стефания/Штефани	Stephanie	Стефані	16
+Стивен	Stephen	Стівен	16
+Сулейман	Suleiman	Сулейман	16
+Тим	Tim	Тім	16
+Франсуа	François	Франсуа	16
+Фридрих	Friedrich	Фрідріх	16
+Хайди	Heidi	Гайді / Гейді	16
+Хьюберт / Губерт / Хуберт / Юбер	Hubert	Губерт	16
+Шарлотта	Charlotte	Шарлотта	16
+Эйнар	Einar	Ейнар	16
+Элеонора	Eleonora	Елеонора	16
+Эрика	Erika	Еріка	16
+Эрхард	Erhard		16
+Юлия / Джулия / Хулия	Julia	Юлія / Джулія / Хулія	16
+Ядвига	Jadwiga	Ядвіґа	16
+	Mahadevi	Магадеві	15
+	Yogamāyā		15
+	Zita		15
+Абд аль-Азиз	Abd al-Aziz	Абдельазіз	15
+Абдальмаджид	'Abd al-Majid		15
+Абрахам / Абраам	Abraham	Абрагам	15
+Абу Бакр	Abu Bakr		15
+Амалия	Amalia	Амалія	15
+Ана	Ana	Ана	15
+Андраш	András	Андраш	15
+Анника	Annika		15
+Антон	Anton	Антон	15
+Ариэль	Ariel	Арієль	15
+Аурелия	Aurelia		15
+Бренда	Brenda		15
+Виктор	Viktor	Віктор	15
+Вильгельм / Вильхельм	Wilhelm	Вільгельм	15
+Владимир	Vladimir		15
+Генрих / Генри / Анри	Henri	Анри	15
+Грета	Greta	Ґрета	15
+Данило	Danilo	Данило	15
+Джина	Gina	Джина	15
+Джоанна / Йоанна	Joanna	Йоанна/Джоанна	15
+Джордж / Жорж	George	Джордж	15
+Джули / Жюли	Julie	Джулі	15
+Доротея	Dorothea	Доротея	15
+Инге	Inge	Інге	15
+Иоганна / Йоханна / Джоханна / Джоанна / Юханна	Johanna	Йоганна	15
+Йохан / Юхан / Йоан	Johan	Юган	15
+Катя	Katja	Катя	15
+Клаудия	Claudia	Клаудіа	15
+Конрад	Konrad	Конрад	15
+Ксавье / Ксавер / Хавьер	Xavier		15
+Курт	Kurt	Курт	15
+Мануэль / Мануэл	Manuel	Мануель	15
+Марго / Маргот	Margot		15
+Марианна	Marianna	Маріанна	15
+Мерседес	Mercedes		15
+Надия	Nadia	Надія	15
+Николь	Nicole	Ніколь	15
+Падмавати	Padmāvatī		15
+Рагнар	Ragnar	Раґнар	15
+Роза / Роса	Rosa	Роза	15
+Рональдо	Ronaldo	Роналду	15
+Светлана	Svetlana	Светлана	15
+София	Sophia	Софія	15
+София / Софи	Sophie	Софі	15
+Танья	Tanja	Таня	15
+Урсула	Ursula		15
+Усман	Uthman		15
+Ференц	Ferenc	Ференц	15
+Фернандо / Фернанду	Fernando	Фернандо	15
+Фиона	Fiona		15
+Флора	Flora		15
+Франк / Фрэнк	Frank	Франк/Френк	15
+Франческо	Francesco	Франческо	15
+Фрида	Frida		15
+Ханна	Hanna	Ганна	15
+Хельга	Helga	Гельґа	15
+Хуан	Juan	Хуан	15
+Эвелин	Evelyn		15
+Эвелин	Evelyn		15
+Эгон	Egon	Еґон	15
+Эдвин	Edwin	Едвін	15
+Эдуард	Eduard	Едуард	15
+Эмилия	Emilia	Емілія	15
+Эрин	Erin		15
+Эрна	Erna	Ерна	15
+Эстер	Esther	Естер	15
+Яна	Jana	Яна	15
+	Ruslan		14
+Абдул-Хамид	'Abd al-Hamid		14
+Адальберт	Adalbert	Адальберт	14
+Аделина	Adelina		14
+Адельгейда	Adelheid	Адельгейда	14
+Азиз	Aziz	Азіз	14
+Алессия	Alessia		14
+Алида	Alida		14
+Альфредо	Alfredo	Альфредо	14
+Амина	Amina	Аміна	14
+Анджей	Andrzej	Анджей	14
+Анджело/Анжело	Angelo	Анджело	14
+Аня	Anja		14
+Арвид	Arvid		14
+Ариана	Ariana	Аріана	14
+Беатриса / Беатрис / Беатри́че	Beatrice	Беатриса	14
+Беттина	Bettina	Беттіна	14
+Биргит	Birgit		14
+Бруно / Брюно	Bruno	Бруно	14
+Бьорн	Björn	Б'єрн	14
+Валентин	Valentin	Валентин	14
+Вальдемар	Valdemar		14
+Вероника	Veronika	Вероніка	14
+Вилма	Vilma		14
+Вирджиния / Виргиния / Вирхиния	Virginia	Вірджинія	14
+Генри / Хенри / Анри / Энри	Henry	Генрі	14
+Герда	Gerda		14
+Готтфрид	Gottfried	Готфрід	14
+Даниэла	Daniela	Данієла	14
+Джонатан / Жонатан / Йонатан / Ионафан / Юнатан	Jonathan	Джонатан	14
+Евгения / Юджиния / Эуджения	Eugenia	Евґенія	14
+Елена	Jelena		14
+Енс	Jens	Єнс	14
+Жан	Jean	Жан	14
+Жуан	João	Жоао	14
+Зоран	Zoran	Зоран	14
+Ивана	Ivana	Івана	14
+Иуда	Juda		14
+Карин	Karin	Карін	14
+Карина	Karina	Карина	14
+Карлос / Карлуш / Карлус	Carlos	Карлуш	14
+Катерин	Katherine	Кетрін	14
+Константин	Konstantin	Костянтин	14
+Лив	Liv		14
+Лолита	Lolita		14
+Лоренцо / Лоренсо	Lorenzo	Лоренсо	14
+Луис / Луи	Louis	Луїс / Луї	14
+Луис / Луиш	Luis	Луїс / Луїш	14
+Марианна	Marianne	Маріанне	14
+Марко	Marko	Марко	14
+Марсель / Маркел / Марчел	Marcel	Марсель	14
+Мартин / Мартен	Martin	Мартін	14
+Мелания	Melanie	Меланія	14
+Мира	Mira		14
+Моника	Monica	Моніка	14
+Мюриэл / Мюриэль	Muriel		14
+Натали	Natalie	Наталі	14
+Никита	Nikita	Микита	14
+Одри	Audrey	Одрі	14
+Одри	Audrey	Одрі	14
+Рафаэль	Rafael	Рафаель	14
+Робин	Robin	Робін	14
+Рольф	Rolf		14
+Рубен	Ruben	Рубен	14
+Себастьян	Sebastian	Себастьян	14
+Селия	Celia	Селія	14
+Сельма / Зельма	Selma		14
+Симона	Simona		14
+Сьюзан / Сьюзен	Susan	Сьюзан	14
+Такэси	Takeshi	Такесі	14
+Татьяна	Tatiana	Татяна	14
+Тибор	Tibor		14
+Уолтер / Вальтер	Walter	Вальтер / Волтер	14
+Фабиан	Fabian	Фабіан	14
+Фёкла	Tekla	Текля	14
+Хана	Hana		14
+Цецилия / Сесилия	Cecilia	Цецилія	14
+Эберхард	Eberhard		14
+Эдгар	Edgar	Едгар	14
+Элвис	Elvis	Елвіс	14
+Элизабет		Елізабет	14
+Эллен	Ellen	Еллен	14
+Эльза	Elsa		14
+Юлиан / Джулиан / Хулиан	Julian	Юліян	14
+Юлиана / Джулиана / Хулиана	Juliana	Юліана	14
+Юсуф	Yusuf	Юсуф	14
+	Srivatsa		13
+Абд аль-Карим	Abd al-Karīm		13
+Абд аль-Малик	Abdul Malik	Абд аль-Малік	13
+Агата	Agata	Аґата	13
+Агата	Agatha	Аґата	13
+Адина	Adina		13
+Александр	Aleksandr	Олександр	13
+Александра	Aleksandra	Александра	13
+Альбин / Альбен	Albin	Албін	13
+Альваро / Алвару	Álvaro	Алвару	13
+Альдо	Aldo		13
+Амелия	Amelia		13
+Амир	Amir	Амір	13
+Аммавару	Ammāvaru		13
+Антония	Antonia	Антонія	13
+Арабелла	Arabella	Арабелла	13
+Арне	Arne		13
+Афшин (титул)	Afshin		13
+Береника	Berenice	Береніка	13
+Ванда	Wanda	Ванда	13
+Василиса	Vasilisa	Василиса	13
+Вацлав	Václav	Вацлав	13
+Вероника	Veronica	Вероніка	13
+Виктор	Victor	Віктор	13
+Виола	Viola	Віола	13
+Гай	Gaius		13
+Гвидо / Гуидо / Гидо	Guido	Ґвідо	13
+Геза	Géza		13
+Гизела	Gisela		13
+Гилберт / Жильбер	Gilbert		13
+Глория	Gloria	Ґлорія	13
+Гопала-Кришна	Gopal	Ґопала	13
+Гуннар	Gunnar	Ґуннар	13
+Густаво	Gustavo	Ґуставо	13
+Дайсукэ	Daisuke		13
+Далия	Dalia	Даля	13
+Дамир	Damir	Дамір	13
+Дариус	Darius	Дарій	13
+Дарья	Daria	Дарія	13
+Дениз	Denise	Деніз	13
+Джастин / Жюстен	Justin	Джастін / Юстин	13
+Джек	Jack	Джек	13
+Джилл	Jill	Джилл	13
+Джузеппе	Giuseppe	Джузепе	13
+Дилан	Dylan		13
+Доминик	Dominik	Домінік	13
+Дональд	Donald	Дональд	13
+Душан	Dušan	Душан	13
+Дьёрдь	György	Дьордь	13
+Дэн / Дан	Dan	Дан / Ден	13
+Жан-Батист	Jean-Baptiste	Жан-Батист	13
+Злата	Zlata	Злата	13
+Имре	Imre	Імре	13
+Ингвар	Ingvar	Інгвар (ім'я)	13
+Инна	Inna	Інна	13
+Йоаким	Joakim		13
+Йюрген	Jürgen	Юрґен	13
+Каролина	Karolina	Кароліна	13
+Катарина	Katarina		13
+Катрин	Katrin	Катрін	13
+Кая	Kaja	Кая	13
+Кирстен	Kirsten		13
+Клаудио	Claudio		13
+Кристиан	Kristian		13
+Кристине / Кристин	Christine	Крістіне / Крістін	13
+Ладислав	Ladislav		13
+Лана	Lana	Лана	13
+Ливия	Livia		13
+Лия	Lia		13
+Людмила	Ludmila	Людмила	13
+Людовик	Ludovic	Людовик	13
+Майкл / Михаэль / Микаэль	Michael	Міхаель / Майкл	13
+Майя	Maja	Мая	13
+Маргарета	Margareta		13
+Мариана	Mariana	Мар'яна / Маріана	13
+Мария	Marija	Марія	13
+Матильда	Mathilde		13
+Мирьям	Mirjam	Мір'ям	13
+Мона	Mona		13
+Мурад	Murad	Мурад	13
+Мэри	Mary	Мері	13
+Мэри / Мари / Мария	Marie	Маріє / Марі	13
+Нельсон	Nelson	Нельсон	13
+Ноам	Noam	Ноам	13
+Норма	Norma		13
+Ноэми			13
+Оге	Aage	Оґе	13
+Ойген / Эуджен	Eugen	Евґен / Ойґен / Еуґен	13
+Оскар	Oscar	Оскар	13
+Оскар	Oskar	Оскар	13
+Пабло	Pablo	Пабло	13
+Патрик	Patrick	Патрік	13
+Пиа	Pia		13
+Рената	Renata	Рената	13
+Ростислав	Rostislav	Ростислав	13
+Руне	Rune		13
+Рут	Ruth	Рут	13
+Самира	Samira		13
+Сигурд	Sigurd	Сіґур	13
+Соломия / Саломе	Salome	Соломія	13
+Сольвейг	Solveig		13
+Соня	Sonja		13
+София	Sofia	Софія	13
+Стивен	Steven	Стівен	13
+Теодор	Teodor	Теодор	13
+Фердинанд	Ferdinand	Фердинанд	13
+Филипп	Philip	Філіп	13
+Флориан	Florian	Флоріан	13
+Фредрик	Fredrik		13
+Хенрик	Henrik	Генрік	13
+Хильда	Hilde	Гілде	13
+Хорст	Horst	Горст	13
+Шарон / Шерон	Sharon	Шерон	13
+Эли	Eli		13
+Эли	Eli		13
+Элиза	Elisa	Еліза	13
+Эмбер	Amber	Ембер	13
+Энджел	Angel	Анґел / Ейнджел	13
+Эрвин	Erwin	Ервін	13
+Эрик	Eric	Ерік	13
+Юдит	Judit		13
+Юрий	Yury	Юрій	13
+	Aitor		12
+	Éder		12
+Агнея	Agneya		12
+Адольфо	Adolfo	Адольфо	12
+Альберта	Alberta		12
+Альпер	Alper		12
+Альфонсо	Alfonso	Альфонсо	12
+Анета	Aneta	Анета	12
+Анжелика/Анхелика		Анґеліка	12
+Артемон	Artemon		12
+Беата	Beata	Беата	12
+Бенгт	Bengt		12
+Бенедикт	Benedikt		12
+Беренгер	Berengar	Беренгар	12
+Бетти	Betty	Бетті	12
+Биргер	Birger		12
+Бо / Бу			12
+Божена	Božena		12
+Бриттани	Brittany	Бріттані	12
+Брэдли	Bradley	Бредлі	12
+Виктория	Victoria	Вікторія	12
+Войцех	Wojciech	Войцех	12
+Ганнибал	Hannibal		12
+Гарри	Harry	Гаррі	12
+Гвен	Gwen	Гвен	12
+Геннадий	Gennady	Геннадій	12
+Грегор	Gregor	Ґреґор	12
+Грете	Grete		12
+Деннис	Dennis	Деннис / Денніс	12
+Джанет	Janet	Джанет	12
+Джейсон	Jason	Джейсон/Язон	12
+Джоан / Жоан / Йоан	Joan		12
+Джудит / Юдит	Judith	Юдит / Джудит	12
+Дмитрий	Dmitry	Дмитро	12
+Доминика	Dominika		12
+Дора	Dora	Дора	12
+Екатерина	Ekaterina	Катерина	12
+Зайнаб	Zaynab	Зейнаб/Зайнаб	12
+Збигнев	Zbigniew	Збіґнєв	12
+Зора	Zora		12
+Иан / Иэн	Ian	Ян	12
+Иешуа	Yeshua		12
+Изабелла	Isabella	Ізабелла	12
+Изабель / Изабел	Isabel	Ізабела	12
+Ильдико	Ildikó	Ільдико	12
+Ира/Айра	Ira		12
+Исаак	Isaak	Ісаак	12
+Йоана	Joana	Жуана	12
+Йозеф	Jozef	Йозеф	12
+Йоран	Göran	Йоран	12
+Кай	Kai		12
+Кальман	Kálmán		12
+Камаль	Kamal	Камаль	12
+Камила	Kamila	Каміля	12
+Карла	Karla	Карла	12
+Кейт	Kate	Кейт	12
+Киаран	Ciarán	Кіаран	12
+Кириак / Сириако	Ciriaco		12
+Клэр	Claire	Клер	12
+Лара	Lara	Лара	12
+Леви	Levi	Леві	12
+Леона	Leona	Леона	12
+Лиза / Лайза	Lisa	Ліза	12
+Линдсей	Lindsay	Ліндсей	12
+Лола	Lola	Льоля	12
+Луиджи	Luigi	Луїджі	12
+Луций	Lucius	Лукій	12
+Любовь	Lyubov	Любов	12
+Магда	Magda		12
+Манфред	Manfred	Манфред	12
+Марджори	Marjorie		12
+Мари	Mari	Марі	12
+Марит	Marit		12
+Мариус	Marius	Маріус	12
+Маттиас	Matthias	Маттіас	12
+Маханаим	Mahanaim	Маханаїм	12
+Мечислав	Mieczysław	Мечислав	12
+Микаэль	Mikael	Мікаел	12
+Милдред	Mildred		12
+Мило / Майло	Milo		12
+Милош	Miloš	Милош	12
+Михаэла	Michaela	Міхаела	12
+Морган	Morgan	Морган	12
+Наташа	Natasha		12
+Нильс	Nils		12
+Олаф	Olaf	Улаф / Олаф	12
+Осман	Osman	Осман	12
+Паоло	Paolo	Паоло	12
+Паскаль	Pascal	Паскаль	12
+Ральф	Ralf		12
+Ранхильд	Ragnhild		12
+Рауль	Raoul		12
+Роберто	Roberto	Роберто	12
+Рэйчел	Rachel	Рахель	12
+Сабина	Sabina		12
+Сара	Sarah	Сара	12
+Сильвана	Silvana		12
+Синтия	Cynthia	Синтія	12
+Сири	Siri		12
+Стен	Sten		12
+Сюзанна	Susanna	Сусанна	12
+Сюзанна / Сюзанн / Сусанна	Susanne	Сусанне	12
+Сёрен	Søren	Серен	12
+Тара	Tara	Тара	12
+Тахир	Tahir	Таїр	12
+Теа	Thea		12
+Теодора	Theodora	Теодора	12
+Тимо	Timo	Тімо	12
+Тиффани	Tiffany		12
+Тофик	Tawfik	Тофік	12
+Тристан	Tristan		12
+Тьерри	Thierry	Т'єррі	12
+Фамарь / Тамар	Tamar	Тамар	12
+Фелиция/Фелисия	Felicia	Фелічія / Фелісія	12
+Франсиско / Франсишку	Francisco	Франсіско	12
+Франц	Franz	Франц	12
+Фриц	Fritz	Фріц	12
+Хашим	Hashim	Хашим	12
+Хелен	Helen	Гелен	12
+Хелена / Хелене / Хелен	Helene	Гелене	12
+Хоакин	Joaquín		12
+Хольгер	Holger	Гольґер	12
+Хорхе / Жоржи	Jorge	Хорхе	12
+Хуссейн	Hussein		12
+Шарлотта	Charlotta		12
+Эдита	Edita		12
+Элиза	Eliza		12
+Элина	Elina	Еліна	12
+Энтони	Anthony	Ентоні	12
+Эстер	Ester	Естер	12
+Ээро	Eero		12
+Якоб / Джейкоб	Jakob	Якоб	12
+	Anatoly	Анатолій	11
+	Arnulf		11
+	Delia		11
+	Hulda		11
+	Ingolf		11
+	Ronja		11
+	Tailtiu		11
+	Tea	Тея	11
+Абдул	Abdul	Абдул	11
+Ава	Ava	Ава	11
+Агнета	Agneta	Агнета	11
+Адель	Adele		11
+Айко	Aiko		11
+Айна	Aina		11
+Алексия	Alexia		11
+Ален	Alain	Ален	11
+Алехандро	Alejandro	Алехандро	11
+Аллан	Allan	Аллан	11
+Альбина	Albina	Альбіна	11
+Амалия	Amalie	Амаліє	11
+Андрес	Andres	Андрес	11
+Аника	Anika		11
+Анни / Энни	Annie	Енні	11
+Анте	Ante	Анте (ім'я)	11
+Антони	Antoni	Антоній / Антоні / Ентоні	11
+Антонина	Antonina	Антоніна	11
+Анук	Anouk		11
+Аугусто / Аугусту	Augusto	Авґусто	11
+Ая	Aya	Ая	11
+Бартоломео	Bartolomeo		11
+Бастиан	Bastian	Бастіан	11
+Беатрис	Beatriz		11
+Бернардо / Бернарду	Bernardo	Бернарду	11
+Берта	Bertha		11
+Бертиль	Bertil		11
+Бертхольд	Berthold		11
+Бодиль	Bodil		11
+Борут	Borut		11
+Боян	Bojan	Боян	11
+Вальтер	Valter	Вальтер	11
+Вивиан	Vivian		11
+Вильгельм	Vilhelm	Вільгельм	11
+Вячеслав	Vyacheslav	Вячеслав	11
+Габриэла	Gabriela	Ґабрієла	11
+Галина	Galina	Галина	11
+Ганнон	Hanno	Ганно	11
+Геновева (значения)	Genoveva		11
+Генрих / Хайнрих	Heinrich	Гайнріх	11
+Герд / Йерд	Gerd		11
+Горан	Goran		11
+Гунхильд / Гунхильда	Gunhild		11
+Даг	Dag		11
+Данута	Danuta	Данута	11
+Джамиль / Хамиль	Jamil	Джаміль / Джаміл / Гаміль / Хаміль	11
+Джейми	Jamie	Джеймі	11
+Джемма	Gemma	Джемма	11
+Джерард / Жерар	Gerard	Ґерард	11
+Джизес / Хесус / Жезуш / Жезус	Jesus		11
+Джон / Йон / Юн	Jon	Юн / Йон / Джон	11
+Джошуа	Joshua		11
+Джоэл / Джоэль	Joel	Джоэл / Джоэль	11
+Донна	Donna		11
+Драган	Dragan	Драган	11
+Дуглас	Douglas	Дуглас	11
+Дэйзи / Дейзи	Daisy		11
+Евдоксия	Eudoxia		11
+Жолт	Zsolt	Жолт	11
+Ива	Iva		11
+Ива	Iva		11
+Ивета	Iveta	Івета	11
+Ильзе	Ilse		11
+Имоджен	Imogen		11
+Ина	Ina	Іна	11
+Инга	Inga	Інґа	11
+Ингер	Inger		11
+Иоланда		Іоланда	11
+Ирэна	Irena	Ірена	11
+Исмаил	Ismail		11
+Камилла	Camilla	Каміла	11
+Камиль	Camille		11
+Карола	Carola		11
+Керстин	Kerstin		11
+Кимберли	Kimberly		11
+Кристина	Cristina		11
+Кристина	Kristina		11
+Кристине	Kristine		11
+Кшиштоф	Krzysztof	Кшиштоф	11
+Кэтрин / Катрин	Catherine	Кетрін	11
+Лаврентий	Laurentius	Лаврентій	11
+Лайош	Lajos		11
+Лассе	Lasse	Лассе	11
+Леандер	Leander		11
+Лейф	Leif	Лейф	11
+Леннарт	Lennart		11
+Лидия	Lydia	Лідія	11
+Лилиана	Liliana	Ліліана	11
+Луна	Luna		11
+Людвиг	Ludwig	Людвіґ	11
+Макс	Max	Макс	11
+Макс	Max	Макс	11
+Максимилиан	Maximilian	Максиміліян	11
+Малик	Malik		11
+Марика	Marika		11
+Марко	Marco		11
+Матс	Mats		11
+Мейбл / Мабель	Mabel		11
+Мелания	Melania	Меланія	11
+Мелинда	Melinda	Мелінда	11
+Мозес	Moses	Мозес	11
+Моник	Monique		11
+Николас / Николя	Nicolas	Николас	11
+Пекка	Pekka		11
+Пенелопа	Penelope		11
+Предраг	Predrag	Предраг	11
+Ральф	Ralph	Ральф	11
+Расмус	Rasmus	Расмус	11
+Рауль	Raul	Рауль	11
+Ренате	Renate		11
+Роберта	Roberta	Роберта	11
+Рёгнвальд	Ragnvald	Раґнвальд	11
+Сверре	Sverre		11
+Серена	Serena		11
+Сириль / Кирилл / Сайрил	Cyril	Сіріл	11
+Снежана			11
+Станислав	Stanislav	Станіслав	11
+Тео	Theo		11
+Тина	Tina	Тіна	11
+Том	Tom	Том	11
+Туве	Tove		11
+Туве	Tove		11
+Уве	Ove	Ове	11
+Улла	Ulla		11
+Ульрика	Ulrika		11
+Фабио	Fabio	Фабіо	11
+Феликс	Felix	Фелікс	11
+Финн	Finn	Фінн	11
+Фольке	Folke		11
+Франс	Frans		11
+Фред	Fred	Фред	11
+Фуад	Fuad	Фуад	11
+Ханна	Hannah	Ганна	11
+Хилари	Hilary	Гілярій/Гілері/Гіларі	11
+Хишам	Hisham	Гішам	11
+Челль	Kjell	К'єлль	11
+Шандор	Sándor	Шандор	11
+Эгидий	Aegidius	Егідій	11
+Эгиль	Egil	Еґіль	11
+Эдда	Edda		11
+Эмили / Эмилия	Emilie		11
+Энрико	Enrico		11
+Эрнесто	Ernesto	Ернесто	11
+Эулалия	Eulalia		11
+Эшли	Ashley	Ешлі	11
+Юлий / Юлиус / Джулиус	Julius	Юліус	11
+Юнус	Yunus	Юнус	11
+Якуб	Jakub	Якуб	11
+Якуб	Yakub		11
+Яромир	Jaromir	Яромир	11
+	Aisling		10
+	Brigita		10
+	Ekanamsha		10
+	Flidais	Фліде	10
+	Gergely		10
+	Janbai		10
+	Klaudia		10
+	Lalla	Лалла (титул)	10
+	Miloslav	Милослав	10
+	Purushottama		10
+	Radovan		10
+	Saburō		10
+Августа / Огаста	Augusta	Августа	10
+Агафья (значения)	Agathe	Агата	10
+Агнешка	Agnieszka	Аґнешка	10
+Аделаида	Adelaide	Аделаїда	10
+Азиза	Aziza		10
+Айлин	Eileen	Ейлін	10
+Айно	Aino		10
+Алана	Alana		10
+Албан / Альбан	Alban		10
+Александар	Aleksandar	Александар	10
+Александр / Александре / Алешандри	Alexandre		10
+Алексис	Alexis	Алексіс	10
+Алессандро	Alessandro	Алессандро	10
+Алла	Alla	Алла	10
+Альберто / Алберту	Alberto		10
+Альгирдас	Algirdas		10
+Амадеус	Amadeus		10
+Амр	Amr		10
+Андрей	Andrej	Андрей	10
+Андрес	Andrés	Андрес	10
+Антонелла	Antonella		10
+Антти	Antti	Антті	10
+Антуанетта	Antoinette		10
+Арам	Aram	Арам	10
+Армандо	Armando		10
+Артём	Artyom	Артем	10
+Ахмед	Ahmed	Ахмед	10
+Ахмет	Ahmet	Ахмет	10
+Бенте	Bente		10
+Бенте	Bente		10
+Бертольд	Bertold		10
+Боб	Bob	Боб	10
+Божена	Bożena	Божена	10
+Божидар	Božidar	Божидар	10
+Брендан	Brendan		10
+Бригитта / Бригитте / Бриджит / Брижит	Brigitte		10
+Бьянка	Bianca	Б'янка	10
+Бьярне	Bjarne		10
+Валерия	Valeria	Валерія	10
+Вигго	Viggo		10
+Витаутас	Vytautas	Витаутас	10
+Гарриет / Харриет	Harriet		10
+Гейр	Geir	Ґейр	10
+Генриетта	Henrietta	Генрієтта	10
+Глеб	Gleb	Гліб	10
+Грейс	Grace	Грейс	10
+Даниель	Danielle		10
+Дафна/Дафни	Daphne	Дафна	10
+Дебора	Deborah	Дебора	10
+Деян	Dejan	Деян	10
+Джаред	Jared		10
+Дженни / Женни / Йенни	Jenny	Дженні	10
+Джироламо	Girolamo	Джироламо	10
+Джованни	Giovanni	Джованні	10
+Джозефина	Josephine	Джозефін	10
+Джонни	Johnny	Джонні	10
+Джорджина	Georgina	Джорджина	10
+Джулия	Giulia	Джулія	10
+Джун	June		10
+Дин	Dean	Дін	10
+Дино	Dino		10
+Дорота	Dorota	Дорота	10
+Дороти	Dorothy	Дороті	10
+Ева / Эва	Ewa	Ева	10
+Ежи	Jerzy	Єжи	10
+Еспер / Йеспер	Jesper		10
+Жак	Jacques	Жак	10
+Желько	Željko		10
+Захра	Zahra	Загра (значення)	10
+Зденек	Zdeněk	Зденек	10
+Зигфрид	Siegfried	Зігфрід	10
+Зузана	Zuzana	Зузана	10
+Ивонн	Yvonne	Івона	10
+Игорь	Ihor	Ігор	10
+Иероним	Hieronymus	Ієронім	10
+Иларий / Хилариус	Hilarius		10
+Иньяки	Iñaki		10
+Иоанн (значения)	Ioannes	Йоаннес	10
+Ирмгард	Irmgard		10
+Иштван	István	Іштван	10
+Йиржи	Jiří	Їржі	10
+Йосип	Josip	Йосип	10
+Камран	Kamran		10
+Каору	Kaoru	Каору	10
+Карел	Karel	Карел	10
+Кари	Kari		10
+Карина	Carina		10
+Карло	Carlo	Карло	10
+Каролина	Carolina	Кароліна	10
+Кароль	Karol	Кароль	10
+Каспер	Kasper	Каспер	10
+Катажина	Katarzyna	Катажина	10
+Каталин	Katalin		10
+Кейтлин	Caitlin		10
+Клара	Klara	Клара	10
+Корнелия	Cornelia		10
+Кофи	Kofi		10
+Криста	Krista		10
+Кристен	Kristen	Крістен	10
+Кристиано / Криштиану	Cristiano		10
+Кристин	Kristin		10
+Кристоффер/Кристофер	Christoffer	Крістофер	10
+Кьяра	Chiara		10
+Лайла	Laila	Ляйля	10
+Лев	Lev	Лев	10
+Лейла	Leyla	Лейла	10
+Леонид	Leonid	Леонід	10
+Лиана	Liana	Ліана	10
+Лизбет	Lisbeth		10
+Лииса	Liisa	Лііса	10
+Лике	Lieke		10
+Лили	Lily	Лілія	10
+Лилия	Lilia	Лілія	10
+Линус / Лайнус	Linus		10
+Лотте / Лотта	Lotte		10
+Лудольф	Ludolf	Лудольф	10
+Лукас	Lukas	Лукас	10
+Луция / Люси	Lucie		10
+Людвиг	Ludvig	Людвіг	10
+Магнус	Magnus	Маґнус	10
+Мальвина	Malvina	Мальвіна	10
+Марвин	Marvin		10
+Маргарита	Margarita	Маргарита	10
+Марита			10
+Маркус	Markus	Маркус	10
+Марлен	Marlene		10
+Масако	Masako		10
+Маттиас	Mattias	Маттіас	10
+Мауро	Mauro	Мауро	10
+Мехди		Мегді	10
+Микола	Mykola	Микола	10
+Мила	Mila		10
+Мила	Mila		10
+Милица	Milica	Милиця	10
+Минна	Minna		10
+Михал	Michał	Міхал	10
+Мод	Maud		10
+Монтсеррат / Монсеррат	Montserrat	Монсеррат	10
+Мортен	Morten		10
+Мэгги	Maggie		10
+Мэй	May	Мей	10
+Мэтью / Мэттью	Matthew	Меттью	10
+Наталья	Nataliya	Наталія	10
+Ненад	Nenad		10
+Николаус	Nikolaus	Ніколаус	10
+Нильс	Niels	Нільс	10
+Оге	Åge		10
+Озлем	Özlem		10
+Оке	Åke		10
+Ориана (имя)	Oriana		10
+Палома	Paloma		10
+Патрик	Patrik		10
+Паулина	Paulina		10
+Пер	Per		10
+Пшемыслав	Przemysław	Пшемислав	10
+Радомир	Radomir		10
+Райнхард / Рейнхард / Рейнгард	Reinhard		10
+Ракель	Raquel		10
+Рамона	Ramona		10
+Рахман	Rahman		10
+Рейдар	Reidar		10
+Ренато	Renato		10
+Роальд / Руаль	Roald	Руалл	10
+Розе	Rose	Роуз	10
+Романа	Romana	Романа	10
+Саддам	Saddam		10
+Саид	Sa‘id		10
+Саския	Saskia		10
+Сатоси	Satoshi		10
+Сесиль	Cécile	Сесиль	10
+Сигна	Signe		10
+Слободан	Slobodan	Слободан	10
+Соня	Sonia		10
+Сэм	Sam	Сем	10
+Тадеуш	Tadeusz	Тадеуш	10
+Тарик	Tariq	Тарік	10
+Татьяна	Tatjana		10
+Торстен	Thorsten		10
+Трюгве	Trygve		10
+Туре	Tore		10
+Ульрик	Ulrik		10
+Ульрика	Ulrica		10
+Ульрих	Ulrich	Ульріх	10
+Ульф	Ulf	Ульф	10
+Умберто	Umberto	Умберто	10
+Фаддей	Thaddeus	Таддеус	10
+Фанни	Fanny		10
+Филомена	Filomena		10
+Флоренс / Флоранс	Florence	Флоренс	10
+Франсуаза	Françoise		10
+Франциска	Franziska	Франціска	10
+Францишек	Franciszek	Францішек	10
+Хадиджа	Khadija		10
+Хамза	Hamza	Хамза	10
+Хамид	Hamid	Хамед	10
+Хизер	Heather	Гезер	10
+Хильдур	Hildur		10
+Хокан	Håkan	Гокан	10
+Хуана	Juana	Хуана	10
+Хулио	Julio	Хуліо	10
+Хьетиль	Kjetil	Х'єтіль	10
+Чаба	Csaba		10
+Шахла	Shahla	Шахла	10
+Ширли	Shirley	Ширлі	10
+Эбба	Ebba		10
+Эвелина	Evelina		10
+Эдит	Edit		10
+Эдит	Edith		10
+Эдна	Edna		10
+Эдуардо / Эдуарду	Eduardo	Едуардо / Едуарду	10
+Элизабет	Elisabet		10
+Элизабет	Elizabeth	Елізабет	10
+Элин	Elin		10
+Элисон	Alison	Елісон	10
+Эсмеральда	Esmeralda		10
+Этель	Ethel		10
+Юджин / Эжен / Ойген	Eugene	Євген	10
+Якоб / Джейкоб	Jacob	Якоб / Джейкоб	10
+Ялмар		Ялмар	10
+Янне	Janne		10
+Ясмин	Yasmin		10
+		Насрін	9
+	Adem		9
+	Agnete		9
+	Amparo		9
+	Antonietta		9
+	Boleslav		9
+	Borislav		9
+	Haakon		9
+	Hadrian		9
+	Hertha		9
+	Jamila		9
+	Jarl		9
+	Ji-min		9
+	Merve		9
+	Nilüfer		9
+	Osvald		9
+	Otmar		9
+	Preben		9
+	Ragna		9
+	Sune		9
+	Svanhild		9
+	Svea		9
+	Szabolcs		9
+	Vanja	Вања	9
+	Vibeke		9
+Аарон	Aaron	Аарон	9
+Абд аль-Халим	Abdul Halim		9
+Абд ас-Салам	Abd al-Salam		9
+Абдалла	Abdallah		9
+Абди	Abdi		9
+Айварс	Aivars		9
+Айри	Airi		9
+Акира	Akira	Акіра	9
+Алекса	Aleksa		9
+Алексей	Aleksej	Олексій	9
+Алессандра	Alessandra	Алесандра	9
+Алехандра	Alejandra	Алехандра	9
+Алим	Alim	Алім	9
+Альва	Alva	Альва	9
+Алёна	Alena	Алена	9
+Амир	Amir	Амір	9
+Анетт	Anett	Анетт	9
+Анжелик	Angelique		9
+Аннетт	Annette	Аннетт	9
+Антал	Antal	Антал	9
+Антеро	Antero		9
+Арпад	Árpád		9
+Арсен	Arsène	Арсен	9
+Асбьёрн	Asbjørn		9
+Барух	Baruch	Барух	9
+Бела	Béla	Бела	9
+Биргитта	Birgitta		9
+Бланка	Blanka		9
+Богуслав	Bogusław	Богуслав	9
+Бонни	Bonnie	Бонні	9
+Бранислав	Branislav		9
+Брюс	Bruce	Брюс	9
+Вальдемар	Waldemar	Вальдемар	9
+Василий	Vasily	Василь	9
+Весна	Vesna		9
+Вивиана	Viviana		9
+Владимир	Vladimir	Володимир	9
+Владимир	Volodymyr	Володимир	9
+Гай / Ги	Guy	Ґай / Ґі	9
+Галина	Galina	Галина	9
+Георгий	Georgy	Георгій	9
+Гильерми	Guilherme		9
+Глэдис	Gladys	Ґледіс	9
+Грете / Грета	Grethe		9
+Гудрун	Gudrun		9
+Гэри	Gary	Ґері	9
+Дагни	Dagny	Даґню / Даґні	9
+Дарио	Dario		9
+Дезидерий	Desiderius		9
+Денис / Дэнис / Дени	Denis	Деніс/Денис/Дені	9
+Джасинта / Хасинта	Jacinta		9
+Джейд	Jade		9
+Дженна	Jenna	Дженна	9
+Джеральд	Gerald		9
+Джесси	Jesse		9
+Джим	Jim	Джим	9
+Джимми	Jimmy	Джиммі	9
+Джоб/Йоб	Job	Йов	9
+Джованна	Giovanna	Джованна	9
+Джорджио / Джорджо	Giorgio	Джорджо	9
+Джорджия	Georgia		9
+Дзюнко	Junko		9
+Дирк	Dirk		9
+Дитмар	Dietmar		9
+Доминик	Dominique	Домінік	9
+Егор	Yegor	Єгор	9
+Жаклин	Jacqueline	Жаклін	9
+Жасмин/Ясмин	Jasmine	Жасмин	9
+Жиль	Gilles	Жиль/Жіль	9
+Зара	Zara	Зара	9
+Здзислав	Zdzisław	Здзіслав	9
+Зенобия	Zenobia		9
+Златко	Zlatko		9
+Ив	Eve	Єва	9
+Изабела	Izabela	Ізабеля / Ізабела	9
+Изабелла / Изабель	Isabelle		9
+Ильва	Ylva		9
+Иман	Iman	Іман	9
+Иман	Iman	Іман	9
+Имельда	Imelda		9
+Ингве	Yngve	Інгве	9
+Ингемар	Ingemar		9
+Ингмар	Ingmar		9
+Ириней	Irenäus		9
+Исак	Isak		9
+Ислам	Islam	Іслам	9
+Итан	Ethan		9
+Йоланда / Юланда	Jolanda		9
+Йонатан / Юнатан	Jonatan		9
+Йорген	Jørgen	Йорґен / Єрґен	9
+Йорма	Jorma	Йорма	9
+Кадзуки	Kazuki	Кадзукі	9
+Кайса		Кайса	9
+Калеви	Kalevi		9
+Карл	Carl	Карл	9
+Карой	Károly	Карой	9
+Карола	Karola		9
+Каролина	Caroline		9
+Кваме	Kwame		9
+Келли	Kelly	Келлі	9
+Кен	Ken	Кен	9
+Кендра	Kendra	Кендра	9
+Килиан	Kilian		9
+Киммо	Kimmo		9
+Кира	Kira	Кіра	9
+Клаус	Klaus	Клаус	9
+Корнелия	Kornelia		9
+Крейг	Craig	Крейґ	9
+Латиф	Latif	Лятіф	9
+Ленка	Lenka	Ленка	9
+Летиция	Laetitia		9
+Лех	Lech	Лех (ім'я)	9
+Лешек	Leszek	Лешек	9
+Лидия	Lidia	Лідія	9
+Лили	Lili		9
+Лили	Lili		9
+Лилиан	Lillian		9
+Линнея	Linnea		9
+Лиутгарда	Luitgard		9
+Лоран	Laurent	Лорен	9
+Лорена	Lorena		9
+Максим	Maxim	Максим	9
+Марек	Marek	Марек	9
+Марен	Maren	Марен	9
+Мариан	Marian	Мар'ян	9
+Мариса	Marisa	Маріса	9
+Маркус	Marcus	Маркус	9
+Марсела	Marcela	Марцела	9
+Марселла / Марчелла	Marcella		9
+Мартин / Мартине	Martine		9
+Марцин	Marcin	Марцін	9
+Матей	Matej		9
+Маурицио	Maurizio	Мауріціо	9
+Мельхиор	Melchior		9
+Мередит	Meredith	Мередіт (ім'я)	9
+Мирко	Mirko	Мірко	9
+Михай	Mihály		9
+Мишель	Michelle	Мішель	9
+Младен	Mladen	Младен	9
+Молли	Molly	Моллі	9
+Мэдлин / Мадлен	Madeleine		9
+Набиль	Nabil		9
+Нана	Nana		9
+Нандор	Nándor	Нандор	9
+Наоми	Naomi	Наомі	9
+Натали	Nathalie	Наталі	9
+Нестор	Nestor	Нестор	9
+Николас	Nicholas	Ніколас	9
+Ними	Nimi		9
+Нино	Nino	Ніно	9
+Оксана	Oksana	Оксана	9
+Олаф / Улав	Olav		9
+Оливье	Olivier	Олів'є	9
+Орели	Aurélie	Аврелія	9
+Орландо	Orlando		9
+Освальд	Oswald	Освальд	9
+Пааво	Paavo	Пааво	9
+Павел	Pavel	Павел	9
+Павел	Paweł	Павел	9
+Параскева	Paraskeva	Параскева	9
+Пертти	Pertti		9
+Петронелла	Petronella		9
+Петрус / Петрюс	Petrus		9
+Полина	Polina	Поліна	9
+Пьетро	Pietro	П'єтро	9
+Пэрис	Paris		9
+Пётр	Piotr	Пйотр	9
+Раиса	Raisa	Раїса	9
+Рамзес	Ramesses		9
+Рауль	Raúl	Рауль	9
+Ребекка / Ревекка	Rebecca	Ребекка	9
+Ренат	Renat	Ренат	9
+Рик	Rick	Рік	9
+Рой	Roy	Рой	9
+Рут	Rut		9
+Руф / Руфус	Rufus		9
+Сайрус	Cyrus	Са́йрус	9
+Санна	Sanna		9
+Саша	Saša	Саша	9
+Серхио / Серджо	Sergio	Серджо	9
+Сесар / Сезар	César		9
+Сет	Seth		9
+Софи	Sofie		9
+Стефания	Stefania	Стефанія	9
+Стефано	Stefano	Стефано	9
+Стиг	Stig		9
+Стина	Stina		9
+Тарас	Taras	Тарас	9
+Тейлор	Taylor	Тейлор	9
+Тельма	Thelma		9
+Теренс	Terence	Теренце / Теренс	9
+Тесса	Tessa		9
+Тимон	Timon		9
+Тимоти	Timothy	Тимоті	9
+Томас	Tomas	Томас	9
+Тонанцин	Tonantzin		9
+Тронн / Тронд	Trond		9
+Турбьёрн	Torbjörn		9
+Уле	Ole	Уле	9
+Улоф	Olof		9
+Урбан	Urban		9
+Урош	Uroš		9
+Фарах	Faraḥ	Фарах	9
+Филиппа	Filippa		9
+Франциска / Франсиска	Francisca	Франсіска	9
+Франческа	Francesca	Франческа	9
+Фредерик	Frederik	Фредерик	9
+Фруде	Frode		9
+Фрэнсис / Франсис	Francis	Френсіс	9
+Хайке	Heike	Гайке	9
+Хайке	Heike	Гайке	9
+Хайме	Jaime	Джеймі	9
+Халид		Халід	9
+Халина	Halina	Галіна	9
+Ханнес	Hannes		9
+Хелле	Helle	Гелле	9
+Хелле	Helle	Гелле	9
+Хендрик	Hendrik	Гендрік	9
+Хироки	Hiroki		9
+Хосефа / Жозефа / Йозефа	Josefa		9
+Чеслав	Czesław	Чеслав	9
+Шанталь	Chantal		9
+Шейла	Sheila		9
+Шерил	Cheryl		9
+Шиван	Siobhán		9
+Шломо	Shlomo	Шломо	9
+Эвальд	Evald		9
+Эверт	Evert		9
+Эдвард	Edvard	Едвард	9
+Эдриэнн / Адриенн	Adrienne		9
+Эйдан	Aidan	Ейдан	9
+Эйно	Eino		9
+Эйя	Eija		9
+Элвин	Alvin	Альвін	9
+Эльдар	Eldar	Ельдар	9
+Эльке	Elke		9
+Эльмира	Elmira	Ельміра	9
+Эльфледа	Ælfflæd		9
+Эме	Aimée		9
+Энди	Andy	Енді	9
+Энид	Enid		9
+Энн / Анна / Анн	Ann	Енн	9
+Эрвин	Ervin	Ервін	9
+Эркки	Erkki		9
+Эрлинг	Erling	Ерлінґ	9
+Эспен	Espen		9
+Этьен	Étienne		9
+Юлия / Джулия	Julija		9
+Юсси	Jussi		9
+Яакко	Jaakko		9
+Януш	Janusz	Януш	9
+Ярмила	Jarmila		9
+Ясир	Yasser	Ясер / Ясир	9
+	Agnar		8
+	Aloysius		8
+	Arash		8
+	Arja	Ар'я	8
+	Aslaug		8
+	Barış		8
+	Bipodtarini Devi		8
+	Branimir		8
+	Darya	Дарія	8
+	Drahomíra		8
+	Dénes		8
+	Eivor	Ейвор	8
+	Elfrida		8
+	Elis		8
+	Elma		8
+	Enikő		8
+	Filipa		8
+	Fruzsina		8
+	Gojko	Гойко	8
+	Gunnel		8
+	Hande		8
+	Irja		8
+	Jasmina		8
+	Krister		8
+	Leandra		8
+	Lilja		8
+	Lisbet		8
+	Ljubica		8
+	Maura		8
+	Medard		8
+	Meritites		8
+	Natanael		8
+	Nela		8
+	Nevena		8
+	Reza		8
+	Reza		8
+	Sigvard		8
+	Sinivali		8
+	Sohil		8
+	Sunniva		8
+	Sören	Серен	8
+	Tage	Таґе	8
+	Tijana		8
+	Tord		8
+	Torgny		8
+	Trude		8
+	Tyra		8
+	Waltraud		8
+	Šarūnas	Шарунас	8
+Абдон	Abdon		8
+Абду-ль-Лятиф	ʿAbd al-Laṭīf		8
+Агнеш	Ágnes		8
+Аделаида	Adelaida		8
+Аднан	Adnan	Аднан	8
+Айла	Aila		8
+Айла	Ayla		8
+Айли	Aili		8
+Айше	Ayşe		8
+Аки	Aki		8
+Акрам	Akram		8
+Алвар	Alvar		8
+Алекса	Alexa		8
+Александр / Александер	Aleksander	Александер	8
+Алессио	Alessio		8
+Алиса	Alissa		8
+Алойзи	Alojzy		8
+Альвин/Элвин	Alwin	Альвін	8
+Альф	Alf	Альф	8
+Альфреда	Alfreda	Альфреда	8
+Амаль	Amal		8
+Анаис	Anaïs		8
+Андор	Andor	Андор	8
+Аннели	Anneli		8
+Анни	Anni		8
+Антонино	Antonino	Антоніно	8
+Аня	Anya	Аня	8
+Аранка	Aranka		8
+Арзу	Arzu		8
+Ариф	Arif		8
+Арношт	Arnošt		8
+Арон		Арон	8
+Арсений	Arsenius	Арсен	8
+Арья	Arya		8
+Арья	Arya		8
+Арья	Arya		8
+Афонсу	Afonso	Афонсу	8
+Ачьюта	Acyuta		8
+Башир	Bashir		8
+Беата / Беате	Beate	Беата	8
+Бегонья	Begoña		8
+Бедржих	Bedřich		8
+Бенедикте	Benedikte		8
+Бент	Bent	Бент	8
+Бенце	Bence		8
+Берит	Berit		8
+Берт	Bert		8
+Билал	Bilal		8
+Богдана	Bogdana	Богдана	8
+Брайан	Bryan	Браян	8
+Бритт	Britt	Брітт	8
+Бритта	Britta		8
+Бронислав	Bronisław	Броніслав	8
+Бюлент	Bülent		8
+Вадим	Vadim	Вадим	8
+Валерий	Valery	Валерій	8
+Валерио	Valerio	Валеріо	8
+Валид	Waleed		8
+Вацлав	Wacław	Вацлав	8
+Вейкко	Veikko		8
+Венди	Wendy	Венді	8
+Вернер	Verner		8
+Виллем	Willem		8
+Виолета	Violeta		8
+Витторио	Vittorio	Вітторіо	8
+Владислав	Władysław	Владислав	8
+Габор	Gábor		8
+Габриэлла	Gabriella	Ґабрієлла	8
+Гвендолин	Gwendolyn		8
+Гвинет	Gwyneth	Ґвінет	8
+Гвюдмюндюр	Guðmundur		8
+Герт	Gert		8
+Гертруда	Gertrud		8
+Гжегож	Grzegorz	Ґжеґож	8
+Гийом	Guillaume	Гійом	8
+Горазд	Gorazd		8
+Гражина	Grażyna	Ґражина	8
+Грегорио	Gregorio	Грегоріо	8
+Гру	Gro	Ґру	8
+Гуадалупе	Guadalupe		8
+Гудмунд	Gudmund		8
+Гумберт / Юмбер	Humbert		8
+Гунилла	Gunilla		8
+Гэвин	Gavin	Гевін	8
+Гёкхан	Gökhan	Ґьохкан	8
+Дамиан	Damián		8
+Дамодара	Damodar		8
+Даница	Danica	Даніца	8
+Джафар	Ja'far	Джафар	8
+Джеффри	Jeffrey	Джефрі	8
+Джеффри / Жоффруа	Geoffrey	Джеффрі	8
+Джозайя	Josiah		8
+Джой	Joy	Джой	8
+Джойс	Joyce	Джойс	8
+Джонни	Jonny		8
+Драгомир	Dragomir		8
+Евгений	Yevgeny	Євгеній	8
+Евгения	Evgenia	Євгенія	8
+Евдокия	Yevdokiya	Євдокія	8
+Елизавета	Yelizaveta	Єлизавета	8
+Жан-Жак	Jean-Jacques	Жан-Жак	8
+Жан-Мари	Jean-Marie		8
+Жанетт / Джанет	Jeanette		8
+Жанна	Jeanne	Жанна	8
+Захария			8
+Захария	Sakarias	Захарія	8
+Звонимир	Zvonimir		8
+Зденко	Zdenko	Зденко	8
+Здравко	Zdravko	Здравко	8
+Зельда	Zelda	Зельда	8
+Зыгмунт / Сигизмунд / Зигмунд	Zygmunt	Зиґмунт	8
+Игнатиус	Ignatius		8
+Изаак	Izak		8
+Илмари	Ilmari		8
+Илья	Ilya	Ілля	8
+Иляна	Ileana		8
+Ингигерда	Ingegerd	Інгігерда	8
+Индия	India	Індія	8
+Иоланда	Yolanda	Іоланта	8
+Ирина	Irina	Ірина	8
+Йован	Jovan	Йован	8
+Йёрн	Jørn	Єрн	8
+Кадзуо	Kazuo	Кадзуо	8
+Кайса	Kaisa	Кайса	8
+Камилла	Kamilla		8
+Карине	Karine	Каріне	8
+Карла	Carla		8
+Кармело	Carmelo		8
+Катарина	Katharina	Катарина	8
+Катерина	Katerina	Катеріна	8
+Кент	Kent	Кент	8
+Клеменс / Климент	Klemens	Клеменс	8
+Клод	Claude	Клод	8
+Колин	Colin	Колін	8
+Конни	Connie	Конні	8
+Корделия	Cordelia		8
+Коре	Kåre		8
+Кристиане	Christiane		8
+Кристиина	Kristiina		8
+Кристина	Krystyna	Кристина	8
+Кристоф	Christoph	Крістоф	8
+Ксения	Xenia	Ксенія	8
+Кузьма	Kuzma	Кузьма	8
+Кэти	Katie		8
+Ламберт / Ламбер	Lambert	Ламбер	8
+Леандро / Леандру	Leandro	Леандро	8
+Леонардо	Leonardo	Леонарду	8
+Ли	Lee	Лі	8
+Лила	Lila		8
+Лоредана	Loredana		8
+Лоуренс	Lawrence	Лоуренс	8
+Лукас	Lucas	Лукас	8
+Льюис	Lewis	Льюїс	8
+Люк	Luke	Люк	8
+Майкен	Maiken		8
+Майте	Maite		8
+Майя/Майа	Maia	Мая	8
+Малика	Malika	Маліка	8
+Мальте	Malte		8
+Манон	Manon		8
+Мара	Mara	Мара	8
+Марианн	Mariann		8
+Мариано	Mariano	Маріано	8
+Марья / Мария	Marja		8
+Масаси	Masashi		8
+Матти	Matti	Матті	8
+Матьяш (значения)	Mátyás	Матьяш	8
+Маша	Masha	Маша	8
+Мета	Meta		8
+Метте	Mette		8
+Микаэла	Micaela		8
+Миккель	Mikkel		8
+Милорад	Milorad	Милорад	8
+Миндаугас	Mindaugas		8
+Мирелла	Mirella	Мірелла	8
+Михаил	Mikhail	Михайло	8
+Нада	Nada		8
+Надин	Nadine		8
+Найджел	Nigel	Найджел	8
+Найджел	Nigel	Найджел	8
+Наоки	Naoki		8
+Нафан	Nathanael		8
+Небойша	Nebojša		8
+Никола	Nicola		8
+Николай	Nikolai	Николай	8
+Норман	Norman	Норман	8
+Одд	Odd		8
+Олави	Olavi		8
+Орхан	Orhan		8
+Оттилия	Ottilie	Оттиліє	8
+Оулавюр	Ólafur	Оулавюр	8
+Пентти	Pentti	Пентті	8
+Пий	Pius		8
+Присцилла	Priscilla		8
+Раймунд	Rajmund		8
+Райнер	Rainer		8
+Рамеш	Ramesh		8
+Ратко	Ratko		8
+Рашид	Rashid		8
+Реджинальд	Reginald		8
+Риа	Ria		8
+Рина	Rina	Ріна	8
+Розарио / Росарио	Rosario		8
+Розарио / Росарио	Rosario		8
+Розарио / Росарио	Rosario		8
+Ромео	Romeo		8
+Ронан	Ronan	Ронан	8
+Ронни	Ronny		8
+Ронни	Ronny		8
+Сальвадор	Salvador	Сальвадор	8
+Сандрин			8
+Саня	Sanja		8
+Сара	Sára		8
+Сванте	Svante	Сванте	8
+Свен	Svend		8
+Седрик		Седрік	8
+Сергей	Serhii	Сергій	8
+Сергиус	Sergius		8
+Сигфрид / Зигфрид	Sigfrid		8
+Сигэру	Shigeru		8
+Сидзука	Shizuka		8
+Сикстен	Sixten		8
+Силке	Silke		8
+Сильва	Silva		8
+Сильвио	Silvio		8
+Симона	Simone	Сімоне / Симоне / Симон	8
+Синди	Cindy	Синді	8
+Сол/Саул	Saul	Шауль / Шаўл	8
+Стуре	Sture		8
+Стэнли	Stanley	Стенлі	8
+Сэнди	Sandy	Сенді	8
+Такаси	Takashi	Такасі	8
+Таня			8
+Теймураз	Teimuraz	Теймураз	8
+Теодор	Theodor	Теодор	8
+Теодора	Teodora	Теодора	8
+Теофил	Teofil	Теофіль	8
+Тимофей	Timofey	Тимофій	8
+Тихон	Tikhon	Тихон	8
+Тодд	Todd	Тодд	8
+Тодор	Todor	Тодор	8
+Тойво	Toivo		8
+Томислав	Tomislav	Томіслав	8
+Томми	Tommy	Томмі	8
+Тор	Thor	Тор / Тур	8
+Торвальд	Thorvald	Торвалл	8
+Торкель	Torkel		8
+Трэвис	Travis	Тревіс	8
+Тургейр	Torgeir		8
+Уилма/Вилма	Wilma		8
+Уинифред	Winifred		8
+Ульрике	Ulrike		8
+Усама	Osama		8
+Фатма	Fatma	Фатьма	8
+Филипе	Filipe	Філіпе	8
+Флавия	Flavia	Флавія	8
+Франсеск	Francesc		8
+Франтишек	František	Франтішек	8
+Францискус	Franciscus		8
+Фредерико	Frederico		8
+Фрэнсис	Frances	Френсіс	8
+Хавьер	Javier		8
+Хайрам / Хайрем / Хирам	Hiram		8
+Хакан	Hakan		8
+Хакон/Хокон			8
+Ханнелора / Ханнелоре	Hannelore		8
+Хельге	Helge	Гельґе	8
+Хенни	Henny		8
+Херта	Herta		8
+Хиллеви	Hillevi		8
+Целина / Селина	Celina		8
+Цукаса	Tsukasa		8
+Чад / Чед	Chad	Чед	8
+Чиро / Кир / Сиро	Ciro		8
+Шарлин	Charlene		8
+Эван	Evan	Еван	8
+Эви	Evi		8
+Элджернон	Algernon		8
+Элейн	Elaine	Елейн	8
+Элиза	Elise		8
+Элиф	Elif		8
+Элли	Ellie		8
+Эльза	Else		8
+Эльза	Elza		8
+Эльмар	Elmar		8
+Эльна / Элна	Elna		8
+Эме	Aimé		8
+Эмили	Emily	Емілі	8
+Эмилия	Emelie	Емелі	8
+Эмин	Emin	Емін	8
+Эммануэль / Эмманюэль / Эммануэл	Emmanuel	Еммануель	8
+Эмре	Emre		8
+Эндре	Endre	Ендре	8
+Энрике	Enrique	Енріке	8
+Энцо	Enzo		8
+Эрленд	Erlend	Ерленн	8
+Юзеф	Józef	Юзеф	8
+Юрико	Yuriko		8
+Юрьё	Yrjö		8
+Ян	Ján		8
+Янина	Janina	Яніна	8
+Янош	János	Янош	8
+Ярослав	Jaroslav	Ярослав	8
+Ярослава	Jaroslava	Ярослава	8
+Яцек	Jacek	Яцек	8

@@ -21,15 +21,18 @@
 #   model     lexicon + text + wikifreq (default)
 #   heldout   held-out corpus sources, used only for evaluation (~141 MB)
 #   bench     small sources of the quality bench (`perekey-eval`, docs/eval.md):
-#             the Wikipedia list of common misspellings. Evaluation only, not
-#             in CI's default fetch (~0.1 MB)
+#             the Wikipedia list of common misspellings, tldr-pages 2.3 (CC BY 4.0)
+#             and six free repositories at pinned commits, one for each language
+#             of the code, for the class suites (~5 MB). Evaluation only, not in
+#             CI's default fetch. If GitHub ever serves another archive for a
+#             pinned commit, the script stops on the hash; see data/SOURCES.md
 #   heavy     large optional held-out source: ru.stackoverflow.com (~1 GB)
 #   fallback  needs a legal decision before use: OpenCorpora (ru), Wiktionary
 #             forms (uk, ~300 MB)
 #   speech    FLEURS (Google, CC BY 4.0), ru and en, the dev split: 50 recordings
 #             with their reference text per language, for `perekey-voice-probe
 #             score`. Local measure only, not in CI, not in the app (~360 MB)
-#   all       model + pairs + heldout
+#   all       model + pairs + heldout + bench
 #
 # Environment:
 #   PEREKEY_DATA_CACHE    cache directory (default: .build/data-cache)
@@ -60,6 +63,8 @@ WM_REV=1199637275                                       # en.wikipedia.org, Wiki
 GH_RAW=https://raw.githubusercontent.com
 HF_WIKI="https://huggingface.co/datasets/wikimedia/wikipedia/resolve/$WIKI_REV/$WIKI_SNAPSHOT"
 IA_SE=https://archive.org/download/stackexchange
+GH_CODE=https://codeload.github.com
+TLDR_REL=v2.3                                           # tldr-pages release, CC BY 4.0 (LICENSE.md in the archive)
 HF_FLEURS="https://huggingface.co/datasets/google/fleurs/resolve/$FLEURS_REV/data"
 WM_RAW="https://en.wikipedia.org/w/index.php?title=Wikipedia:Lists_of_common_misspellings/For_machines&oldid=$WM_REV&action=raw"
 
@@ -104,6 +109,13 @@ speech|fleurs/ru_ru.dev.tar.gz|$HF_FLEURS/ru_ru/audio/dev.tar.gz|4dc533cd0f312f7
 speech|fleurs/en_us.dev.tar.gz|$HF_FLEURS/en_us/audio/dev.tar.gz|2658fda72f199e12676ecac9415094667a4e14e149b146e568ea00b2a2f0954c
 bench|wikipedia-misspellings/for-machines.txt|$WM_RAW|3b6a9290e5aaad968da7ec769a5174adb45247688ef7ae097fd2dd80237a3050
 heavy|stackexchange/ru.stackoverflow.com.7z|$IA_SE/ru.stackoverflow.com.7z|sha1:32a8897c021e9c943b93f8fd70dfafb180925451
+bench|tldr/tldr-pages.en.zip|https://github.com/tldr-pages/tldr/releases/download/$TLDR_REL/tldr-pages.en.zip|88c262ac45a55f2eb773ae4505bfcc71cf4204c639afb2dd5c59865883624127
+bench|code/swift-swift-argument-parser.tar.gz|$GH_CODE/apple/swift-argument-parser/tar.gz/38ca4eceb349155836701b88da3e0986eb9d1e1c|c978c43927b9238b7d50fc19b5e18235e76095ff27ced35a397a0589a3b6e6aa
+bench|code/python-requests.tar.gz|$GH_CODE/psf/requests/tar.gz/3c7baaa05ab4aa49cc819ce3a819d260de19c157|53195693070a892c284d7a60b0f4e762348b36b57427576985338f12b082cff2
+bench|code/js-express.tar.gz|$GH_CODE/expressjs/express/tar.gz/43fca52d28a422c8be48fd489cbd4f2d6152bab6|0907a1731d24be4424787c250d90b9178a60bacc9e4cf331e56ba0e84a032a76
+bench|code/go-cobra.tar.gz|$GH_CODE/spf13/cobra/tar.gz/adbc8813901bba65827259daa8e22ff94ec1f30e|3ac55fe8da447fda3fc44f539a78b9d713467f3e6790642c2bafc5df3c56b409
+bench|code/sh-nvm.tar.gz|$GH_CODE/nvm-sh/nvm/tar.gz/4e8758a801eea9479b32a904f31093e410ddaba4|a8518d4129ba40c23d00f1e37f233d3890d4c804438f698dc56675058bfd0226
+bench|code/sql-pgvector.tar.gz|$GH_CODE/pgvector/pgvector/tar.gz/bcbb135db5f6f7539965e18565ddd5990efcf165|4e5094cca8510e4f956e3ef0acd67ad3142f4c052c440ef34f565f2a6d3f0e58
 fallback|opencorpora/dict.opcorpora.xml.bz2|https://opencorpora.org/files/export/dict/dict.opcorpora.xml.bz2|-
 fallback|wiktionary/kaikki-uk.jsonl|https://kaikki.org/dictionary/Ukrainian/kaikki.org-dictionary-Ukrainian.jsonl|-
 "
@@ -229,9 +241,9 @@ for arg in "$@"; do
     case "$arg" in
         lexicon|text|pairs|wikifreq|heldout|speech|bench|heavy|fallback) GROUPS_WANTED+=("$arg") ;;
         model) GROUPS_WANTED+=(lexicon text pairs wikifreq) ;;
-        all) GROUPS_WANTED+=(lexicon text pairs wikifreq heldout) ;;
-        -h|--help) sed -n '3,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, speech, bench, heavy, fallback, all)" ;;
+        all) GROUPS_WANTED+=(lexicon text pairs wikifreq heldout bench) ;;
+        -h|--help) sed -n '3,44p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, speech, heavy, bench, fallback, all)" ;;
     esac
 done
 

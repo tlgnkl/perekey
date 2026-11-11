@@ -1,0 +1,43 @@
+{
+ "about": "The most frequent words with marks before and behind them: quotes, brackets, stops, an ellipsis, a hyphen (en ↔ uk). The rule over the lexicon",
+ "class": {
+  "languages": [
+   "uk",
+   "en"
+  ],
+  "rule": "punct",
+  "top": 1500
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Ukrainian-PC"
+  ]
+ ],
+ "license": "wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.cold",
+  "slip.cold"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/ukr_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.punct.uk",
+ "tags": [
+  "class",
+  "punct"
+ ],
+ "tiers": {
+  "ci": 800,
+  "full": 6000
+ },
+ "version": 1
+}

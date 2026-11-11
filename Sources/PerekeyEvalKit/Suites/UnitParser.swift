@@ -113,6 +113,8 @@ struct LayoutSet {
 struct ParsedUnit {
     var tokens: [ParsedToken]
     var set: LayoutSet
+    /// Where the fingers aim in a unit with no letter at all (`15:30`); the Latin layout when nil.
+    var defaultAim: String?
 
     /// The layout the fingers aim at for each segment, token after token.
     /// A token with no letter aims where the token before it did; the first
@@ -125,7 +127,7 @@ struct ParsedUnit {
                 break
             }
         }
-        var previous = first ?? set.latin
+        var previous = first ?? defaultAim ?? set.latin
         var result: [[String]] = []
         for token in tokens {
             var row: [String] = []
@@ -151,7 +153,8 @@ enum UnitParser {
     /// and script filter of the manifest, a letter no layout types, a
     /// character the set cannot type.
     static func parse(_ text: String, manifest: SuiteManifest, set: LayoutSet, library: LayoutLibrary,
-                      filter: SuiteManifest.Filter? = nil) -> Result<ParsedUnit, Drop>
+                      filter: SuiteManifest.Filter? = nil, aim: String? = nil, lettersOptional: Bool = false)
+        -> Result<ParsedUnit, Drop>
     {
         // Most sentences of a big source miss the length filter; count their
         // tokens on scalars before the slow work on characters. The count only
@@ -172,18 +175,20 @@ enum UnitParser {
             case .stripPunctuation: text = stripPunctuation(text)
             }
         }
-        return parse(text, filter: filter ?? manifest.filter, set: set, library: library)
+        return parse(text, filter: filter ?? manifest.filter, set: set, library: library, aim: aim,
+                     lettersOptional: lettersOptional)
     }
 
-    static func parse(_ text: String, filter: SuiteManifest.Filter?, set: LayoutSet, library: LayoutLibrary)
-        -> Result<ParsedUnit, Drop>
+    static func parse(_ text: String, filter: SuiteManifest.Filter?, set: LayoutSet, library: LayoutLibrary,
+                      aim: String? = nil, lettersOptional: Bool = false) -> Result<ParsedUnit, Drop>
     {
         let tokens = tokens(of: text)
         if tokens.count < (filter?.minTokens ?? 1) { return .failure(.tooShort) }
         if let maximum = filter?.maxTokens, tokens.count > maximum { return .failure(.tooLong) }
-        let unit = ParsedUnit(tokens: tokens, set: set)
+        var unit = ParsedUnit(tokens: tokens, set: set)
+        unit.defaultAim = aim
         let scripts = unit.scripts
-        if scripts.isEmpty { return .failure(.noLetters) }
+        if scripts.isEmpty, !lettersOptional || tokens.isEmpty { return .failure(.noLetters) }
         if scripts.contains(.other) { return .failure(.otherScript) }
         for required in filter?.requireScripts ?? [] {
             let script: LetterScript = required == .cyrillic ? .cyrillic : .latin

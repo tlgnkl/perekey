@@ -1,0 +1,41 @@
+{
+ "about": "Latin names among Cyrillic text: products, companies, services. A seed list and a corpus",
+ "class": {
+  "corpus": "stackexchange/ukrainian.stackexchange.com.7z",
+  "minPerMillion": 5.0,
+  "rule": "brands",
+  "seeds": "class.brands.txt"
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Ukrainian-PC"
+  ]
+ ],
+ "license": "CC BY-SA (Stack Exchange); wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.warm",
+  "slip.warm"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/ukr_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.brands.uk",
+ "tags": [
+  "class",
+  "brands"
+ ],
+ "tiers": {
+  "ci": 400,
+  "full": 20000
+ },
+ "version": 1
+}

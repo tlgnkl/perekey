@@ -1,0 +1,15 @@
+# Затравка набора class.names.uk: украинские имена и города. Написана для этого лейна, не из пробы.
+Оля	names.uk
+Іра	names.uk
+Андрій	names.uk
+Олег	names.uk
+Максим	names.uk
+Софія	names.uk
+Київ	names.uk
+Львів	names.uk
+Одеса	names.uk
+Харків	names.uk
+Дніпро	names.uk
+Запоріжжя	names.uk
+Тарас	names.uk
+Оксана	names.uk

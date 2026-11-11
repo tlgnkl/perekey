@@ -42,6 +42,8 @@ public struct SuiteManifest: Hashable, Sendable {
     public var balance: Bool?
     public var fold: [String]?
     public var tags: [String]?
+    /// The rule of a class suite (`reader: class`): where its words come from.
+    public var classSpec: ClassSpec?
     /// Set for a suite of word corrections (docs/eval.md, «Наборы правок слова»): built by `CorrectionBuilder`.
     public var correction: Correction?
     /// With the `misspellings` reader: the Tatoeba file whose sentences carry the misspelled word.
@@ -49,6 +51,11 @@ public struct SuiteManifest: Hashable, Sendable {
 
     public enum Reader: String, Hashable, Sendable, Codable, CaseIterable {
         case tatoeba, stackexchange
+        /// A class suite: the units are words that a rule picks out of a
+        /// lexicon, a corpus or a generator (docs/eval.md, «Наборы классов»).
+        /// `source` then names the Tatoeba files that give the sentences to
+        /// warm up with.
+        case `class`
         /// Wikipedia's «Lists of common misspellings / For machines»: `misspelling->correction` per line.
         case misspellings
         /// A file the person put there: `typo<TAB>correct` or `sentence<TAB>corrected sentence` per line.
@@ -90,7 +97,7 @@ public struct SuiteManifest: Hashable, Sendable {
     public enum Sampling: String, Hashable, Sendable, Codable {
         /// Text as it is written: natural frequencies.
         case token
-        /// A list of words, each once. Not built by this lane.
+        /// A list of words, each once: a class suite.
         case type
     }
 
@@ -194,7 +201,17 @@ public struct SuiteManifest: Hashable, Sendable {
             problems.append("filter.maxTokens is below minTokens")
         }
         if sources.isEmpty { problems.append("no source") }
-        if sampling == .type { problems.append("sampling type is built by the class suites, not by this reader") }
+        if reader == .class {
+            if sampling != .type { problems.append("a class suite has sampling type") }
+            if let classSpec {
+                problems += classSpec.problems(scenarios: scenarios)
+            } else {
+                problems.append("a class suite needs a class rule")
+            }
+        } else {
+            if sampling == .type { problems.append("sampling type is built by the class suites, not by this reader") }
+            if classSpec != nil { problems.append("class is for the class suites") }
+        }
         return problems
     }
 }
@@ -203,6 +220,7 @@ extension SuiteManifest: Codable {
     private static let fields: Set<String> = [
         "suite", "version", "epoch", "seed", "about", "reader", "source", "license", "sampling", "layoutSets",
         "scenarios", "settings", "end", "filter", "tiers", "split", "normalize", "transform", "balance", "fold", "tags",
+        "class",
         "correction", "carrier",
     ]
 
@@ -230,6 +248,7 @@ extension SuiteManifest: Codable {
         balance = try c.optional(Bool.self, "balance")
         fold = try c.optional([String].self, "fold")
         tags = try c.optional([String].self, "tags")
+        classSpec = try c.optional(ClassSpec.self, "class")
         correction = try c.optional(Correction.self, "correction")
         carrier = try c.optional(String.self, "carrier")
     }
@@ -257,6 +276,7 @@ extension SuiteManifest: Codable {
         try c.encodeIfPresent(balance, forKey: AnyKey("balance"))
         try c.encodeIfPresent(fold, forKey: AnyKey("fold"))
         try c.encodeIfPresent(tags, forKey: AnyKey("tags"))
+        try c.encodeIfPresent(classSpec, forKey: AnyKey("class"))
         try c.encodeIfPresent(correction, forKey: AnyKey("correction"))
         try c.encodeIfPresent(carrier, forKey: AnyKey("carrier"))
     }

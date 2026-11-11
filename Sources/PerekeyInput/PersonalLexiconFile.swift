@@ -79,30 +79,78 @@ public struct PersonalLexiconFile: Sendable {
         return PersonalLexiconModel(options: options, entries: entries, generation: generation)
     }
 
-    /// Writes the lexicon: atomically, 0600 from the first byte.
+    /// The names of the files `save` makes before the replace. Only these are
+    /// swept: the folder holds the files of other writers too.
+    static let temporaryPrefix = ".lexicon-"
+    static let temporarySuffix = ".tmp"
+
+    /// Writes the lexicon: atomically, 0600 from the first byte. The
+    /// temporary file is made with the mode 0600 (`open`, not a copy of the
+    /// umask's), written through its descriptor and closed; the mode is set
+    /// again before the replace, and read after it. A temporary file left by
+    /// an earlier crash is swept first.
     public func save(_ model: PersonalLexiconModel, key: PersonalKey) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let temporary = url.deletingLastPathComponent().appending(path: ".\(UUID().uuidString).tmp")
-        guard FileManager.default.createFile(atPath: temporary.path, contents: try Self.encode(model, key: key),
-                                             attributes: [.posixPermissions: 0o600])
-        else { throw CocoaError(.fileWriteUnknown) }
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        sweepTemporaries()
+        let data = try Self.encode(model, key: key)
+        let (temporary, handle) = try Self.createTemporary(in: directory)
         do {
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+            guard fchmod(handle.fileDescriptor, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EPERM) }
+            try handle.close()
             if FileManager.default.fileExists(atPath: url.path) {
                 _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
             } else {
                 try FileManager.default.moveItem(at: temporary, to: url)
             }
-            // The replace may keep the old file's permissions: a file left 0644 stays 0644 without this.
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            // The replace may keep the old file's mode: a file left 0644 stays 0644 without this.
+            try Self.requireOwnerOnly(url)
         } catch {
+            try? handle.close()
             try? FileManager.default.removeItem(at: temporary)
             throw error
         }
     }
 
-    /// Deletes the file; no file is not an error.
+    /// Makes a new file with the mode 0600 and a name nobody has.
+    static func createTemporary(in directory: URL) throws -> (URL, FileHandle) {
+        let url = directory.appending(path: "\(temporaryPrefix)\(UUID().uuidString)\(temporarySuffix)")
+        return (url, try openExclusively(url))
+    }
+
+    /// `open(O_CREAT | O_EXCL)` with the mode 0600; fails if the file is there.
+    static func openExclusively(_ url: URL) throws -> FileHandle {
+        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    }
+
+    /// Sets the mode 0600 and reads it back; throws when the file is not the owner's alone after it.
+    private static func requireOwnerOnly(_ url: URL) throws {
+        let manager = FileManager.default
+        func mode() throws -> Int? {
+            try manager.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+        }
+        if try mode() != 0o600 {
+            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+        guard try mode() == 0o600 else { throw CocoaError(.fileWriteNoPermission) }
+    }
+
+    /// Deletes the temporary files of this lexicon that a crash left.
+    private func sweepTemporaries() {
+        let directory = url.deletingLastPathComponent()
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for name in names where name.hasPrefix(Self.temporaryPrefix) && name.hasSuffix(Self.temporarySuffix) {
+            try? FileManager.default.removeItem(at: directory.appending(path: name))
+        }
+    }
+
+    /// Deletes the file and the temporary files a crash left; no file is not an error.
     public func remove() throws {
+        sweepTemporaries()
         do {
             try FileManager.default.removeItem(at: url)
         } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {

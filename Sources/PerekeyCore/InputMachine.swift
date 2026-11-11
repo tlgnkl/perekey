@@ -130,6 +130,9 @@ public struct InputMachine: Sendable {
     /// lexicon was just turned on, 1 after a batch left, 0 when it is off.
     public var personalRoomsWanted: Int { judge.personalRoomsWanted }
 
+    /// The personal lexicon the machine looks words up in now (`.off` when none).
+    public var personalLexicon: PersonalLexicon { judge.personal }
+
     /// The bundle ID of the focus, as the undos and the per-app exceptions see it.
     public var focusApp: String? { focus?.bundleID }
 

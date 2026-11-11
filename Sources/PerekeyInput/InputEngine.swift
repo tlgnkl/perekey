@@ -61,6 +61,11 @@ public enum EngineMessage: Sendable {
     /// them on the main thread (`PersonalRoom()` allocates) and send each with
     /// `send(.personalRoomReturned(_))`. The tap allocates none on a word.
     case personalRoomsWanted(Int)
+    /// The personal lexicon the machine let go of when a new one came in
+    /// (`InputEvent.personalLexiconChanged`): its words are freed on the main
+    /// thread, as the tap frees no storage (a lexicon holds up to 5000 words
+    /// and 20000 starts). Nothing to do with it.
+    case personalLexiconReleased(PersonalLexicon)
     /// The voice trigger fired (`Effect.voice`). While a hold is on, check
     /// its keys on the main thread (`VoiceTrigger.isHeldNow`) and send
     /// `.voiceHoldLost` if they are up: a key up can be lost.
@@ -655,8 +660,15 @@ public final class InputEngine: @unchecked Sendable {
     // on the test thread, with no tap running.
     func handle(_ event: InputEvent) {
         guard case let .focusChanged(focus, change) = event else {
+            // The old lexicon goes to the main thread: it is freed there, not on the tap.
+            var replaced: PersonalLexicon?
+            if case .personalLexiconChanged = event, machine.personalLexicon.isOn { replaced = machine.personalLexicon }
             execute(step(event).effects)
-            if case .personalLexiconChanged = event { askForPersonalRooms() }
+            if case .personalLexiconChanged = event {
+                // `take` moves the last reference into the message: the tap must not be the one that frees it.
+                if let old = replaced.take() { toMain(.personalLexiconReleased(old)) }
+                askForPersonalRooms()
+            }
             return
         }
         let word = wordInProgress
@@ -667,6 +679,9 @@ public final class InputEngine: @unchecked Sendable {
         let kept = wordInProgress == word
         focusLog.info("Focus \(String(describing: change), privacy: .public) in \(app, privacy: .public): \(kept ? "kept" : "dropped", privacy: .public) a word of \(word, privacy: .public) keys")
     }
+
+    /// The lexicon the machine has now; for the tests of the wiring.
+    var personalLexicon: PersonalLexicon { machine.personalLexicon }
 
     /// A new lexicon is in: the buffers the machine lacks come from the main
     /// thread. One message per lexicon, not one per word: the tap asks nothing

@@ -124,4 +124,18 @@ struct PersonalSignalsTests {
         #expect(PersonalWordRef(retyped: "dashka", decision: decision) == PersonalWordRef(text: "dashka", language: "en"))
         #expect(PersonalWordRef(retyped: "dashka", decision: nil) == nil)
     }
+
+    @Test func theWordAndTheSignalsPrintAsRedacted() {
+        var signals = PersonalSignals()
+        signals.undone(seq: 1)
+        let word = PersonalWordRef(text: "секретноеслово", language: "ru")
+        for value in [word as Any, signals as Any] {
+            #expect(String(describing: value) == "<redacted>")
+            #expect(String(reflecting: value) == "<redacted>")
+            #expect("\(value)" == "<redacted>")
+            var dumped = ""
+            dump(value, to: &dumped)
+            #expect(!dumped.contains("секрет") && !dumped.contains("text") && !dumped.contains("switches"))
+        }
+    }
 }

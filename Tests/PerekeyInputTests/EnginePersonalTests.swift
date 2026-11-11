@@ -119,4 +119,88 @@ struct EnginePersonalTests {
         await drain()
         #expect(wanted(inbox) == [2])
     }
+
+    private func released(_ inbox: Inbox) -> [PersonalLexicon] {
+        inbox.messages.compactMap { if case let .personalLexiconReleased(old) = $0 { old } else { nil } }
+    }
+
+    @Test func theOldLexiconGoesToTheMainThreadWhenANewOneComesIn() async {
+        let inbox = Inbox()
+        let engine = engine(inbox)
+        let next = PersonalLexicon(key: PersonalKey(bytes: (1...16).map { UInt8($0) })!, words: [1, 2], starts: [3])
+        engine.handle(.personalLexiconChanged(lexicon))
+        await drain()
+        #expect(released(inbox).isEmpty, "off before it: nothing to let go of")
+        engine.handle(.personalLexiconChanged(next))
+        await drain()
+        #expect(released(inbox) == [lexicon], "the first snapshot is freed on the main thread")
+        engine.handle(.personalLexiconChanged(.off))
+        await drain()
+        #expect(released(inbox) == [lexicon, next])
+        engine.handle(.personalLexiconChanged(.off))
+        await drain()
+        #expect(released(inbox).count == 2, "off for off: no message")
+    }
+
+    @Test func theLexiconAMessageHoldsIsTheOneTheTapLetGo() async {
+        let inbox = Inbox()
+        let engine = engine(inbox)
+        let next = PersonalLexicon(key: PersonalKey(bytes: (1...16).map { UInt8($0) })!, words: [9], starts: [])
+        engine.handle(.personalLexiconChanged(lexicon))
+        engine.handle(.personalLexiconChanged(next))
+        await drain()
+        #expect(released(inbox).first?.words == lexicon.words)
+        #expect(engine.personalLexicon.words == [9], "the machine has the new one")
+    }
+
+    // MARK: - The setting, the profile and the tap
+
+    private func wired(_ engine: InputEngine, allowed: Bool, keys: MemoryLexiconKeyStore = MemoryLexiconKeyStore())
+        -> PersonalLexiconStore
+    {
+        let store = PersonalLexiconStore(file: nil, keys: keys, today: { 20_000 }, allowed: allowed)
+        store.onLexiconChanged = { engine.handle(.personalLexiconChanged($0)) }
+        return store
+    }
+
+    @Test func theSettingOnGivesTheTapAnEmptyLexiconWithTheKeyAndOffTakesItBack() throws {
+        let inbox = Inbox()
+        let engine = engine(inbox)
+        let keys = MemoryLexiconKeyStore()
+        let store = wired(engine, allowed: true, keys: keys)
+        #expect(!engine.personalLexicon.isOn, "before the setting is applied: off")
+        store.apply(false)
+        #expect(!engine.personalLexicon.isOn, "off from the start: the tap has nothing, no key was asked for")
+        #expect(keys.created == 0)
+        store.apply(true)
+        #expect(engine.personalLexicon.isOn && !engine.personalLexicon.hasWords)
+        #expect(engine.personalLexicon.key == (try keys.load()))
+        store.apply(false)
+        #expect(engine.personalLexicon == .off)
+    }
+
+    @Test func aProfileThatForbidsItLeavesTheTapOffWhateverTheSetting() {
+        let inbox = Inbox()
+        let engine = engine(inbox)
+        let keys = MemoryLexiconKeyStore()
+        let store = wired(engine, allowed: false, keys: keys)
+        store.apply(true)
+        #expect(engine.personalLexicon == .off)
+        #expect(keys.created == 0)
+        store.apply(false)
+        store.apply(true)
+        #expect(engine.personalLexicon == .off)
+    }
+
+    @Test func aKeychainBackAfterTheLaunchTurnsTheTapOn() throws {
+        let inbox = Inbox()
+        let engine = engine(inbox)
+        let keys = MemoryLexiconKeyStore(failure: LexiconKeyFailure.status(-25308))
+        let store = wired(engine, allowed: true, keys: keys)
+        store.apply(true)
+        #expect(engine.personalLexicon == .off)
+        keys.setFailure(nil)
+        store.retryActivation()
+        #expect(engine.personalLexicon.isOn)
+    }
 }

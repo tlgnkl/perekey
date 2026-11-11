@@ -162,4 +162,62 @@ struct PersonalLexiconFileTests {
             #expect(!file.exists)
         }
     }
+
+    @Test func theTemporaryFileIsClosedToTheOwnerFromItsFirstByte() throws {
+        try withFile { file, _ in
+            let directory = file.url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let (url, handle) = try PersonalLexiconFile.createTemporary(in: directory)
+            defer { try? handle.close() }
+            // Before a byte is written: the mode is the one asked for, not the umask's.
+            let mode = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+            #expect(mode == 0o600)
+            #expect(url.lastPathComponent.hasPrefix(".lexicon-") && url.lastPathComponent.hasSuffix(".tmp"))
+            #expect(throws: (any Error).self, "an existing name is not opened again") {
+                _ = try PersonalLexiconFile.openExclusively(url)
+            }
+        }
+    }
+
+    private func plantLeftovers(_ file: PersonalLexiconFile) throws -> (ours: [URL], foreign: URL) {
+        let directory = file.url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ours = [".lexicon-1111.tmp", ".lexicon-2222.tmp"].map { directory.appending(path: $0) }
+        for url in ours { try Data("half".utf8).write(to: url) }
+        let foreign = directory.appending(path: ".statistics-3333.tmp")
+        try Data("not ours".utf8).write(to: foreign)
+        return (ours, foreign)
+    }
+
+    @Test func aTemporaryFileLeftByACrashGoesWithTheNextWrite() throws {
+        try withFile { file, _ in
+            let planted = try plantLeftovers(file)
+            try file.save(sampleModel(), key: key)
+            for url in planted.ours { #expect(!FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent)") }
+            #expect(FileManager.default.fileExists(atPath: planted.foreign.path), "another writer's file is not ours to delete")
+            let names = try FileManager.default.contentsOfDirectory(atPath: file.url.deletingLastPathComponent().path).sorted()
+            #expect(names == [".statistics-3333.tmp", "lexicon.json"])
+        }
+    }
+
+    @Test func aTemporaryFileLeftByACrashGoesWithRemoveEvenWithNoLexiconFile() throws {
+        try withFile { file, _ in
+            let planted = try plantLeftovers(file)
+            #expect(!file.exists)
+            try file.remove()
+            for url in planted.ours { #expect(!FileManager.default.fileExists(atPath: url.path)) }
+            #expect(FileManager.default.fileExists(atPath: planted.foreign.path))
+        }
+    }
+
+    @Test func aLexiconFileOfAnotherModeIsClosedAfterTheReplaceAndNothingIsLeft() throws {
+        try withFile { file, _ in
+            try file.save(sampleModel(), key: key)
+            try FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: file.url.path)
+            try file.save(sampleModel(), key: key)
+            let mode = try FileManager.default.attributesOfItem(atPath: file.url.path)[.posixPermissions] as? Int
+            #expect(mode == 0o600)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: file.url.deletingLastPathComponent().path) == ["lexicon.json"])
+        }
+    }
 }

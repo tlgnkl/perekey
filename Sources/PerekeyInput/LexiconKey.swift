@@ -36,10 +36,16 @@ public enum LexiconKeyGenerator {
         bytes.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, $0.count, $0.baseAddress!) } == errSecSuccess
     }
 
+    /// How many draws `make` tries. A draw of 16 zero bytes has a chance of
+    /// 2⁻¹²⁸ from a working source, so a second one is for a source that is
+    /// broken, and a third is for being sure; more would only hide a failure
+    /// that must turn the lexicon off.
+    static let attempts = 3
+
     /// A key of 16 random bytes. A draw that is all zeros is no draw
-    /// (`PersonalKey(bytes:)` refuses it): it is tried again, three times at most.
+    /// (`PersonalKey(bytes:)` refuses it): it is tried again, `attempts` times at most.
     public static func make(fill: Fill = secure) throws -> PersonalKey {
-        for _ in 0..<3 {
+        for _ in 0..<attempts {
             var bytes = [UInt8](repeating: 0, count: PersonalKey.byteCount)
             guard fill(&bytes) else { throw LexiconKeyFailure.noRandomKey }
             if let key = PersonalKey(bytes: bytes) { return key }

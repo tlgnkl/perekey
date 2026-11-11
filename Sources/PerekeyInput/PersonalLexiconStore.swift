@@ -6,10 +6,18 @@ import os
 import PerekeyCore
 
 /// A word of the personal lexicon as the main thread knows it for a moment:
-/// its text, in the hint or the menu, and its language. It is never stored.
-public struct PersonalWordRef: Hashable, Sendable {
+/// its text, in the hint or the menu, and its language. It is never stored,
+/// and it prints as `<redacted>`: the text must not reach a log or a crash
+/// report, as the key's does not.
+public struct PersonalWordRef: Hashable, Sendable, CustomStringConvertible, CustomDebugStringConvertible,
+    CustomReflectable
+{
     public var text: String
     public var language: LanguageCode
+
+    public var description: String { "<redacted>" }
+    public var debugDescription: String { "<redacted>" }
+    public var customMirror: Mirror { Mirror(self, children: []) }
 
     public init(text: String, language: LanguageCode) {
         self.text = text
@@ -39,8 +47,13 @@ public struct PersonalWordRef: Hashable, Sendable {
 /// (docs/classifier.md, «Личный словарь»): the undo of a switch to it, by the
 /// hint's button, by the shortcut or by a Backspace that settled as «keep it
 /// as typed», and a retype of it by hand into another layout. Each says the
-/// word is not the user's after all, and the lexicon drops it at once.
-public struct PersonalSignals: Sendable {
+/// word is not the user's after all, and the lexicon drops it at once. It
+/// holds the text of words for a moment and prints as `<redacted>`.
+public struct PersonalSignals: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "<redacted>" }
+    public var debugDescription: String { "<redacted>" }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+
     /// The switches to a personal word that still stand, by `Correction.seq`.
     private var switches: [(seq: UInt32, word: PersonalWordRef)] = []
     /// The word of an undo that is not settled yet.
@@ -112,6 +125,12 @@ public final class PersonalLexiconStore {
     public private(set) var wordCount = 0
     /// Something of the lexicon is on disk or in the Keychain: the pane offers «Erase».
     public private(set) var hasStored = false
+    /// A profile forbids the lexicon (`ManagedSettings.personalWordsDisabled`),
+    /// whether the user asked for it or not. The one place that says so: the
+    /// pane reads it here, not from the profile.
+    public private(set) var forbidden = false
+    /// The last erase left the file or the key behind: the pane says so.
+    public private(set) var eraseFailed = false
     /// The lexicon the tap has now.
     @ObservationIgnored public private(set) var lexicon = PersonalLexicon.off
 
@@ -123,11 +142,16 @@ public final class PersonalLexiconStore {
     @ObservationIgnored private let keys: any LexiconKeyStore
     @ObservationIgnored private let options: PersonalOptions
     @ObservationIgnored private let saveInterval: Double
+    @ObservationIgnored private let sleep: @MainActor (Double) async -> Void
     @ObservationIgnored private let today: @MainActor () -> Int
     @ObservationIgnored private let clock: @MainActor () -> Double
     @ObservationIgnored private let sessionOnly: Bool
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "lexicon")
 
+    /// What the user asked for and what the profile allows, as the store last heard.
+    @ObservationIgnored private var wanted = false
+    @ObservationIgnored private var permitted: Bool
+    @ObservationIgnored private var applied: Bool?
     @ObservationIgnored private var key: PersonalKey?
     @ObservationIgnored private var model: PersonalLexiconModel
     @ObservationIgnored private var dirty = false
@@ -136,21 +160,37 @@ public final class PersonalLexiconStore {
     /// The latest day a batch was counted on: a clock set back shows as a day before it.
     @ObservationIgnored private var latestDay = Int.min
 
+    /// The file is written at most this often, in seconds, and when `flush`
+    /// says so (quit); a write that failed is tried again after as long.
+    /// 30 s: a word is counted every few seconds of typing, a full write is
+    /// all the entries, and a quit loses nothing (docs/classifier.md,
+    /// «Личный словарь», «Файл»; step L2b, point 2 of the plan).
+    public static let defaultSaveInterval = 30.0
+
     /// - Parameters:
     ///   - file: nil keeps nothing on disk (snapshots).
-    ///   - saveInterval: the file is written at most this often, in seconds,
-    ///     and when `flush` says so (quit).
+    ///   - saveInterval: see `defaultSaveInterval`.
     ///   - today: the calendar day, as the app numbers days.
+    ///   - allowed: false under a profile that forbids the lexicon
+    ///     (`ManagedSettings.personalWordsDisabled`, read once, at launch).
+    ///   - sleep: waits for the held back write; the tests run it by hand.
     ///   - sessionOnly: the typing recording's build (`PEREKEY_RECORD`): the
     ///     store draws a key of its own for the run, in memory, reads no
-    ///     keychain and no file, and keeps no word, so the recording holds
-    ///     neither the real key nor a fingerprint of the user's words. The
-    ///     machine observes under the session key and finds nothing.
+    ///     keychain and no file, and keeps no word. The machine observes
+    ///     under the session key and finds nothing, so the recording holds
+    ///     the session key and the fingerprints of the words under it
+    ///     (`wordsKept`, `personalLexiconChanged`); it holds neither the real
+    ///     key nor a fingerprint that works on the user's file. The text of
+    ///     the typing is in the recording anyway.
     public init(file: PersonalLexiconFile? = PersonalLexiconFile(), keys: any LexiconKeyStore,
-                options: PersonalOptions = PersonalOptions(), saveInterval: Double = 30,
-                today: @escaping @MainActor () -> Int, sessionOnly: Bool = false,
-                clock: @escaping @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime })
+                options: PersonalOptions = PersonalOptions(), saveInterval: Double = PersonalLexiconStore.defaultSaveInterval,
+                today: @escaping @MainActor () -> Int, allowed: Bool = true, sessionOnly: Bool = false,
+                clock: @escaping @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime },
+                sleep: @escaping @MainActor (Double) async -> Void = { try? await Task.sleep(for: .seconds($0)) })
     {
+        permitted = allowed
+        forbidden = !allowed
+        self.sleep = sleep
         self.file = file
         self.keys = keys
         self.options = options
@@ -164,12 +204,24 @@ public final class PersonalLexiconStore {
 
     // MARK: - The switch
 
+    /// The setting «Мои слова» as the settings hold it: the store hears of a
+    /// change only. The profile is the one the store was made with.
+    public func apply(_ wanted: Bool) {
+        guard wanted != applied else { return }
+        applied = wanted
+        setEnabled(wanted, allowed: permitted)
+    }
+
     /// Applies the setting «Мои слова». `allowed` is false under a profile
-    /// that forbids the lexicon: then nothing is read or kept, and what an
-    /// earlier run left on disk goes.
+    /// that forbids the lexicon: then nothing is read or kept, nothing is
+    /// written, and what an earlier run left on disk and in the Keychain goes.
     public func setEnabled(_ wanted: Bool, allowed: Bool = true) {
+        self.wanted = wanted
+        permitted = allowed
+        forbidden = !allowed
         if !allowed {
-            if wanted || file?.exists == true { eraseStorage() }
+            dropHeldBackWrite()
+            eraseStorage()
             deactivate(unavailable: wanted ? .managed : nil)
             return
         }
@@ -181,13 +233,24 @@ public final class PersonalLexiconStore {
         activate()
     }
 
+    /// The Keychain refused the key when the lexicon was asked for (a locked
+    /// login keychain, `errSecInteractionNotAllowed`): try again. The app
+    /// calls this when it is activated and when the pane opens. It does
+    /// nothing unless the user asked, no profile forbids it and the Keychain
+    /// was the reason.
+    public func retryActivation() {
+        guard wanted, permitted, !isActive, unavailable == .keychain else { return }
+        activate()
+    }
+
     private func activate() {
         if sessionOnly {
             guard let session = try? LexiconKeyGenerator.make() else {
                 return deactivate(unavailable: .keychain)
             }
             key = session
-            model = PersonalLexiconModel(options: options)
+            // The generation only goes up over the run (an erase raises it): a switch off and on is not a start at 0.
+            model = PersonalLexiconModel(options: options, generation: model.generation)
             finishActivation()
             return
         }
@@ -218,10 +281,10 @@ public final class PersonalLexiconStore {
         publish()
     }
 
+    /// Off writes nothing: what was held back goes with the switch. The file
+    /// is as the last write left it (the lexicon is not erased by turning it off).
     private func deactivate(unavailable reason: Unavailable?) {
-        saveNow()
-        saveTask?.cancel()
-        saveTask = nil
+        dropHeldBackWrite()
         isActive = false
         unavailable = reason
         key = nil
@@ -249,7 +312,12 @@ public final class PersonalLexiconStore {
 
     private func count(_ tally: PersonalTally) {
         let day = today()
-        if day < latestDay { Self.clampFuture(&model, to: day) }
+        if day < latestDay {
+            Self.clampFuture(&model, to: day)
+        } else if latestDay != .min, day > latestDay, model.expire(today: day) {
+            // A word or a candidate ran out while the app was running, not at the start.
+            publish()
+        }
         latestDay = day
         let acceptedChanged = model.record(tally, day: day)
         if acceptedChanged { publish() }
@@ -274,9 +342,7 @@ public final class PersonalLexiconStore {
     /// so the batches counted before are dropped. With the lexicon on it
     /// goes on empty under a new key.
     public func erase() {
-        saveTask?.cancel()
-        saveTask = nil
-        dirty = false
+        dropHeldBackWrite()
         model.erase()
         wordCount = 0
         eraseStorage()
@@ -296,16 +362,23 @@ public final class PersonalLexiconStore {
         publish()
     }
 
+    /// Removes the file and the key, with no condition: a key without a file
+    /// is stored too. What is left is told by `hasStored` and `eraseFailed`.
     private func eraseStorage() {
         guard !sessionOnly else { return }
+        var failed = false
+        var keyMayBeThere = false
         do { try file?.remove() } catch {
+            failed = true
             log.error("The file of the personal lexicon is not removed: \(error.localizedDescription, privacy: .private)")
         }
         do { try keys.delete() } catch {
+            failed = true
+            keyMayBeThere = true
             log.error("The key of the personal lexicon is not removed: \(String(describing: error), privacy: .private)")
         }
-        dirty = false
-        hasStored = false
+        eraseFailed = failed
+        hasStored = keyMayBeThere || file?.exists == true
     }
 
     // MARK: - The snapshot
@@ -332,20 +405,33 @@ public final class PersonalLexiconStore {
             saveNow()
             return
         }
-        let delay = saveInterval - waited
+        schedule(after: saveInterval - waited)
+    }
+
+    private func schedule(after delay: Double) {
+        guard saveTask == nil else { return }
+        let sleep = sleep
         saveTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
+            await sleep(delay)
             guard !Task.isCancelled, let self else { return }
             saveTask = nil
             saveNow()
         }
     }
 
-    /// Writes what is not written (quit, turning the lexicon off).
+    /// Writes what is not written (quit).
     public func flush() {
         saveTask?.cancel()
         saveTask = nil
         saveNow()
+    }
+
+    /// What is held back is dropped, with its timer: an erase, the switch
+    /// off and a profile that forbids the lexicon write nothing.
+    private func dropHeldBackWrite() {
+        saveTask?.cancel()
+        saveTask = nil
+        dirty = false
     }
 
     private func saveNow() {
@@ -358,6 +444,8 @@ public final class PersonalLexiconStore {
         } catch {
             dirty = true
             log.error("The personal lexicon is not saved: \(error.localizedDescription, privacy: .private)")
+            // Not only the next batch tries again: a disk that is full or a folder that is locked may stay so while the user types nothing.
+            schedule(after: saveInterval)
         }
     }
 

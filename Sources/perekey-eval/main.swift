@@ -6,6 +6,7 @@
 //   perekey-eval run --model <file> --corpus <file> --layouts <dir> [--pair en-uk|en-be|en-kk [--uk-layout <name>]]
 //                    [--threshold T] [--sweep] [--errors N per category] [--json <file>]
 //                    [--typo-score S] [--typo-margin M] [--typo-sweep]
+//                    [--typo-context W] [--typo-context-sweep [--typo-weights 0,0.25,...]]
 //                    [--context-bonus B] [--context-decay D] [--context-sweep [--bonuses 3,4] [--decays 0,1]]
 //                    [--prior-scale S] [--prior-limit L] [--prior-sweep]
 //   perekey-eval word --model <file> --layouts <dir> --text <word> --language ru|en
@@ -16,7 +17,11 @@
 //   perekey-eval slash --model <file> --layouts <dir> --tokens <file> [--lead] [--list N]
 //   perekey-eval hyphen --model <file> [--cache <dir>] [--list N] [--text <file> [--text-name <name>]]
 //                       [--layouts <dir> --words <hyphen.txt>]
+//   perekey-eval pairs --model <file or dir> --language ru|en [--cache <dir>] [--wiki <file>]
+//                      [--tsv <file> --budgets 2,4,8,16]
 //   perekey-eval cases|play|case|selfcheck ...: the quality bench (docs/eval.md, PerekeyEvalKit)
+//   perekey-eval replay check|words|compare <.pksession files> --model <dir> [--json <file>] [--show-words]
+//                       [--candidate-model <dir>] [--candidate-options <json or file>]
 //
 // `--pair en-uk` builds and runs the corpus of the English and Ukrainian
 // pair (`Corpus.buildUkrainian`) on ABC and Ukrainian-PC, or the layout
@@ -54,6 +59,19 @@
 // With `--layouts` and `--words` every word of the list, typed merged on the
 // Russian layout, must stay as it is for the typo step (`TypoCorrector`),
 // which runs before the hyphen step: exit status 1 for any that it changes.
+// `pairs` measures the pair table of a model (docs/classifier.md, «Пары слов»)
+// on text it never saw: of the pairs of neighbouring known words in Tatoeba
+// prose and chat and in a held-out Wikipedia file (`--wiki`, one article per
+// line, scripts/wiki-text.py --held-out), how many have a lift in the table
+// and how large it is. With `--tsv` (the counts of `perekey-model pairs`) it
+// repeats the measure for each section size of `--budgets` in megabytes, from
+// the counts, without a model: the curve that picks the size.
+// `replay` runs recorded typing sessions through `InputMachine`
+// (`ReplayCommand`, docs/classifier.md, «Замер на живых сессиях»): `check`
+// replays them exactly and names the first answer that differs from the
+// recording (exit status 1); `words` prints the labelled words by outcome;
+// `compare` where a candidate model or `Classifier.Options` decides
+// otherwise. Typed words are printed only with `--show-words`.
 // `corpus` writes a TSV of words by category (about N words, default 50 000,
 // plus a tenth of typos).
 // `run` types every word in its own layout and in the other one and prints
@@ -67,6 +85,11 @@
 // as `TypoCorrector.Options`; `--typo-sweep` prints the points over both.
 // Its targets (wrong < 0.1 % of words, fixed ≥ 60 %) are reported, not gated:
 // the feature ships off until they are met.
+// `--typo-context` sets `TypoCorrector.Options.contextWeight`, how much the
+// lift of a candidate after the word before it counts (the corpus names that
+// word; docs/corrections.md, «Опечатки с контекстом»); `--typo-context-sweep`
+// prints the wrong corrections of every category and the typos fixed over
+// the weights of `--typo-weights` (0 to 1.5 by default).
 // `--context-sweep` runs the corpus over the weight of the previous word and
 // how much each word before it counts (`Classifier.Options.contextBonus` and
 // `contextDecay`); `--prior-sweep` over the app prior's scale and limit. Both
@@ -87,16 +110,22 @@ func fail(_ message: String) -> Never {
     exit(2)
 }
 
+// `replay` takes files as well as flags: PerekeyModelKit's `ReplayCommand` parses its own.
+if CommandLine.arguments.dropFirst().first == "replay" {
+    exit(ReplayCommand.run(Array(CommandLine.arguments.dropFirst(2))) { print($0) })
+}
+
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
-guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen"]
+guard let command = arguments.next(), ["corpus", "run", "word", "coverage", "cyrillic", "slash", "hyphen", "pairs"]
     .contains(command)
 else {
-    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen ... (see the source header)")
+    fail("usage: perekey-eval corpus|run|word|coverage|cyrillic|slash|hyphen|pairs|replay ... (see the source header)")
 }
 var flags: [String: String] = [:]
 while let argument = arguments.next() {
     guard argument.hasPrefix("--") else { fail("unexpected argument \(argument)") }
-    if ["--sweep", "--typo-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep", "--lead"].contains(argument) {
+    if ["--sweep", "--typo-sweep", "--typo-context-sweep", "--context-sweep", "--prior-sweep", "--margin-sweep",
+        "--lead"].contains(argument) {
         flags[argument] = "1"
     } else {
         flags[argument] = arguments.next() ?? ""
@@ -154,6 +183,12 @@ do {
         var typoOptions = TypoCorrector.Options()
         if let score = flags["--typo-score"].flatMap(Int.init) { typoOptions.minScore = score }
         if let margin = flags["--typo-margin"].flatMap(Int.init) { typoOptions.margin = margin }
+        if let text = flags["--typo-context"] {
+            guard let weight = Double(text), weight.isFinite, weight >= 0 else {
+                fail("--typo-context: \"\(text)\" is not a weight (a number from 0 up, e.g. 0.5)")
+            }
+            typoOptions.contextWeight = weight
+        }
         let cyrillic = (cyrillicCode, flags["--uk-layout"] ?? [
             "uk": "Ukrainian-PC", "be": "Byelorussian", "kk": "Kazakh",
         ][cyrillicCode] ?? "Russian")
@@ -195,6 +230,38 @@ do {
                  "typoWords": category.typoWords, "typosFixed": category.typosFixed]
             },
         ]
+        // Only a run that uses the word before says so: a run without it writes the file it always wrote.
+        if typoOptions.contextWeight != 0 { json["typoContextWeight"] = typoOptions.contextWeight }
+        if flags["--typo-context-sweep"] != nil {
+            let weights = flags["--typo-weights"].map { list in
+                list.split(separator: ",").map { part in
+                    guard let weight = Double(part), weight.isFinite, weight >= 0 else {
+                        fail("--typo-weights: \"\(part)\" is not a weight (a number from 0 up, e.g. 0,0.5,1)")
+                    }
+                    return weight
+                }
+            } ?? [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5]
+            let points = evaluation.typoContextSweep(items, weights: weights)
+            let names = ["prose", "chat", "mixed", "names", "code", "url", "password", "captcha", "typos", "apps"]
+            print("\ntypo context sweep: weight, wrong corrections per category (" + names.joined(separator: " ")
+                + "), all, rate, typos fixed")
+            for point in points {
+                let counts = names.map { name in
+                    String(format: "%5d", point.categories.first { $0.name == name }?.wrongCorrections ?? 0)
+                }.joined(separator: " ")
+                print(String(format: "  %4.2f  %@ %6d  %7.3f%%  %6.2f%%", point.typoOptions.contextWeight,
+                             counts as NSString, point.total.wrongCorrections, point.total.wrongCorrectionRate * 100,
+                             point.total.fixedShare * 100))
+            }
+            json["typoContextSweep"] = points.map { point -> [String: Any] in
+                ["weight": point.typoOptions.contextWeight, "wrongCorrectionRate": point.total.wrongCorrectionRate,
+                 "typosFixed": point.total.fixedShare,
+                 "categories": point.categories.map { category -> [String: Any] in
+                     ["name": category.name, "wrongCorrections": category.wrongCorrections,
+                      "typosFixed": category.typosFixed, "typoWords": category.typoWords]
+                 }]
+            }
+        }
         if flags["--typo-sweep"] != nil {
             let scores = [48, 56, 64, 72, 80, 96, 112, 128]
             let margins = [16, 32, 40, 48, 56, 64]
@@ -354,6 +421,48 @@ do {
             print("typo step on the \(words.count) merged words of the list: \(clashes.count) changed")
             for clash in clashes { print("  typo: \(clash)") }
             if !clashes.isEmpty { exit(1) }
+        }
+
+    case "pairs":
+        guard let modelPath = flags["--model"], let code = flags["--language"] else {
+            fail("--model and --language are required")
+        }
+        let cache = flags["--cache"] ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"] ?? ".build/data-cache"
+        let model = try ModelFile.load(modelPath, languages: [code])
+        guard let language = model.language(code) else { fail("no \(code) in \(modelPath)") }
+        let texts = try PairEvaluation.tatoeba(language: code, cache: cache)
+        var corpora = [("Tatoeba prose", texts.prose), ("Tatoeba chat", texts.chat)]
+        if let wiki = flags["--wiki"] {
+            var articles: [String] = []
+            try TextLines.forEach(path: wiki) { articles.append(String(decoding: $0, as: UTF8.self)) }
+            corpora.append(("Wikipedia (held out)", articles))
+        }
+        let known = Classifier.Options().knownRank
+        let isKnown: (UInt64) -> Bool = { fingerprint in
+            language.rank(of: fingerprint).map { $0 == 0 || $0 >= known } ?? false
+        }
+        func report(_ title: String, _ lift: @escaping (UInt64, UInt64) -> UInt8?) {
+            print(title)
+            for (name, sentences) in corpora {
+                print(PairEvaluation.measure(sentences, name: name, isKnown: isKnown, lift: lift).report)
+            }
+        }
+        report("\(code) pairs, model \(modelPath): table \(language.hasPairTable ? "present" : "absent")") {
+            language.pairLift(previous: $0, word: $1)
+        }
+        if let tsv = flags["--tsv"] {
+            let table = try PairTable.read(tsv)
+            for megabytes in (flags["--budgets"] ?? "2,4,8,16").split(separator: ",").compactMap({ Int($0) }) {
+                let chosen = table.chosen(budget: megabytes << 20)
+                var lifts: [UInt64: UInt8] = [:]
+                for pair in chosen {
+                    lifts[ModelFormat.pairKey(previous: pair.entry.previous, word: pair.entry.word)] = pair.lift
+                }
+                let size = ModelBuilder.pairSectionSize(count: chosen.count)
+                report("\(code) pairs, counts \(tsv), budget \(megabytes) MB: \(chosen.count) of \(table.entries.count) pairs, section \(String(format: "%.2f", Double(size) / 1_048_576)) MB") {
+                    lifts[ModelFormat.pairKey(previous: $0, word: $1)]
+                }
+            }
         }
 
     case "word":

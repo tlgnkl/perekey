@@ -15,11 +15,17 @@ import PerekeyDesk
 ///                         [--only <suite,...>] [--split dev|test|all]
 ///     perekey-eval case   --cases <files> --id <id> [--model <dir>] [--system ...] [--reveal-test]
 ///     perekey-eval selfcheck --cases <files or directory> --model <dir> [--suites <dir> --cache <dir> --tier ci|full]
+///     perekey-eval report <run dir> [--format text|md|html|json] [--out <file>] [--profile chat,dev,office]
+///                         [--profiles <file>] [--slices] [--words N] [--reveal-test]
+///     perekey-eval diff   <run A> <run B> [--format text|md|json] [--list N] [--reveal-test]
+///
+/// `play` also takes `--cache <data cache>` (and `--lexicon <dir>`, `--data <dir>`, `--noise <dir>`) to score with
+/// the lexicon: `disputed`, `silent` and the features `known`, `zipf`, `collision`, `seen`.
 ///
 /// Every command takes `--layouts <dir>` (default eval/layouts). Exit status:
 /// 0 success, 1 a self-check failed, 2 bad input.
 public enum EvalCommands {
-    public static let names: Set<String> = ["cases", "play", "case", "selfcheck"]
+    public static let names: Set<String> = ["cases", "play", "case", "selfcheck", "report", "diff"]
 
     public static func run(_ arguments: [String]) -> Int32 {
         do {
@@ -30,6 +36,8 @@ public enum EvalCommands {
             case "play": return try play(parsed)
             case "case": return try showCase(parsed)
             case "selfcheck": return try selfcheck(parsed)
+            case "report": return try report(parsed)
+            case "diff": return try diff(parsed)
             default: throw EvalError.input("unknown command \(command)")
             }
         } catch {
@@ -93,16 +101,22 @@ public enum EvalCommands {
         let library = try parsed.library()
         let files = try CaseFiles.expand(parsed.values("--cases"))
         let items = try selected(files, parsed, library: library)
-        var runner = Runner(config: try parsed.config(), library: library)
+        var config = try parsed.config()
+        let knowledge = try parsed.knowledge(items: items, library: library)
+        config.knowledge = knowledge?.knowledge
+        var runner = Runner(config: config, library: library)
         var scores: [CaseScore] = []
         for item in items { scores.append(try runner.play(item).score) }
-        let info = RunFiles.Info(
+        var info = RunFiles.Info(
             commit: GitCommit.current(), models: runner.modelHashes, system: runner.config.system.rawValue,
             settings: runner.config.settings, options: runner.config.optionsJSON,
             files: try files.map { .init(path: $0, sha256: try Runner.sha256(file: $0)) },
             split: parsed.value("--split") ?? "all", only: parsed.value("--only")?.split(separator: ",").map(String.init),
             tier: nil, testRevealed: runner.config.revealTest
         )
+        info.lexicon = knowledge?.lexiconHashes
+        info.seen = knowledge?.seenHash
+        info.noise = knowledge?.knowledge.noise.files
         try RunFiles.write(scores, info: info, to: out)
         print(Console.summary(Summary(scores)), terminator: "")
         return 0
@@ -127,6 +141,67 @@ public enum EvalCommands {
             throw EvalError.input("cases do not pass the check:\n" + problems.joined(separator: "\n"))
         }
         return items
+    }
+
+    // MARK: - report and diff
+
+    static func report(_ parsed: Arguments) throws -> Int32 {
+        guard let directory = parsed.positional.first else { throw EvalError.input("report: <run dir> is required") }
+        var options = ReportOptions()
+        options.revealTest = parsed.flag("--reveal-test")
+        options.slices = parsed.flag("--slices")
+        options.words = try parsed.value("--words").map { try Self.count($0, "--words") }
+        options.profiles = parsed.value("--profile")?.split(separator: ",").map(String.init)
+        let profilesPath = parsed.value("--profiles") ?? "eval/profiles.json"
+        if parsed.value("--profiles") != nil || FileManager.default.fileExists(atPath: profilesPath) {
+            options.profilesFile = profilesPath
+        }
+        if options.words == nil, (parsed.value("--format") ?? "text") == "text" { options.words = 20 }
+        let data = try ReportBuilder.build(try RunData.load(directory), options: options)
+        let text: String
+        switch parsed.value("--format") ?? "text" {
+        case "text": text = ReportRender.text(data)
+        case "md": text = ReportRender.markdown(data)
+        case "html": text = ReportRender.html(data)
+        case "json": text = try ReportRender.json(data)
+        default: throw EvalError.input("--format text|md|html|json")
+        }
+        try output(text, to: parsed.value("--out"))
+        return 0
+    }
+
+    static func diff(_ parsed: Arguments) throws -> Int32 {
+        guard parsed.positional.count == 2 else { throw EvalError.input("diff: <run A> <run B>") }
+        var options = DiffOptions()
+        options.revealTest = parsed.flag("--reveal-test")
+        if let list = parsed.value("--list") { options.list = try count(list, "--list") }
+        let data = try DiffBuilder.build(try RunData.load(parsed.positional[0]), try RunData.load(parsed.positional[1]),
+                                         options: options)
+        let text: String
+        switch parsed.value("--format") ?? "text" {
+        case "text": text = DiffRender.text(data, list: options.list)
+        case "md": text = DiffRender.text(data, list: options.list, markdown: true)
+        case "json":
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
+            text = String(decoding: try encoder.encode(data), as: UTF8.self) + "\n"
+        default: throw EvalError.input("--format text|md|json")
+        }
+        try output(text, to: parsed.value("--out"))
+        return 0
+    }
+
+    private static func count(_ text: String, _ flag: String) throws -> Int {
+        guard let value = Int(text), value >= 0 else { throw EvalError.input("\(flag) needs a number") }
+        return value
+    }
+
+    private static func output(_ text: String, to path: String?) throws {
+        if let path {
+            try text.write(toFile: path, atomically: true, encoding: .utf8)
+        } else {
+            print(text, terminator: "")
+        }
     }
 
     // MARK: - case
@@ -252,7 +327,11 @@ public enum EvalCommands {
         let first = try run(.machine).map(\.score), second = try run(.machine).map(\.score)
         let same = try RunFiles.casesTSV(first) == RunFiles.casesTSV(second)
             && RunFiles.summaryJSON(first) == RunFiles.summaryJSON(second)
-        lines.append("4. machine twice: " + (same ? "cases.tsv and summary.json the same" : "DIFFERENT"))
+            && RunFiles.countsTSV(first) == RunFiles.countsTSV(second)
+            && RunFiles.slicesJSON(first) == RunFiles.slicesJSON(second)
+            && RunFiles.wordsTSV(first) == RunFiles.wordsTSV(second)
+        lines.append("4. machine twice: "
+            + (same ? "cases.tsv, summary.json, counts.tsv, slices.json and words.tsv the same" : "DIFFERENT"))
         if !same { failures.append("two runs of the machine differ") }
 
         // 5. Building the cases twice gives the same bytes.
@@ -286,7 +365,7 @@ struct Arguments {
     var positional: [String] = []
     private var values: [String: [String]] = [:]
     private var flags: Set<String> = []
-    private static let booleans: Set<String> = ["--reveal-test"]
+    private static let booleans: Set<String> = ["--reveal-test", "--slices"]
 
     init(_ arguments: [String]) throws {
         var current: String?
@@ -310,13 +389,36 @@ struct Arguments {
 
     /// The next word: a command or a subcommand.
     mutating func command() throws -> String {
-        guard !positional.isEmpty else { throw EvalError.input("usage: perekey-eval cases|play|case|selfcheck …") }
+        guard !positional.isEmpty else { throw EvalError.input("usage: perekey-eval cases|play|case|selfcheck|report|diff …") }
         return positional.removeFirst()
     }
 
     func value(_ flag: String) -> String? { values[flag]?.last }
     func values(_ flag: String) -> [String] { values[flag] ?? [] }
     func flag(_ flag: String) -> Bool { flags.contains(flag) }
+
+    /// What `play` scores with besides the cases, given by `--cache` or `--lexicon`.
+    struct KnowledgeSetup {
+        var knowledge: Knowledge
+        var lexiconHashes: [String: String]
+        var seenHash: String?
+    }
+
+    /// The lexicon, the lists of `data/` and the noise decisions, for the languages of the
+    /// cases' layouts. Without `--cache` and `--lexicon` the run has none.
+    func knowledge(items: [EvalCase], library: LayoutLibrary) throws -> KnowledgeSetup? {
+        guard value("--cache") != nil || value("--lexicon") != nil else { return nil }
+        let directory = value("--lexicon") ?? ".build/quality"
+        let languages = Array(Set(try items.flatMap { try library.maps(of: $0).compactMap(\.language) })).sorted()
+        let lexicon = try Lexicon.load(languages: languages, directory: directory, cache: value("--cache"))
+        let dataPath = value("--data") ?? "data"
+        let seen = FileManager.default.fileExists(atPath: dataPath) ? try SeenWords(directory: dataPath) : nil
+        let noise = try NoiseDecisions(directory: value("--noise") ?? "eval/noise")
+        var hashes: [String: String] = [:]
+        for language in languages { hashes[language] = try Lexicon.hash(language: language, directory: directory) }
+        return KnowledgeSetup(knowledge: Knowledge(lexicon: lexicon, seen: seen, noise: noise), lexiconHashes: hashes,
+                              seenHash: seen?.hash)
+    }
 
     func library() throws -> LayoutLibrary {
         try LayoutLibrary(directory: value("--layouts") ?? "eval/layouts")

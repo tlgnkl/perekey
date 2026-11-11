@@ -18,7 +18,8 @@
 | Словоформы ru | Hunspell ru_RU (Лебедев) из LibreOffice | BSD-подобная | `lexicon` |
 | Словоформы en | SCOWL / ESDB, en_US-large | разрешительная (HPND-подобная) | `lexicon` |
 | Символьные n-граммы | wordfreq 3.2: формы от Zipf 2,5 с весом √частоты | данные CC BY-SA 4.0 | `lexicon` |
-| Задел, не используется | Википедия ru, en и uk, снимок 2023-11-01 | CC BY-SA 4.0 (+ GFDL) | `text` |
+| Отложенный текст: на нём меряют (дефис, пары), не учат | Википедия ru, en и uk, по одному файлу, снимок 2023-11-01 | CC BY-SA 4.0 (+ GFDL) | `text` |
+| Таблица пар слов `pair` (ru, en): какое слово вероятно после какого | Википедия ru и en, по два других файла того же снимка (в модель идут отпечатки пар и подъём, не текст) | CC BY-SA 4.0 (+ GFDL), как у остальной модели | `pairs` |
 | Ранг частоты be и kk | Википедия be и kk, снимок 2023-11-01: слова считает `scripts/wiki-freq.py` | CC BY-SA 4.0 (+ GFDL) | `text` |
 | Словоформы be | Hunspell be-official из LibreOffice (Грамматическая база bnkorpus.info) | CC BY-SA 4.0 или LGPLv3 | `lexicon` |
 | Отложенный корпус | Tatoeba, Stack Exchange (в том числе `ukrainian`), GeoNames, синтетика | CC0, CC BY 2.0 FR, CC BY-SA, CC BY 4.0 | `heldout`, `heavy` |
@@ -171,8 +172,11 @@ as such». Такой пункт GPLv3 допускает (§7(c)). Старая
 вряд ли переработка в смысле авторского права. Сборщик пошёл запасным путём:
 n-граммы считаются по списку wordfreq с весом √(частоты на миллиард) от Zipf
 2,5 (`ModelBuild`, docs/classifier.md). Википедия не читается ни сборкой, ни
-`perekey-eval`: для parquet нужен `pyarrow` или `duckdb`. `fetch-data.sh text`
-её скачивает, но это задел.
+`perekey-eval`: для parquet нужен `pyarrow` или `duckdb`. Для пар слов (ru и
+en) другие файлы того же снимка читает `scripts/wiki-text.py` (`pyarrow`,
+закреплён с хэшами) и считает `perekey-model pairs`; группа `pairs` лежит в
+`wikipedia-pairs/`, отдельно от отложенной группы `text`, и код сверяет, что
+общих файлов нет (`PairSources`). Файлы `text` остаются отложенными.
 
 ### Для отложенного корпуса
 

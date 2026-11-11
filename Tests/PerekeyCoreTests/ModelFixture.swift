@@ -87,8 +87,15 @@ enum ModelFixture {
         try! LanguageModel(bytes: build(russianWords: words, hyphenByRule: extra))
     }
 
+    /// The fixture plus pairs of English words with their lift in eighths of
+    /// a bit; an empty first word is the start of a sentence.
+    static func model(withEnglishPairs pairs: [(String, String, UInt8)]) -> LanguageModel {
+        try! LanguageModel(bytes: build(englishPairs: pairs))
+    }
+
     private static func build(rareEnglish: [String] = [], russianForms: [String] = [],
-                              russianWords: [(String, UInt8)] = [], hyphenByRule extra: [String] = []) -> [UInt8]
+                              russianWords: [(String, UInt8)] = [], hyphenByRule extra: [String] = [],
+                              englishPairs: [(String, String, UInt8)] = []) -> [UInt8]
     {
         var builder = ModelBuilder()
         builder.meta = "fixture"
@@ -107,7 +114,15 @@ enum ModelFixture {
         for word in ["iPhone", "Wi-Fi", "ГОСТ"] { builder.addKeep(word) }
         addCorrections(to: &builder)
         for word in extra { try! builder.addHyphen(word, language: "ru", byRule: true) }
+        for (previous, word, lift) in englishPairs {
+            builder.addPair(previous: previous.isEmpty ? ModelFormat.sentenceStart : fingerprint(previous),
+                            word: fingerprint(word), lift: lift, language: "en")
+        }
         return builder.build()
+    }
+
+    static func fingerprint(_ text: String) -> UInt64 {
+        ModelFormat.Fingerprint.of(text.unicodeScalars, folded: true)
     }
 
     /// The tables of the stage 4 corrections.

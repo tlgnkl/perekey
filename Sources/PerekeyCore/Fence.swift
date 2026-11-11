@@ -66,18 +66,32 @@ struct Fence: Sendable {
 
     private(set) var hold: Hold?
     private(set) var returning = Returning.nothing
-    private var nextSeq: UInt32 = 1
+    private(set) var nextSeq: UInt32 = 1
     /// Layouts Perekey selected that the system has not confirmed yet, oldest
     /// first. A late confirmation of an earlier one must not undo a later one.
-    private var pendingSelections: [LayoutID] = []
+    private(set) var pendingSelections: [LayoutID] = []
+    /// How many unconfirmed selections are kept; the oldest is dropped past
+    /// it. The machine selects at most once per word and the system confirms
+    /// within one turn of the main thread, so a longer queue means
+    /// confirmations that never come. The number was never measured; the
+    /// replay (`MachineSnapshot.pendingSelectionLimit`) follows it.
+    static let pendingSelectionLimit = 8
     /// The layout the system last reported as selected.
-    private var confirmedLayout: LayoutID?
+    private(set) var confirmedLayout: LayoutID?
 
     init(confirmedLayout: LayoutID?) {
         self.confirmedLayout = confirmedLayout
     }
 
     var isHolding: Bool { hold != nil }
+
+    /// Goes on with the numbering and the layouts of another fence
+    /// (`InputMachine.init(snapshot:)`).
+    mutating func restore(nextSeq: UInt32, confirmedLayout: LayoutID?, pendingSelections: [LayoutID]) {
+        self.nextSeq = nextSeq
+        self.confirmedLayout = confirmedLayout
+        self.pendingSelections = pendingSelections
+    }
 
     mutating func takeSeq() -> UInt32 {
         let seq = nextSeq
@@ -87,7 +101,7 @@ struct Fence: Sendable {
 
     /// Perekey asked the system to select `id`.
     mutating func selected(_ id: LayoutID) {
-        if pendingSelections.count == 8 { pendingSelections.removeFirst() }
+        if pendingSelections.count == Self.pendingSelectionLimit { pendingSelections.removeFirst() }
         pendingSelections.append(id)
     }
 

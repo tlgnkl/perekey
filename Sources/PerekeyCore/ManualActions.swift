@@ -109,6 +109,10 @@ struct ManualActions: Sendable {
         phrase = nil
     }
 
+    /// No phrase waits for the next press of the shortcut: a snapshot of the
+    /// machine does not hold one (`InputMachine.isQuiet`).
+    var isIdle: Bool { phrase == nil }
+
     // MARK: - The word before the caret
 
     /// The retype shortcut: the word in the other layout, the phrase on

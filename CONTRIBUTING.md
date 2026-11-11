@@ -172,6 +172,29 @@ the terminal.
 New logic comes with unit tests. A bug fix comes with a test that fails without the fix.
 `scripts/test.sh` must pass; CI runs it, plus the benchmark.
 
+## How to add a case and a suite
+
+The quality bench measures the switcher. A **case** is what a person's fingers do
+and the text they wanted; the bench plays it and scores the final text. How it
+works is in [docs/eval.md](docs/eval.md), the data is in [eval/](eval/).
+
+- **A failure.** Found a false switch or a miss? Add one line to
+  `eval/cases/incidents.jsonl` with status `open`. [eval/README.md](eval/README.md)
+  has the steps and how to carry the fields of the "False switch" issue over.
+  Once the fix is in, set the status to `fixed`: a failure that comes back turns
+  the CI step red. Never put private text in a case; use a made-up example.
+- **A suite.** A manifest `eval/suites/<name>.suite.json`. Pin its source by hash
+  in `scripts/fetch-data.sh` and record it with its license in `data/SOURCES.md`.
+- **The check.** `scripts/quality.sh` builds the cases, plays them and checks the
+  bars of `eval/gates.json`. With `QUALITY_BASE=<ref>` it also compares with that
+  commit, as `BENCH_BASE` does for `scripts/bench.sh`. CI runs it after the
+  classifier evaluation. When a bar fails the step is red and lists the cases
+  that broke it. A growth you accept on purpose goes to `accepted` in
+  `eval/gates.json` with the reason and the PR number; a bar is not moved
+  otherwise.
+- **Definitions.** What a case field, an outcome or a metric means changes only
+  with a new version and a line in docs/eval.md, "История определений".
+
 ## Changelog
 
 A change people will notice in the app gets one line under `[Unreleased]` in

@@ -6,6 +6,7 @@ body:
     attributes:
       value: |
         **Do not paste private text** (passwords, messages, names). Use a similar made-up example.
+        A report that can be reproduced becomes a case of the quality bench: see `eval/README.md`.
   - type: input
     id: typed
     attributes:

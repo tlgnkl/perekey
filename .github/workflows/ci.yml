@@ -82,6 +82,13 @@ jobs:
         run: scripts/build-model.sh
       - name: Evaluate the classifier on the held-out sample
         run: scripts/eval.sh
+      # The bars of eval/gates.json over the cases of the quality bench, and no
+      # worse than the base commit (docs/eval.md). The model files are the ones
+      # built above. On a failure the step lists the cases that broke a bar.
+      - name: Quality bench against the base commit
+        run: scripts/quality.sh --self-check --model .build/model
+        env:
+          QUALITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: scripts/bundle.sh
       - name: No typing recorder in the app
         run: scripts/check-no-recorder.sh .build/app/Perekey.app

@@ -14,7 +14,7 @@ import PerekeyDesk
 ///                         [--system machine|null|oracle] [--options <json>] [--settings <preset>]
 ///                         [--only <suite,...>] [--split dev|test|all]
 ///     perekey-eval case   --cases <files> --id <id> [--model <dir>] [--system ...] [--reveal-test]
-///     perekey-eval selfcheck --cases <files or directory> --model <dir> [--suites <dir> --cache <dir> --tier ci|full [--built <dir>]] [--mutants]
+///     perekey-eval selfcheck --cases <files or directory> --model <dir> [--suites <dir> --cache <dir> --tier ci|full [--built <dir>] [--rebuild <suite,...>]] [--mutants]
 ///     perekey-eval report <run dir> [--format text|md|html|json] [--out <file>] [--profile chat,dev,office]
 ///                         [--profiles <file>] [--slices] [--words N] [--reveal-test]
 ///     perekey-eval diff   <run A> <run B> [--format text|md|json] [--list N] [--reveal-test]
@@ -127,9 +127,11 @@ public enum EvalCommands {
 
     /// The cases of the files after `--only` and `--split`; every case must
     /// pass the checks, or nothing is played.
-    static func selected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary) throws -> [EvalCase] {
+    static func selected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary, split override: String? = nil)
+        throws -> [EvalCase]
+    {
         let only = parsed.value("--only").map { Set($0.split(separator: ",").map(String.init)) }
-        let split = parsed.value("--split") ?? "all"
+        let split = override ?? parsed.value("--split") ?? "all"
         guard ["dev", "test", "all"].contains(split) else { throw EvalError.input("--split dev|test|all") }
         var items: [EvalCase] = []
         var problems: [String] = []
@@ -382,12 +384,15 @@ public enum EvalCommands {
             let manifests = try settings.manifests()
             // `--built <dir>`: the files an earlier `cases build` wrote there are the first build.
             let earlier = try parsed.value("--built").map { try BuildSummary.read(directory: $0) }
+            // `--rebuild <suite,...>`: build only these suites a second time (a source that reads fast).
+            let rebuilt = parsed.value("--rebuild").map { Set($0.split(separator: ",").map(String.init)) }
             var compared = 0
             for manifest in manifests {
                 if parsed.flag("--skip-missing"), let missing = settings.missingSource(of: manifest) {
                     lines.append("   \(manifest.suite): пропущен, нет источника \(missing)")
                     continue
                 }
+                if let rebuilt, !rebuilt.contains(manifest.suite) { continue }
                 let first: (sha256: String, report: BuildReport)
                 if let earlier {
                     guard let entry = earlier.suites.first(where: { $0.report.suite == manifest.suite }) else {
@@ -413,6 +418,13 @@ public enum EvalCommands {
 
         // 7. Every mutant of the machine shifts the count it must shift (docs/eval.md, «Мутанты»).
         if parsed.flag("--mutants") {
+            // Both parts: a shift is read off counts, and more cases make the counts firm.
+            let mutantItems = try selected(files, parsed, library: library, split: "all")
+            var ordinaryConfig = config
+            ordinaryConfig.system = .machine
+            var ordinaryRunner = Runner(config: ordinaryConfig, library: library)
+            let ordinary = try mutantItems.filter { item in Mutants.all.contains { Mutants.covers($0, item) } }
+                .map { try ordinaryRunner.play($0).score }
             for mutant in Mutants.all {
                 var mutated = config
                 mutated.system = .machine
@@ -420,8 +432,8 @@ public enum EvalCommands {
                 mutated.options = try mutant.options.map(ClassifierOptions.parse) ?? Classifier.Options()
                 mutated.settings = mutant.settings ?? config.settings
                 var runner = Runner(config: mutated, library: library)
-                let scores = try items.filter { Mutants.covers(mutant, $0) }.map { try runner.play($0).score }
-                for finding in Mutants.judge(mutant, ordinary: first, mutated: scores) {
+                let scores = try mutantItems.filter { Mutants.covers(mutant, $0) }.map { try runner.play($0).score }
+                for finding in Mutants.judge(mutant, ordinary: ordinary, mutated: scores) {
                     lines.append("7. mutant " + finding.line)
                     if finding.verdict == .fail { failures.append(finding.line) }
                 }

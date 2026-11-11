@@ -23,7 +23,7 @@
  "suite": "tech.ruso",
  "tags": ["tech", "natural"],
  "tiers": {
-  "ci": 20000,
+  "ci": 5000,
   "full": 400000
  },
  "version": 1

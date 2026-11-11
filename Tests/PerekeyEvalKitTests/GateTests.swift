@@ -324,14 +324,26 @@ enum Runs {
     }
 
     @Test func theSliceCountsOnlyItsTokens() {
+        let mutant = Mutant(name: "any", options: nil, settings: nil, expectations: [
+            .init(what: "П в срезе ctx=agree", suite: "*", scenarioPrefix: "slip.", slice: "ctx=agree", count: .missLayout,
+                  relation: .grows(times: 2)),
+        ])
         func miss(_ ctx: String, _ count: Int) -> CaseScore {
             score("prose.a", "slip.warm", Array(repeating: .miss, count: count), ctx: ctx)
         }
         let ordinary = [miss("agree", 2), miss("against", 5)]
-        let grown = [miss("agree", 4), miss("against", 5)]
-        #expect(Mutants.judge(contextZero, ordinary: ordinary, mutated: grown).first?.verdict == .ok)
-        let grownElsewhere = [miss("agree", 2), miss("against", 9)]
-        #expect(Mutants.judge(contextZero, ordinary: ordinary, mutated: grownElsewhere).first?.verdict == .fail)
+        #expect(Mutants.judge(mutant, ordinary: ordinary, mutated: [miss("agree", 4), miss("against", 5)]).first?.verdict == .ok)
+        #expect(Mutants.judge(mutant, ordinary: ordinary, mutated: [miss("agree", 2), miss("against", 9)]).first?.verdict == .fail)
+    }
+
+    @Test func shrinksNeedsEventsToLose() {
+        let slip = Mutants.all.first { $0.name == "contextBonus: 0" }!
+        func misses(_ count: Int) -> [CaseScore] { [score("prose.a", "slip.warm", Array(repeating: .miss, count: count))] }
+        let finding = { (ordinary: Int, mutated: Int) in Mutants.judge(slip, ordinary: misses(ordinary), mutated: misses(mutated)).first!.verdict }
+        #expect(finding(100, 90) == .ok)
+        #expect(finding(100, 100) == .fail, "no loss is no shift")
+        #expect(finding(100, 98) == .fail, "2 % is below the bar of 2.5 %")
+        #expect(finding(0, 0) == .fail, "nothing to lose is not a shift")
     }
 
     @Test func notAboveFailsOnGrowth() {

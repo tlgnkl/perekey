@@ -146,6 +146,28 @@ while let argument = arguments.next() {
     }
 }
 
+/// The `--real-word-*` flags, parsed strictly: a wrong value stops the run, it never falls back to the default.
+@MainActor func applyRealWordFlags(to typoOptions: inout TypoCorrector.Options) {
+    if let text = flags["--real-word-lift"] {
+        guard let lift = Double(text), lift.isFinite, lift >= 0 else {
+            fail("--real-word-lift: \"\(text)\" is not a number of bits (0 up, e.g. 6)")
+        }
+        typoOptions.realWordLift = lift
+    }
+    if let text = flags["--real-word-slack"] {
+        guard let slack = Int(text), slack >= 0 else { fail("--real-word-slack: \"\(text)\" is not a number (0 up)") }
+        typoOptions.realWordSlack = slack
+    }
+    if flags["--real-word-no-ending"] != nil { typoOptions.realWordEnding = false }
+    if flags["--real-word-swaps-only"] != nil { typoOptions.realWordKeys = false }
+    if let text = flags["--real-word-margin"] {
+        guard let margin = Double(text), margin.isFinite, margin >= 0 else {
+            fail("--real-word-margin: \"\(text)\" is not a number of bits (0 up, e.g. 1)")
+        }
+        typoOptions.realWordMargin = margin
+    }
+}
+
 /// The Cyrillic language of `--pair en-<code>`, nil for the ru ↔ en corpus.
 var pairLanguage: String? {
     guard let pair = flags["--pair"], pair.hasPrefix("en-") else { return nil }
@@ -216,27 +238,7 @@ do {
             }
             typoOptions.contextWeight = weight
         }
-        func realWordOptions() {
-            if let text = flags["--real-word-lift"] {
-                guard let lift = Double(text), lift.isFinite, lift >= 0 else {
-                    fail("--real-word-lift: \"\(text)\" is not a number of bits (0 up, e.g. 6)")
-                }
-                typoOptions.realWordLift = lift
-            }
-            if let text = flags["--real-word-slack"] {
-                guard let slack = Int(text), slack >= 0 else { fail("--real-word-slack: \"\(text)\" is not a number (0 up)") }
-                typoOptions.realWordSlack = slack
-            }
-            if flags["--real-word-no-ending"] != nil { typoOptions.realWordEnding = false }
-            if flags["--real-word-swaps-only"] != nil { typoOptions.realWordKeys = false }
-            if let text = flags["--real-word-margin"] {
-                guard let margin = Double(text), margin.isFinite, margin >= 0 else {
-                    fail("--real-word-margin: \"\(text)\" is not a number of bits (0 up, e.g. 1)")
-                }
-                typoOptions.realWordMargin = margin
-            }
-        }
-        realWordOptions()
+        applyRealWordFlags(to: &typoOptions)
         let cyrillic = (cyrillicCode, flags["--uk-layout"] ?? [
             "uk": "Ukrainian-PC", "be": "Byelorussian", "kk": "Kazakh",
         ][cyrillicCode] ?? "Russian")
@@ -572,18 +574,17 @@ do {
         let model = try ModelFile.load(modelPath, languages: [code])
         guard let language = model.language(code) else { fail("no \(code) in \(modelPath)") }
         var typoOptions = TypoCorrector.Options()
-        if let text = flags["--real-word-lift"] { typoOptions.realWordLift = Double(text) ?? typoOptions.realWordLift }
-        if let text = flags["--real-word-slack"] { typoOptions.realWordSlack = Int(text) ?? typoOptions.realWordSlack }
-        if flags["--real-word-no-ending"] != nil { typoOptions.realWordEnding = false }
-        if flags["--real-word-swaps-only"] != nil { typoOptions.realWordKeys = false }
-        if let text = flags["--real-word-margin"] { typoOptions.realWordMargin = Double(text) ?? typoOptions.realWordMargin }
+        applyRealWordFlags(to: &typoOptions)
         let corrector = TypoCorrector(model: model, options: typoOptions)
         let map = layout(code == "ru" ? "Russian" : "ABC", in: layouts)
         let realWords = flags["--off"] == nil
         let texts = try PairEvaluation.tatoeba(language: code, cache: cache)
         var corpora = [("Tatoeba prose", texts.prose), ("Tatoeba chat", texts.chat)]
         if let wiki = flags["--wiki"] {
-            let every = max(Int(flags["--every"] ?? "1") ?? 1, 1)
+            let every = flags["--every"].map { text in
+                guard let n = Int(text), n >= 1 else { fail("--every: \"\(text)\" is not a number (1 up)") }
+                return n
+            } ?? 1
             var articles: [String] = []
             var index = 0
             try TextLines.forEach(path: wiki) { line in

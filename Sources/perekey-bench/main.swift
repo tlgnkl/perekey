@@ -10,6 +10,9 @@
 
 import Foundation
 import PerekeyCore
+#if PEREKEY_RECORD
+import PerekeyInput
+#endif
 
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else {
@@ -192,6 +195,19 @@ let typoWords: [(String, LayoutMap)] = [
     ("будте", russian), ("code", abc), ("https://example.com", abc), ("клавиатура", russian), ("the", abc),
 ]
 
+#if PEREKEY_RECORD
+/// The typing recorder's buffer, while a session runs with it
+/// (PEREKEY_RECORD): each event goes into it right after the machine, as in
+/// the engine, inside the timed span. A full batch is taken in the span (the
+/// tap thread's part) and given back emptied, as the recorder's queue does,
+/// after it: memory only, no disk.
+var recordingBuffer: RecordingBuffer?
+var recordedEntries = 0
+#endif
+
+// On the main actor, as the top-level code that calls it: the recorder's
+// buffer above is a top-level variable.
+@MainActor
 func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutMap)],
                        layouts: [LayoutMap] = [abc, russian], classifier: Classifier = classifier,
                        counted: Bool = false, personal: PersonalLexicon = .off) -> AutoswitchRun
@@ -204,6 +220,11 @@ func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutM
     // The app's words count (the language tally, and the personal lexicon's observations).
     if counted { _ = machine.handle(.languageContextChanged(LanguageContext(app: "app.perekey.bench"))) }
     _ = machine.handle(.personalLexiconChanged(personal))
+    #if PEREKEY_RECORD
+    // The recording starts at a quiet point, as in the app: this one.
+    _ = recordingBuffer?.record(.focusChanged(Focus(bundleID: "app.perekey.bench")), Output(),
+                                quiet: { machine.isQuiet }, snapshot: { (machine.snapshot, machine.classifier) })
+    #endif
     var time = 0.0
     var held: [KeyEvent] = []
     var retypes: [Retype] = []
@@ -212,7 +233,22 @@ func correctionSession(rounds: Int, settings: Settings, words: [(String, LayoutM
     func handle(_ event: InputEvent) -> Output {
         let start = clock.now
         let output = machine.handle(event)
+        #if PEREKEY_RECORD
+        var batch: [RecordingBuffer.Entry] = []
+        if recordingBuffer?.record(event, output, quiet: { machine.isQuiet },
+                                   snapshot: { (machine.snapshot, machine.classifier) }) == true
+        {
+            batch = recordingBuffer?.take() ?? []
+        }
+        #endif
         run.samples.append(nanoseconds(clock.now - start))
+        #if PEREKEY_RECORD
+        if !batch.isEmpty {
+            recordedEntries += batch.count
+            batch.removeAll(keepingCapacity: true)
+            recordingBuffer?.written(batch, newDay: false)
+        }
+        #endif
         run.events += 1
         for effect in output.effects {
             switch effect {
@@ -290,6 +326,28 @@ if autoswitch.corrections == 0 {
     print("FAIL: the autoswitch session switched nothing")
     failed = true
 }
+
+#if PEREKEY_RECORD
+// The same session with the typing recorder's buffer on: what recording adds
+// to each event on the tap thread. Its own budget is the tap's, 1 ms at p99.
+recordingBuffer = RecordingBuffer()
+var recorded = correctionSession(rounds: 6000, settings: Settings(), words: autoswitchWords)
+recordedEntries += recordingBuffer?.entries.count ?? 0
+recordingBuffer = nil
+recorded.samples.sort()
+let recordedMean = recorded.samples.reduce(0, +) / Double(recorded.samples.count)
+let recordedP99 = recorded.samples[recorded.samples.count * 99 / 100]
+print(String(format: "autoswitch, recording: %d events, %d entries recorded: mean %.0f ns, p99 %.0f ns, max %.0f ns",
+             recorded.events, recordedEntries, recordedMean, recordedP99, recorded.samples.last!))
+if recordedP99 > 1_000_000 {
+    print("FAIL: autoswitch p99 with the recorder exceeds the 1 ms tap callback budget")
+    failed = true
+}
+if recordedEntries < recorded.events {
+    print("FAIL: the recorder did not record every event of the session")
+    failed = true
+}
+#endif
 
 // Three layouts (stage 8): a word typed on ABC is weighed against Russian
 // and Ukrainian; words of all three languages, typed in the wrong layout
@@ -448,6 +506,24 @@ if typosContextP99 > 1_000_000 {
     failed = true
 }
 
+// The same session with words that are words looked for (`corrections.realWords`,
+// off by default): every judged word reads the word before it and looks the
+// typed pair up; a dictionary word with no pair tries its swaps and neighbouring keys.
+var typosRealWords = correctionSession(
+    rounds: 6000, settings: Settings(autoswitch: false, corrections: TextCorrections(realWords: true),
+                                     typoCorrection: true),
+    words: typoWords)
+typosRealWords.samples.sort()
+let typosRealWordsMean = typosRealWords.samples.reduce(0, +) / Double(typosRealWords.samples.count)
+let typosRealWordsP99 = typosRealWords.samples[typosRealWords.samples.count * 99 / 100]
+print(String(format: "typos with words that are words: %d events, %d corrections: mean %.0f ns, p99 %.0f ns, max %.0f ns",
+             typosRealWords.events, typosRealWords.corrections, typosRealWordsMean, typosRealWordsP99,
+             typosRealWords.samples.last!))
+if typosRealWordsP99 > 1_000_000 {
+    print("FAIL: typo session with words that are words: p99 exceeds the 1 ms tap callback budget")
+    failed = true
+}
+
 if arguments.count >= 3 {
     try JSONEncoder().encode(["mean": mean, "p99": p99, "classifier": classifierMean, "classifierP99": classifierP99,
                               "autoswitch": autoswitchMean, "autoswitchP99": autoswitchP99,
@@ -457,7 +533,8 @@ if arguments.count >= 3 {
                               "typosContext": typosContextMean, "typosContextP99": typosContextP99,
                               "autoswitchCounted": countedMean, "autoswitchPersonal": personalMean,
                               "autoswitchPersonalP99": personalP99, "classifierPersonal": personalClassifierMean,
-                              "classifierPersonalP99": personalClassifierP99])
+                              "classifierPersonalP99": personalClassifierP99,
+                              "typosRealWords": typosRealWordsMean, "typosRealWordsP99": typosRealWordsP99])
         .write(to: URL(fileURLWithPath: arguments[2]))
 }
 exit(failed ? 1 : 0)

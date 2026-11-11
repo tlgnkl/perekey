@@ -25,11 +25,23 @@ public struct DictationPreferences: Hashable, Sendable {
     /// «Язык диктовки: как в программе»: a dictation gets the language hint
     /// of `DictationLanguageHint` when there is one. Off, the model finds
     /// the language, as before.
+    ///
+    /// With `recognizesWhileSpeaking` the hint is read once, at the first cut,
+    /// and holds for all the pieces and for the fallback to the whole
+    /// recording: the pieces of one dictation must not go in different
+    /// languages. This departs from a dictation recognized whole, where the
+    /// app and the layout are read after the stop; a switch of either during
+    /// the speech is not seen by the pieces.
     public var languageFromApp: Bool
+    /// «Распознавать во время речи»: a dictation on this Mac is recognized in
+    /// pieces cut at its pauses while it is spoken (`SpeechSegmenter`). Off,
+    /// the whole recording after the stop, as before.
+    public var recognizesWhileSpeaking: Bool
 
     public init(microphoneUID: String? = nil, modelID: String = DictationPreferences.defaultModel,
                 switchesLayout: Bool = true, playsSounds: Bool = true, silenceStop: Duration? = .seconds(30),
-                unloadAfter: Duration? = .seconds(60 * 60), languageFromApp: Bool = false)
+                unloadAfter: Duration? = .seconds(60 * 60), languageFromApp: Bool = false,
+                recognizesWhileSpeaking: Bool = false)
     {
         self.microphoneUID = microphoneUID
         self.modelID = modelID
@@ -38,6 +50,7 @@ public struct DictationPreferences: Hashable, Sendable {
         self.silenceStop = silenceStop
         self.unloadAfter = unloadAfter
         self.languageFromApp = languageFromApp
+        self.recognizesWhileSpeaking = recognizesWhileSpeaking
     }
 }
 
@@ -48,6 +61,7 @@ extension DictationPreferences {
                   switchesLayout: settings.switchesLayout, playsSounds: settings.playsSounds,
                   silenceStop: settings.autoStop.seconds.map { .seconds($0) },
                   unloadAfter: settings.unload.seconds.map { .seconds($0) },
-                  languageFromApp: settings.dictationLanguage == .app)
+                  languageFromApp: settings.dictationLanguage == .app,
+                  recognizesWhileSpeaking: settings.recognizesWhileSpeaking)
     }
 }

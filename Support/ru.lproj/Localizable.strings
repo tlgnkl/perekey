@@ -424,3 +424,16 @@
 "Does not fit on this screen: it will scroll" = "Не помещается на этом экране: будет прокрутка";
 "Hide from Menu" = "Скрыть из меню";
 "Customize Menu…" = "Настроить меню…";
+
+/* Typing recording of the developer build (PEREKEY_RECORD; CONTRIBUTING.md). Not in a release. */
+"Typing recording (dev)" = "Запись набора (dev)";
+"Do not record here" = "Не записывать здесь";
+"Erase Recordings…" = "Стереть записи…";
+"Show Recordings in Finder" = "Показать записи в Finder";
+"rec" = "запись";
+"Typing is being recorded" = "Идёт запись набора";
+"Typing recording is waiting" = "Запись набора ждёт";
+"Typing recording failed: the file cannot be written" = "Запись набора не удалась: файл не пишется";
+"The file holds what you type and the words from your settings (exceptions, always-fix). It exists only in this developer build." = "В файле — всё, что вы печатаете, и слова из ваших настроек (исключения, «всегда исправлять»). Он есть только в этой сборке для разработки.";
+"Erase all typing recordings?" = "Стереть все записи набора?";
+"The files of the typing recording are removed from this Mac. This cannot be undone." = "Файлы записи набора будут удалены с этого Mac. Отменить это нельзя.";

@@ -4,6 +4,7 @@ import FluidAudio
 import Foundation
 import PerekeyCore
 import PerekeyVoice
+import PerekeyVoiceCore
 import Testing
 
 struct VoiceEnginesTests {
@@ -36,6 +37,21 @@ struct VoiceEnginesTests {
         #expect(VoiceEngines.make(model: "whisper-large-v3-turbo-632mb", store: store) is WhisperKitEngine)
         #expect(VoiceEngines.make(model: "silero-vad", store: store) == nil)
         #expect(VoiceEngines.make(model: "nope", store: store) == nil)
+    }
+
+    /// «Распознавать во время речи»: Whisper cuts at a quarter of a second
+    /// without speech, Parakeet only at half a second (a shorter pause cost it
+    /// words at the start of the next piece).
+    @Test func eachModelCutsAtItsOwnPause() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let store = VoiceModelStore(
+            locations: VoiceModelLocations(models: folder, managed: folder, coreMLCache: folder),
+            managed: ManagedSettings())
+        let whisper = try #require(VoiceEngines.make(model: "whisper-large-v3-turbo-632mb", store: store))
+        let parakeet = try #require(VoiceEngines.make(model: "parakeet-tdt-v3", store: store))
+        #expect(whisper.pieces == SpeechSegmenter.Options(minimumPiece: 5, pause: 0.25))
+        #expect(parakeet.pieces == SpeechSegmenter.Options(minimumPiece: 5, pause: 0.5))
+        #expect(parakeet.pieces.pauseChunks == 2)
     }
 
     // Package.swift resolves FluidAudio with no traits, so its NeMo text

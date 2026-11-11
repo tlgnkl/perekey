@@ -21,9 +21,16 @@ public struct TextCorrections: Hashable, Sendable {
     /// "чтото" → "что-то" where the merged word is no word, and "кое что" →
     /// "кое-что" where the words with a space are no right text. Russian only.
     public var hyphen: Bool
+    /// "form" → "from" where the pair table says the other word is far likelier
+    /// after the word before and the typed pair is unknown to it
+    /// (`TypoCorrector`, docs/classifier.md, «Опечатки-слова»). A typo
+    /// correction: it acts only with `Settings.typoCorrection` on, and it
+    /// alone does not make the boundary look at the word. Off by default,
+    /// and no row in the settings: it has not met its bar.
+    public var realWords: Bool
 
     public init(phraseRetype: Bool = true, doubleCapitals: Bool = true, capsLock: Bool = false,
-                abbreviations: Bool = false, yo: Bool = false, hyphen: Bool = false)
+                abbreviations: Bool = false, yo: Bool = false, hyphen: Bool = false, realWords: Bool = false)
     {
         self.phraseRetype = phraseRetype
         self.doubleCapitals = doubleCapitals
@@ -31,6 +38,7 @@ public struct TextCorrections: Hashable, Sendable {
         self.abbreviations = abbreviations
         self.yo = yo
         self.hyphen = hyphen
+        self.realWords = realWords
     }
 
     /// Some correction of a finished word is on: the word boundary must look
@@ -40,7 +48,7 @@ public struct TextCorrections: Hashable, Sendable {
 
 extension TextCorrections: Codable {
     private enum CodingKeys: String, CodingKey {
-        case phraseRetype, doubleCapitals, capsLock, abbreviations, yo, hyphen
+        case phraseRetype, doubleCapitals, capsLock, abbreviations, yo, hyphen, realWords
     }
 
     public init(from decoder: any Decoder) throws {
@@ -55,5 +63,6 @@ extension TextCorrections: Codable {
         abbreviations = value(.abbreviations, defaults.abbreviations)
         yo = value(.yo, defaults.yo)
         hyphen = value(.hyphen, defaults.hyphen)
+        realWords = value(.realWords, defaults.realWords)
     }
 }

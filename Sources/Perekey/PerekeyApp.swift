@@ -282,6 +282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The history writes off the main thread: let the last one land.
         voiceText.history.flush()
         #endif
+        #if PEREKEY_RECORD
+        // The recorder's queue would die with the process: write the rest and close the file here.
+        shell.recording.finish()
+        #endif
         // The Caps Lock remap would outlive the app until logout.
         CapsLockRemapper.apply(.untouched)
     }
@@ -361,6 +365,10 @@ final class MenuBarShell {
     let dictation = DictationMenuSource()
     /// The capsule's ● and time while a call is recorded.
     let call = CallIndicatorModel()
+    #if PEREKEY_RECORD
+    /// «Typing recording (dev)»: the menu's rows and the badge of the item.
+    let recording: SessionRecording
+    #endif
     /// Files dropped on the menu bar item; set before `start` to take them.
     var drop: (([URL]) -> Bool)?
     var acceptsDrop: (URL) -> Bool = { _ in false }
@@ -377,6 +385,10 @@ final class MenuBarShell {
         self.onboarding = onboarding
         let reportWindow = reportWindow
         let dictation = dictation
+        #if PEREKEY_RECORD
+        let recording = SessionRecording(input: input)
+        self.recording = recording
+        #endif
         menu = MenuPanelController(
             sources: sources, store: store, pause: pause, launch: launch, appModes: input.appModes,
             recents: recents, usage: usage, updates: updates, input: input
@@ -401,6 +413,9 @@ final class MenuBarShell {
             #if PEREKEY_VOICE
             actions.dictation = dictation.menu
             #endif
+            #if PEREKEY_RECORD
+            actions.recording = recording
+            #endif
             return actions
         }
     }
@@ -409,6 +424,11 @@ final class MenuBarShell {
         guard statusItem == nil else { return }
         statusItem = StatusItemController(sources: sources, store: store, pause: pause, input: input, recents: recents,
                                           menu: menu, call: call, drop: drop, accepts: acceptsDrop)
+        #if PEREKEY_RECORD
+        let item = statusItem
+        item?.setRecording(recording.status)
+        recording.onChange = { [weak item] in item?.setRecording($0) }
+        #endif
     }
 }
 

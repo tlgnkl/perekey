@@ -392,6 +392,7 @@ private extension Output {
         #expect(settings.autoStop == .seconds30)
         #expect(settings.unload == .minutes60)
         #expect(settings.dictationLanguage == .auto, "a file without the key keeps the model finding the language")
+        #expect(!settings.recognizesWhileSpeaking, "a file without the key recognizes after the stop")
         #expect(settings.unreadableKeys.isEmpty)
     }
 
@@ -413,6 +414,28 @@ private extension Output {
         let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
         #expect(object["dictationLanguage"] == nil)
         settings.dictationLanguage = .app
+        #expect(settings.unreadableKeys.isEmpty)
+    }
+
+    @Test func recognizingWhileSpeakingIsOffByDefaultAndRoundTrips() throws {
+        #expect(!VoiceSettings().recognizesWhileSpeaking)
+        var settings = VoiceSettings()
+        settings.recognizesWhileSpeaking = true
+        let data = try JSONEncoder().encode(settings)
+        #expect(try JSONDecoder().decode(VoiceSettings.self, from: data).recognizesWhileSpeaking)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["recognizesWhileSpeaking"] as? Bool == true)
+    }
+
+    @Test func anUnreadableRecognizingWhileSpeakingStaysOffAndKeepsItsValueOnDisk() throws {
+        let data = Data(#"{"isEnabled":true,"recognizesWhileSpeaking":"yes"}"#.utf8)
+        var settings = try JSONDecoder().decode(VoiceSettings.self, from: data)
+        #expect(!settings.recognizesWhileSpeaking)
+        #expect(settings.unreadableKeys == ["recognizesWhileSpeaking"])
+        #expect(settings.activeTrigger != nil, "dictation stays on")
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        #expect(object["recognizesWhileSpeaking"] == nil)
+        settings.recognizesWhileSpeaking = true
         #expect(settings.unreadableKeys.isEmpty)
     }
 

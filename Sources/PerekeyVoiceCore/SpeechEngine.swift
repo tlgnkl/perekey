@@ -22,6 +22,10 @@ public protocol SpeechEngine: VoiceModel {
     /// Parakeet does not: with no hint to check, nothing is built for it
     /// and no second run is made.
     var acceptsLanguageHint: Bool { get }
+    /// Where «Распознавать во время речи» cuts this model's speech
+    /// (`SpeechSegmenter`): `.standard`, or `.betweenPhrases` for a model
+    /// that loses words after a short pause.
+    var pieces: SpeechSegmenter.Options { get }
     /// One dictation, held in memory whole. Throws if not prepared.
     func transcribe(_ audio: AudioBuffer16k) async throws -> Transcript
     /// The same, with words the model should spell as given (the user's
@@ -44,6 +48,7 @@ public protocol SpeechEngine: VoiceModel {
 extension SpeechEngine {
     public var addsSignOffs: Bool { false }
     public var acceptsLanguageHint: Bool { true }
+    public var pieces: SpeechSegmenter.Options { .standard }
 
     public func transcribe(_ audio: AudioBuffer16k, prompt _: String?) async throws -> Transcript {
         try await transcribe(audio)

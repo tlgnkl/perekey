@@ -27,6 +27,11 @@ struct Desk {
     /// Every event the machine handled and what it answered, while not nil:
     /// a session as the recorder writes it (`SessionStep`).
     var tape: [SessionStep]?
+    #if PEREKEY_RECORD
+    /// Sees every event the machine handled, its output and the machine
+    /// after it, as the engine's typing recorder does (`RecordingBuffer`).
+    var watcher: ((InputEvent, Output, InputMachine) -> Void)?
+    #endif
 
     static let classifier = Classifier(model: ModelFixture.model)
     static let textEdit = Focus(bundleID: "com.apple.TextEdit")
@@ -71,6 +76,9 @@ struct Desk {
     private mutating func handle(_ event: InputEvent) -> Output {
         let output = machine.handle(event)
         tape?.append(SessionStep(event: RecordedEvent(event), output: OutputDigest(output)))
+        #if PEREKEY_RECORD
+        watcher?(event, output, machine)
+        #endif
         return output
     }
 

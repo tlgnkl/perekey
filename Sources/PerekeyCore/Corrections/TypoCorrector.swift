@@ -62,6 +62,27 @@ public struct TypoCorrector: Sendable {
         /// the value comes from `perekey-eval run --typo-context-sweep`
         /// (docs/corrections.md, «Опечатки с контекстом»).
         public var contextWeight = 0.0
+        /// Words that are words (`correct(…, realWords: true)`): the least lift,
+        /// in bits, a candidate must have after the word before it. "form" after
+        /// "letter" is a word; "from" after it is nine bits likelier than
+        /// anywhere. 6 is the start of the sweep of
+        /// `perekey-eval run --real-words --real-word-sweep`
+        /// (docs/classifier.md, «Опечатки-слова»).
+        public var realWordLift = 6.0
+        /// Words that are words: how much rarer than the typed word the
+        /// candidate may be, in rank units (32 per unit of Zipf). A candidate
+        /// ranked below the typed word by more is not what the person meant.
+        public var realWordSlack = 32
+        /// Words that are words: how many bits of lift the best candidate must
+        /// have over every other. Two likely answers mean nothing is fixed.
+        public var realWordMargin = 1.0
+        /// Words that are words: whether the edit may fall on the last letter.
+        /// Off, "believes" is never "believed": a neighbouring key at the end
+        /// of a word is mostly another form of the same word.
+        public var realWordEnding = true
+        /// Words that are words: whether a neighbouring key may be the edit.
+        /// Off, only two letters swapped count.
+        public var realWordKeys = true
 
         public init() {}
     }
@@ -112,19 +133,24 @@ public struct TypoCorrector: Sendable {
     ///   - previous: the fingerprint of the word before it
     ///     (`PreviousWord.fingerprint(of:)`, `ModelFormat.sentenceStart` at the
     ///     start of a sentence); nil when it is not known. Used only with
-    ///     `Options.contextWeight` above 0.
+    ///     `Options.contextWeight` above 0 or `realWords`.
+    ///   - realWords: a word of the dictionary may be replaced too, by a word
+    ///     one swap or one neighbouring key away that the pair table likes far
+    ///     more after `previous` (docs/classifier.md, «Опечатки-слова»). Off
+    ///     is the corrector without the class, byte for byte.
     public func correct(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap, sentenceStart: Bool,
-                        previous: UInt64? = nil) -> Candidate?
+                        previous: UInt64? = nil, realWords: Bool = false) -> Candidate?
     {
         guard let code = layout.language, options.languages.contains(code) else { return nil }
-        return correct(strokes, inAllowed: layout, sentenceStart: sentenceStart, previous: previous)
+        return correct(strokes, inAllowed: layout, sentenceStart: sentenceStart, previous: previous,
+                       realWords: realWords)
     }
 
     /// `correct(_:in:sentenceStart:)` for a caller that knows the layout's
     /// language is allowed (`LayoutState.correctsTypos`): no set lookup on
     /// the per-word path.
     func correct(_ strokes: some Collection<KeyStroke>, inAllowed layout: LayoutMap, sentenceStart: Bool,
-                 previous: UInt64? = nil) -> Candidate?
+                 previous: UInt64? = nil, realWords: Bool = false) -> Candidate?
     {
         guard let code = layout.language, let language = model.language(code) else { return nil }
         let capacity = options.maxLetters
@@ -132,14 +158,15 @@ public struct TypoCorrector: Sendable {
             withUnsafeTemporaryAllocation(of: UInt16.self, capacity: capacity) { keyCodes in
                 withUnsafeTemporaryAllocation(of: UInt64.self, capacity: capacity + 1) { prefixes in
                     correct(strokes, in: layout, language: language, sentenceStart: sentenceStart, previous: previous,
-                            scalars: scalars, keyCodes: keyCodes, prefixes: prefixes)
+                            realWords: realWords, scalars: scalars, keyCodes: keyCodes, prefixes: prefixes)
                 }
             }
         }
     }
 
     private func correct(_ strokes: some Collection<KeyStroke>, in layout: LayoutMap, language: LanguageModel.Language,
-                         sentenceStart: Bool, previous: UInt64?, scalars: UnsafeMutableBufferPointer<UInt32>,
+                         sentenceStart: Bool, previous: UInt64?, realWords: Bool,
+                         scalars: UnsafeMutableBufferPointer<UInt32>,
                          keyCodes: UnsafeMutableBufferPointer<UInt16>,
                          prefixes: UnsafeMutableBufferPointer<UInt64>) -> Candidate?
     {
@@ -173,8 +200,20 @@ public struct TypoCorrector: Sendable {
             fingerprint.add(scalars[index])
             prefixes[index + 1] = fingerprint.hash
         }
-        // A known form, however rare, is what the user meant.
-        guard language.rank(of: fingerprint.value) == nil else { return nil }
+        // A known form, however rare, is what the user meant, unless it is the
+        // typo of a likelier word in this very place: one swap or one key away,
+        // the table has no pair of the word before and this one, and has one
+        // of it and the candidate that is far likelier (`Options.realWordLift`).
+        let typedRank = language.rank(of: fingerprint.value)
+        if typedRank != nil {
+            guard realWords, !capital, language.hasPairTable, let previous,
+                  language.pairLift(previous: previous, word: fingerprint.value) == nil
+            else { return nil }
+        }
+        let floorRank = typedRank.map { Int($0) - options.realWordSlack }
+        let barLift = Int((options.realWordLift * 8).rounded(.up))
+        let realWord = typedRank != nil
+        let typedValue = fingerprint.value
 
         // The word before counts only with a weight, a word known and a table in the model.
         let context = options.contextWeight > 0 && language.hasPairTable ? previous : nil
@@ -184,7 +223,13 @@ public struct TypoCorrector: Sendable {
         func consider(_ value: UInt64, _ edit: Edit, prior: Int) {
             guard let rank = language.rank(of: value) else { return }
             var score = Int(rank) + prior
-            if let context, let lift = language.pairLift(previous: context, word: value) {
+            if let floorRank {
+                // A word that is a word: scored by its lift alone, the rank only a floor.
+                guard value != typedValue, Int(rank) >= floorRank,
+                      let previous, let lift = language.pairLift(previous: previous, word: value), Int(lift) >= barLift
+                else { return }
+                score = Int(lift)
+            } else if let context, let lift = language.pairLift(previous: context, word: value) {
                 score += Int((Double(lift) * unitsPerEighth).rounded())
             }
             guard let current = best else {
@@ -221,7 +266,8 @@ public struct TypoCorrector: Sendable {
 
         for index in 0..<count {
             // A neighbouring key.
-            for neighbour in KeyboardGeometry.neighbours(of: keyCodes[index]) {
+            let endingEdit = realWord && (!options.realWordKeys || !options.realWordEnding && index == count - 1)
+            for neighbour in KeyboardGeometry.neighbours(of: keyCodes[index]) where !endingEdit {
                 guard let replacement = letter(neighbour), replacement != scalars[index] else { continue }
                 var hash = ModelFormat.Fingerprint()
                 hash.hash = prefixes[index]
@@ -229,7 +275,9 @@ public struct TypoCorrector: Sendable {
                 consider(rest(&hash, from: index + 1), .substitute(index, replacement), prior: options.substitutionPrior)
             }
             // Two letters swapped.
-            if index + 1 < count, scalars[index] != scalars[index + 1] {
+            if index + 1 < count, scalars[index] != scalars[index + 1],
+               !(realWord && !options.realWordEnding && index + 2 == count)
+            {
                 var hash = ModelFormat.Fingerprint()
                 hash.hash = prefixes[index]
                 hash.add(scalars[index + 1])
@@ -237,7 +285,7 @@ public struct TypoCorrector: Sendable {
                 consider(rest(&hash, from: index + 2), .transpose(index), prior: options.transpositionPrior)
             }
             // One letter too many: a doubled one, or a stray one.
-            if count > options.minLetters, index == 0 || scalars[index] != scalars[index - 1] {
+            if !realWord, count > options.minLetters, index == 0 || scalars[index] != scalars[index - 1] {
                 var hash = ModelFormat.Fingerprint()
                 hash.hash = prefixes[index]
                 let doubled = index + 1 < count && scalars[index] == scalars[index + 1]
@@ -246,7 +294,7 @@ public struct TypoCorrector: Sendable {
             }
         }
         // One letter missing.
-        if count < options.maxLetters {
+        if !realWord, count < options.maxLetters {
             for index in 0...count {
                 for inserted in language.letters {
                     // Inserting before an equal letter is the same word as after it.
@@ -259,9 +307,11 @@ public struct TypoCorrector: Sendable {
             }
         }
 
-        guard let best, best.score >= options.minScore + (capital ? options.capitalExtra : 0),
-              runnerUp + options.margin <= best.score
-        else { return nil }
+        // A word that is a word: the lift is the score and its bar was met in
+        // `consider`; the margin over the next answer is left.
+        let margin = realWord ? max(Int((options.realWordMargin * 8).rounded(.up)), 1) : options.margin
+        let least = realWord ? barLift : options.minScore + (capital ? options.capitalExtra : 0)
+        guard let best, best.score >= least, runnerUp + margin <= best.score else { return nil }
 
         var corrected: [UInt32] = []
         corrected.reserveCapacity(count + 1)

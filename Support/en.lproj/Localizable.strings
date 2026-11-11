@@ -424,3 +424,16 @@
 "Does not fit on this screen: it will scroll" = "Does not fit on this screen: it will scroll";
 "Hide from Menu" = "Hide from Menu";
 "Customize Menu…" = "Customize Menu…";
+
+/* Typing recording of the developer build (PEREKEY_RECORD; CONTRIBUTING.md). Not in a release. */
+"Typing recording (dev)" = "Typing recording (dev)";
+"Do not record here" = "Do not record here";
+"Erase Recordings…" = "Erase Recordings…";
+"Show Recordings in Finder" = "Show Recordings in Finder";
+"rec" = "rec";
+"Typing is being recorded" = "Typing is being recorded";
+"Typing recording is waiting" = "Typing recording is waiting";
+"Typing recording failed: the file cannot be written" = "Typing recording failed: the file cannot be written";
+"The file holds what you type and the words from your settings (exceptions, always-fix). It exists only in this developer build." = "The file holds what you type and the words from your settings (exceptions, always-fix). It exists only in this developer build.";
+"Erase all typing recordings?" = "Erase all typing recordings?";
+"The files of the typing recording are removed from this Mac. This cannot be undone." = "The files of the typing recording are removed from this Mac. This cannot be undone.";

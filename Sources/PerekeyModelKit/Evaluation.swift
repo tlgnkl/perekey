@@ -44,6 +44,18 @@ public struct Evaluation {
         /// Typos that are words themselves ("form" for "from"): the
         /// corrector leaves known words alone, so these set the ceiling.
         public var typosThatAreWords = 0
+        /// Words that are words (`TypoCorrector.correct(…, realWords:)`, docs/corrections.md,
+        /// «Опечатки-слова»): of the category `realword`, how many words were
+        /// meant, how many came back as the word meant, how many became
+        /// another word. Zero in every other category.
+        public var realWordWords = 0
+        public var realWordsFixed = 0
+        public var realWordsWrong = 0
+        /// A word of the dictionary the corrector changed in a clean
+        /// category, a subset of `wrongCorrections`, by the edit that did it.
+        public var realWordChanges = 0
+        public var realWordChangesByTransposition = 0
+        public var realWordChangesByKey = 0
         /// Words with trailing punctuation typed in the other layout with the
         /// marks where that layout has them: "нет," on ABC is "ytn,", whose
         /// comma is "б" in Russian. How many switched back with the marks
@@ -69,12 +81,15 @@ public struct Evaluation {
             checkedWords > 0 ? Double(wrongCorrections) / Double(checkedWords) : 0
         }
         public var fixedShare: Double { typoWords > 0 ? Double(typosFixed) / Double(typoWords) : 0 }
+        public var realWordShare: Double { realWordWords > 0 ? Double(realWordsFixed) / Double(realWordWords) : 0 }
     }
 
     public struct Results: Sendable {
         public var threshold: Double
         public var options = Classifier.Options()
         public var typoOptions: TypoCorrector.Options
+        /// The run looked for words that are words.
+        public var realWords = false
         public var categories: [Category]
         public var untypeable = 0
         public var errors: [Case]
@@ -99,6 +114,12 @@ public struct Evaluation {
                 total.typosFixed += category.typosFixed
                 total.typosFixedAfterSwitch += category.typosFixedAfterSwitch
                 total.typosThatAreWords += category.typosThatAreWords
+                total.realWordWords += category.realWordWords
+                total.realWordsFixed += category.realWordsFixed
+                total.realWordsWrong += category.realWordsWrong
+                total.realWordChanges += category.realWordChanges
+                total.realWordChangesByTransposition += category.realWordChangesByTransposition
+                total.realWordChangesByKey += category.realWordChangesByKey
                 total.punctuationWords += category.punctuationWords
                 total.punctuationSwitches += category.punctuationSwitches
                 total.punctuationEarly += category.punctuationEarly
@@ -122,6 +143,8 @@ public struct Evaluation {
     /// The personal lexicon every word is judged with (`perekey-eval
     /// personal`): `.off`, the default, judges as before, byte for byte.
     public var personal = PersonalLexicon.off
+    /// Look for words that are words too (`TypoCorrector.correct(…, realWords:)`); off is the run as before.
+    public var realWords = false
     let model: LanguageModel
 
     /// - Parameter layouts: one layout per language code, e.g. ["ru": Russian, "en": ABC].
@@ -141,6 +164,7 @@ public struct Evaluation {
         var categories: [String: Category] = [:]
         var results = Results(threshold: options.threshold, typoOptions: typoOptions, categories: [], errors: [])
         results.options = options
+        results.realWords = realWords
         var errorCounts: [String: Int] = [:]
         func record(_ item: CorpusItem, typed: LayoutID, expectSwitch: Bool, decision: Classifier.Decision,
                     correction: String? = nil)
@@ -178,6 +202,23 @@ public struct Evaluation {
             // The word before it for the corrector's context, as the machine reads it from the keys typed.
             let before = Self.wordBefore(item.previousWords)
 
+            if item.category == "realword" {
+                // A word typed for another word: the corrector alone, the classifier has nothing to say.
+                category.realWordWords += 1
+                let fix = corrector.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before,
+                                            realWords: realWords)?.text
+                if fix == item.expected {
+                    category.realWordsFixed += 1
+                } else {
+                    if fix != nil { category.realWordsWrong += 1 }
+                    record(item, typed: own.id, expectSwitch: false,
+                           decision: classifier.classify(strokes, typed: own, other: other, context: context),
+                           correction: fix ?? "-")
+                }
+                categories[item.category] = category
+                continue
+            }
+
             let kept = classifier.classify(strokes, typed: own, other: other, context: context)
             category.keepWords += 1
             if classifier.marksAfterSwitch(strokes, in: own, from: other, personal: personal) > 0 {
@@ -201,7 +242,8 @@ public struct Evaluation {
                     category.typosThatAreWords += 1
                 }
                 let fix = keptInOwnLayout
-                    ? typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before)?.text : nil
+                    ? typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before,
+                                        realWords: realWords)?.text : nil
                 if fix == item.expected {
                     category.typosFixed += 1
                 } else {
@@ -212,8 +254,8 @@ public struct Evaluation {
                 category.switchWords += 1
                 if wrong.verdict == .switch(to: own.id) {
                     category.switches += 1
-                    if typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before)?.text
-                        == item.expected
+                    if typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before,
+                                         realWords: realWords)?.text == item.expected
                     {
                         category.typosFixedAfterSwitch += 1
                     }
@@ -225,8 +267,18 @@ public struct Evaluation {
             if keptInOwnLayout {
                 // A right word the corrector changes is a wrong correction.
                 category.checkedWords += 1
-                if let fix = typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before) {
+                if let fix = typoStep?.correct(strokes, in: own, sentenceStart: sentenceStart, previous: before,
+                                               realWords: realWords)
+                {
                     category.wrongCorrections += 1
+                    if realWords, let language = model.language(item.language),
+                       language.rank(of: ModelFormat.Fingerprint.of(item.text.unicodeScalars, folded: true)) != nil
+                    {
+                        category.realWordChanges += 1
+                        if fix.change == .transpose { category.realWordChangesByTransposition += 1 } else {
+                            category.realWordChangesByKey += 1
+                        }
+                    }
                     record(item, typed: own.id, expectSwitch: false, decision: kept, correction: fix.text)
                 }
             }
@@ -349,6 +401,23 @@ public struct Evaluation {
         }
     }
 
+    /// Runs the corpus with words that are words looked for, at every pair of
+    /// the lift bar and the rank slack: the points to pick
+    /// `TypoCorrector.Options.realWordLift` and `realWordSlack` from.
+    public func realWordSweep(_ items: [CorpusItem], lifts: [Double], slacks: [Int]) -> [Results] {
+        var points: [Results] = []
+        for lift in lifts {
+            for slack in slacks {
+                var evaluation = self
+                evaluation.realWords = true
+                evaluation.typoOptions.realWordLift = lift
+                evaluation.typoOptions.realWordSlack = slack
+                points.append(evaluation.run(items, maxErrors: 0))
+            }
+        }
+        return points
+    }
+
     /// Runs the corpus at every pair of typo options: the points to pick
     /// `minScore` and `margin` from.
     public func typoSweep(_ items: [CorpusItem], scores: [Int], margins: [Int]) -> [Results] {
@@ -391,6 +460,21 @@ public struct Evaluation {
                            category.checkedWords, category.wrongCorrections, category.wrongCorrectionRate * 100,
                            category.typoWords, category.typosFixed, category.fixedShare * 100,
                            category.typosFixedAfterSwitch, category.typosThatAreWords)
+        }
+        if results.realWords {
+            text += String(format: "\nwords that are words: lift from %.1f bits, rank slack %d, margin %.1f bits\n",
+                           results.typoOptions.realWordLift, results.typoOptions.realWordSlack,
+                           results.typoOptions.realWordMargin)
+            text += "category  words of the dictionary changed   by a swap   by a key\n"
+            for category in results.categories + [results.total] {
+                text += String(format: "%-9@ %31d %11d %10d\n", category.name as NSString, category.realWordChanges,
+                               category.realWordChangesByTransposition, category.realWordChangesByKey)
+            }
+            if let category = results.categories.first(where: { $0.name == "realword" }) {
+                text += String(format: "realword: %d words typed for another word, %d came back as the word meant "
+                               + "(%.2f%%), %d became another word\n", category.realWordWords,
+                               category.realWordsFixed, category.realWordShare * 100, category.realWordsWrong)
+            }
         }
         return text
     }

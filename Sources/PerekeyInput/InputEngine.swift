@@ -112,6 +112,19 @@ public final class InputEngine: @unchecked Sendable {
     private var replayTimer: CFRunLoopTimer?
     /// The hint's button in CG global coordinates, while the hint shows.
     private var hintButton: CGRect?
+    #if PEREKEY_RECORD
+    /// The typing recording, while it runs (`startRecording`).
+    private var recording: Recording?
+    private var recordings = 0
+    private var recordingTimer: CFRunLoopTimer?
+
+    private struct Recording {
+        var buffer: RecordingBuffer
+        let recorder: SessionRecorder
+        /// Tells the answers of the recorder for an earlier recording apart.
+        let number: Int
+    }
+    #endif
 
     /// The pre-Backspace check of the retype with `seq`.
     private struct CaretCheckState {
@@ -210,6 +223,33 @@ public final class InputEngine: @unchecked Sendable {
             engine.createTapsOrRetry()
         }
     }
+
+    #if PEREKEY_RECORD
+    /// Starts the typing recording (`RecordingBuffer`, `SessionRecorder`):
+    /// what the machine handles from now on goes to `recorder`, except in
+    /// `excludedApps`, password fields and under Secure Input.
+    public func startRecording(_ recorder: SessionRecorder, excludedApps: Set<String>) {
+        perform { $0.beginRecording(recorder, excludedApps: excludedApps) }
+    }
+
+    /// Stops the recording; what it holds is written and the file closed.
+    public func stopRecording() {
+        perform { $0.endRecording() }
+    }
+
+    /// The apps nothing is recorded in.
+    public func setRecordingExclusions(_ apps: Set<String>) {
+        perform { $0.recording?.buffer.excludedApps = apps }
+    }
+
+    /// Removes every recording. A recording that runs goes on in a new file
+    /// that starts with a snapshot.
+    public func eraseRecordings(_ recorder: SessionRecorder) {
+        recorder.eraseAll { [weak self] in
+            self?.perform { $0.recording?.buffer.restart() }
+        }
+    }
+    #endif
 
     private func perform(_ block: @escaping @Sendable (InputEngine) -> Void) {
         guard let runLoop else { return }
@@ -549,8 +589,50 @@ public final class InputEngine: @unchecked Sendable {
     /// The one way into the machine: every event the tap thread hands it
     /// passes here, the keys from `keyboard` and the rest from `handle`.
     private func step(_ event: InputEvent) -> Output {
-        machine.handle(event)
+        let output = machine.handle(event)
+        #if PEREKEY_RECORD
+        // Memory only: the buffer hands a full batch to the recorder's queue.
+        if recording?.buffer.record(event, output, machine: machine) == true { handOver() }
+        #endif
+        return output
     }
+
+    #if PEREKEY_RECORD
+    private func beginRecording(_ recorder: SessionRecorder, excludedApps: Set<String>) {
+        endRecording()
+        recordings += 1
+        recording = Recording(buffer: RecordingBuffer(excludedApps: excludedApps), recorder: recorder,
+                              number: recordings)
+        // Hands over what typing left in the buffer, once a second.
+        let timer = CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent() + 1, 1, 0, 0) {
+            [self] _ in handOver()
+        }
+        recordingTimer = timer
+        CFRunLoopAddTimer(runLoop, timer, .commonModes)
+    }
+
+    private func endRecording() {
+        if let recordingTimer { CFRunLoopTimerInvalidate(recordingTimer) }
+        recordingTimer = nil
+        handOver(close: true)
+        recording = nil
+    }
+
+    /// Hands the buffer's entries to the recorder's queue. Its answer comes
+    /// back to this thread: the entries are written, the day may be over.
+    private func handOver(close: Bool = false) {
+        guard let recorder = recording?.recorder, let number = recording?.number,
+              close || recording?.buffer.entries.isEmpty == false
+        else { return }
+        let batch = recording?.buffer.take() ?? []
+        recorder.write(batch, close: close) { [weak self] count, newDay in
+            self?.perform { engine in
+                guard engine.recording?.number == number else { return }
+                engine.recording?.buffer.written(count, newDay: newDay)
+            }
+        }
+    }
+    #endif
 
     private func handle(_ event: InputEvent) {
         guard case let .focusChanged(focus, change) = event else {

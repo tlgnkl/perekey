@@ -20,6 +20,7 @@ import PerekeyModelKit
 ///     perekey-eval report <run dir> [--format text|md|html|json] [--out <file>] [--profile chat,dev,office]
 ///                         [--profiles <file>] [--slices] [--words N] [--reveal-test]
 ///     perekey-eval diff   <run A> <run B> [--format text|md|json] [--list N] [--reveal-test]
+///     perekey-eval learning run|sweep|vocabulary …   (Learning/LearningCommand.swift)
 ///
 /// `play` also takes `--cache <data cache>` (and `--lexicon <dir>`, `--data <dir>`, `--noise <dir>`) to score with
 /// the lexicon: `disputed`, `silent` and the features `known`, `zipf`, `collision`, `seen`.
@@ -30,7 +31,7 @@ import PerekeyModelKit
 /// Every command takes `--layouts <dir>` (default eval/layouts). Exit status:
 /// 0 success, 1 a self-check failed, 2 bad input.
 public enum EvalCommands {
-    public static let names: Set<String> = ["cases", "play", "case", "selfcheck", "report", "diff"]
+    public static let names: Set<String> = ["cases", "play", "case", "selfcheck", "report", "diff", "learning"]
 
     public static func run(_ arguments: [String]) -> Int32 {
         do {
@@ -43,6 +44,7 @@ public enum EvalCommands {
             case "selfcheck": return try selfcheck(parsed)
             case "report": return try report(parsed)
             case "diff": return try diff(parsed)
+            case "learning": return try LearningCommand.run(&parsed)
             default: throw EvalError.input("unknown command \(command)")
             }
         } catch {
@@ -550,7 +552,7 @@ struct Arguments {
 
     /// The next word: a command or a subcommand.
     mutating func command() throws -> String {
-        guard !positional.isEmpty else { throw EvalError.input("usage: perekey-eval cases|play|case|selfcheck|report|diff …") }
+        guard !positional.isEmpty else { throw EvalError.input("usage: perekey-eval cases|play|case|selfcheck|report|diff|learning …") }
         return positional.removeFirst()
     }
 

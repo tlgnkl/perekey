@@ -1,0 +1,16 @@
+{
+ "about": "The same vocabulary, but the person always means the other reading: Perekey is right every time, and many Backspaces meant for the space undo the switch. Every word learned here is learned wrongly",
+ "accident": 0.5,
+ "accidentContinues": 0.1,
+ "accidentRetypes": 0.3,
+ "answer": "everywhere",
+ "backspaceShare": 0.5,
+ "days": 30,
+ "layouts": ["ABC", "Russian"],
+ "meantOther": 1.0,
+ "messagesPerDay": 40,
+ "name": "learning.control",
+ "seed": 1,
+ "vocabulary": "learning.personal.tsv",
+ "zipf": 1.0
+}

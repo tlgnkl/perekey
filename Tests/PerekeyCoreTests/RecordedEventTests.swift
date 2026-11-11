@@ -151,6 +151,8 @@ import Testing
         var all = Classifier.Options()
         all.contextDecay = 0.5
         all.knownRank = 90
+        // Written only when on (`withTheWordContextOffTheOptionsAreCodedAsOnMain`).
+        all.wordContextLimit = 4
         #expect(try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(all)) == all)
         // An option added to `Classifier.Options` needs its key in the coding too.
         let keys = try JSONSerialization.jsonObject(with: JSONEncoder().encode(all)) as? [String: Any]

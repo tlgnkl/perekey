@@ -46,9 +46,19 @@ public enum EvalCommands {
             default: throw EvalError.input("unknown command \(command)")
             }
         } catch {
-            EvalContext.err("perekey-eval: \(error)")
+            // On a personal path a message may carry a value of the person's files: an error that is not ours
+            // names only its type.
+            let personal = Self.touchesTheStore(arguments)
+            EvalContext.err("perekey-eval: " + (error is EvalError || !personal ? "\(error)" : "\(type(of: error))"))
             return 2
         }
+    }
+
+    /// Whether a command works on a personal path: it builds a personal set, or an argument lies in the store.
+    private static func touchesTheStore(_ arguments: [String]) -> Bool {
+        guard let store = try? PrivateStore.fromEnvironment(EvalContext.env) else { return false }
+        if arguments.starts(with: ["cases", "personal"]) { return true }
+        return arguments.contains { store.contains($0) }
     }
 
     // MARK: - cases
@@ -119,8 +129,10 @@ public enum EvalCommands {
         }
         var options = SessionCases.Options()
         if let name = parsed.value("--name") {
-            guard !name.isEmpty, name.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else {
-                throw EvalError.input("--name: letters, digits and - only")
+            guard !name.isEmpty, name.utf8.count <= 32,
+                  name.utf8.allSatisfy({ ($0 >= 97 && $0 <= 122) || ($0 >= 48 && $0 <= 57) || $0 == 45 })
+            else {
+                throw EvalError.input("--name: a-z, 0-9 and - only, up to 32 characters")
             }
             options.name = name
         }
@@ -282,8 +294,8 @@ public enum EvalCommands {
             options.profilesFile = profilesPath
         }
         if options.words == nil, (parsed.value("--format") ?? "text") == "text" { options.words = 20 }
-        let run = try RunData.load(directory)
-        try requirePrivateOutput(for: [run], to: parsed.value("--out"), parsed)
+        let run = try RunData.load(directory, withholdDetails: try parsed.inStore(directory))
+        let privately = try requirePrivateOutput(for: [run], to: parsed.value("--out"), parsed)
         let data = try ReportBuilder.build(run, options: options)
         let text: String
         switch parsed.value("--format") ?? "text" {
@@ -293,7 +305,7 @@ public enum EvalCommands {
         case "json": text = try ReportRender.json(data)
         default: throw EvalError.input("--format text|md|html|json")
         }
-        try output(text, to: parsed.value("--out"))
+        try output(text, to: parsed.value("--out"), privately: privately ? try parsed.store() : nil)
         return 0
     }
 
@@ -302,8 +314,8 @@ public enum EvalCommands {
         var options = DiffOptions()
         options.revealTest = parsed.flag("--reveal-test")
         if let list = parsed.value("--list") { options.list = try count(list, "--list") }
-        let runs = try [RunData.load(parsed.positional[0]), RunData.load(parsed.positional[1])]
-        try requirePrivateOutput(for: runs, to: parsed.value("--out"), parsed)
+        let runs = try parsed.positional.map { try RunData.load($0, withholdDetails: try parsed.inStore($0)) }
+        let privately = try requirePrivateOutput(for: runs, to: parsed.value("--out"), parsed)
         let data = try DiffBuilder.build(runs[0], runs[1], options: options)
         let text: String
         switch parsed.value("--format") ?? "text" {
@@ -315,15 +327,21 @@ public enum EvalCommands {
             text = String(decoding: try encoder.encode(data), as: UTF8.self) + "\n"
         default: throw EvalError.input("--format text|md|json")
         }
-        try output(text, to: parsed.value("--out"))
+        try output(text, to: parsed.value("--out"), privately: privately ? try parsed.store() : nil)
         return 0
     }
 
-    /// A report or a diff of a personal run is a file of the private folder.
-    private static func requirePrivateOutput(for runs: [RunData], to path: String?, _ parsed: Arguments) throws {
-        guard let path, runs.contains(where: { $0.info.personal == true }) else { return }
-        guard let store = try parsed.store() else { throw EvalError.input("a personal run needs \(PrivateStore.variable)") }
-        try store.require(inside: path, what: "the report (--out)")
+    /// A report or a diff of a personal run, or of a run whose folder lies in the store, is a file of the
+    /// private folder. Whether it is such a run.
+    @discardableResult
+    private static func requirePrivateOutput(for runs: [RunData], to path: String?, _ parsed: Arguments) throws -> Bool {
+        guard path != nil else { return false }
+        let store = try parsed.store()
+        let flagged = runs.contains { $0.info.personal == true }
+        guard flagged || runs.contains(where: { store?.contains($0.directory) == true }) else { return false }
+        guard let store else { throw EvalError.input("a personal run needs \(PrivateStore.variable)") }
+        if let path { try store.require(inside: path, what: "the report (--out)") }
+        return true
     }
 
     private static func count(_ text: String, _ flag: String) throws -> Int {
@@ -331,9 +349,13 @@ public enum EvalCommands {
         return value
     }
 
-    private static func output(_ text: String, to path: String?) throws {
+    private static func output(_ text: String, to path: String?, privately store: PrivateStore? = nil) throws {
         if let path {
-            try text.write(toFile: path, atomically: true, encoding: .utf8)
+            if let store {
+                try store.write(text, to: path)
+            } else {
+                try text.write(toFile: path, atomically: true, encoding: .utf8)
+            }
         } else {
             EvalContext.out(text, terminator: "")
         }
@@ -562,6 +584,11 @@ struct Arguments {
     /// The folder of personal sets, if `PEREKEY_EVAL_PRIVATE` names one.
     func store(creating: Bool = false) throws -> PrivateStore? {
         try PrivateStore.fromEnvironment(EvalContext.env, creating: creating)
+    }
+
+    /// Whether a path lies in the folder of personal sets.
+    func inStore(_ path: String) throws -> Bool {
+        try store()?.contains(path) == true
     }
 
     func library() throws -> LayoutLibrary {

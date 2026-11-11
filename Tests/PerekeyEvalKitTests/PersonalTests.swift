@@ -143,6 +143,17 @@ enum Recording {
         #expect(try other.store.redactor().hash("привет") != first.hash("привет"), "another store, another salt")
     }
 
+    @Test func aSaltOfTheWrongLengthIsAnErrorAndStaysAsItIs() throws {
+        let test = try TestStore()
+        defer { test.remove() }
+        let salt = test.path + "/.salt"
+        for bytes in [Data(), Data(repeating: 7, count: Redactor.saltBytes - 1), Data(repeating: 7, count: Redactor.saltBytes + 1)] {
+            try bytes.write(to: URL(fileURLWithPath: salt))
+            #expect(throws: EvalError.self) { try test.store.redactor() }
+            #expect(try Data(contentsOf: URL(fileURLWithPath: salt)) == bytes, "a bad salt is not replaced")
+        }
+    }
+
     @Test func aFileOfTheStoreIsForTheOwnerAlone() throws {
         let test = try TestStore()
         defer { test.remove() }
@@ -443,6 +454,70 @@ enum Recording {
         #expect(bench.run(["report", run, "--out", outside + ".txt"]) == 2, "a report of a personal run is a file of the store")
         #expect(!FileManager.default.fileExists(atPath: outside + ".txt"))
         #expect(bench.run(["diff", run, run, "--out", outside + ".txt"]) == 2)
+    }
+
+    @Test func aRunFolderInsideTheStoreNeedsTheReportInsideItToo() throws {
+        let bench = try Bench()
+        defer { bench.remove() }
+        // A run.json without the flag, in a folder of the store.
+        let run = bench.store.path + "/plain"
+        try RunDirectory.play(RunDirectory.cases(), to: run)
+        let info = try String(contentsOfFile: run + "/run.json", encoding: .utf8)
+        #expect(!info.contains("personal"))
+        let outside = NSTemporaryDirectory() + "outside-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: outside + ".txt") }
+        #expect(bench.run(["report", run, "--out", outside + ".txt"]) == 2)
+        #expect(bench.run(["diff", run, run, "--out", outside + ".txt"]) == 2)
+        #expect(!FileManager.default.fileExists(atPath: outside + ".txt"))
+        #expect(bench.run(["report", run, "--out", bench.store.path + "/report.txt"]) == 0, "\(bench.capture.stderr)")
+    }
+
+    @Test func aReportAndADiffOfAPersonalRunAreForTheOwnerAlone() throws {
+        let bench = try Bench()
+        defer { bench.remove() }
+        #expect(bench.build() == 0)
+        let run = bench.store.path + "/run"
+        #expect(bench.run(["play", "--cases", bench.cases, "--system", "null", "--out", run]) == 0)
+        for (name, arguments) in [("report.txt", ["report", run]), ("diff.txt", ["diff", run, run])] {
+            let path = bench.store.path + "/" + name
+            // An older file with open rights is tightened, not kept.
+            try "old".write(toFile: path, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path)
+            #expect(bench.run(arguments + ["--out", path]) == 0, "\(bench.capture.stderr)")
+            let attributes = try FileManager.default.attributesOfItem(atPath: path)
+            #expect((attributes[.posixPermissions] as? Int) == 0o600, "\(name)")
+        }
+    }
+
+    @Test func aBadNameOfASetIsRefusedWithoutTheName() throws {
+        let bench = try Bench()
+        defer { bench.remove() }
+        let long = String(repeating: "a", count: 33)
+        for name in [long, "Upper", "sp ace", "dot.name", "ключ", ""] {
+            #expect(bench.run(["cases", "personal", bench.sessions, "--model", bench.model, "--name", name]) == 2, "\(name)")
+            if !name.isEmpty { #expect(!(bench.capture.stderr + bench.capture.stdout).contains(name), "the message holds the name") }
+        }
+        let longest = String(repeating: "a", count: 32)
+        #expect(bench.run(["cases", "personal", bench.sessions, "--model", bench.model, "--name", longest]) == 0,
+                "\(bench.capture.stderr)")
+    }
+
+    @Test func anErrorOnAPersonalPathNamesOnlyItsType() throws {
+        let bench = try Bench()
+        defer { bench.remove() }
+        let secret = "секретноеслово"
+        // Valid JSON of the wrong shape: the decoder's message would carry the text of the file.
+        for (name, body) in [("run.json", "{\"commit\":{\"\(secret)\":1}}"), ("run.json", "{\"commit\":\"\(secret)\" nope")] {
+            let run = bench.store.path + "/broken-\(UUID().uuidString)"
+            try FileManager.default.createDirectory(atPath: run, withIntermediateDirectories: true)
+            try body.write(toFile: run + "/" + name, atomically: true, encoding: .utf8)
+            for arguments in [["report", run], ["diff", run, run]] {
+                #expect(bench.run(arguments) == 2, "\(arguments)")
+            }
+        }
+        let texts = [("stdout", bench.capture.stdout), ("stderr", bench.capture.stderr)]
+        #expect(bench.leaks(of: [secret], in: texts).isEmpty, "\(bench.capture.stderr)")
+        #expect(bench.capture.stderr.contains("DecodingError"), "\(bench.capture.stderr)")
     }
 
     @Test func personalCasesNeedTheStoreAndTheStoreHoldsNothingElse() throws {

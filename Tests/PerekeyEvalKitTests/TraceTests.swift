@@ -79,6 +79,31 @@ import Testing
         }
     }
 
+    /// The trace is on by default: a rerun of an old set gets the slices `reason` and `margin` for the kept
+    /// and not judged words (docs/eval.md, «История определений»), and nothing else in `slices.json` moves.
+    @Test func slicesOfAnOldSetDifferOnlyInTheReasonAndMargin() throws {
+        let items = try RunDirectory.cases()
+        func slices(traces: Bool) throws -> [String: Any] {
+            var config = Runner.Config()
+            config.classifier = Repo.classifier
+            config.tracesJudgements = traces
+            var runner = Runner(config: config, library: Repo.library)
+            let scores = try items.map { try runner.play($0).score }
+            let object = try JSONSerialization.jsonObject(with: Data(try RunFiles.slicesJSON(scores).utf8))
+            return try #require(object as? [String: Any])
+        }
+        var base = try slices(traces: false), now = try slices(traces: true)
+        var baseFeatures = try #require(base["features"] as? [String: Any])
+        var nowFeatures = try #require(now["features"] as? [String: Any])
+        let added: Set = ["reason", "margin"]
+        #expect(Set(nowFeatures.keys).subtracting(baseFeatures.keys).isSubset(of: added), "only reason and margin are new features")
+        #expect(Set(baseFeatures.keys).isSubset(of: Set(nowFeatures.keys)), "no feature is gone")
+        for key in added { baseFeatures[key] = nil; nowFeatures[key] = nil }
+        base["features"] = baseFeatures
+        now["features"] = nowFeatures
+        #expect(NSDictionary(dictionary: base).isEqual(to: now), "every other key and number is the base's")
+    }
+
     @Test func aDeskWithoutTheTraceListsNoJudgement() throws {
         let item = Cases.make([.type("hello ", on: "ABC"), .type("привет ", on: "Russian")], want: "hello", scoring: .case)
         let setup = try CaseSetup(item: item, library: Repo.library, classifier: Repo.classifier)

@@ -74,20 +74,35 @@ public struct PrivateStore: Sendable {
 
     private static let saltName = ".salt"
 
-    /// The secret the hashes are salted with: made on first use, 0600. Without
-    /// it a hash of a short word would fall to a dictionary.
+    /// The secret the hashes are salted with: made on first use, 0600, by an exclusive open, so two runs at
+    /// once keep one salt. A file of the wrong length is an error, not a reason for a new salt: new hashes
+    /// would not match the old runs. Without a salt a hash of a short word would fall to a dictionary.
     private func salt() throws -> Data {
         let path = (root as NSString).appendingPathComponent(Self.saltName)
-        if let data = FileManager.default.contents(atPath: path), data.count == Redactor.saltBytes { return data }
+        func existing() throws -> Data? {
+            guard FileManager.default.fileExists(atPath: path) else { return nil }
+            guard let data = FileManager.default.contents(atPath: path), data.count == Redactor.saltBytes else {
+                throw EvalError.input("\(path) is not a salt of \(Redactor.saltBytes) bytes; remove it only if the runs of this store may stop matching")
+            }
+            return data
+        }
+        if let data = try existing() { return data }
         var bytes = [UInt8](repeating: 0, count: Redactor.saltBytes)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
             throw EvalError.input("cannot make the salt of the hashes")
         }
-        let data = Data(bytes)
-        guard FileManager.default.createFile(atPath: path, contents: data, attributes: [.posixPermissions: 0o600]) else {
+        let descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        if descriptor < 0 {
+            // Another run made it first: read its salt.
+            if errno == EEXIST, let data = try existing() { return data }
             throw EvalError.input("cannot write \(path)")
         }
-        return data
+        defer { close(descriptor) }
+        guard Darwin.write(descriptor, bytes, bytes.count) == bytes.count else {
+            unlink(path)
+            throw EvalError.input("cannot write \(path)")
+        }
+        return Data(bytes)
     }
 
     /// Writes a file of the store for its owner alone.
@@ -96,6 +111,8 @@ public struct PrivateStore: Sendable {
         try Self.ownerOnly(directory: (path as NSString).deletingLastPathComponent)
         FileManager.default.createFile(atPath: path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
         guard FileManager.default.fileExists(atPath: path) else { throw EvalError.input("cannot write \(path)") }
+        // A file that was there keeps its rights through the write: tighten them.
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
     }
 
     /// Makes a folder (and the ones above it, up to the store) for its owner alone.

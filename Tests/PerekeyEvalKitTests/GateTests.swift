@@ -131,11 +131,66 @@ enum Runs {
         #expect(fixed.checks[0].cases.map(\.id) == ["incidents/a/2"])
     }
 
-    @Test func aSuiteThatIsNotInTheRunIsSkippedNotPassed() {
+    @Test func aZeroBarWithoutItsSuiteInTheRunFails() {
         let head = Runs.run([S(id: "flow.x/a/1", suite: "flow.x")])
         let result = Gate.check(gates(zero: [.init(suite: "protect.url", metric: "harm")]), head: head, base: nil, profiles: nil, statusOf: [:])
+        #expect(!result.passed, "a bar that reads nothing is not taken")
+        #expect(result.checks.map(\.verdict) == [.fail])
+        #expect(result.checks[0].note?.contains("protect.url") == true)
+    }
+
+    @Test func aZeroBarMarkedOptionalIsSkippedWithoutItsSuite() {
+        let head = Runs.run([S(id: "flow.x/a/1", suite: "flow.x")])
+        let rule = GateFile.Rule(suite: "class.oov", metric: "harm", optional: true)
+        let result = Gate.check(gates(zero: [rule]), head: head, base: nil, profiles: nil, statusOf: [:])
         #expect(result.passed)
         #expect(result.checks.map(\.verdict) == [.skipped])
+        let present = Gate.check(gates(zero: [rule]), head: Runs.run([S(id: "class.oov/a/1", suite: "class.oov", harm: 1, exact: 0)]),
+                                 base: nil, profiles: nil, statusOf: [:])
+        #expect(!present.passed, "optional is about a missing suite, not about a broken one")
+    }
+
+    @Test func optionalIsAFieldOfTheFile() throws {
+        let json = #"{"version":1,"zero":[{"suite":"class.oov","metric":"harm","optional":true}],"noWorse":[],"accepted":[],"targets":[]}"#
+        let gates = try GateFile.parse(Data(json.utf8), file: "gates.json")
+        #expect(gates.zero == [GateFile.Rule(suite: "class.oov", metric: "harm", optional: true)])
+    }
+
+    @Test func casesTheBaseHasAndTheHeadLacksFailTheBars() {
+        let base = Runs.run([S(id: "class.a/s/1", suite: "class.a"), S(id: "class.a/s/2", suite: "class.a"), S(id: "class.a/s/3", suite: "class.a")])
+        let head = Runs.run([S(id: "class.a/s/1", suite: "class.a")])
+        let result = Gate.check(gates(), head: head, base: base, profiles: nil, statusOf: [:])
+        #expect(!result.passed)
+        let check = try! #require(result.checks.first { $0.kind == "coverage" })
+        #expect(check.verdict == .fail)
+        #expect(check.cases.map(\.id) == ["class.a/s/2", "class.a/s/3"])
+        #expect(GateRender.text(result).contains("class.a/s/3"))
+    }
+
+    @Test func theListOfLostCasesIsCutAtTwenty() {
+        let base = Runs.run((0 ..< 30).map { S(id: "class.a/s/\($0)", suite: "class.a") })
+        let head = Runs.run([S(id: "class.a/s/0", suite: "class.a")])
+        let result = Gate.check(gates(), head: head, base: base, profiles: nil, statusOf: [:])
+        let check = try! #require(result.checks.first { $0.kind == "coverage" })
+        #expect(check.cases.count == 20 && check.more == 9)
+    }
+
+    @Test func lostCasesInAStandPullRequestAreOnlyNoted() {
+        var options = Gate.Options()
+        options.standPullRequest = true
+        let base = Runs.run([S(id: "class.a/s/1", suite: "class.a"), S(id: "class.a/s/2", suite: "class.a")])
+        let head = Runs.run([S(id: "class.a/s/1", suite: "class.a")])
+        let result = Gate.check(gates(), head: head, base: base, profiles: nil, statusOf: [:], options: options)
+        #expect(result.passed)
+        #expect(result.checks.allSatisfy { $0.kind != "coverage" })
+        #expect(result.notes.contains { $0.contains("только в базе 1") })
+    }
+
+    @Test func casesOnlyInTheHeadAreNotLost() {
+        let base = Runs.run([S(id: "class.a/s/1", suite: "class.a")])
+        let head = Runs.run([S(id: "class.a/s/1", suite: "class.a"), S(id: "class.a/s/2", suite: "class.a")])
+        let result = Gate.check(gates(), head: head, base: base, profiles: nil, statusOf: [:])
+        #expect(result.passed)
     }
 
     @Test func noWorsePassesOnEqualAndFailsOnGrowth() {
@@ -379,5 +434,33 @@ enum Runs {
             if let settings = mutant.settings { #expect(EvalSettings.names.contains(settings), "\(settings)") }
             #expect(!mutant.expectations.isEmpty)
         }
+    }
+}
+
+@Suite struct StandChangeTests {
+    @Test func aChangeOfOnlyTheStandIsAStandPullRequest() {
+        #expect(StandChange.isStand([
+            "eval/gates.json", "eval/suites/yo.suite.json", "Sources/PerekeyEvalKit/Gate/Gate.swift",
+            "Sources/PerekeyDesk/EvalDesk.swift", "Sources/perekey-eval/main.swift",
+            "Tests/PerekeyEvalKitTests/GateTests.swift", "docs/eval.md", "scripts/quality.sh",
+        ]))
+    }
+
+    @Test func oneFileOutsideTheListMakesItACorePullRequest() {
+        #expect(!StandChange.isStand(["eval/gates.json", "Sources/PerekeyCore/Classifier.swift"]))
+        #expect(!StandChange.isStand(["eval/gates.json", ".github/workflows/ci.yml"]), "a file nobody listed is not the stand")
+        #expect(!StandChange.isStand(["scripts/build-model.sh"]))
+        #expect(!StandChange.isStand(["Package.swift"]))
+    }
+
+    @Test func aFolderNameIsNotAPrefixOfAnotherName() {
+        #expect(!StandChange.isStand(["eval-core/x.swift"]))
+        #expect(!StandChange.isStand(["docsx/a.md"]))
+        #expect(!StandChange.isStand(["scripts/quality.sh.bak"]))
+    }
+
+    @Test func nothingChangedIsNotAStandPullRequest() {
+        #expect(!StandChange.isStand([]))
+        #expect(!StandChange.isStand(["", "  "]))
     }
 }

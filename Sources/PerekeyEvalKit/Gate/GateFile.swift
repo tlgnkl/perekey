@@ -17,15 +17,19 @@ public struct GateFile: Hashable, Sendable, Codable {
         public var metric: String
         /// `down` (the default): the count must not grow. `up`: it must not fall.
         public var direction: String?
+        /// A bar of `zero` whose suite may be missing from a run (a suite with a source of a gigabyte): the bar
+        /// is skipped then. Without it a missing suite fails the bar.
+        public var optional: Bool?
 
         public init(suite: String? = nil, profile: String? = nil, status: String? = nil, metric: String,
-                    direction: String? = nil)
+                    direction: String? = nil, optional: Bool? = nil)
         {
             self.suite = suite
             self.profile = profile
             self.status = status
             self.metric = metric
             self.direction = direction
+            self.optional = optional
         }
 
         public var scope: String { suite ?? "profile:\(profile ?? "?")" }
@@ -73,7 +77,7 @@ public struct GateFile: Hashable, Sendable, Codable {
     static func parse(_ data: Data, file: String) throws -> GateFile {
         let known: [String: Set<String>] = [
             "": ["version", "zero", "noWorse", "accepted", "targets"],
-            "rule": ["suite", "profile", "status", "metric", "direction"],
+            "rule": ["suite", "profile", "status", "metric", "direction", "optional"],
             "accepted": ["metric", "scope", "reason", "pr"],
             "target": ["metric", "scope", "value", "note"],
         ]
@@ -110,6 +114,9 @@ public struct GateFile: Hashable, Sendable, Codable {
                 }
                 if list == "zero", rule.up || rule.profile != nil {
                     throw EvalError.input("\(file): a bar of zero counts events of a suite: \(rule)")
+                }
+                if list == "noWorse", rule.optional != nil {
+                    throw EvalError.input("\(file): optional belongs to a bar of zero: \(rule)")
                 }
             }
         }

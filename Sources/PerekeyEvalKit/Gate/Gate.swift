@@ -79,7 +79,10 @@ public enum Gate {
         for rule in gates.zero {
             let suites = headSuites.filter { GateMetric.matches(rule.suite!, $0) }
             guard !suites.isEmpty else {
-                checks.append(skipped("zero", rule, "в прогоне нет набора \(rule.suite!)"))
+                // A bar that reads nothing is not taken, unless the suite may be missing (`optional`).
+                var check = skipped("zero", rule, "в прогоне нет набора \(rule.suite!)")
+                if rule.optional != true { check.verdict = .fail }
+                checks.append(check)
                 continue
             }
             let path = GateMetric.counts[rule.metric]!
@@ -107,6 +110,16 @@ public enum Gate {
             let common = Set(headRows.map(\.suite)).intersection(baseRows.map(\.suite)).sorted()
             if head.rows.count != commonIDs.count || base.rows.count != commonIDs.count {
                 notes.append("общих случаев \(commonIDs.count); только в голове \(head.rows.count - commonIDs.count), только в базе \(base.rows.count - commonIDs.count)")
+            }
+            // A head that lost cases of the base compares less than the base: the cases vanished, the bars did not see them.
+            // A stand pull request may drop or rename cases; it is only noted above.
+            let headIDs = Set(head.rows.map(\.id))
+            let lost = base.rows.map(\.id).filter { !headIDs.contains($0) }.sorted()
+            if !lost.isEmpty, !options.standPullRequest {
+                checks.append(GateCheck(kind: "coverage", metric: "cases", scope: "all", direction: "down", head: Double(commonIDs.count),
+                                        base: Double(base.rows.count), verdict: .fail, note: "у головы нет случаев базы", accepted: nil,
+                                        cases: lost.prefix(options.listed).map { GateCase(id: $0, head: 0, base: 1) },
+                                        more: max(0, lost.count - options.listed)))
             }
             for rule in gates.noWorse {
                 let path = GateMetric.counts[rule.metric]!
@@ -184,6 +197,21 @@ public enum Gate {
         }
         check.verdict = .accepted
         check.accepted = entry
+    }
+}
+
+/// Which pull requests change the stand and not the core (docs/eval.md, «Планки»): those whose every changed
+/// file lies in the stand. A white list: a file nobody named makes the pull request a core one.
+public enum StandChange {
+    /// Folders end with `/`; the rest are files.
+    public static let paths = ["eval/", "Sources/PerekeyEvalKit/", "Sources/PerekeyDesk/", "Sources/perekey-eval/",
+                               "Tests/PerekeyEvalKitTests/", "docs/", "scripts/quality.sh"]
+
+    public static func isStand(_ files: [String]) -> Bool {
+        let names = files.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return !names.isEmpty && names.allSatisfy { name in
+            paths.contains { $0.hasSuffix("/") ? name.hasPrefix($0) : name == $0 }
+        }
     }
 }
 

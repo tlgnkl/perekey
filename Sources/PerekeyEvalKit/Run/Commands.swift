@@ -342,6 +342,12 @@ public enum EvalCommands {
         let profiles = FileManager.default.fileExists(atPath: profilesPath) ? try ProfileFile.read(profilesPath) : nil
         var options = Gate.Options()
         options.standPullRequest = parsed.flag("--stand-pr")
+        // The changed files, one per line: a pull request whose files all lie in the stand is a stand one.
+        if let changed = parsed.value("--changed") {
+            guard let data = FileManager.default.contents(atPath: changed) else { throw EvalError.input("no such file: \(changed)") }
+            let files = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init)
+            options.standPullRequest = options.standPullRequest || StandChange.isStand(files)
+        }
         if let list = parsed.value("--list") { options.listed = try count(list, "--list") }
         var statuses: [String: String] = [:]
         if gates.zero.contains(where: { $0.status != nil }) {

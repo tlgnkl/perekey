@@ -14,7 +14,7 @@ public struct Classifier: Sendable {
     public struct Options: Hashable, Sendable {
         /// Bits the other reading must win by. The default comes from the ROC
         /// sweep of `perekey-eval`.
-        public var threshold: Double = 10
+        public var threshold: Double = 0
         /// Bits a reading of a different text must beat the reading the
         /// context prefers by, when two candidates of one script compete:
         /// "ghbdsn" is "привыт" in Russian and "привіт" in Ukrainian. Chosen

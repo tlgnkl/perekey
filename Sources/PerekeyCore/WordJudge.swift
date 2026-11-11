@@ -196,9 +196,7 @@ struct WordJudge: Sendable {
     /// Room for a whole batch: it goes out at `tallySize` words, and the word
     /// that fills it may be confirmed in the same event.
     static let keptCapacity = tallySize + 1
-    /// A letter has been typed in the word that is being typed: the next
-    /// letter does not confirm the pending observation again.
-    private var tokenHasLetter = false
+
     /// How many observations wait for the next batch.
     var keptCount: Int { kept.count }
     /// The room of the two buffers, for the test that no word grows one.
@@ -283,10 +281,9 @@ struct WordJudge: Sendable {
 
     // MARK: - What happened to the word
 
-    /// Whether a character is a letter, on every key of the tap: the Latin and
-    /// Cyrillic ranges answer without the Unicode property table (whose
-    /// lookup cost a tenth of the key's time in `perekey-bench`), any other
-    /// scalar asks it.
+    /// Whether a character is a letter. The Latin and Cyrillic ranges answer
+    /// without the Unicode property table, whose lookup cost two per cent of
+    /// the session in `perekey-bench`; any other scalar asks it.
     static func isLetter(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
         case 0x41...0x5A, 0x61...0x7A: true
@@ -297,6 +294,16 @@ struct WordJudge: Sendable {
         }
     }
 
+    /// Whether a key of the word, read in the layout it was typed in, is a letter.
+    static func hasLetter(_ entries: [WordBuffer.Entry], layouts: LayoutState) -> Bool {
+        for entry in entries where !entry.isGap {
+            if let scalar = layouts[entry.layout]?.text(for: entry.stroke)?.unicodeScalars.first, isLetter(scalar) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// A key that types a character went into the buffer. `startsWord`: it
     /// began a new word, and whatever was decided about the last one is over.
     ///
@@ -304,27 +311,29 @@ struct WordJudge: Sendable {
     /// letter of the next word (plan 7.2, item 6). A digit or a mark that
     /// starts the next token leaves it waiting for that letter ("слово 5
     /// привет", "слово (привет"), and a character in the middle of a word
-    /// drops it: what was observed is not the word that goes on.
-    /// - Parameter isLetter: the character typed is a letter.
-    mutating func typed(startsWord: Bool, isLetter: Bool) {
+    /// drops it: what was observed is not the word that goes on. The machine
+    /// works these two out only while an observation waits.
+    /// - Parameters:
+    ///   - confirms: the key is the first letter of the next word.
+    ///   - drops: the key goes on with a word that has a letter already.
+    mutating func typed(startsWord: Bool, confirms: Bool = false, drops: Bool = false) {
         if startsWord {
             switching = .allowed
             languageRecorded = false
             wordTraced = false
-            tokenHasLetter = false
         }
-        if isLetter {
-            if tokenHasLetter {
-                // The word goes on after its end: what was observed is not it.
-                pendingObservation = nil
-            } else {
-                tokenHasLetter = true
-                confirmObservation()
-            }
-        } else if !startsWord {
+        if confirms {
+            confirmObservation()
+        } else if drops {
             pendingObservation = nil
         }
         judged = false
+    }
+
+    /// Return or Tab ended the line after a word judged at its space: the
+    /// word the observation waits for will not come.
+    mutating func lineEnded() {
+        confirmObservation()
     }
 
     /// Backspace changed the word: judge it again at its end.
@@ -565,13 +574,15 @@ struct WordJudge: Sendable {
         judged = true
         counting = inContextApp(focus)
         contextAtJudge = context(focus: focus)
-        if tokenHasLetter {
-            // The word is judged again ("hello." and a space): its new end decides.
-            pendingObservation = nil
-        } else if endsLine {
-            // Only digits or marks since the word observed, and the line ends:
-            // no letter will come to take it.
-            confirmObservation()
+        if pendingObservation != nil {
+            if Self.hasLetter(buffer.entries, layouts: layouts) {
+                // The word is judged again ("hello." and a space): its new end decides.
+                pendingObservation = nil
+            } else if endsLine {
+                // Only digits or marks since the word observed, and the line
+                // ends: no letter will come to take it.
+                confirmObservation()
+            }
         }
         previousForTypo = wordBefore(buffer, layouts: layouts,
                                      realWords: settings.typoCorrection && settings.corrections.realWords)

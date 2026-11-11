@@ -277,9 +277,9 @@ private func buffer(_ text: String, in layout: LayoutID = en) -> WordBuffer {
         }
         // Its language still counts for the next word.
         #expect(wordJudge.previousLanguage == "en")
-        wordJudge.typed(startsWord: false, isLetter: true)
+        wordJudge.typed(startsWord: false)
         #expect(wordJudge.switching == .suppressed)
-        wordJudge.typed(startsWord: true, isLetter: true)
+        wordJudge.typed(startsWord: true)
         #expect(wordJudge.switching == .allowed)
         #expect(!wordJudge.judged)
     }
@@ -290,7 +290,7 @@ private func buffer(_ text: String, in layout: LayoutID = en) -> WordBuffer {
         wordJudge.undoPosted(language: "en")
         #expect(wordJudge.judged)
         wordJudge.learnAtWordEnd()
-        wordJudge.typed(startsWord: false, isLetter: true)
+        wordJudge.typed(startsWord: false)
         guard case let .learn(word) = judge(&wordJudge, buffer("ghbdtn")) else {
             Issue.record("expected the word to learn")
             return

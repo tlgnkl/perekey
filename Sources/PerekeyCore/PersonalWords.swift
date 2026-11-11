@@ -25,14 +25,18 @@ extension Classifier {
     /// Marks a reading the model does not know as personal when `personal`
     /// has it: its rank becomes `Options.personalRank`. Only a word of
     /// letters, as long as the lexicon keeps, in a language the lexicon has
-    /// words in; an empty lexicon computes no fingerprint, and the cheap
-    /// checks come before the hash.
+    /// words in, and not costlier than a candidate may be; an empty lexicon
+    /// computes no fingerprint, and the cheap checks come before the hash.
     /// - Parameter scalars: the buffer `reading` was read into.
     func markPersonal(_ reading: inout Reading, language: String, scalars: Slice<UnsafeMutableBufferPointer<UInt32>>,
                       _ personal: PersonalLexicon)
     {
         guard personal.hasWords, reading.isWord, reading.digits == 0, reading.letters >= personal.minLetters,
               reading.letters <= personal.maxLetters, !isKnown(reading), let key = personal.key,
+              // A word costs no more than the limit to become a candidate
+              // (`personalObservation`): a reading above it, the wrong
+              // layout's gibberish for one, is no word of the lexicon.
+              !reading.measured || reading.cost / Double(reading.letters + 1) <= options.personalNoiseCost,
               let code = LanguageCode(language), personal.mayHold(code)
         else { return }
         let buffer = UnsafeMutableBufferPointer(rebasing: scalars)

@@ -314,7 +314,7 @@ private let ru = Fixture.russian.id
     func judge(_ judge: inout WordJudge, _ text: String, endedBy keyCode: UInt16 = KeyCode.space) {
         var buffer = WordBuffer()
         for stroke in Fixture.abc.strokes(text) { buffer.type(stroke, in: en) }
-        judge.typed(startsWord: true, isLetter: true)
+        judge.typed(startsWord: true)
         _ = judge.judge(endedBy: KeyEvent(.down, keyCode: keyCode), held: 0, buffer: buffer, layouts: layouts,
                         settings: Settings(), focus: Desk.textEdit, secureInput: false)
     }
@@ -336,14 +336,14 @@ private let ru = Fixture.russian.id
         for word in ["привет", "мир"] {
             var buffer = WordBuffer()
             for stroke in Fixture.russian.strokes(word) { buffer.type(stroke, in: ru) }
-            wordJudge.typed(startsWord: true, isLetter: true)
+            wordJudge.typed(startsWord: true)
             _ = wordJudge.judge(endedBy: KeyEvent(.down, keyCode: KeyCode.space), held: 0, buffer: buffer,
                                 layouts: russian, settings: Settings(), focus: Desk.textEdit, secureInput: false)
         }
         #expect(wordJudge.recent == RecentLanguages(["ru", "ru"]))
         var buffer = WordBuffer()
         for stroke in Fixture.abc.strokes("ghbdtn") { buffer.type(stroke, in: en) }
-        wordJudge.typed(startsWord: true, isLetter: true)
+        wordJudge.typed(startsWord: true)
         guard case let .retype(retype) = wordJudge.judge(
             endedBy: KeyEvent(.down, keyCode: KeyCode.space), held: 0, buffer: buffer, layouts: layouts,
             settings: Settings(), focus: Desk.textEdit, secureInput: false

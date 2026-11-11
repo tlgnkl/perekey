@@ -33,7 +33,15 @@ struct Desk {
     var watcher: ((InputEvent, Output, InputMachine) -> Void)?
     #endif
 
-    static let classifier = Classifier(model: ModelFixture.model)
+    /// The fixture model has no n-grams worth the name: every word costs more
+    /// than the real limit of the personal lexicon's words and candidates
+    /// (`Classifier.Options.personalNoiseCost`), so the desk runs without it;
+    /// `perekey-eval personal` has the real model's say.
+    static let classifier: Classifier = {
+        var options = Classifier.Options()
+        options.personalNoiseCost = .infinity
+        return Classifier(model: ModelFixture.model, options: options)
+    }()
     static let textEdit = Focus(bundleID: "com.apple.TextEdit")
 
     init(_ settings: Settings = Settings(), layouts: [LayoutMap] = [Fixture.abc, Fixture.russian],

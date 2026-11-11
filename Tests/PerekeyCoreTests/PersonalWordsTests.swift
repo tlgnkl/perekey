@@ -11,7 +11,7 @@ private let ru = Fixture.russian.id
 /// as a known form (docs/classifier.md, «Личный словарь»). «Дашка» is no word
 /// of the fixture model: alone, "lfirf" stays.
 @Suite struct PersonalClassifierTests {
-    let classifier = Classifier(model: ModelFixture.model)
+    let classifier = Desk.classifier
     let dashka = personalLexicon([("дашка", "ru")])
 
     func decide(_ text: String, typed: LayoutMap, other: LayoutMap, personal: PersonalLexicon,
@@ -33,11 +33,11 @@ private let ru = Fixture.russian.id
     }
 
     @Test func theRankIsAnOption() {
-        var options = Classifier.Options()
+        var options = Desk.classifier.options
         #expect(options.personalRank == 128)
         options.personalRank = 0
         let classifier = Classifier(model: ModelFixture.model, options: options)
-        let higher = Classifier(model: ModelFixture.model)
+        let higher = Desk.classifier
         let context = Classifier.Context(recent: RecentLanguages(), personal: dashka)
         let strokes = Fixture.abc.strokes("lfirf")
         let low = classifier.classify(strokes, typed: Fixture.abc, other: Fixture.russian, context: context,
@@ -176,14 +176,7 @@ private let ru = Fixture.russian.id
 /// When a word may teach the lexicon, and what drops it (plan 7.2, items 5–6).
 @Suite struct PersonalObservationTests {
     static let textEdit = LanguageContext(app: "com.apple.TextEdit")
-    /// The fixture model has no n-grams worth the name: every word costs more
-    /// than the real limit, so these tests run without it
-    /// (`theNoiseLimitIsAnOption`; the real model is `perekey-eval personal`'s).
-    static let classifier: Classifier = {
-        var options = Classifier.Options()
-        options.personalNoiseCost = .infinity
-        return Classifier(model: ModelFixture.model, options: options)
-    }()
+    static let classifier = Desk.classifier
     let classifier = PersonalObservationTests.classifier
     let corrector = TypoCorrector(model: ModelFixture.model)
     let on = personalLexicon([])
@@ -620,6 +613,41 @@ extension PersonalObservationTests {
         #expect(kept(desk) == [personalObservation("дашка", "ru")])
     }
 
+    @Test func marksAndDigitsInARowKeepItWaiting() {
+        var desk = desk()
+        desk.type("дашка ((5", on: Fixture.russian)
+        #expect(kept(desk).isEmpty)
+        #expect(desk.machine.judge.pendingObservation != nil)
+        desk.type("и", on: Fixture.russian)
+        #expect(kept(desk) == [personalObservation("дашка", "ru")])
+    }
+
+    @Test func aLineEndAfterDigitsTakesIt() {
+        var desk = desk()
+        desk.type("дашка 5", on: Fixture.russian)
+        #expect(kept(desk).isEmpty)
+        desk.press(KeyCode.return)
+        #expect(kept(desk) == [personalObservation("дашка", "ru")])
+    }
+
+    @Test func aLineEndAfterTheSpaceCountsTheWordOnce() {
+        // The space judged the word, Return does not judge it again: it takes the
+        // observation, and the next line's first letter finds nothing to take twice.
+        var desk = desk()
+        desk.type("дашка ", on: Fixture.russian)
+        desk.press(KeyCode.return)
+        #expect(kept(desk) == [personalObservation("дашка", "ru")])
+        desk.type("и", on: Fixture.russian)
+        #expect(kept(desk) == [personalObservation("дашка", "ru")])
+    }
+
+    @Test func aReturnWithACommandKeyIsNoLineEnd() {
+        var desk = desk()
+        desk.type("дашка ", on: Fixture.russian)
+        desk.press(KeyCode.return, flags: Keyboard.leftCommand)
+        #expect(kept(desk).isEmpty && desk.machine.judge.pendingObservation == nil)
+    }
+
     @Test func aLetterTakesItOnlyOnce() {
         var desk = desk()
         desk.type("дашка и", on: Fixture.russian)
@@ -688,5 +716,23 @@ extension PersonalObservationTests {
         for scalar in ["中", "é", "ß", "ё", "5", "-", " "].compactMap(\.unicodeScalars.first) {
             #expect(WordJudge.isLetter(scalar) == scalar.properties.isAlphabetic)
         }
+    }
+}
+
+/// A reading costlier than a candidate may be is not looked up (the wrong
+/// layout's gibberish is the common case on every word).
+@Suite struct PersonalCostPruneTests {
+    @Test func aReadingAboveTheLimitIsNotLookedUp() {
+        let lexicon = personalLexicon([("дашка", "ru")])
+        let context = Classifier.Context(recent: RecentLanguages(), personal: lexicon)
+        func personal(_ limit: Double) -> Bool {
+            var options = Classifier.Options()
+            options.personalNoiseCost = limit
+            return Classifier(model: ModelFixture.model, options: options)
+                .classify(Fixture.abc.strokes("lfirf"), typed: Fixture.abc, other: Fixture.russian, context: context)
+                .otherPersonal
+        }
+        #expect(personal(.infinity))
+        #expect(!personal(0))
     }
 }

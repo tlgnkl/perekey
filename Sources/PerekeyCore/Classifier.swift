@@ -830,8 +830,10 @@ struct Reading {
     var fingerprint: UInt64 = 0
     /// Exact fingerprint of the core, for the never-switch list.
     var exactFingerprint: UInt64 = 0
-    /// n-gram cost in bits; meaningful when `isWord`.
+    /// n-gram cost in bits; meaningful when `isWord` and `measured`.
     var cost = 0.0
+    /// Whether `cost` was measured (`init(…, measuring:)`).
+    private(set) var measured = false
     var rank: UInt8?
     /// Whether some word of the language starts with its first 3–4 letters.
     var prefixPossible = true
@@ -948,6 +950,7 @@ struct Reading {
         exactFingerprint = exact.value
         guard isWord else { return }
         rank = language.rank(of: fingerprint)
+        measured = measuring
         if measuring, letters >= 3 {
             prefixPossible = language.isPossiblePrefix(UnsafeBufferPointer(rebasing: symbols[0..<min(4, letters)]))
         }

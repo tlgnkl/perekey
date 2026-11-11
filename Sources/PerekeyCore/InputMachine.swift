@@ -461,6 +461,13 @@ public struct InputMachine: Sendable {
             || focus?.isSecureField == true
         {
             // The caret may have moved: the word and the words before it go.
+            // A line that ends, with the word before it kept as typed, takes
+            // its observation first (the word was judged at its space).
+            if held & (ModifierKind.command.maskBit | ModifierKind.control.maskBit) == 0, WordJudge.endsLine(key),
+               focus?.isSecureField != true
+            {
+                judge.lineEnded()
+            }
             buffer.clear()
             judge.forgetContext(newField: false)
             return
@@ -479,11 +486,20 @@ public struct InputMachine: Sendable {
             // A dead key and the next key make one character, so keys and
             // characters no longer match one to one. Give up on this word.
             buffer.abandonWord()
-        } else if let text = map.text(for: stroke) {
+        } else if map.text(for: stroke) != nil {
             if stroke.keyCode != KeyCode.space {
-                // The letter matters only to an observation waiting for the next word.
-                judge.typed(startsWord: buffer.isEmpty || buffer.entries.last?.isGap == true,
-                            isLetter: judge.personal.isOn && text.unicodeScalars.first.map(WordJudge.isLetter) == true)
+                let startsWord = buffer.isEmpty || buffer.entries.last?.isGap == true
+                var confirms = false
+                var drops = false
+                // The letter matters only to an observation waiting for the next
+                // word: on every other key it is not even looked at.
+                if judge.pendingObservation != nil {
+                    let inLetters = !startsWord && WordJudge.hasLetter(buffer.entries, layouts: layouts)
+                    let isLetter = map.text(for: stroke)?.unicodeScalars.first.map(WordJudge.isLetter) == true
+                    confirms = isLetter && !inLetters
+                    drops = inLetters
+                }
+                judge.typed(startsWord: startsWord, confirms: confirms, drops: drops)
             }
             // The part stays whole when it is no word where it ended up:
             // "github.com/" kept in ABC is code, and so is the rest of it.

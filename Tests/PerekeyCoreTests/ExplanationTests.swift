@@ -128,7 +128,7 @@ import Testing
 
     /// "lfirf" judged with «дашка» in the lexicon, explained.
     private func explainedPersonal(typedPersonal: Bool = false) -> Classifier.Decision {
-        let classifier = Classifier(model: ModelFixture.model)
+        let classifier = Desk.classifier
         let (typed, other, text) = typedPersonal
             ? (Fixture.russian, Fixture.abc, "дашка") : (Fixture.abc, Fixture.russian, "lfirf")
         return classifier.classify(typed.strokes(text), typed: typed, other: other,

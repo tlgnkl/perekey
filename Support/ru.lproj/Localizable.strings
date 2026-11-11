@@ -373,6 +373,7 @@
 "Erase my words?" = "Стереть мои слова?";
 "The file and the key are deleted. Perekey forgets every word it learned. This cannot be undone." = "Файл и ключ удаляются. Perekey забывает все выученные слова. Отменить это нельзя.";
 "Forgotten" = "Забыто";
+"Not in the lexicon" = "Этого слова нет в словаре";
 "Words you often type" = "Слова, которые вы часто пишете";
 "Learn my words" = "Учить мои слова";
 "Perekey can remember them as fingerprints, not as text, and stop switching and fixing them. The switch is in Privacy." = "Perekey может запомнить их как отпечатки, а не как текст, и перестать их переключать и исправлять. Переключатель — в «Приватности».";

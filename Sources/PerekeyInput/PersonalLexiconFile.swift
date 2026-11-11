@@ -88,11 +88,11 @@ public struct PersonalLexiconFile: Sendable {
     /// temporary file is made with the mode 0600 (`open`, not a copy of the
     /// umask's), written through its descriptor and closed; the mode is set
     /// again before the replace, and read after it. A temporary file left by
-    /// an earlier crash is swept first.
+    /// an earlier crash is not swept here: `sweepTemporaries` does it, once per run
+    /// (the store, before its first write) and in `remove`.
     public func save(_ model: PersonalLexiconModel, key: PersonalKey) throws {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        sweepTemporaries()
         let data = try Self.encode(model, key: key)
         let (temporary, handle) = try Self.createTemporary(in: directory)
         do {
@@ -139,7 +139,7 @@ public struct PersonalLexiconFile: Sendable {
     }
 
     /// Deletes the temporary files of this lexicon that a crash left.
-    private func sweepTemporaries() {
+    public func sweepTemporaries() {
         let directory = url.deletingLastPathComponent()
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         for name in names where name.hasPrefix(Self.temporaryPrefix) && name.hasSuffix(Self.temporarySuffix) {

@@ -147,6 +147,8 @@ public final class MemoryLexiconKeyStore: LexiconKeyStore, Sendable {
         var key: PersonalKey?
         var failure: (any Error)?
         var drawn = 0
+        var deletes = 0
+        var loads = 0
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -162,12 +164,19 @@ public final class MemoryLexiconKeyStore: LexiconKeyStore, Sendable {
     /// How many keys `create` drew.
     public var created: Int { state.withLock { $0.drawn } }
 
+    /// How many times `load` was called, failed or not.
+    public var loaded: Int { state.withLock { $0.loads } }
+
+    /// How many times `delete` was called, failed or not.
+    public var deleted: Int { state.withLock { $0.deletes } }
+
     public func setFailure(_ error: (any Error)?) {
         state.withLock { $0.failure = error }
     }
 
     public func load() throws -> PersonalKey? {
         try state.withLock {
+            $0.loads += 1
             if let failure = $0.failure { throw failure }
             return $0.key
         }
@@ -185,6 +194,7 @@ public final class MemoryLexiconKeyStore: LexiconKeyStore, Sendable {
 
     public func delete() throws {
         try state.withLock {
+            $0.deletes += 1
             if let failure = $0.failure { throw failure }
             $0.key = nil
         }

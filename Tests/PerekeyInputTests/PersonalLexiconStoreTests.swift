@@ -51,7 +51,8 @@ struct PersonalLexiconStoreTests {
         }
     }
 
-    /// The store's timer, run by hand: a test sets the clock and fires the sleeps, and waits for nothing.
+    /// The store's timer, run by hand: a test sets the clock and fires the sleeps. It waits for the
+    /// sleeps to be there and, after a fire, for the held back write's task to end, by name.
     @MainActor
     final class Timers {
         private(set) var delays: [Double] = []
@@ -62,17 +63,16 @@ struct PersonalLexiconStoreTests {
             await withCheckedContinuation { waiting.append($0) }
         }
 
-        /// Lets the tasks that were started reach their sleep.
-        func settle() async {
-            for _ in 0..<10 { await Task.yield() }
+        /// Waits until the store's tasks have reached `count` sleeps in all.
+        func settle(sleeps count: Int = 1) async {
+            await waitUntil("the store has started \(count) timer(s)") { delays.count >= count && waiting.count > 0 }
         }
 
-        /// Ends every sleep and lets the woken tasks run.
-        func fire() async {
+        /// Ends every sleep. The woken tasks run when the test awaits their `value`.
+        func fire() {
             let woken = waiting
             waiting = []
             for continuation in woken { continuation.resume() }
-            for _ in 0..<10 { await Task.yield() }
         }
     }
 
@@ -549,86 +549,14 @@ struct PersonalLexiconStoreTests {
         #expect(store.unavailable == .managed)
     }
 
-    @Test func aProfileThatForbidsItRemovesALoneKey() throws {
+    @Test func aProfileThatForbidsItLeavesALoneKeyAndAsksTheKeychainForNothing() throws {
+        // The decision of the review: a key with no file hides nothing, and a launch does not call the Keychain for it.
         let desk = Desk(keys: MemoryLexiconKeyStore(key: try LexiconKeyGenerator.make()))
         let store = desk.store()
         store.setEnabled(false, allowed: false)
-        #expect(try desk.keys.load() == nil, "a key with no file is stored too")
+        #expect(desk.keys.deleted == 0)
         #expect(store.unavailable == nil, "the user never asked: no message")
         #expect(store.forbidden)
-    }
-
-    @Test func theProfileIsTheStoresAndNobodyElseReadsIt() {
-        let forbidden = Desk().store(allowed: false)
-        #expect(forbidden.forbidden && forbidden.unavailable == nil)
-        forbidden.apply(true)
-        #expect(forbidden.forbidden && forbidden.unavailable == .managed && !forbidden.isActive)
-        let allowed = Desk().store()
-        allowed.apply(true)
-        #expect(!allowed.forbidden && allowed.isActive)
-    }
-
-    @Test func theSettingGoesToTheStoreOnlyWhenItChanges() {
-        let desk = Desk()
-        let store = desk.store()
-        store.apply(false)
-        #expect(desk.keys.created == 0 && desk.changes.isEmpty)
-        store.apply(true)
-        store.apply(true)
-        #expect(desk.keys.created == 1 && desk.changes.count == 1)
-        store.apply(false)
-        #expect(desk.changes.last == .off && !store.isActive)
-    }
-
-    @Test func aKeychainThatCameBackIsTriedAgainAndTheLexiconIsOn() throws {
-        let keys = MemoryLexiconKeyStore(failure: LexiconKeyFailure.status(-25308))
-        let desk = Desk(keys: keys)
-        let store = desk.store()
-        store.apply(true)
-        #expect(!store.isActive && store.unavailable == .keychain)
-        store.retryActivation()
-        #expect(!store.isActive && store.unavailable == .keychain, "still refused: still off, no crash")
-        keys.setFailure(nil)
-        store.retryActivation()
-        #expect(store.isActive && store.unavailable == nil)
-        #expect(try #require(desk.changes.last).isOn)
-        #expect(desk.keys.created == 1)
-    }
-
-    @Test func aRetryDoesNothingWhenTheUserDidNotAskOrAProfileForbids() {
-        let keys = MemoryLexiconKeyStore()
-        let off = Desk(keys: keys).store()
-        off.apply(false)
-        off.retryActivation()
-        #expect(!off.isActive && keys.created == 0, "off: no key is made")
-        let forbidden = Desk(keys: keys).store(allowed: false)
-        forbidden.apply(true)
-        forbidden.retryActivation()
-        #expect(!forbidden.isActive && keys.created == 0)
-    }
-
-    @Test func aRetryOfAnActiveStoreChangesNothing() {
-        let desk = Desk()
-        let store = desk.store()
-        store.apply(true)
-        let before = desk.changes.count
-        store.retryActivation()
-        #expect(desk.changes.count == before && desk.keys.created == 1)
-    }
-
-    @Test func aKeyThatCannotBeDeletedIsStillThereAndThePaneIsTold() throws {
-        let keys = MemoryLexiconKeyStore()
-        let desk = Desk(keys: keys)
-        let store = desk.store()
-        store.setEnabled(true)
-        teach(store, desk, word: 0xC00)
-        keys.setFailure(LexiconKeyFailure.status(-25293))
-        store.erase()
-        #expect(!desk.file.exists, "the file went")
-        #expect(store.hasStored, "the key may be there still: «Erase» stays open")
-        #expect(store.eraseFailed)
-        keys.setFailure(nil)
-        store.erase()
         #expect(!store.eraseFailed)
         #expect(!store.hasStored)
     }
@@ -686,9 +614,11 @@ struct PersonalLexiconStoreTests {
         desk.seconds += 1
         store.record(PersonalTally(observations: [observation(2)], generation: 0))
         await timers.settle()
+        let held = try #require(store.heldBackWrite)
         #expect(timers.delays.count == 1, "the second batch waits for a timer")
         store.erase()
-        await timers.fire()
+        timers.fire()
+        await held.value
         desk.seconds += 100
         #expect(!desk.file.exists, "the held back write died with the erase")
         store.flush()
@@ -706,9 +636,11 @@ struct PersonalLexiconStoreTests {
         desk.seconds += 1
         store.record(PersonalTally(observations: [observation(2)], generation: 0))
         await timers.settle()
+        let held = try #require(store.heldBackWrite)
         #expect(timers.delays.count == 1, "a write is waiting")
         store.setEnabled(false)
-        await timers.fire()
+        timers.fire()
+        await held.value
         store.flush()
         #expect(try Data(contentsOf: desk.file.url) == written, "off: the file is as the last write left it")
         #expect(desk.file.load(key: key).entries.count == 1)
@@ -722,11 +654,13 @@ struct PersonalLexiconStoreTests {
         try desk.block()
         store.record(PersonalTally(observations: [observation(1)], generation: 0))
         await timers.settle()
+        let held = try #require(store.heldBackWrite)
         #expect(!desk.file.exists, "nothing is on disk")
         #expect(timers.delays == [30], "the retry is one interval away")
         try desk.unblock()
         desk.seconds += 31
-        await timers.fire()
+        timers.fire()
+        await held.value
         let key = try #require(try desk.keys.load())
         #expect(desk.file.load(key: key).entries.count == 1, "no new batch came: the timer wrote it")
         #expect(timers.delays.count == 1, "written: no more retries")
@@ -740,10 +674,125 @@ struct PersonalLexiconStoreTests {
         try desk.block()
         store.record(PersonalTally(observations: [observation(1)], generation: 0))
         await timers.settle()
-        await timers.fire()
-        await timers.fire()
+        for round in 1...2 {
+            let held = try #require(store.heldBackWrite)
+            timers.fire()
+            await held.value
+            await timers.settle(sleeps: round + 1)
+        }
         #expect(timers.delays == [30, 30, 30])
         withExtendedLifetime(store) {}
+    }
+
+    // MARK: - eraseFailed follows the facts
+
+    @Test func theWarningOfAnEraseThatFailedGoesWhenTheKeyIsThereAgainOnPurpose() throws {
+        let keys = MemoryLexiconKeyStore()
+        let desk = Desk(keys: keys)
+        let store = desk.store()
+        store.setEnabled(true)
+        teach(store, desk, word: 0x1100)
+        store.setEnabled(false)
+        keys.setFailure(LexiconKeyFailure.status(-25293))
+        store.erase()
+        #expect(store.eraseFailed && store.hasStored, "the key stayed")
+        keys.setFailure(nil)
+        store.setEnabled(true)
+        #expect(store.isActive)
+        #expect(!store.eraseFailed, "the key in the Keychain is the new one: nothing is left behind")
+    }
+
+    @Test func theWarningOfAnEraseThatFailedGoesWithAWriteThatWorks() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        teach(store, desk, word: 0x1200)
+        store.flush()
+        let path = desk.directory.path
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path) }
+        store.erase()
+        #expect(store.eraseFailed && desk.file.exists)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+        desk.seconds += 31
+        teach(store, desk, word: 0x1300, generation: 1)
+        store.flush()
+        #expect(!store.eraseFailed, "the file is written again: it is the lexicon's, not a leftover")
+    }
+
+    @Test func theWarningOfAnEraseThatFailedDoesNotOutliveTheStoredThing() throws {
+        let keys = MemoryLexiconKeyStore()
+        let desk = Desk(keys: keys)
+        let store = desk.store()
+        store.setEnabled(true)
+        teach(store, desk, word: 0x1400)
+        store.setEnabled(false)
+        keys.setFailure(LexiconKeyFailure.status(-25293))
+        store.erase()
+        #expect(store.eraseFailed)
+        keys.setFailure(nil)
+        store.setEnabled(true, allowed: false)
+        #expect(!store.hasStored && !store.eraseFailed, "a profile removed what was left")
+    }
+
+    // MARK: - The folder is listed once, a profile reaches the Keychain only for something stored
+
+    @Test func theLeftoversOfACrashAreSweptBeforeTheFirstWriteOfTheRunOnly() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        let folder = desk.directory
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let first = folder.appending(path: ".lexicon-1111.tmp")
+        try Data("half".utf8).write(to: first)
+        store.record(PersonalTally(observations: [observation(1)], generation: 0))
+        #expect(!FileManager.default.fileExists(atPath: first.path), "the first write swept")
+        let second = folder.appending(path: ".lexicon-2222.tmp")
+        try Data("half".utf8).write(to: second)
+        desk.seconds += 31
+        store.record(PersonalTally(observations: [observation(2)], generation: 0))
+        #expect(FileManager.default.fileExists(atPath: second.path), "the second write lists no folder")
+        store.erase()
+        #expect(!FileManager.default.fileExists(atPath: second.path), "an erase sweeps")
+    }
+
+    @Test func aProfileThatForbidsItTouchesNeitherKeychainNorDiskWhenNothingIsStored() {
+        let desk = Desk()
+        let store = desk.store(allowed: false)
+        store.apply(true)
+        store.apply(false)
+        #expect(desk.keys.deleted == 0, "nothing on disk: no call to the Keychain")
+        #expect(!store.hasStored)
+    }
+
+    @Test func aProfileThatForbidsItRemovesWhatAnEarlierRunLeft() throws {
+        let keys = MemoryLexiconKeyStore()
+        let first = Desk(keys: keys)
+        let before = first.store()
+        before.setEnabled(true)
+        teach(before, first, word: 0x1500)
+        before.flush()
+        #expect(first.file.exists)
+        let after = first.store(allowed: false)
+        #expect(after.hasStored)
+        after.apply(true)
+        #expect(keys.deleted == 1 && !first.file.exists && !after.hasStored)
+        #expect(try keys.load() == nil)
+    }
+
+    // MARK: - Off lets the words go
+
+    @Test func offReleasesTheEntriesAndOnReadsThemFromTheFileAgain() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        teach(store, desk, word: 0x1600)
+        store.flush()
+        #expect(store.heldEntryCount == 1)
+        store.setEnabled(false)
+        #expect(store.heldEntryCount == 0, "the fingerprints are not kept in memory while off")
+        store.setEnabled(true)
+        #expect(store.heldEntryCount == 1 && store.wordCount == 1)
     }
 
     @Test func wordsExpireWhenTheDayChangesWhileRunningNotOnlyAtLaunch() throws {

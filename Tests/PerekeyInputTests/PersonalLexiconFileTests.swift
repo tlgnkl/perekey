@@ -189,10 +189,12 @@ struct PersonalLexiconFileTests {
         return (ours, foreign)
     }
 
-    @Test func aTemporaryFileLeftByACrashGoesWithTheNextWrite() throws {
+    @Test func aSaveDoesNotSweepAndTheSweepDeletesOnlyOurLeftovers() throws {
         try withFile { file, _ in
             let planted = try plantLeftovers(file)
             try file.save(sampleModel(), key: key)
+            for url in planted.ours { #expect(FileManager.default.fileExists(atPath: url.path), "a save lists no folder: \(url.lastPathComponent)") }
+            file.sweepTemporaries()
             for url in planted.ours { #expect(!FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent)") }
             #expect(FileManager.default.fileExists(atPath: planted.foreign.path), "another writer's file is not ours to delete")
             let names = try FileManager.default.contentsOfDirectory(atPath: file.url.deletingLastPathComponent().path).sorted()

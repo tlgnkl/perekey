@@ -34,6 +34,8 @@ final class InputController {
     let languages: LanguageStatsStore
     /// «Мои слова»: the words the user often types, as keyed fingerprints.
     let personal: PersonalLexiconStore
+    /// The setting, the snapshot for the tap and the retries of the key: all in `PersonalLexiconWiring`.
+    @ObservationIgnored private var personalWiring: PersonalLexiconWiring!
 
     @ObservationIgnored private let sources: InputSources
     @ObservationIgnored private let store: SettingsStore
@@ -182,7 +184,8 @@ final class InputController {
         // After start: before it the tap thread has no run loop, and the
         // context of the first app would be dropped.
         observeLanguageContext()
-        self.personal.onLexiconChanged = { engine.send(.personalLexiconChanged($0)) }
+        personalWiring = PersonalLexiconWiring(store: self.personal) { engine.send(.personalLexiconChanged($0)) }
+        personalWiring.observe()
         applyPersonalWords()
         focus.start()
     }
@@ -243,7 +246,7 @@ final class InputController {
     /// The switch «Мои слова» goes to the store, which reaches the key and
     /// the file only while it is on, and the tap gets its snapshot from there.
     private func applyPersonalWords() {
-        personal.apply(store.settings.personalWords)
+        personalWiring?.settingsChanged(personalWords: store.settings.personalWords)
     }
 
     private func pushSettings() {
@@ -649,15 +652,9 @@ final class InputController {
         {
             on(workspace, name) { engine.checkTaps() }
         }
-        on(DistributedNotificationCenter.default(), Notification.Name("com.apple.screenIsUnlocked")) { [weak self] in
-            engine.checkTaps()
-            self?.personal.retryActivation()
-        }
-        // The keychain may have been locked when «Мои слова» started: ask for the key again when the app
-        // is activated (the pane asks too, when it opens). Nothing happens unless the keychain was the reason.
-        on(NotificationCenter.default, NSApplication.didBecomeActiveNotification) { [weak self] in
-            self?.personal.retryActivation()
-        }
+        on(DistributedNotificationCenter.default(), PersonalLexiconWiring.screenUnlocked) { engine.checkTaps() }
+        // The keychain may have been locked when «Мои слова» started: `PersonalLexiconWiring` asks for the
+        // key again when the app is activated and when the screen is unlocked (the pane asks too, when it opens).
         // Leaving the session: let held keys go.
         on(workspace, NSWorkspace.sessionDidResignActiveNotification) { engine.send(.inputLost) }
         // Access can be revoked at any time. Three triggers, because none is sure:

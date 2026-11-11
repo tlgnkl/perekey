@@ -129,8 +129,12 @@ public final class PersonalLexiconStore {
     /// whether the user asked for it or not. The one place that says so: the
     /// pane reads it here, not from the profile.
     public private(set) var forbidden = false
-    /// The last erase left the file or the key behind: the pane says so.
-    public private(set) var eraseFailed = false
+    /// The last erase left the file or the key behind and they are there still:
+    /// the pane says so. It follows the facts: a new key, a write that worked
+    /// or an erase that finds nothing left clear it, not only the next erase.
+    public var eraseFailed: Bool { (fileLeft || keyLeft) && hasStored }
+    private var fileLeft = false
+    private var keyLeft = false
     /// The lexicon the tap has now.
     @ObservationIgnored public private(set) var lexicon = PersonalLexicon.off
 
@@ -157,6 +161,8 @@ public final class PersonalLexiconStore {
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var lastSave: Double?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// The folder's leftovers of a crash are swept once per run, before the first write.
+    @ObservationIgnored private var swept = false
     /// The latest day a batch was counted on: a clock set back shows as a day before it.
     @ObservationIgnored private var latestDay = Int.min
 
@@ -222,7 +228,10 @@ public final class PersonalLexiconStore {
         forbidden = !allowed
         if !allowed {
             dropHeldBackWrite()
-            eraseStorage()
+            // Only for something stored: a profile that forbids the lexicon
+            // asks the Keychain for nothing on a Mac that never had it.
+            // (A key made and never followed by a file, by an earlier run, stays: it hides nothing.)
+            if hasStored { eraseStorage() }
             deactivate(unavailable: wanted ? .managed : nil)
             return
         }
@@ -264,6 +273,7 @@ public final class PersonalLexiconStore {
         }
         key = loaded
         hasStored = true
+        keyLeft = false
         var counted = file?.load(key: loaded, options: options, generation: model.generation)
             ?? PersonalLexiconModel(options: options, generation: model.generation)
         let day = today()
@@ -290,6 +300,8 @@ public final class PersonalLexiconStore {
         unavailable = reason
         key = nil
         wordCount = 0
+        // Off keeps no fingerprint in memory; on reads the file again.
+        model = PersonalLexiconModel(options: options, generation: model.generation)
         guard lexicon.isOn else { return }
         lexicon = .off
         onLexiconChanged?(.off)
@@ -355,6 +367,7 @@ public final class PersonalLexiconStore {
         do {
             key = try keys.create()
             hasStored = true
+            keyLeft = false
         } catch {
             log.error("The key of the personal lexicon is not available: \(String(describing: error), privacy: .private)")
             deactivate(unavailable: .keychain)
@@ -367,19 +380,19 @@ public final class PersonalLexiconStore {
     /// is stored too. What is left is told by `hasStored` and `eraseFailed`.
     private func eraseStorage() {
         guard !sessionOnly else { return }
-        var failed = false
-        var keyMayBeThere = false
+        var fileFailed = false
+        var keyFailed = false
         do { try file?.remove() } catch {
-            failed = true
+            fileFailed = true
             log.error("The file of the personal lexicon is not removed: \(error.localizedDescription, privacy: .private)")
         }
         do { try keys.delete() } catch {
-            failed = true
-            keyMayBeThere = true
+            keyFailed = true
             log.error("The key of the personal lexicon is not removed: \(String(describing: error), privacy: .private)")
         }
-        eraseFailed = failed
-        hasStored = keyMayBeThere || file?.exists == true
+        fileLeft = fileFailed
+        keyLeft = keyFailed
+        hasStored = keyFailed || file?.exists == true
     }
 
     // MARK: - The snapshot
@@ -439,9 +452,14 @@ public final class PersonalLexiconStore {
         guard dirty, !sessionOnly, let file, let key else { return }
         dirty = false
         lastSave = clock()
+        if !swept {
+            file.sweepTemporaries()
+            swept = true
+        }
         do {
             try file.save(model, key: key)
             hasStored = true
+            fileLeft = false
         } catch {
             dirty = true
             log.error("The personal lexicon is not saved: \(error.localizedDescription, privacy: .private)")
@@ -449,6 +467,11 @@ public final class PersonalLexiconStore {
             schedule(after: saveInterval)
         }
     }
+
+    // MARK: - For the tests
+
+    var heldBackWrite: Task<Void, Never>? { saveTask }
+    var heldEntryCount: Int { model.entries.count }
 
     // MARK: - Helpers
 

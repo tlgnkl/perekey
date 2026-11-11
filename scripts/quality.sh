@@ -40,7 +40,12 @@ unset PEREKEY_VOICE
 # lang.rus-se and lang.russian-se take its place. Every suite costs the time of
 # reading its source (about 6 s each); the budget of the step is 5 minutes (RE9).
 CI_SUITES=(prose.tatoeba chat.tatoeba lang.rus-se lang.russian-se mixed.uk-se prose.uk
-           typos.none typos.real.en typos.synth.equal typos.synth.neighbor typos.synth.swap hyphen yo doublecap)
+           typos.none typos.real.en typos.synth.equal typos.synth.neighbor typos.synth.swap hyphen yo doublecap
+           class.frequent class.short class.collision class.names class.cli class.code
+           protect.url protect.captcha protect.numbers protect.password)
+# Suites that read the ru.stackoverflow corpus (`fetch-data.sh heavy`, a gigabyte): built when the
+# cache has it, skipped without an error when it does not, never required.
+OPTIONAL_SUITES=(class.oov class.brands)
 # The suites the self-check plays on the `ci` level (with the hand-written cases): enough for
 # the invariants and for every mutant, and a fifth of the cost of all of them.
 SELF_SUITES=(flow.basics incidents prose.tatoeba lang.russian-se mixed.uk-se typos.synth.equal hyphen yo)
@@ -102,7 +107,7 @@ stage "build the cases ($TIER)"
 mkdir -p "$CASES" "$OUT/parts/$TIER"
 rm -f "$CASES"/*.jsonl "$CASES/build.json"
 if [[ "$TIER" == ci ]]; then
-    suites=("${CI_SUITES[@]}")
+    suites=("${CI_SUITES[@]}" "${OPTIONAL_SUITES[@]}")
 else
     suites=()
     for manifest in eval/suites/*.suite.json; do
@@ -128,7 +133,13 @@ wait
 for suite in "${suites[@]}"; do
     part="$OUT/parts/$TIER/$suite"
     tee -a "$OUT/build.txt" <"$part/log.txt"
-    [[ ! -e "$part/failed" ]] || { echo "quality: the cases of $suite did not build" >&2; exit 2; }
+    if [[ -e "$part/failed" ]]; then
+        if [[ " ${OPTIONAL_SUITES[*]} " == *" $suite "* ]] && grep -q "no source file" "$part/log.txt"; then
+            echo "$suite: пропущен, нет источника (heavy)"
+            continue
+        fi
+        echo "quality: the cases of $suite did not build" >&2; exit 2
+    fi
     [[ ! -f "$part/$suite.jsonl" ]] || mv "$part/$suite.jsonl" "$CASES/$suite.jsonl"
 done
 python3 - "$OUT/parts/$TIER" "$CASES" "${suites[@]}" <<'PY'

@@ -661,7 +661,13 @@ env QUALITY_BASE=<git ref>
 ### Время шага
 
 Бюджет шага — не больше 5 минут к задаче `build` (РЕ9). Уровень `ci` набран
-под него: `tiers.ci` каждого манифеста, шесть наборов в `CI_SUITES`.
+под него: `tiers.ci` каждого манифеста и список `CI_SUITES` в `scripts/quality.sh`.
+В список входят наборы корпусов, правок, `class.frequent`, `class.short`,
+`class.collision`, `class.names`, `class.cli`, `class.code` и `protect.*` на русском.
+`class.caps`, `class.translit`, `class.punct` (около трёх минут на сборку) и
+украинские пары идут только на `--full`. `class.oov` и `class.brands` читают
+ru.stackoverflow.com (группа `heavy`): в CI они пропускаются строкой «пропущен:
+нет источника», ошибки нет (`OPTIONAL_SUITES`).
 
 ## Самопроверка и мутанты
 
@@ -676,14 +682,14 @@ env QUALITY_BASE=<git ref>
 
 | Мутант | Метрика | Обычная машина → мутант | Сдвиг | Порог |
 |---|---|---|---|---|
-| `threshold: 0` | `harm` в `clean.*` | 90 → 113 | × 1,26 | не меньше × 1,12 |
-| `threshold: 40` | `miss.layout` в `slip.*` | 1315 → 2096 | × 1,59 | не меньше × 1,29 |
-| `contextBonus: 0` | `miss.layout` в `slip.warm` | 1240 → 1200 | × 0,97 | не больше × 0,98 |
-| `contextBonus: 0` | `harm` в `clean.warm` | 17 → 17 | — | не больше обычной |
+| `threshold: 0` | `harm` в `clean.*` | 58 → 79 | × 1,36 | не меньше × 1,18 |
+| `threshold: 40` | `miss.layout` в `slip.*` | 532 → 821 | × 1,54 | не меньше × 1,27 |
+| `contextBonus: 0` | `miss.layout` в `slip.warm` | 475 → 470 | × 0,989 | не больше × 0,995 |
+| `contextBonus: 0` | `harm` в `clean.warm` | 13 → 13 | — | не больше обычной |
 
 Замер: `perekey-eval selfcheck --cases eval/cases .build/quality/cases/ci --split dev
 --model .build/model --mutants` на коммите ветки `eval/gates-ci`, уровень `ci`,
-шесть наборов `CI_SUITES`. Числа зависят от случаев: после смены уровня, наборов
+наборы `SELF_SUITES` и руками написанные случаи. Числа зависят от случаев: после смены уровня, наборов
 или счётчика замерить заново и записать здесь и в `Mutants.all`.
 
 **Что замер сказал иначе, чем план (12.3).**

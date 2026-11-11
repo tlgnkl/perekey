@@ -55,27 +55,27 @@ public struct MutantFinding: Hashable, Sendable {
 
 public enum Mutants {
     /// The mutants the suites of this repository can show. Each factor is half of the shift measured on
-    /// the `ci` level, both parts, six suites, with `perekey-eval selfcheck --mutants` (a margin of two,
-    /// plan, section 20, item 8):
+    /// the `ci` level, both parts, on the suites of `SELF_SUITES` in scripts/quality.sh and the hand-written
+    /// cases, with `perekey-eval selfcheck --mutants` (a margin of two, plan, section 20, item 8):
     ///
     /// | Mutant | Count | Ordinary → mutant | Shift | Factor |
     /// |---|---|---|---|---|
-    /// | threshold: 0 | harm in `clean.*` | 90 → 113 | × 1.26 | × 1.12 |
-    /// | threshold: 40 | miss.layout in `slip.*` | 1315 → 2096 | × 1.59 | × 1.29 |
-    /// | contextBonus: 0 | miss.layout in `slip.warm` | 1240 → 1200 | × 0.97 | × 0.98 |
+    /// | threshold: 0 | harm in `clean.*` | 58 → 79 | × 1.36 | × 1.18 |
+    /// | threshold: 40 | miss.layout in `slip.*` | 532 → 821 | × 1.54 | × 1.27 |
+    /// | contextBonus: 0 | miss.layout in `slip.warm` | 475 → 470 | × 0.989 | × 0.995 |
     ///
     /// The plan expected a doubling for threshold: 0 and a rise of П for contextBonus: 0; the measure
     /// says otherwise (docs/eval.md, «Мутанты»). Measure again after a change of the cases, of the tier
     /// or of the machine, and write the new numbers here and in docs/eval.md.
     public static let all: [Mutant] = [
         Mutant(name: "threshold: 0", options: #"{"threshold": 0}"#, settings: nil, expectations: [
-            .init(what: "В в clean.*", suite: "*", scenarioPrefix: "clean.", slice: nil, count: .harm, relation: .grows(times: 1.12)),
+            .init(what: "В в clean.*", suite: "*", scenarioPrefix: "clean.", slice: nil, count: .harm, relation: .grows(times: 1.18)),
         ]),
         Mutant(name: "threshold: 40", options: #"{"threshold": 40}"#, settings: nil, expectations: [
-            .init(what: "П в slip.*", suite: "*", scenarioPrefix: "slip.", slice: nil, count: .missLayout, relation: .grows(times: 1.29)),
+            .init(what: "П в slip.*", suite: "*", scenarioPrefix: "slip.", slice: nil, count: .missLayout, relation: .grows(times: 1.27)),
         ]),
         Mutant(name: "contextBonus: 0", options: #"{"contextBonus": 0}"#, settings: nil, expectations: [
-            .init(what: "П в slip.warm", suite: "*", scenarioPrefix: "slip.warm", slice: nil, count: .missLayout, relation: .shrinks(times: 0.98)),
+            .init(what: "П в slip.warm", suite: "*", scenarioPrefix: "slip.warm", slice: nil, count: .missLayout, relation: .shrinks(times: 0.995)),
             .init(what: "В в clean.warm", suite: "*", scenarioPrefix: "clean.warm", slice: nil, count: .harm, relation: .notAbove),
         ]),
         Mutant(name: "preset layout-only", options: nil, settings: "layout-only", expectations: [

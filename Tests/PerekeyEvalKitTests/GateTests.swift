@@ -344,7 +344,8 @@ enum Runs {
         let finding = { (ordinary: Int, mutated: Int) in Mutants.judge(slip, ordinary: misses(ordinary), mutated: misses(mutated)).first!.verdict }
         #expect(finding(100, 90) == .ok)
         #expect(finding(100, 100) == .fail, "no loss is no shift")
-        #expect(finding(100, 99) == .fail, "1 % is below the bar of 2 %")
+        #expect(finding(1000, 994) == .ok, "0.6 % is above the bar of 0.5 %")
+        #expect(finding(1000, 996) == .fail, "0.4 % is below the bar of 0.5 %")
         #expect(finding(0, 0) == .fail, "nothing to lose is not a shift")
     }
 

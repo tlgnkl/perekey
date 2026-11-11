@@ -98,7 +98,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .build/quality-base
-          key: quality-base-${{ steps.quality-base.outputs.sha }}-${{ hashFiles('Sources/PerekeyEvalKit/**', 'Sources/PerekeyDesk/**', 'Sources/perekey-eval/**', 'Package.swift', 'data/**', 'scripts/build-model.sh', 'scripts/fetch-data.sh', 'scripts/wiki-freq.py', 'scripts/build-pairs.sh', 'scripts/wiki-text.py', 'Sources/perekey-model/**', 'Sources/PerekeyModelKit/**', 'Sources/PerekeyCore/ModelFormat.swift') }}
+          key: quality-base-v2-${{ steps.quality-base.outputs.sha }}-${{ hashFiles('Sources/PerekeyEvalKit/**', 'Sources/PerekeyDesk/**', 'Sources/perekey-eval/**', 'Package.swift', 'data/**', 'scripts/build-model.sh', 'scripts/fetch-data.sh', 'scripts/wiki-freq.py', 'scripts/build-pairs.sh', 'scripts/wiki-text.py', 'Sources/perekey-model/**', 'Sources/PerekeyModelKit/**', 'Sources/PerekeyCore/ModelFormat.swift') }}
       - name: Quality bench against the base commit
         run: scripts/quality.sh --self-check --model .build/model
         env:

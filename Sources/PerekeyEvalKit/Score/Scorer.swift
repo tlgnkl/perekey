@@ -116,6 +116,9 @@ public struct CaseScore: Hashable, Sendable {
     /// The words of this case stay out of files and output: it is in the
     /// test part, and the run does not reveal it (rule 2.8). Set by the runner.
     public var hidden = false
+    /// The case is of a personal set (`personal.` suite): its words are the
+    /// person's own, and files and output carry hashes in their place (rule 2.9).
+    public var personal = false
 
     public var measured: [TokenScore] { tokens.filter(\.measured) }
 
@@ -473,18 +476,29 @@ public struct Scorer: Sendable {
         } else {
             ctx = before[0] == lang ? "agree" : "against"
         }
-        let entry = trace.last { $0.kind == .switched || $0.kind == .corrected }
+        // What the system decided about the word: a switch, a correction, or, with the
+        // trace of judgements, that it kept the word or did not judge it.
+        let entry = trace.last { [.switched, .corrected, .kept, .notJudged].contains($0.kind) }
         return TokenFeatures(
             lang: lang, len: len, pos: pos, ctx: ctx, cap: Self.capitals(letters), punct: Self.punctuation(token),
             digits: token.contains(where: \.isNumber) ? "yes" : "no", err: (spec?.err ?? .none).rawValue,
             end: Self.end(token, end), tags: tags + (spec?.tags ?? []).filter { !tags.contains($0) }, reason: entry?.reason,
             margin: entry.flatMap { entry in
-                guard let score = entry.score, let margin = entry.margin, score.isFinite else { return nil }
-                let left = score - margin
-                return left < 3 ? "<3" : left < 10 ? "3-10" : "10+"
+                guard let score = entry.score, let margin = entry.margin else { return nil }
+                return Self.marginBucket(score: score, margin: margin, kept: entry.kind == .kept)
             },
             early: entry?.insideWord.map { $0 ? "yes" : "no" }, kind: entry?.correction
         )
+    }
+
+    /// By how many bits the decision held: a switch or a correction above the
+    /// threshold (`score − margin`), a word kept under it (`margin − score`). A
+    /// decision on the wrong side of the threshold falls in `<3`. `nil` when the other reading is no word (the score is not
+    /// finite) and there is no threshold to measure.
+    static func marginBucket(score: Double, margin: Double, kept: Bool = false) -> String? {
+        guard score.isFinite else { return nil }
+        let held = kept ? margin - score : score - margin
+        return held < 3 ? "<3" : held < 10 ? "3-10" : "10+"
     }
 
     static func capitals(_ letters: String) -> String {

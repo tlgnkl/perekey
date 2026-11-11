@@ -79,15 +79,18 @@ public enum CaseCheck {
     /// The problems of a case. Without `reveal`, a case of the test part is
     /// described without its words (rule 2.8).
     public static func problems(_ item: EvalCase, layouts: LayoutLibrary, reveal: Bool = false) -> [String] {
-        let hidden = item.split == .test && !reveal
+        let hidden = (item.split == .test && !reveal) || item.isPersonal
         func quote(_ text: some StringProtocol) -> String { hidden ? RunFiles.hiddenText : "\"\(text)\"" }
         var problems: [String] = []
         if item.v != EvalCase.version { problems.append("format version \(item.v)") }
         do {
             let computed = try item.computedID()
-            if item.id != computed { problems.append("id \(item.id) is not the hash of the content: \(computed)") }
+            if item.id != computed {
+                problems.append(hidden ? "the id is not the hash of the content"
+                    : "id \(item.id) is not the hash of the content: \(computed)")
+            }
         } catch {
-            problems.append("cannot hash the content: \(error)")
+            problems.append(hidden ? "cannot hash the content" : "cannot hash the content: \(error)")
         }
         if item.suite.isEmpty || item.scenario.isEmpty { problems.append("empty suite or scenario") }
 
@@ -95,6 +98,14 @@ public enum CaseCheck {
         for name in item.layouts where layouts[name] == nil { problems.append("unknown layout \(name)") }
         if !item.layouts.contains(item.start) { problems.append("start \(item.start) is not among the layouts") }
         if Set(item.layouts).count != item.layouts.count { problems.append("a layout is listed twice") }
+
+        // A tag reaches the slices and the report: in a personal case it is a word of the person's own at worst.
+        if item.isPersonal {
+            let tags = (item.tags ?? []) + (item.tokens ?? []).flatMap { $0.tags ?? [] }
+            if tags.contains(where: { !SessionCases.allowedTags.contains($0) }) {
+                problems.append("a personal case carries a tag outside the allowed ones")
+            }
+        }
 
         // The environment.
         let env = item.effectiveEnv

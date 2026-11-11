@@ -379,7 +379,7 @@ public enum EvalCommands {
         if parsed.value("--suites") == nil {
             lines.append("5. cases built twice: skipped, no --suites")
         } else {
-            let settings = try BuildSettings(parsed)
+            let settings = try BuildSettings(parsed, ignoringOnly: true)
             var identical = 0
             let manifests = try settings.manifests()
             // `--built <dir>`: the files an earlier `cases build` wrote there are the first build.

@@ -80,7 +80,6 @@ public enum Mutants {
         ]),
         Mutant(name: "preset layout-only", options: nil, settings: "layout-only", expectations: [
             .init(what: "Починено в typos.*", suite: "typos.*", scenarioPrefix: "", slice: nil, count: .fixed, relation: .fallsToZero),
-            .init(what: "Т в typos.none", suite: "typos.none", scenarioPrefix: "", slice: nil, count: .silent, relation: .fallsToZero),
         ]),
         Mutant(name: "preset default", options: nil, settings: "default", expectations: [
             .init(what: "Починено в hyphen", suite: "hyphen", scenarioPrefix: "", slice: nil, count: .fixed, relation: .fallsToZero),

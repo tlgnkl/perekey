@@ -22,7 +22,8 @@ extension EvalCommands {
         var epoch: Int?
         var only: Set<String>?
 
-        init(_ parsed: Arguments) throws {
+        /// `ignoringOnly`: the self-check reads `--only` as a choice of cases, not of manifests.
+        init(_ parsed: Arguments, ignoringOnly: Bool = false) throws {
             suites = parsed.value("--suites") ?? "eval/suites"
             cache = parsed.value("--cache") ?? ProcessInfo.processInfo.environment["PEREKEY_DATA_CACHE"]
                 ?? ".build/data-cache"
@@ -34,7 +35,7 @@ extension EvalCommands {
                 guard let epoch = Int(text), epoch >= 1 else { throw EvalError.input("--epoch <n>, n >= 1") }
                 self.epoch = epoch
             }
-            only = parsed.value("--only").map { Set($0.split(separator: ",").map(String.init)) }
+            only = ignoringOnly ? nil : parsed.value("--only").map { Set($0.split(separator: ",").map(String.init)) }
         }
 
         /// The first file of the manifest's source that the cache lacks.

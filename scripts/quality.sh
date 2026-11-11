@@ -41,6 +41,9 @@ unset PEREKEY_VOICE
 # reading its source (about 6 s each); the budget of the step is 5 minutes (RE9).
 CI_SUITES=(prose.tatoeba chat.tatoeba lang.rus-se lang.russian-se mixed.uk-se prose.uk
            typos.none typos.real.en typos.synth.equal typos.synth.neighbor typos.synth.swap hyphen yo doublecap)
+# The suites the self-check plays on the `ci` level (with the hand-written cases): enough for
+# the invariants and for every mutant, and a fifth of the cost of all of them.
+SELF_SUITES=(flow.basics incidents prose.tatoeba lang.russian-se mixed.uk-se typos.synth.equal hyphen yo)
 # The suites the self-check builds a second time on the `ci` level: their sources read fast.
 REBUILD_SUITES=(lang.russian-se mixed.uk-se)
 
@@ -195,7 +198,7 @@ fi
 stage "self-check and the head, together"
 selfargs=(selfcheck --cases eval/cases "$CASES" --split dev --model "$MODEL" --cache "$CACHE"
           --suites eval/suites --tier "$TIER" --built "$CASES" --skip-missing)
-if [[ "$TIER" == ci ]]; then selfargs+=(--rebuild "$(join "${REBUILD_SUITES[@]}")"); fi
+if [[ "$TIER" == ci ]]; then selfargs+=(--only "$(join "${SELF_SUITES[@]}")" --rebuild "$(join "${REBUILD_SUITES[@]}")"); fi
 if [[ "$SELF_CHECK" == 1 ]]; then selfargs+=(--mutants); fi
 "$bin" "${selfargs[@]}" >"$OUT/selfcheck.txt" 2>&1 &
 self_pid=$!

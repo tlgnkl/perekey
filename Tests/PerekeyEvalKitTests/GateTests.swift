@@ -356,6 +356,22 @@ enum Runs {
         #expect(Mutants.judge(contextZero, ordinary: ordinary, mutated: worse).last?.verdict == .fail)
     }
 
+    /// `selfcheck --only` picks the hand-written suites (flow.basics has no manifest); the suites
+    /// it builds a second time are named by `--rebuild`, so `--only` must not look them up.
+    @Test func selfCheckOnlyNamesSuitesWithoutManifests() throws {
+        let directory = try SuiteFixtures.directory()
+        let manifest = """
+        {"suite":"t.suite","version":1,"epoch":1,"seed":7,"about":"test","reader":"tatoeba","source":"src",
+         "license":"test","sampling":"token","layoutSets":[["ABC","Russian"]],"scenarios":["clean.cold"],
+         "tiers":{"ci":400,"full":800},"split":{"dev":20,"by":"unit"}}
+        """
+        try manifest.write(toFile: directory + "/t.suite.suite.json", atomically: true, encoding: .utf8)
+        let parsed = try Arguments(["--suites", directory, "--only", "flow.basics,t.suite"])
+        #expect(throws: (any Error).self) { try EvalCommands.BuildSettings(parsed).manifests() }
+        let ignoring = try EvalCommands.BuildSettings(parsed, ignoringOnly: true)
+        #expect(try ignoring.manifests().map { $0.suite } == ["t.suite"])
+    }
+
     @Test func everyMutantNamesOptionsTheClassifierHas() throws {
         for mutant in Mutants.all {
             if let json = mutant.options { _ = try ClassifierOptions.parse(json) }

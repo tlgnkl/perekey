@@ -368,6 +368,11 @@
 "Remembered words" = "Запомнено слов";
 "Erase my words" = "Стереть мои слова";
 "Deletes the file and the key. Perekey starts again from nothing." = "Удаляет файл и ключ. Perekey начнёт с нуля.";
+"Turning this off does not erase what Perekey remembered. Erase it with the button below." = "Выключение не стирает то, что Perekey запомнил. Стереть можно кнопкой ниже.";
+"Perekey could not remove all of it: the file or the key is still there. Try again." = "Perekey удалил не всё: файл или ключ остался. Попробуйте ещё раз.";
+"Erase my words?" = "Стереть мои слова?";
+"The file and the key are deleted. Perekey forgets every word it learned. This cannot be undone." = "Файл и ключ удаляются. Perekey забывает все выученные слова. Отменить это нельзя.";
+"Forgotten" = "Забыто";
 "Words you often type" = "Слова, которые вы часто пишете";
 "Learn my words" = "Учить мои слова";
 "Perekey can remember them as fingerprints, not as text, and stop switching and fixing them. The switch is in Privacy." = "Perekey может запомнить их как отпечатки, а не как текст, и перестать их переключать и исправлять. Переключатель — в «Приватности».";

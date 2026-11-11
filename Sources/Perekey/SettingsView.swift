@@ -253,7 +253,6 @@ struct SettingsView: View {
             WordsPane(store: store, layouts: sources.layouts, showsMyWords: personal != nil, openPrivacy: showMyWords)
         case .privacy:
             PrivacyPane(store: store, usage: usage, languages: languages, personal: personal,
-                        personalManaged: ManagedPreferences.read().personalWordsDisabled,
                         layoutNames: sources.layouts.map { FalseSwitchReport.layoutName($0.id) })
         }
     }

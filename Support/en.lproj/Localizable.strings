@@ -368,6 +368,11 @@
 "Remembered words" = "Remembered words";
 "Erase my words" = "Erase my words";
 "Deletes the file and the key. Perekey starts again from nothing." = "Deletes the file and the key. Perekey starts again from nothing.";
+"Turning this off does not erase what Perekey remembered. Erase it with the button below." = "Turning this off does not erase what Perekey remembered. Erase it with the button below.";
+"Perekey could not remove all of it: the file or the key is still there. Try again." = "Perekey could not remove all of it: the file or the key is still there. Try again.";
+"Erase my words?" = "Erase my words?";
+"The file and the key are deleted. Perekey forgets every word it learned. This cannot be undone." = "The file and the key are deleted. Perekey forgets every word it learned. This cannot be undone.";
+"Forgotten" = "Forgotten";
 "Words you often type" = "Words you often type";
 "Learn my words" = "Learn my words";
 "Perekey can remember them as fingerprints, not as text, and stop switching and fixing them. The switch is in Privacy." = "Perekey can remember them as fingerprints, not as text, and stop switching and fixing them. The switch is in Privacy.";

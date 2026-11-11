@@ -18,20 +18,19 @@ struct PrivacyPane: View {
     let languages: LanguageStatsStore?
     /// `nil` hides the group «My words».
     let personal: PersonalLexiconStore?
-    /// A profile forbids «My words» (`ManagedSettings.personalWordsDisabled`).
-    let personalManaged: Bool
 
     private let reporting: State<Bool>
+    /// «Erase my words» asks first: it cannot be undone.
+    private let confirmsErase = State(initialValue: false)
 
     init(store: SettingsStore, usage: UsageRecorder? = nil, languages: LanguageStatsStore? = nil,
-         personal: PersonalLexiconStore? = nil, personalManaged: Bool = false,
+         personal: PersonalLexiconStore? = nil,
          layoutNames: [String] = [], isReporting: Bool = false)
     {
         self.store = store
         self.usage = usage
         self.languages = languages
         self.personal = personal
-        self.personalManaged = personalManaged
         self.layoutNames = layoutNames
         reporting = State(initialValue: isReporting)
     }
@@ -128,16 +127,17 @@ struct PrivacyPane: View {
             PKRow(Text("Learn the words I often type"),
                   detail: Text("Perekey remembers words you type again and again, like names and terms, so it stops switching and fixing them. It keeps a keyed fingerprint of each word, not the word. The key is in your keychain, and the words cannot be read from the file."),
                   anchor: "privacy.learn-words") {
-                Toggle(isOn: Binding(get: { store.settings.personalWords && !personalManaged }, set: { on in
+                Toggle(isOn: Binding(get: { store.settings.personalWords && !personal.forbidden }, set: { on in
                     store.update { $0.personalWords = on }
                 })) {
                     Text("Learn the words I often type")
                 }
                 .labelsHidden()
                 .toggleStyle(.pkSwitch)
-                .disabled(personalManaged)
+                .disabled(personal.forbidden)
             }
-            if personalManaged {
+            PKNote(Text("Turning this off does not erase what Perekey remembered. Erase it with the button below."))
+            if personal.forbidden {
                 PKCallout(Text("Managed by your organization. “My words” is off."), symbol: "building.2.fill", quiet: true)
             } else if personal.unavailable == .keychain {
                 PKCallout(Text("The keychain does not give Perekey its key, so “My words” stays off. Perekey keeps no spare key in a file."),
@@ -156,10 +156,21 @@ struct PrivacyPane: View {
             PKRow(Text("Erase my words"),
                   detail: Text("Deletes the file and the key. Perekey starts again from nothing."),
                   anchor: "privacy.erase-words") {
-                Button("Erase") { personal.erase() }
+                Button("Erase") { confirmsErase.wrappedValue = true }
                     .buttonStyle(.pkSecondary)
                     .disabled(!personal.hasStored)
             }
+            if personal.eraseFailed {
+                PKCallout(Text("Perekey could not remove all of it: the file or the key is still there. Try again."),
+                          symbol: "exclamationmark.triangle.fill")
+            }
+        }
+        // The keychain may have been locked when the app started: ask again when the pane opens.
+        .onAppear { personal.retryActivation() }
+        .confirmationDialog(Text("Erase my words?"), isPresented: confirmsErase.projectedValue) {
+            Button(role: .destructive) { personal.erase() } label: { Text("Erase my words") }
+        } message: {
+            Text("The file and the key are deleted. Perekey forgets every word it learned. This cannot be undone.")
         }
     }
 

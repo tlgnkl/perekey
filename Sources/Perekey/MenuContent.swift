@@ -1012,6 +1012,8 @@ struct CorrectionRow: View {
     let onForget: (PersonalWordRef) -> Void
     /// «Why?» is open: the reasons show under the row.
     private let explained: State<Bool>
+    /// «Forget the word» was pressed: the button says «Forgotten» and does nothing more.
+    private let forgotten = State(initialValue: false)
 
     init(entry: CorrectionLog.Entry, isLatest: Bool, store: SettingsStore, nav: MenuNav,
          onReport: @escaping (String, String) -> Void, onForget: @escaping (PersonalWordRef) -> Void = { _ in },
@@ -1053,13 +1055,21 @@ struct CorrectionRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !entry.undone, let language = entry.personalLanguage.flatMap({ LanguageCode($0) }) {
-                Button("Forget the word") {
-                    onForget(PersonalWordRef(text: entry.replacement, language: language))
+                if forgotten.wrappedValue {
+                    Text("Forgotten")
+                        .font(PK.Font.caption.weight(.semibold))
+                        .foregroundStyle(Color.pkInk2)
+                        .padding(.top, 2)
+                } else {
+                    Button("Forget the word") {
+                        forgotten.wrappedValue = true
+                        onForget(PersonalWordRef(text: entry.replacement, language: language))
+                    }
+                    .buttonStyle(.plain)
+                    .font(PK.Font.caption.weight(.semibold))
+                    .foregroundStyle(Color.pkIndigoInk)
+                    .padding(.top, 2)
                 }
-                .buttonStyle(.plain)
-                .font(PK.Font.caption.weight(.semibold))
-                .foregroundStyle(Color.pkIndigoInk)
-                .padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

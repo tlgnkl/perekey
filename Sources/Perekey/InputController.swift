@@ -83,10 +83,6 @@ final class InputController {
     @ObservationIgnored private let learningJournal = LearningJournalFile()
     /// The undos and retypes that say a personal word is not the user's after all.
     @ObservationIgnored private var personalSignals = PersonalSignals()
-    /// Whether a profile lets «Мои слова» run; read once, as the profile is at launch.
-    @ObservationIgnored private let personalAllowed = !ManagedPreferences.read().personalWordsDisabled
-    /// The setting as the store last got it: the store is told when it changes.
-    @ObservationIgnored private var appliedPersonalWords: Bool?
     /// Corrections of the onboarding demo, by `seq`: they count for nothing,
     /// neither the menu's list nor the statistics, nor their undo.
     @ObservationIgnored private var demoCorrections = Set<UInt32>()
@@ -113,14 +109,17 @@ final class InputController {
         self.pause = pause
         self.languages = languages
         #if PEREKEY_RECORD
-        // The typing recording's build keeps neither the real key nor a
-        // fingerprint of the user's words: the store works under a key of the run.
+        // The typing recording's build has no real key and no working fingerprints: the store works under a
+        // key of the run, in memory. The recording holds that session key and the fingerprints of the words
+        // under it (`wordsKept`, `personalLexiconChanged`); the text of the typing is in it anyway.
         let sessionOnly = true
         #else
         let sessionOnly = false
         #endif
+        // The profile is read here, once, as it is at launch; the store is the only one that knows it afterwards.
         self.personal = personal ?? PersonalLexiconStore(
-            keys: KeychainLexiconKeyStore(), today: { InputController.day(of: Date()) }, sessionOnly: sessionOnly)
+            keys: KeychainLexiconKeyStore(), today: { InputController.day(of: Date()) },
+            allowed: !ManagedPreferences.read().personalWordsDisabled, sessionOnly: sessionOnly)
         appModes = AppModeController(sources: sources, store: store, pause: pause)
         lastSettings = store.snapshot
         lastSettings = effectiveSettings
@@ -244,10 +243,7 @@ final class InputController {
     /// The switch «Мои слова» goes to the store, which reaches the key and
     /// the file only while it is on, and the tap gets its snapshot from there.
     private func applyPersonalWords() {
-        let wanted = store.settings.personalWords
-        guard wanted != appliedPersonalWords else { return }
-        appliedPersonalWords = wanted
-        personal.setEnabled(wanted, allowed: personalAllowed)
+        personal.apply(store.settings.personalWords)
     }
 
     private func pushSettings() {
@@ -485,6 +481,9 @@ final class InputController {
             engine.send(.personalRoomReturned(personal.record(tally, counting: !appModes.isDemoFront)))
         case let .personalRoomsWanted(count):
             for _ in 0..<count { engine.send(.personalRoomReturned(PersonalRoom())) }
+        case .personalLexiconReleased:
+            // The old lexicon is freed here, as the message goes: nothing else to do.
+            break
         }
     }
 
@@ -650,8 +649,14 @@ final class InputController {
         {
             on(workspace, name) { engine.checkTaps() }
         }
-        on(DistributedNotificationCenter.default(), Notification.Name("com.apple.screenIsUnlocked")) {
+        on(DistributedNotificationCenter.default(), Notification.Name("com.apple.screenIsUnlocked")) { [weak self] in
             engine.checkTaps()
+            self?.personal.retryActivation()
+        }
+        // The keychain may have been locked when «Мои слова» started: ask for the key again when the app
+        // is activated (the pane asks too, when it opens). Nothing happens unless the keychain was the reason.
+        on(NotificationCenter.default, NSApplication.didBecomeActiveNotification) { [weak self] in
+            self?.personal.retryActivation()
         }
         // Leaving the session: let held keys go.
         on(workspace, NSWorkspace.sessionDidResignActiveNotification) { engine.send(.inputLost) }

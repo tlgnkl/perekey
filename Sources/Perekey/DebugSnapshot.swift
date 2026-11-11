@@ -546,12 +546,12 @@ enum DebugSnapshot {
     /// the Words pane's link to it.
     private static func renderMyWords(in directory: URL) {
         let size = CGSize(width: 560, height: 1500)
-        func lexicon(words: Int, enabled: Bool, keychain: Bool = true) -> PersonalLexiconStore {
+        func lexicon(words: Int, enabled: Bool, keychain: Bool = true, managed: Bool = false) -> PersonalLexiconStore {
             let keys = MemoryLexiconKeyStore()
             if !keychain { keys.setFailure(LexiconKeyFailure.status(-25293)) }
             var day = 20_000
-            let store = PersonalLexiconStore(file: nil, keys: keys, today: { day })
-            store.setEnabled(enabled)
+            let store = PersonalLexiconStore(file: nil, keys: keys, today: { day }, allowed: !managed)
+            store.apply(enabled)
             if let key = try? keys.load(), words > 0 {
                 let observations = (0..<words).map { index in
                     PersonalObservation(word: key.fingerprint(.word, language: "ru", [UInt32(index + 0x430)]),
@@ -577,9 +577,9 @@ enum DebugSnapshot {
             settings.personalWords = on
             try? file.save(settings)
             let store = SettingsStore(file: file)
-            let personal = lexicon(words: words, enabled: on && !managed, keychain: keychain)
-            render(PrivacyPane(store: store, languages: LanguageStatsStore(file: nil), personal: personal,
-                               personalManaged: managed).frame(width: size.width, height: size.height),
+            let personal = lexicon(words: words, enabled: on, keychain: keychain, managed: managed)
+            render(PrivacyPane(store: store, languages: LanguageStatsStore(file: nil), personal: personal)
+                        .frame(width: size.width, height: size.height),
                    dark: dark, size: size, to: directory.appending(path: "\(name).png"))
         }
         let file = SettingsFile(url: directory.appending(path: "my-words-link.json"), defaults: debugDefaults())

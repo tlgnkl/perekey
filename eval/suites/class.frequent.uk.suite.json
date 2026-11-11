@@ -6,6 +6,7 @@
    "en"
   ],
   "minZipf": 0.0,
+  "requireDictionary": false,
   "rule": "frequent",
   "top": 5000
  },

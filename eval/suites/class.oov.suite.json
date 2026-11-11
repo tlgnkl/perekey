@@ -1,8 +1,8 @@
 {
- "about": "Words of the corpus that the dictionary lacks: slang and jargon, found by their count (ru). The rule over a corpus",
+ "about": "Words of ru.stackoverflow.com that the dictionary lacks: slang and jargon, found by their count (ru). The rule over a corpus",
  "class": {
-  "corpus": "stackexchange/rus.stackexchange.com.7z",
-  "corpusFull": "stackexchange/ru.stackoverflow.com.7z",
+  "ciPosts": 100000,
+  "corpus": "stackexchange/ru.stackoverflow.com.7z",
   "languages": [
    "ru"
   ],

@@ -2,12 +2,13 @@
  "about": "Names of cities and of people, one word each with a capital (en ↔ uk). GeoNames and a Wikidata extract",
  "class": {
   "corpus": "geonames/cities15000.zip",
-  "corpusFull": "wikidata/given-names.json",
   "languages": [
    "en",
    "uk"
   ],
-  "rule": "names"
+  "rule": "names",
+  "seeds": "class.names.uk.txt",
+  "snapshot": "names.wikidata.tsv"
  },
  "end": "space",
  "epoch": 1,
@@ -17,7 +18,7 @@
    "Ukrainian-PC"
   ]
  ],
- "license": "GeoNames CC BY 4.0; Wikidata CC0; wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "license": "GeoNames CC BY 4.0; Wikidata CC0 (eval/classes/names.wikidata.tsv); wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
  "reader": "class",
  "sampling": "type",
  "scenarios": [

@@ -5,6 +5,7 @@
    "uk",
    "en"
   ],
+  "requireDictionary": false,
   "rule": "collision"
  },
  "end": "space",

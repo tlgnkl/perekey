@@ -6,6 +6,7 @@
    "en"
   ],
   "maxLetters": 2,
+  "requireDictionary": false,
   "rule": "short",
   "seeds": "class.short.txt"
  },

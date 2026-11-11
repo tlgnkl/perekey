@@ -5,6 +5,7 @@
    "ru",
    "en"
   ],
+  "requireDictionary": false,
   "rule": "collision",
   "seeds": "class.collision.txt"
  },

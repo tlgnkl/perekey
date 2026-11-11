@@ -1,8 +1,8 @@
 {
  "about": "Latin names among Cyrillic text: products, companies, services. A seed list and a corpus",
  "class": {
-  "corpus": "stackexchange/rus.stackexchange.com.7z",
-  "corpusFull": "stackexchange/ru.stackoverflow.com.7z",
+  "ciPosts": 100000,
+  "corpus": "stackexchange/ru.stackoverflow.com.7z",
   "minPerMillion": 5.0,
   "rule": "brands",
   "seeds": "class.brands.txt"

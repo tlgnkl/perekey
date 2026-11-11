@@ -23,10 +23,9 @@
 #   heavy     large optional held-out source: ru.stackoverflow.com (~1 GB)
 #   bench     sources of the quality bench's class suites (`class.cli`, `class.code`):
 #             tldr-pages 2.3 (CC BY 4.0) and six free repositories at pinned
-#             commits, one for each language of the code (~5 MB)
-#   names     given names for `class.names`: a Wikidata query (CC0), rolling.
-#             The query service cuts a long query off, so it asks for names
-#             with 8 or more sitelinks (~200 KB). Not in `all`
+#             commits, one for each language of the code (~5 MB). If GitHub
+#             ever serves another archive for a pinned commit, the script stops
+#             on the hash; see data/SOURCES.md for what to do
 #   fallback  needs a legal decision before use: OpenCorpora (ru), Wiktionary
 #             forms (uk, ~300 MB)
 #   speech    FLEURS (Google, CC BY 4.0), ru and en, the dev split: 50 recordings
@@ -64,8 +63,6 @@ HF_WIKI="https://huggingface.co/datasets/wikimedia/wikipedia/resolve/$WIKI_REV/$
 IA_SE=https://archive.org/download/stackexchange
 GH_CODE=https://codeload.github.com
 TLDR_REL=v2.3                                           # tldr-pages release, CC BY 4.0 (LICENSE.md in the archive)
-# Wikidata given names (CC0): male, female and unisex given names with 8 or more sitelinks, labels in ru, en, uk.
-WD_NAMES="https://query.wikidata.org/sparql?format=json&query=SELECT%20%3Fru%20%3Fen%20%3Fuk%20WHERE%20%7B%0A%20%20VALUES%20%3Ftype%20%7B%20wd%3AQ12308941%20wd%3AQ11879590%20wd%3AQ3409032%20%7D%0A%20%20%3Fitem%20wdt%3AP31%20%3Ftype%3B%20wikibase%3Asitelinks%20%3Flinks.%0A%20%20FILTER%28%3Flinks%20%3E%3D%208%29%0A%20%20OPTIONAL%20%7B%20%3Fitem%20rdfs%3Alabel%20%3Fru.%20FILTER%28LANG%28%3Fru%29%20%3D%20%22ru%22%29%20%7D%0A%20%20OPTIONAL%20%7B%20%3Fitem%20rdfs%3Alabel%20%3Fen.%20FILTER%28LANG%28%3Fen%29%20%3D%20%22en%22%29%20%7D%0A%20%20OPTIONAL%20%7B%20%3Fitem%20rdfs%3Alabel%20%3Fuk.%20FILTER%28LANG%28%3Fuk%29%20%3D%20%22uk%22%29%20%7D%0A%7D"
 HF_FLEURS="https://huggingface.co/datasets/google/fleurs/resolve/$FLEURS_REV/data"
 
 # group|path in cache|url|sha256 ("-" = rolling source, not pinned)
@@ -115,7 +112,6 @@ bench|code/js-express.tar.gz|$GH_CODE/expressjs/express/tar.gz/43fca52d28a422c8b
 bench|code/go-cobra.tar.gz|$GH_CODE/spf13/cobra/tar.gz/adbc8813901bba65827259daa8e22ff94ec1f30e|3ac55fe8da447fda3fc44f539a78b9d713467f3e6790642c2bafc5df3c56b409
 bench|code/sh-nvm.tar.gz|$GH_CODE/nvm-sh/nvm/tar.gz/4e8758a801eea9479b32a904f31093e410ddaba4|a8518d4129ba40c23d00f1e37f233d3890d4c804438f698dc56675058bfd0226
 bench|code/sql-pgvector.tar.gz|$GH_CODE/pgvector/pgvector/tar.gz/bcbb135db5f6f7539965e18565ddd5990efcf165|4e5094cca8510e4f956e3ef0acd67ad3142f4c052c440ef34f565f2a6d3f0e58
-names|wikidata/given-names.json|$WD_NAMES|-
 fallback|opencorpora/dict.opcorpora.xml.bz2|https://opencorpora.org/files/export/dict/dict.opcorpora.xml.bz2|-
 fallback|wiktionary/kaikki-uk.jsonl|https://kaikki.org/dictionary/Ukrainian/kaikki.org-dictionary-Ukrainian.jsonl|-
 "
@@ -239,11 +235,11 @@ if [[ $# -eq 0 ]]; then
 fi
 for arg in "$@"; do
     case "$arg" in
-        lexicon|text|pairs|wikifreq|heldout|speech|heavy|bench|names|fallback) GROUPS_WANTED+=("$arg") ;;
+        lexicon|text|pairs|wikifreq|heldout|speech|heavy|bench|fallback) GROUPS_WANTED+=("$arg") ;;
         model) GROUPS_WANTED+=(lexicon text pairs wikifreq) ;;
         all) GROUPS_WANTED+=(lexicon text pairs wikifreq heldout bench) ;;
-        -h|--help) sed -n '3,44p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, speech, heavy, bench, names, fallback, all)" ;;
+        -h|--help) sed -n '3,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown group: $arg (lexicon, text, pairs, wikifreq, model, heldout, speech, heavy, bench, fallback, all)" ;;
     esac
 done
 

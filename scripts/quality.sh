@@ -299,10 +299,16 @@ ls "$CASES"/*.jsonl >/dev/null 2>&1 || { echo "quality: no suite was built: no s
 failed=0
 
 
-stage "self-check, the head and the base, side by side"
+# Every process loads the cases of its own. On `ci` (a few tens of megabytes) the self-check, the head and
+# the base play side by side. On `--full` (a gigabyte and more) they play one after another: side by side
+# they took more memory than the machine has and sent it to swap.
+if [[ "$TIER" == ci ]]; then stage "self-check, the head and the base, side by side"; else stage "self-check, the head and the base, one after another"; fi
 selfargs=(selfcheck --cases eval/cases "$CASES" --split dev --model "$MODEL" --cache "$CACHE"
           --suites eval/suites --tier "$TIER" --built "$CASES" --skip-missing)
-if [[ "$TIER" == ci ]]; then selfargs+=(--only "$(join "${SELF_SUITES[@]}")" --rebuild "$(join "${REBUILD_SUITES[@]}")"); fi
+# The self-check plays SELF_SUITES on both levels. Building twice stays on every suite on `--full`
+# (one suite at a time, the cases of the others are not read), and on REBUILD_SUITES on `ci`.
+selfargs+=(--only "$(join "${SELF_SUITES[@]}")")
+if [[ "$TIER" == ci ]]; then selfargs+=(--rebuild "$(join "${REBUILD_SUITES[@]}")"); fi
 if [[ "$SELF_CHECK" == 1 ]]; then selfargs+=(--mutants); fi
 (
     t=$SECONDS
@@ -312,12 +318,22 @@ if [[ "$SELF_CHECK" == 1 ]]; then selfargs+=(--mutants); fi
     exit "$status"
 ) &
 self_pid=$!
+self_waited=0
+if [[ "$TIER" != ci ]]; then
+    wait "$self_pid" || failed=1
+    self_waited=1
+fi
 (
     t=$SECONDS
     "$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" --out "$OUT/run-head" >"$OUT/play-head.txt"
     lap "head: play" "$t"
 ) &
 head_pid=$!
+head_waited=0
+if [[ "$TIER" != ci ]]; then
+    wait "$head_pid" || { echo "quality: the head did not play" >&2; exit 1; }
+    head_waited=1
+fi
 # The base plays as soon as it is built, beside the head and the self-check.
 if [[ -n "$base_pid" ]]; then
     wait "$base_pid" || { echo "quality: the base did not build" >&2; exit 1; }
@@ -332,9 +348,9 @@ if [[ -n "$base_pid" ]]; then
     base_note="$(cat "$tmp/base-note")"
     stage "base played"
 fi
-wait "$head_pid" || { echo "quality: the head did not play" >&2; exit 1; }
+[[ "$head_waited" == 1 ]] || wait "$head_pid" || { echo "quality: the head did not play" >&2; exit 1; }
 stage "head played"
-wait "$self_pid" || failed=1
+[[ "$self_waited" == 1 ]] || wait "$self_pid" || failed=1
 stage "self-check done"
 cat "$OUT/selfcheck.txt"
 

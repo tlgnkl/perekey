@@ -495,51 +495,58 @@ public enum EvalCommands {
         }
         let items = try selected(files, parsed, library: library, store: store)
         let config = try parsed.config()
-        func run(_ system: SystemName, settings: String? = nil) throws -> [Runner.Played] {
+        // `keep` takes from a played case what the check needs, so the events and the results
+        // of every case are not all alive at once: the corpus is large.
+        func run<Kept>(_ system: SystemName, settings: String? = nil, keep: (Runner.Played) -> Kept) throws -> [Kept] {
             var config = config
             config.system = system
             config.settings = settings ?? config.settings
             var runner = Runner(config: config, library: library)
-            return try items.map { try runner.play($0) }
+            return try items.map { keep(try runner.play($0)) }
         }
 
         // 1. Null harms and fixes nothing.
-        let null = try run(.null)
-        let nullHarm = null.flatMap(\.score.measured).filter { $0.outcome == .harm || $0.outcome == .fixed }
-        lines.append("1. null: harm and fixed \(nullHarm.count)")
-        if !nullHarm.isEmpty { failures.append("null has \(nullHarm.count) harmed or fixed tokens") }
+        let null = try run(.null) { played in
+            (text: played.out.text,
+             harmed: played.score.measured.filter { $0.outcome == .harm || $0.outcome == .fixed }.count)
+        }
+        let nullHarm = null.reduce(0) { $0 + $1.harmed }
+        lines.append("1. null: harm and fixed \(nullHarm)")
+        if nullHarm != 0 { failures.append("null has \(nullHarm) harmed or fixed tokens") }
 
         // 2. Oracle: every token ok or fixed, every text exact. The checks of
         // whole cases (layout, corrections) are not the oracle's: it only has the text.
-        let oracle = try run(.oracle)
-        let oracleWrong = oracle.filter { played in
+        let oracle = try run(.oracle) { played in
             played.score.scoring == .token ? !played.score.exact
                 : Scorer.normalize(played.out.text, played.item.effectiveFold)
                 != Scorer.normalize(played.item.want, played.item.effectiveFold)
         }
+        let oracleWrong = zip(items, oracle).filter { $0.1 }.map(\.0)
         lines.append("2. oracle: \(oracle.count - oracleWrong.count) of \(oracle.count) exact")
-        for played in oracleWrong { failures.append("oracle is not exact on \(shown(played.item, store))") }
+        for item in oracleWrong { failures.append("oracle is not exact on \(shown(item, store))") }
 
         // 3. The machine with the preset `off` types what Null types, where
         // the case presses no shortcut and no Undo.
-        let off = try run(.machine, settings: "off")
+        let off = try run(.machine, settings: "off") { played in
+            (text: played.out.text, hidden: played.score.hidden || played.score.personal)
+        }
         var compared = 0
-        for (played, nullPlayed) in zip(off, null) where !played.item.allSteps.contains(where: {
+        for (item, (played, nullPlayed)) in zip(items, zip(off, null)) where !item.allSteps.contains(where: {
             switch $0 {
             case .hotkey, .undo: true
             default: false
             }
         }) {
             compared += 1
-            if played.out.text != nullPlayed.out.text {
-                failures.append("machine off differs from null on \(shown(played.item, store))" + (played.score.hidden || played.score.personal ? ""
-                        : ": \(played.out.text.debugDescription) vs \(nullPlayed.out.text.debugDescription)"))
+            if played.text != nullPlayed.text {
+                failures.append("machine off differs from null on \(shown(item, store))" + (played.hidden ? ""
+                        : ": \(played.text.debugDescription) vs \(nullPlayed.text.debugDescription)"))
             }
         }
         lines.append("3. machine off = null on \(compared) cases without shortcuts")
 
         // 4. Two runs of the machine give the same bytes.
-        let first = try run(.machine).map(\.score), second = try run(.machine).map(\.score)
+        let first = try run(.machine, keep: \.score), second = try run(.machine, keep: \.score)
         let same = try RunFiles.casesTSV(first) == RunFiles.casesTSV(second)
             && RunFiles.summaryJSON(first) == RunFiles.summaryJSON(second)
             && RunFiles.countsTSV(first) == RunFiles.countsTSV(second)

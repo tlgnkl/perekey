@@ -45,31 +45,35 @@ public enum RunFiles {
     /// warm-up's, exact (1 or 0), lag (- when it does not apply), checks
     /// (`ok`, `failed`, - without checks).
     public static func casesTSV(_ scores: [CaseScore]) -> String {
-        var lines = ["id\twords\twarmup\toutcomes\texact\tlag\tchecks"]
-        for score in scores {
-            let outcomes = score.scoring == .case ? "-" : score.outcomeString
-            lines.append([score.id, String(score.words), String(score.warmupTokens), outcomes.isEmpty ? "-" : outcomes,
-                          score.exact ? "1" : "0", score.lag.map(String.init) ?? "-",
-                          score.checkCount == 0 ? "-" : score.failedChecks.isEmpty ? "ok" : "failed"]
-                .joined(separator: "\t"))
-        }
-        return lines.joined(separator: "\n") + "\n"
+        casesHeader + "\n" + scores.map { caseLine($0) + "\n" }.joined()
+    }
+
+    static let casesHeader = "id\twords\twarmup\toutcomes\texact\tlag\tchecks"
+
+    static func caseLine(_ score: CaseScore) -> String {
+        let outcomes = score.scoring == .case ? "-" : score.outcomeString
+        return [score.id, String(score.words), String(score.warmupTokens), outcomes.isEmpty ? "-" : outcomes,
+                score.exact ? "1" : "0", score.lag.map(String.init) ?? "-",
+                score.checkCount == 0 ? "-" : score.failedChecks.isEmpty ? "ok" : "failed"]
+            .joined(separator: "\t")
     }
 
     /// One line per case with the counts the report needs to resample cases and
     /// to compare two runs: id, suite, scenario, split, epoch, lag, then the
     /// counters of `countColumns` and the weighted ones.
     public static func countsTSV(_ scores: [CaseScore]) -> String {
-        var lines = [(["id", "suite", "scenario", "split", "epoch", "lag"] + countColumns.map(\.name)
-            + weightedColumns.map(\.name)).joined(separator: "\t")]
-        for score in scores {
-            let metrics = Metrics(score)
-            lines.append((([score.id, score.suite, score.scenario, score.split.rawValue, String(score.epoch),
-                            score.lag.map(String.init) ?? "-"])
-                    + countColumns.map { String(metrics[keyPath: $0.path]) }
-                    + weightedColumns.map { weightText(metrics[keyPath: $0.path]) }).joined(separator: "\t"))
-        }
-        return lines.joined(separator: "\n") + "\n"
+        countsHeader + "\n" + scores.map { countsLine($0) + "\n" }.joined()
+    }
+
+    static let countsHeader = (["id", "suite", "scenario", "split", "epoch", "lag"] + countColumns.map(\.name)
+        + weightedColumns.map(\.name)).joined(separator: "\t")
+
+    static func countsLine(_ score: CaseScore) -> String {
+        let metrics = Metrics(score)
+        return (([score.id, score.suite, score.scenario, score.split.rawValue, String(score.epoch),
+                  score.lag.map(String.init) ?? "-"])
+            + countColumns.map { String(metrics[keyPath: $0.path]) }
+            + weightedColumns.map { weightText(metrics[keyPath: $0.path]) }).joined(separator: "\t")
     }
 
     /// The integer counters of `counts.tsv`, in column order.
@@ -97,6 +101,13 @@ public enum RunFiles {
     /// run reveals them (`--reveal-test`); the report hides them again without its own flag.
     /// The words of a personal set are hashes of the store's salt.
     public static func wordsTSV(_ scores: [CaseScore], redactor: Redactor? = nil) -> String {
+        var words = Words(redactor: redactor)
+        for score in scores { words.add(score) }
+        return words.tsv()
+    }
+
+    /// The rows of `words.tsv`, counted one case at a time.
+    struct Words {
         struct Key: Hashable, Comparable {
             var split: String
             var word: String
@@ -104,7 +115,12 @@ public enum RunFiles {
         }
         struct Row { var occurrences = 0, harm = 0, miss = 0, botched = 0, weight = 0.0 }
         var rows: [Key: Row] = [:]
-        for score in scores where !score.hidden && (!score.personal || redactor != nil) {
+        let redactor: Redactor?
+
+        init(redactor: Redactor?) { self.redactor = redactor }
+
+        mutating func add(_ score: CaseScore) {
+            guard !score.hidden && (!score.personal || redactor != nil) else { return }
             for token in score.measured where Tokenizer.isWord(token.want) {
                 let core = Lexicon.core(token.want)
                 guard !core.isEmpty else { continue }
@@ -120,13 +136,16 @@ public enum RunFiles {
                 }
             }
         }
-        var lines = ["split\tword\toccurrences\tharm\tmiss\tbotched\terrorWeight"]
-        for key in rows.keys.sorted() {
-            let row = rows[key]!
-            lines.append([key.split, key.word, String(row.occurrences), String(row.harm), String(row.miss),
-                          String(row.botched), weightText(row.weight)].joined(separator: "\t"))
+
+        func tsv() -> String {
+            var lines = ["split\tword\toccurrences\tharm\tmiss\tbotched\terrorWeight"]
+            for key in rows.keys.sorted() {
+                let row = rows[key]!
+                lines.append([key.split, key.word, String(row.occurrences), String(row.harm), String(row.miss),
+                              String(row.botched), RunFiles.weightText(row.weight)].joined(separator: "\t"))
+            }
+            return lines.joined(separator: "\n") + "\n"
         }
-        return lines.joined(separator: "\n") + "\n"
     }
 
     public static func slicesJSON(_ scores: [CaseScore]) throws -> String {
@@ -140,36 +159,38 @@ public enum RunFiles {
     /// whose text differs, and one per case whose checks failed. Words of a
     /// hidden case read `(test)`; those of a personal case are hashes.
     public static func eventsJSONL(_ scores: [CaseScore], redactor: Redactor? = nil) throws -> String {
+        try scores.map { try eventLines($0, redactor: redactor).map { $0 + "\n" }.joined() }.joined()
+    }
+
+    static func eventLines(_ score: CaseScore, redactor: Redactor?) throws -> [String] {
         var lines: [String] = []
-        for score in scores {
-            func shown(_ text: String) -> String {
-                if score.personal { return redactor?.hash(text) ?? Redactor.withheld }
-                return score.hidden ? hiddenText : text
-            }
-            let wholeCase = score.scoring == .case
-            let textDiffers = wholeCase && !score.exact
-            let hasFailedChecks = !score.failedChecks.isEmpty
-            if wholeCase || hasFailedChecks {
-                if textDiffers || hasFailedChecks {
-                    lines.append(try CaseCodec.json(CaseEvent(
-                        id: score.id, outcome: score.exact ? "checks" : "fail", want: shown(score.wantText),
-                        null: shown(score.nullText), out: shown(score.outText),
-                        checks: score.failedChecks.isEmpty ? nil : score.failedChecks
-                    )))
-                }
-                if wholeCase { continue }
-            }
-            for token in score.tokens where token.outcome != .ok {
-                lines.append(try CaseCodec.json(TokenEvent(
-                    id: score.id, index: token.index, want: shown(token.want), null: shown(token.null),
-                    out: shown(token.out),
-                    outcome: token.outcome.rawValue, form: token.form, cascade: token.cascade ? true : nil,
-                    silent: token.silent ? true : nil,
-                    features: token.features, trace: token.trace.isEmpty ? nil : token.trace
+        func shown(_ text: String) -> String {
+            if score.personal { return redactor?.hash(text) ?? Redactor.withheld }
+            return score.hidden ? hiddenText : text
+        }
+        let wholeCase = score.scoring == .case
+        let textDiffers = wholeCase && !score.exact
+        let hasFailedChecks = !score.failedChecks.isEmpty
+        if wholeCase || hasFailedChecks {
+            if textDiffers || hasFailedChecks {
+                lines.append(try CaseCodec.json(CaseEvent(
+                    id: score.id, outcome: score.exact ? "checks" : "fail", want: shown(score.wantText),
+                    null: shown(score.nullText), out: shown(score.outText),
+                    checks: score.failedChecks.isEmpty ? nil : score.failedChecks
                 )))
             }
+            if wholeCase { return lines }
         }
-        return lines.map { $0 + "\n" }.joined()
+        for token in score.tokens where token.outcome != .ok {
+            lines.append(try CaseCodec.json(TokenEvent(
+                id: score.id, index: token.index, want: shown(token.want), null: shown(token.null),
+                out: shown(token.out),
+                outcome: token.outcome.rawValue, form: token.form, cascade: token.cascade ? true : nil,
+                silent: token.silent ? true : nil,
+                features: token.features, trace: token.trace.isEmpty ? nil : token.trace
+            )))
+        }
+        return lines
     }
 
     public static func summaryJSON(_ scores: [CaseScore]) throws -> String {
@@ -184,31 +205,112 @@ public enum RunFiles {
     /// files 0600) and needs the `redactor` of the store: without it the
     /// words of the set would have no hash to stand for them.
     public static func write(_ scores: [CaseScore], info: Info, to directory: String, redactor: Redactor? = nil) throws {
-        let personal = scores.contains(where: \.personal)
-        guard !personal || redactor != nil else {
-            throw EvalError.input("a run with a personal set needs \(PrivateStore.variable)")
+        let writer = try Writer(to: directory, personal: scores.contains(where: \.personal), redactor: redactor)
+        for score in scores { try writer.add(score) }
+        try writer.finish(info: info)
+    }
+
+    /// Writes a run one case at a time: the lines of `cases.tsv`, `counts.tsv` and `events.jsonl` go to
+    /// their files as the cases are scored, and the other files come from counts that grow with the
+    /// cases, not from the cases. The bytes are those of `write`. A file replaces the old one when
+    /// `finish` is called.
+    public final class Writer {
+        private let directory: String
+        private let personal: Bool
+        private let redactor: Redactor?
+        private var cases: LineFile
+        private var counts: LineFile
+        private var events: LineFile
+        private var summary = Summary.Accumulator()
+        private var slices = SliceTable.Accumulator()
+        private var words: Words
+
+        /// `personal`: the run holds a personal set (it is known before the first case is played).
+        public init(to directory: String, personal: Bool, redactor: Redactor? = nil) throws {
+            guard !personal || redactor != nil else {
+                throw EvalError.input("a run with a personal set needs \(PrivateStore.variable)")
+            }
+            self.directory = directory
+            self.personal = personal
+            self.redactor = redactor
+            words = Words(redactor: redactor)
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true,
+                                                    attributes: personal ? [.posixPermissions: 0o700] : nil)
+            if personal { try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory) }
+            cases = try LineFile(directory: directory, name: "cases.tsv", personal: personal)
+            counts = try LineFile(directory: directory, name: "counts.tsv", personal: personal)
+            events = try LineFile(directory: directory, name: "events.jsonl", personal: personal)
+            try cases.append(RunFiles.casesHeader + "\n")
+            try counts.append(RunFiles.countsHeader + "\n")
         }
-        var info = info
-        // The id of a personal case is a hash of its content: files name it with the salted one.
-        let scores = personal ? scores.map { score -> CaseScore in
-            var named = score
-            if named.personal { named.id = redactor?.caseID(score.id) ?? score.id }
-            return named
-        } : scores
-        if personal { info.personal = true }
-        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true,
-                                                attributes: personal ? [.posixPermissions: 0o700] : nil)
-        if personal { try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory) }
-        let files = try [
-            ("run.json", runJSON(info)),
-            ("cases.tsv", casesTSV(scores)),
-            ("events.jsonl", eventsJSONL(scores, redactor: redactor)),
-            ("summary.json", summaryJSON(scores)),
-            ("counts.tsv", countsTSV(scores)),
-            ("slices.json", slicesJSON(scores)),
-            ("words.tsv", wordsTSV(scores, redactor: redactor)),
-        ]
-        for (name, text) in files {
+
+        public func add(_ score: CaseScore) throws {
+            var score = score
+            // The id of a personal case is a hash of its content: files name it with the salted one.
+            if personal, score.personal { score.id = redactor?.caseID(score.id) ?? score.id }
+            try cases.append(RunFiles.caseLine(score) + "\n")
+            try counts.append(RunFiles.countsLine(score) + "\n")
+            for line in try RunFiles.eventLines(score, redactor: redactor) { try events.append(line + "\n") }
+            summary.add(score)
+            slices.add(score)
+            words.add(score)
+        }
+
+        @discardableResult
+        public func finish(info: Info) throws -> Summary {
+            var info = info
+            if personal { info.personal = true }
+            try cases.close()
+            try counts.close()
+            try events.close()
+            let result = Summary(summary)
+            for (name, text) in try [
+                ("run.json", RunFiles.runJSON(info)),
+                ("summary.json", RunFiles.pretty(result)),
+                ("slices.json", RunFiles.pretty(SliceTable(slices))),
+                ("words.tsv", words.tsv()),
+            ] {
+                try LineFile.write(text, directory: directory, name: name, personal: personal)
+            }
+            return result
+        }
+    }
+
+    /// A file written in pieces: the pieces go to a temporary file in the same folder, which takes the
+    /// name of the file when the last piece is written.
+    private struct LineFile {
+        private let path: String
+        private let temporary: String
+        private let handle: FileHandle
+        private var buffer = ""
+
+        init(directory: String, name: String, personal: Bool) throws {
+            path = (directory as NSString).appendingPathComponent(name)
+            temporary = path + ".partial"
+            guard FileManager.default.createFile(atPath: temporary, contents: nil,
+                                                 attributes: personal ? [.posixPermissions: 0o600] : nil)
+            else { throw EvalError.input("cannot write \(temporary)") }
+            handle = try FileHandle(forWritingTo: URL(fileURLWithPath: temporary))
+        }
+
+        mutating func append(_ text: String) throws {
+            buffer += text
+            if buffer.utf8.count >= 1 << 20 { try flush() }
+        }
+
+        private mutating func flush() throws {
+            try handle.write(contentsOf: Data(buffer.utf8))
+            buffer = ""
+        }
+
+        mutating func close() throws {
+            try flush()
+            try handle.close()
+            try? FileManager.default.removeItem(atPath: path)
+            try FileManager.default.moveItem(atPath: temporary, toPath: path)
+        }
+
+        static func write(_ text: String, directory: String, name: String, personal: Bool) throws {
             let path = (directory as NSString).appendingPathComponent(name)
             try text.write(toFile: path, atomically: true, encoding: .utf8)
             if personal { try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path) }

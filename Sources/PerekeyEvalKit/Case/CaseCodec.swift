@@ -49,7 +49,46 @@ public enum CaseCodec {
     }
 
     public static func read(file path: String) throws -> [EvalCase] {
-        try read(String(contentsOfFile: path, encoding: .utf8), file: path)
+        var cases: [EvalCase] = []
+        try forEach(file: path) { cases.append($0) }
+        return cases
+    }
+
+    /// Every case of a `.jsonl` file, one at a time: the file is read in pieces, so a corpus of
+    /// gigabytes is never in memory at once.
+    public static func forEach(file path: String, _ body: (EvalCase) throws -> Void) throws {
+        guard let handle = FileHandle(forReadingAtPath: path) else {
+            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+        }
+        defer { try? handle.close() }
+        var pending = Data()
+        var line = 0
+        func decodeLine(_ bytes: Data) throws {
+            line += 1
+            guard !bytes.isEmpty else { return }
+            guard let text = String(data: bytes, encoding: .utf8) else {
+                throw ReadError(file: path, line: line, message: "not UTF-8")
+            }
+            let item: EvalCase
+            do {
+                item = try decode(text)
+            } catch let error as DecodingError {
+                throw ReadError(file: path, line: line, message: describe(error))
+            } catch {
+                throw ReadError(file: path, line: line, message: "\(error)")
+            }
+            try body(item)
+        }
+        while let chunk = try handle.read(upToCount: 1 << 22), !chunk.isEmpty {
+            pending.append(chunk)
+            var start = pending.startIndex
+            while let newline = pending[start...].firstIndex(of: 0x0A) {
+                try decodeLine(pending[start..<newline])
+                start = newline + 1
+            }
+            pending = Data(pending[start...])
+        }
+        try decodeLine(pending)
     }
 
     public static func write(_ cases: [EvalCase]) throws -> String {

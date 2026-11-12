@@ -12,6 +12,7 @@ import PerekeyModelKit
 ///     perekey-eval cases personal <.pksession files or folders> --model <dir> [--name <set>]
 ///     perekey-eval cases build [--suites <dir>] [--cache <dir>] [--tier ci|full] [--out <dir>]
 ///                              [--only <suite,...>] [--epoch <n>]
+///     perekey-eval cases pack --tier ci --out <file.tar.zst or folder> [--suites <dir>] [--cache <dir>] [--pack-dir <dir>]
 ///     perekey-eval play   --cases <files or directory> --model <dir> --out <run dir>
 ///                         [--system machine|null|oracle] [--options <json>] [--settings <preset>]
 ///                         [--only <suite,...>] [--split dev|test|all]
@@ -36,11 +37,16 @@ public enum EvalCommands {
     public static let names: Set<String> = ["cases", "play", "case", "selfcheck", "report", "diff", "gate", "learning"]
 
     public static func run(_ arguments: [String]) -> Int32 {
+        run(arguments, policy: .standard)
+    }
+
+    /// `policy` is the pack `cases pack` makes; the tests give it a small one.
+    static func run(_ arguments: [String], policy: PackPolicy) -> Int32 {
         do {
             var parsed = try Arguments(arguments)
             let command = try parsed.command()
             switch command {
-            case "cases": return try cases(&parsed)
+            case "cases": return try cases(&parsed, policy: policy)
             case "play": return try play(parsed)
             case "case": return try showCase(parsed)
             case "selfcheck": return try selfcheck(parsed)
@@ -68,9 +74,10 @@ public enum EvalCommands {
 
     // MARK: - cases
 
-    static func cases(_ parsed: inout Arguments) throws -> Int32 {
+    static func cases(_ parsed: inout Arguments, policy: PackPolicy) throws -> Int32 {
         let sub = try parsed.command()
         if sub == "build" { return try build(parsed) }
+        if sub == "pack" { return try pack(parsed, policy: policy) }
         if sub == "personal" { return try personal(parsed) }
         let library = try parsed.library()
         let files = try CaseFiles.expand(parsed.positional)
@@ -114,7 +121,7 @@ public enum EvalCommands {
             }
             return 0
         default:
-            throw EvalError.input("unknown command cases \(sub): check, list or build")
+            throw EvalError.input("unknown command cases \(sub): check, list, build, personal or pack")
         }
     }
 

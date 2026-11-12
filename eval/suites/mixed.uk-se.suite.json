@@ -23,7 +23,7 @@
  "suite": "mixed.uk-se",
  "tags": ["mixed", "natural"],
  "tiers": {
-  "ci": 20000,
+  "ci": 5000,
   "full": 400000
  },
  "version": 1

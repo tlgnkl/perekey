@@ -77,11 +77,51 @@ jobs:
           path: .build/data-cache/pairs
           # The inputs of the count only: the text scripts, the dictionary lists (not data/*/hyphen.txt), the counter and the fingerprints. Not the model hashes, not the rest of the sources.
           key: pairs-${{ hashFiles('scripts/fetch-data.sh', 'scripts/wiki-text.py', 'scripts/build-pairs.sh', 'scripts/wiki-freq.requirements.txt', 'data/ru/**', 'data/en/**', 'data/mixed/**', '!data/*/hyphen.txt', 'Sources/PerekeyModelKit/PairTable.swift', 'Sources/PerekeyModelKit/PairText.swift', 'Sources/PerekeyCore/ModelFormat.swift') }}
-      - run: scripts/fetch-data.sh lexicon wikifreq pairs heldout
+      - run: scripts/fetch-data.sh lexicon wikifreq pairs heldout bench
       - name: Build the model files and check their hashes
         run: scripts/build-model.sh
       - name: Evaluate the classifier on the held-out sample
         run: scripts/eval.sh
+      # The bars of eval/gates.json over the cases of the quality bench, and no
+      # worse than the base commit (docs/eval.md). The model files are the ones
+      # built above. On a failure the step lists the cases that broke a bar.
+      # The binary of the base (and its model, when it needs its own) is built in the quality step in
+      # four minutes. It depends on the base commit and on the bench laid over it, so the key has both;
+      # scripts/quality.sh checks a fingerprint of the same inputs and builds over a folder that does not match.
+      - name: Resolve the base of the quality bench
+        id: quality-base
+        run: |
+          ref="${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}"
+          # A pull request is checked out as a merge with the tip of its base *now*; base.sha is the tip when the
+          # event came. When main has moved in between, base.sha lacks code the bench of the merge uses, the base
+          # builds twice (with its own bench, with its own model) and the step doubles. The first parent of the merge
+          # is the base the tree was merged with.
+          if [[ "${{ github.event_name }}" == pull_request ]] && git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            ref="$(git rev-parse HEAD^1)"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --verify --quiet "$ref^{commit}" || echo none)" >> "$GITHUB_OUTPUT"
+      - name: Cache the built base of the quality bench
+        uses: actions/cache@v4
+        with:
+          path: .build/quality-base
+          key: quality-base-v2-${{ steps.quality-base.outputs.sha }}-${{ hashFiles('Sources/PerekeyEvalKit/**', 'Sources/PerekeyDesk/**', 'Sources/perekey-eval/**', 'Package.swift', 'data/**', 'scripts/build-model.sh', 'scripts/fetch-data.sh', 'scripts/wiki-freq.py', 'scripts/build-pairs.sh', 'scripts/wiki-text.py', 'Sources/perekey-model/**', 'Sources/PerekeyModelKit/**', 'Sources/PerekeyCore/ModelFormat.swift') }}
+      - name: Quality bench against the base commit
+        run: scripts/quality.sh --self-check --model .build/model
+        env:
+          # A manual run has neither: it compares with main.
+          QUALITY_BASE: ${{ steps.quality-base.outputs.ref }}
+          QUALITY_BASE_CACHE: ${{ github.workspace }}/.build/quality-base
+          # On main (and a manual run) the head binary is kept too: it is the base of the next pull request.
+          QUALITY_WARM_CACHE: ${{ github.event_name != 'pull_request' && format('{0}/.build/quality-warm', github.workspace) || '' }}
+      # Pull requests only restore caches of main and their own; the first run of each would miss without this.
+      # The key is the one a pull request looks for: its base is the first parent of the merge, the tip of main.
+      - name: Keep the head of main as the base of the next pull request
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: .build/quality-warm
+          key: quality-base-v2-${{ github.sha }}-${{ hashFiles('Sources/PerekeyEvalKit/**', 'Sources/PerekeyDesk/**', 'Sources/perekey-eval/**', 'Package.swift', 'data/**', 'scripts/build-model.sh', 'scripts/fetch-data.sh', 'scripts/wiki-freq.py', 'scripts/build-pairs.sh', 'scripts/wiki-text.py', 'Sources/perekey-model/**', 'Sources/PerekeyModelKit/**', 'Sources/PerekeyCore/ModelFormat.swift') }}
       - run: scripts/bundle.sh
       - name: No typing recorder in the app
         run: scripts/check-no-recorder.sh .build/app/Perekey.app

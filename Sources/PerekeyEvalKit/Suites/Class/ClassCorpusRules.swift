@@ -151,18 +151,22 @@ extension ClassRules {
                 listed.append(String(decoding: name, as: UTF8.self))
                 return true
             }
-            let platforms = options.tldrPlatforms.filter { platform in listed.contains { $0.hasPrefix(platform + "/") } }
-            try LineStream.read(tool: "/usr/bin/unzip", arguments: ["-p", path] + platforms.map { $0 + "/*" }) { line in
+            // The archive of a commit holds every language under `tldr-<commit>/`; the English pages are the
+            // `pages/<platform>/` folders (`pages.<language>/` are translations and are not read).
+            let platforms = options.tldrPlatforms.filter { platform in
+                listed.contains { $0.hasPrefix("tldr-") && $0.contains("/pages/" + platform + "/") }
+            }
+            try LineStream.read(tool: "/usr/bin/unzip", arguments: ["-p", path] + platforms.map { "tldr-*/pages/" + $0 + "/*.md" }) { line in
                 let text = String(decoding: line, as: UTF8.self)
                 if text.hasPrefix("# ") {
                     let name = String(text.dropFirst(2)).trimmingCharacters(in: .whitespaces)
                     if !name.contains(" ") {
-                        counts[name, default: (0, "command")].count += 1
+                        Self.count(&counts, name, "command")
                         total += 1
                     }
                 } else if let example = Self.tldrExample(text) {
                     for (token, kind) in Self.tldrTokens(example) {
-                        counts[token, default: (0, kind)].count += 1
+                        Self.count(&counts, token, kind)
                         total += 1
                     }
                 }
@@ -174,6 +178,17 @@ extension ClassRules {
                       tags: ["cli", "cli:\(entry.kind)"])
         }
         return (items, files)
+    }
+
+    /// The kinds of a token, the strongest first: a token that is a command anywhere is a command, whatever page
+    /// the archive lists first (the kind must not depend on the order of the files).
+    static let tldrKindOrder = ["command", "flag", "path", "word"]
+
+    static func count(_ counts: inout [String: (count: Int, kind: String)], _ token: String, _ kind: String) {
+        var entry = counts[token] ?? (0, kind)
+        entry.count += 1
+        if (tldrKindOrder.firstIndex(of: kind) ?? 99) < (tldrKindOrder.firstIndex(of: entry.kind) ?? 99) { entry.kind = kind }
+        counts[token] = entry
     }
 
     /// The command of an example line `` `git add {{path}}` ``, nil for any other line.

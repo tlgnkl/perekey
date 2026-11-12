@@ -325,11 +325,11 @@ struct PersonalLexiconStoreTests {
         let word = key.fingerprint(ofWord: "Дашка", language: "ru")
         teach(store, desk, word: word)
         #expect(store.lexicon.containsWord(word))
-        #expect(store.forget(PersonalWordRef(text: "Дашка,", language: "ru")), "the marks around the word are not the word")
+        #expect(store.forget(PersonalWordRef(text: "Дашка,", language: "ru")) == .forgotten, "the marks around the word are not the word")
         #expect(!store.lexicon.containsWord(word))
         #expect(desk.changes.last?.containsWord(word) == false)
         #expect(store.wordCount == 0)
-        #expect(!store.forget(PersonalWordRef(text: "Дашка", language: "ru")), "nothing left to forget")
+        #expect(store.forget(PersonalWordRef(text: "Дашка", language: "ru")) == .notInLexicon, "nothing left to forget")
     }
 
     @Test func forgetFindsAWordByItsTextWhateverItsCaseAndItsYo() throws {
@@ -338,7 +338,7 @@ struct PersonalLexiconStoreTests {
         store.setEnabled(true)
         let key = try #require(try desk.keys.load())
         teach(store, desk, word: key.fingerprint(ofWord: "артём", language: "ru"))
-        #expect(store.forget(PersonalWordRef(text: "«Артем»", language: "ru")))
+        #expect(store.forget(PersonalWordRef(text: "«Артем»", language: "ru")) == .forgotten)
         #expect(store.wordCount == 0)
     }
 
@@ -348,7 +348,7 @@ struct PersonalLexiconStoreTests {
         store.setEnabled(true)
         let key = try #require(try desk.keys.load())
         teach(store, desk, word: key.fingerprint(ofWord: "dashka", language: "en"))
-        #expect(!store.forget(PersonalWordRef(text: "dashka", language: "ru")))
+        #expect(store.forget(PersonalWordRef(text: "dashka", language: "ru")) == .notInLexicon)
         #expect(store.wordCount == 1)
     }
 
@@ -360,7 +360,7 @@ struct PersonalLexiconStoreTests {
         let word = key.fingerprint(ofWord: "кандидат", language: "ru")
         store.record(PersonalTally(observations: [observation(word)], generation: 0))
         let before = desk.changes.count
-        #expect(store.forget(PersonalWordRef(text: "кандидат", language: "ru")))
+        #expect(store.forget(PersonalWordRef(text: "кандидат", language: "ru")) == .forgotten)
         #expect(desk.changes.count == before)
         store.flush()
         #expect(desk.file.load(key: key).entries.isEmpty)
@@ -369,7 +369,7 @@ struct PersonalLexiconStoreTests {
     @Test func forgetWithTheLexiconOffDoesNothing() {
         let desk = Desk()
         let store = desk.store()
-        #expect(!store.forget(PersonalWordRef(text: "слово", language: "ru")))
+        #expect(store.forget(PersonalWordRef(text: "слово", language: "ru")) == .notInLexicon)
     }
 
     @Test func aKeychainThatRefusesTurnsTheLexiconOffAndLeavesNoSpareKey() throws {
@@ -446,7 +446,7 @@ struct PersonalLexiconStoreTests {
         #expect(store.wordCount == 0)
         #expect(!store.lexicon.hasWords)
         #expect(desk.changes.allSatisfy { !$0.hasWords && $0.key != realKey })
-        #expect(!store.forget(PersonalWordRef(text: "слово", language: "ru")))
+        #expect(store.forget(PersonalWordRef(text: "слово", language: "ru")) == .notInLexicon)
         store.flush()
         #expect(!FileManager.default.fileExists(atPath: desk.directory.path), "no file")
         #expect(!store.hasStored)
@@ -598,7 +598,7 @@ struct PersonalLexiconStoreTests {
         teach(store, desk, word: word)
         store.flush()
         #expect(desk.file.load(key: key).entries[word] != nil)
-        #expect(store.forget(PersonalWordRef(text: "Дашка", language: "ru")))
+        #expect(store.forget(PersonalWordRef(text: "Дашка", language: "ru")) == .forgotten)
         store.flush()
         #expect(desk.file.load(key: key).entries[word] == nil, "forgotten means gone from the disk, not from memory only")
         let text = try String(contentsOf: desk.file.url, encoding: .utf8)

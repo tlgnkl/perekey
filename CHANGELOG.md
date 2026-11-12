@@ -26,6 +26,21 @@ differently, what was fixed.
   are remembered and erases them, with the key, after you confirm; turning the
   switch off keeps what was remembered. An administrator can forbid it
   with the `PersonalWordsDisabled` profile key.
+- **Your voice dictionary words count as “My words”.** With «Learn the words I
+  often type» on, the words on the right side of the voice dictionary
+  (such as “Perekey”) are your words from the start: Perekey no longer
+  switches or fixes them, and switches to them from the other layout. Nothing
+  more is stored: delete the dictionary record and the word is gone from
+  “My words” too (a word Perekey learned from your typing stays). Only
+  one-word records count (“Ministry of Health” is a phrase and adds
+  nothing), only Latin and Cyrillic words (words in other scripts are
+  skipped silently), and no more than 5000 of them. «Forget the word» on such a
+  word says it comes from the voice dictionary and to delete the record
+  there. If you undo a switch to it, or retype it by hand, Perekey leaves
+  it alone until you quit the app or change its record; if you keep typing
+  such a word, Perekey can still learn it as your own. Undoing a switch is now
+  cheap even with 5000 dictionary words. Builds without voice input are
+  unchanged.
 - **Dictation language: as in the app.** In Settings → Voice you can pick
   «As in the app» for the dictation language. When the app you dictate into is
   one you type in one language and your layout is that language too, the

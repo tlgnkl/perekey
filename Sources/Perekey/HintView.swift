@@ -23,11 +23,14 @@ enum HintContent: Equatable {
     case alwaysFixed(word: String)
     /// «No longer always fixing “word»: an undo took it off the list. No button.
     case alwaysFixWithdrawn(word: String)
+    /// «A word of the voice dictionary: delete the record there»: «Forget the
+    /// word» was pressed for a word the dictionary names. No button.
+    case sharedWord
 
     var hasButton: Bool {
         switch self {
         case let .retyped(_, _, _, why, offersAlways): why != nil || offersAlways
-        case .alwaysFixWithdrawn: false
+        case .alwaysFixWithdrawn, .sharedWord: false
         case .corrected, .learned, .alwaysFixed, .question: true
         }
     }
@@ -129,6 +132,10 @@ struct HintBubbleContent: View {
                     chip(Text("Undo"), keycap: nil)
                 case let .alwaysFixWithdrawn(word):
                     Text("No longer always fixing “\(word)”")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.pkInk)
+                case .sharedWord:
+                    Text("A word from the voice dictionary: delete its record there")
                         .font(.system(size: 12.5))
                         .foregroundStyle(Color.pkInk)
                 case let .learned(word):

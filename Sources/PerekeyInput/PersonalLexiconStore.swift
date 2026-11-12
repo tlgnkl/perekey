@@ -156,7 +156,38 @@ public final class PersonalLexiconStore {
     @ObservationIgnored private var wanted = false
     @ObservationIgnored private var permitted: Bool
     @ObservationIgnored private var applied: Bool?
-    @ObservationIgnored private var key: PersonalKey?
+    @ObservationIgnored private var key: PersonalKey? {
+        didSet { buildShared() }
+    }
+    /// The words other settings name as the user's own (the right side of the
+    /// voice dictionary), as text, for a moment longer than a word's text
+    /// stays elsewhere: they are the user's own settings, already in
+    /// `voice-text.json`, and a new key (an erase) needs them again. They are
+    /// never written by the store.
+    /// `deactivate` leaves them: the lexicon off keeps no fingerprint, but the
+    /// text of a dictionary record is the user's own and is in `voice-text.json`.
+    @ObservationIgnored private var sharedTexts: [String] = []
+    /// Their identities (`PersonalKey.sharedIdentity(ofWord:)`), no key needed.
+    @ObservationIgnored private var sharedIdentities: Set<String> = []
+    /// The shared words a confirmed undo or a retype by hand said were not the
+    /// user's after all, by identity. A strong signal against a shared word has
+    /// no entry to drop, so the word is kept out of the snapshot until the app
+    /// quits or its record in the dictionary changes (`setSharedWords`). In
+    /// memory only: nothing of it is written, and a new run starts without it.
+    @ObservationIgnored private var suppressed: Set<String> = []
+    /// Every shared word with its fingerprints under the key now, the suppressed ones too; empty
+    /// while there is no key. Built once for a list and a key (`buildShared`): a signal only
+    /// filters it, so it hashes nothing on the path of the input.
+    @ObservationIgnored private var sharedEntries: [PersonalKey.SharedEntry] = []
+    /// The fingerprints of the words in `sharedEntries` that are not suppressed: the snapshot's part.
+    @ObservationIgnored private var shared: [PersonalObservation] = []
+    /// The fingerprints of every shared word, the suppressed ones too: the dictionary has them, `forget` says so.
+    @ObservationIgnored private var sharedWords: Set<UInt64> = []
+    /// The fingerprints of the shared words not suppressed: no batch counts these. A suppressed word is
+    /// counted like any other, so the user can teach it again before the app restarts.
+    @ObservationIgnored private var liveSharedWords: Set<UInt64> = []
+    /// How many times the fingerprints were built (the list cut, hashed): the tests' seam for the cost of a signal.
+    @ObservationIgnored private(set) var sharedFingerprintBuilds = 0
     @ObservationIgnored private var model: PersonalLexiconModel
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var lastSave: Double?
@@ -243,6 +274,52 @@ public final class PersonalLexiconStore {
         activate()
     }
 
+    // MARK: - Shared words
+
+    /// The words the voice dictionary names as the user's own, as the
+    /// dictionary holds them now (the right side of each record). With the
+    /// lexicon on they are accepted words from this moment: the tap hears of
+    /// them in the snapshot, once, and a record that goes leaves the next
+    /// snapshot. Off, they are kept for when it is on and the tap hears of
+    /// nothing (docs/classifier.md, «Общие слова»).
+    ///
+    /// The fingerprints are made here, on the main thread, under the key of
+    /// the lexicon. They are no entry of the model: they are counted by no
+    /// batch and written to no file.
+    public func setSharedWords(_ texts: [String]) {
+        guard texts != sharedTexts else { return }
+        sharedTexts = texts
+        // A record that changed is a new word of the user's: the word it names is not suppressed any more.
+        // A word in the old list and in the new one has the record it had.
+        let identities = PersonalKey.sharedIdentities(of: texts, options: options)
+        suppressed.formIntersection(sharedIdentities.intersection(identities))
+        sharedIdentities = identities
+        buildShared()
+        if isActive { publish() }
+    }
+
+    /// Cuts and hashes the list under the key: for a new list and for a new key, and for nothing else.
+    private func buildShared() {
+        guard let key else {
+            sharedEntries = []
+            sharedWords = []
+            filterShared()
+            return
+        }
+        sharedFingerprintBuilds += 1
+        sharedEntries = key.sharedEntries(of: sharedTexts, options: options)
+        sharedWords = Set(sharedEntries.lazy.flatMap(\.observations).map(\.word))
+        filterShared()
+    }
+
+    /// The part of the built list that is not suppressed. No text is cut and nothing is hashed.
+    private func filterShared() {
+        shared = suppressed.isEmpty
+            ? sharedEntries.flatMap(\.observations)
+            : sharedEntries.filter { !suppressed.contains($0.identity) }.flatMap(\.observations)
+        liveSharedWords = suppressed.isEmpty ? sharedWords : Set(shared.lazy.map(\.word))
+    }
+
     /// The Keychain refused the key when the lexicon was asked for (a locked
     /// login keychain, `errSecInteractionNotAllowed`): try again. The app
     /// calls this when it is activated and when the pane opens. It does
@@ -300,7 +377,8 @@ public final class PersonalLexiconStore {
         unavailable = reason
         key = nil
         wordCount = 0
-        // Off keeps no fingerprint in memory; on reads the file again.
+        // Off keeps no fingerprint in memory; on reads the file again. The texts of the
+        // shared words stay (`sharedTexts`): they are in `voice-text.json` anyway.
         model = PersonalLexiconModel(options: options, generation: model.generation)
         guard lexicon.isOn else { return }
         lexicon = .off
@@ -332,23 +410,75 @@ public final class PersonalLexiconStore {
             publish()
         }
         latestDay = day
-        let acceptedChanged = model.record(tally, day: day)
+        let acceptedChanged = model.record(withoutShared(tally), day: day)
         if acceptedChanged { publish() }
         markDirty()
     }
 
-    /// Drops the word: «Забыть» in the hint, or a strong signal against it.
-    /// Returns whether the lexicon had it.
+    /// A shared word is accepted without counting. One the model counts already
+    /// (the user taught it before the dictionary named it) goes on counting, so it
+    /// does not run out under the dictionary and stays when the record goes.
+    private func withoutShared(_ tally: PersonalTally) -> PersonalTally {
+        guard !liveSharedWords.isEmpty else { return tally }
+        var kept = tally
+        kept.observations = tally.observations.filter { !liveSharedWords.contains($0.word) || model.entries[$0.word] != nil }
+        return kept
+    }
+
+    /// What «Забыть слово» did.
+    public enum ForgetResult: Hashable, Sendable {
+        /// The word was the set's own and is gone.
+        case forgotten
+        /// The word is in the voice dictionary, which this does not touch: the
+        /// record has to be deleted there. (An entry the set had for it is gone.)
+        case sharedWord
+        /// The lexicon does not have the word.
+        case notInLexicon
+    }
+
+    /// Drops the word the user asked to forget («Забыть слово» in the hint or
+    /// the menu). A word of the voice dictionary stays while its record does:
+    /// the answer says so, for the hint and the menu to tell the user where to
+    /// delete it.
     @discardableResult
-    public func forget(_ word: PersonalWordRef) -> Bool {
-        guard isActive, !sessionOnly, let key else { return false }
+    public func forget(_ word: PersonalWordRef) -> ForgetResult {
+        let (result, acceptedChanged) = dropEntry(word)
+        if acceptedChanged { publish() }
+        return result
+    }
+
+    /// The model's part of `forget`: the entry dropped and the file marked, the snapshot left to the caller.
+    private func dropEntry(_ word: PersonalWordRef) -> (result: ForgetResult, acceptedChanged: Bool) {
+        guard isActive, !sessionOnly, let key else { return (.notInLexicon, false) }
         let fingerprint = key.fingerprint(ofWord: Self.core(of: word.text), language: word.language)
         let before = model.entries.count
         let acceptedChanged = model.forget(fingerprint)
-        guard model.entries.count != before else { return false }
-        if acceptedChanged { publish() }
-        markDirty()
-        return true
+        let dropped = model.entries.count != before
+        if dropped { markDirty() }
+        if sharedWords.contains(fingerprint) { return (.sharedWord, acceptedChanged && dropped) }
+        return (dropped ? .forgotten : .notInLexicon, acceptedChanged && dropped)
+    }
+
+    /// A strong signal against the word: a confirmed undo of the switch to it,
+    /// or a retype of it by hand. The set's entry is dropped at once, as by
+    /// `forget`. A word of the voice dictionary has no entry, so it is kept
+    /// out of the snapshot for the session, from the first signal, until the
+    /// app quits or its record changes; the dictionary itself is not touched.
+    /// Nothing of this is written to disk. The signal comes on the path of the
+    /// input: it filters the list built before and hashes nothing, and the
+    /// snapshot goes out once.
+    public func withdraw(_ word: PersonalWordRef) {
+        guard isActive, !sessionOnly else { return }
+        let (result, acceptedChanged) = dropEntry(word)
+        var changed = acceptedChanged
+        if result == .sharedWord {
+            let identity = PersonalKey.sharedIdentity(ofWord: word.text)
+            if sharedIdentities.contains(identity), suppressed.insert(identity).inserted {
+                filterShared()
+                changed = true
+            }
+        }
+        if changed { publish() }
     }
 
     /// «Стереть»: deletes the file and the key and starts a new generation,
@@ -402,7 +532,7 @@ public final class PersonalLexiconStore {
         wordCount = model.acceptedCount
         let snapshot = sessionOnly
             ? PersonalLexicon(key: key, words: [UInt64](), starts: [UInt64](), generation: model.generation, options: options)
-            : model.snapshot(key: key)
+            : model.snapshot(key: key, shared: shared)
         guard snapshot != lexicon else { return }
         lexicon = snapshot
         onLexiconChanged?(snapshot)

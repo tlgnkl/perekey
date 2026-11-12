@@ -57,6 +57,8 @@ public struct AppSystem {
         guard let start = library[item.start] else { throw EvalError.input("\(item.id): unknown layout \(item.start)") }
         try input.check(app: app)
         try driver.prepare(start: start.id.rawValue)
+        // `prepare` posts a key of its own (Escape): it resets the idle time like any other of ours.
+        input.posted()
         guard let first = events.first?.time else {
             return RunResult(text: try driver.readText(), layout: LayoutID(driver.currentLayout()))
         }

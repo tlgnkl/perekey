@@ -45,6 +45,8 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     func prepare(start: String) throws {
         prepared.append(start)
         layout = start
+        // The real `prepare` ends with a key of its own: the idle time is zero after it.
+        lastOwn = clock
         onPrepare?(prepared.count)
     }
 

@@ -64,7 +64,7 @@ GH_RAW=https://raw.githubusercontent.com
 HF_WIKI="https://huggingface.co/datasets/wikimedia/wikipedia/resolve/$WIKI_REV/$WIKI_SNAPSHOT"
 IA_SE=https://archive.org/download/stackexchange
 GH_CODE=https://codeload.github.com
-TLDR_REL=v2.3                                           # tldr-pages release, CC BY 4.0 (LICENSE.md in the archive)
+TLDR_REV=c525fa048efe88e9eced7ea2f57bead7ff12d957       # tldr-pages main of 2026-11-11 11:09 UTC, CC BY 4.0 (LICENSE.md in the archive). Not the v2.3 release asset: tldr rebuilds it from main all the time (four hashes on 2026-11-12). Not the v2.3 tag either (an older snapshot of 2025-03). The English pages of this commit are byte-equal to the old asset da659656
 HF_FLEURS="https://huggingface.co/datasets/google/fleurs/resolve/$FLEURS_REV/data"
 WM_RAW="https://en.wikipedia.org/w/index.php?title=Wikipedia:Lists_of_common_misspellings/For_machines&oldid=$WM_REV&action=raw"
 
@@ -109,7 +109,7 @@ speech|fleurs/ru_ru.dev.tar.gz|$HF_FLEURS/ru_ru/audio/dev.tar.gz|4dc533cd0f312f7
 speech|fleurs/en_us.dev.tar.gz|$HF_FLEURS/en_us/audio/dev.tar.gz|2658fda72f199e12676ecac9415094667a4e14e149b146e568ea00b2a2f0954c
 bench|wikipedia-misspellings/for-machines.txt|$WM_RAW|3b6a9290e5aaad968da7ec769a5174adb45247688ef7ae097fd2dd80237a3050
 heavy|stackexchange/ru.stackoverflow.com.7z|$IA_SE/ru.stackoverflow.com.7z|sha1:32a8897c021e9c943b93f8fd70dfafb180925451
-bench|tldr/tldr-pages.en.zip|https://github.com/tldr-pages/tldr/releases/download/$TLDR_REL/tldr-pages.en.zip|da659656ec5bdff54b6319692e4f9b6391294090d9814932869b4c92c7b65657
+bench|tldr/tldr-c525fa0.zip|$GH_CODE/tldr-pages/tldr/zip/$TLDR_REV|3dbea51afda4a6c34c6d2f2139653add3f2a59aea73f4225da17080973c359e8
 bench|code/swift-swift-argument-parser.tar.gz|$GH_CODE/apple/swift-argument-parser/tar.gz/38ca4eceb349155836701b88da3e0986eb9d1e1c|c978c43927b9238b7d50fc19b5e18235e76095ff27ced35a397a0589a3b6e6aa
 bench|code/python-requests.tar.gz|$GH_CODE/psf/requests/tar.gz/3c7baaa05ab4aa49cc819ce3a819d260de19c157|53195693070a892c284d7a60b0f4e762348b36b57427576985338f12b082cff2
 bench|code/js-express.tar.gz|$GH_CODE/expressjs/express/tar.gz/43fca52d28a422c8be48fd489cbd4f2d6152bab6|0907a1731d24be4424787c250d90b9178a60bacc9e4cf331e56ba0e84a032a76

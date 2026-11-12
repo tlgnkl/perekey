@@ -210,4 +210,170 @@ struct SharedWordsStoreTests {
         let lexicon = try #require(desk.changes.last)
         #expect(lexicon.isOn && !lexicon.hasWords)
     }
+
+    // MARK: - «Забыть слово» and the strong signals against a shared word
+
+    private func ref(_ text: String, _ language: LanguageCode = "en") -> PersonalWordRef {
+        PersonalWordRef(text: text, language: language)
+    }
+
+    @Test func forgetSaysSoWhenTheWordIsTheDictionarysAndChangesNothing() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Perekey", "Дашка"])
+        let key = try key(desk)
+        let before = desk.changes.count
+        #expect(store.forget(ref("Perekey")) == .sharedWord)
+        #expect(store.forget(ref("«Дашка»", "ru")) == .sharedWord)
+        #expect(desk.changes.count == before, "the tap is told nothing")
+        #expect(store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        #expect(store.forget(ref("Other")) == .notInLexicon)
+    }
+
+    @Test func forgetOfAWordTheSetTaughtAndTheDictionaryHasDropsTheEntryAndSaysTheWordStays() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        let key = try key(desk)
+        teach(store, desk, "perekey", key: key)
+        store.setSharedWords(["Perekey"])
+        #expect(store.forget(ref("Perekey")) == .sharedWord)
+        #expect(store.wordCount == 0, "the entry of the set is gone")
+        #expect(store.lexicon.containsWord(try fingerprint("perekey", key: key)), "the record keeps the word")
+        #expect(store.forget(ref("Perekey")) == .sharedWord)
+    }
+
+    @Test func aWordTheSetTaughtIsForgottenAsBefore() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        let key = try key(desk)
+        teach(store, desk, "perekey", key: key)
+        store.setSharedWords(["Other"])
+        #expect(store.forget(ref("Perekey")) == .forgotten)
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+    }
+
+    @Test func theFirstConfirmedSignalTakesASharedWordOutAndTenMoreChangeNothing() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Perekey", "Дашка"])
+        let key = try key(desk)
+        let before = desk.changes.count
+        // Ten undos of the switch to the word, each confirmed (the button, the shortcut, a Backspace and typing on).
+        for _ in 0..<10 { store.withdraw(ref("Perekey")) }
+        #expect(desk.changes.count == before + 1, "the first one was enough, the rest tell the tap nothing")
+        let lexicon = try #require(desk.changes.last)
+        #expect(!lexicon.containsWord(try fingerprint("perekey", key: key)))
+        #expect(!lexicon.containsStart(key.fingerprint(.start3, language: "en", "per".unicodeScalars.map(\.value))))
+        #expect(!lexicon.containsStart(key.fingerprint(.start4, language: "en", "pere".unicodeScalars.map(\.value))))
+        #expect(lexicon.containsWord(try fingerprint("дашка", key: key, language: "ru")), "the other word stays")
+    }
+
+    @Test func aSignalAgainstAWordTakesOutItsLanguagesAll() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Дашка"])
+        let key = try key(desk)
+        store.withdraw(ref("Дашка,", "ru"))
+        for language: LanguageCode in ["ru", "uk", "be", "kk"] {
+            #expect(!store.lexicon.containsWord(try fingerprint("дашка", key: key, language: language)), Comment(rawValue: language.description))
+        }
+    }
+
+    @Test func aSignalAgainstTheWordTheSetTaughtDropsItAsBefore() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        let key = try key(desk)
+        teach(store, desk, "perekey", key: key)
+        store.withdraw(ref("Perekey"))
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        #expect(store.wordCount == 0)
+    }
+
+    @Test func aChangeOfTheRecordLiftsTheSuppression() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Perekey", "Дашка"])
+        let key = try key(desk)
+        store.withdraw(ref("Perekey"))
+        // Other records change: the word stays out.
+        store.setSharedWords(["Perekey", "Дашка", "Саша"])
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        store.setSharedWords(["Perekey"])
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        // The record goes, then comes back: the user wrote it anew.
+        store.setSharedWords([])
+        store.setSharedWords(["Perekey"])
+        #expect(store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        // And a signal then takes it out again.
+        store.withdraw(ref("Perekey"))
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+    }
+
+    @Test func aRecordEditedToAnotherSpellingLiftsTheSuppressionOfTheOldWord() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Perekey"])
+        let key = try key(desk)
+        store.withdraw(ref("Perekey"))
+        store.setSharedWords(["Perekeyy"])
+        #expect(store.lexicon.containsWord(try fingerprint("perekeyy", key: key)), "the new word is the record's")
+        store.setSharedWords(["Perekey"])
+        #expect(store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+    }
+
+    @Test func theSuppressionIsInMemoryOnlyAndNothingOfItIsOnDisk() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Perekey"])
+        let key = try key(desk)
+        store.withdraw(ref("Perekey"))
+        store.flush()
+        #expect(!desk.file.exists, "the signal wrote nothing")
+        teach(store, desk, "dashkaa", key: key)
+        store.withdraw(ref("Perekey"))
+        store.flush()
+        let json = String(decoding: try Data(contentsOf: desk.file.url), as: UTF8.self)
+        #expect(!json.localizedCaseInsensitiveContains("perekey"))
+        #expect(!json.contains(PersonalLexiconFile.hex(try fingerprint("perekey", key: key))))
+        // The app starts anew: the dictionary has the word, and the word is accepted.
+        let again = desk.store()
+        again.setSharedWords(["Perekey"])
+        again.setEnabled(true)
+        #expect(again.lexicon.containsWord(try fingerprint("perekey", key: key)))
+    }
+
+    @Test func theSuppressionOutlivesTheSwitchOffAndOnAndAnErase() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setSharedWords(["Perekey"])
+        store.setEnabled(true)
+        store.withdraw(ref("Perekey"))
+        store.setEnabled(false)
+        store.setEnabled(true)
+        let key = try key(desk)
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        store.erase()
+        let second = try self.key(desk)
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: second)))
+    }
+
+    @Test func aSignalWithTheLexiconOffOrForTheRecordingsStoreDoesNothing() {
+        let desk = Desk()
+        let off = desk.store()
+        off.setSharedWords(["Perekey"])
+        off.withdraw(ref("Perekey"))
+        off.setEnabled(true)
+        #expect(off.lexicon.hasWords, "a signal heard while off is no signal")
+        let session = Desk().store(sessionOnly: true)
+        #expect(session.forget(ref("Perekey")) == .notInLexicon)
+    }
 }

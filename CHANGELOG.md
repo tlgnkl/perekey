@@ -31,8 +31,14 @@ differently, what was fixed.
   (such as “Perekey”) are your words from the start: Perekey no longer
   switches or fixes them, and switches to them from the other layout. Nothing
   more is stored: delete the dictionary record and the word is gone from
-  “My words” too (a word Perekey learned from your typing stays). Builds
-  without voice input are unchanged.
+  “My words” too (a word Perekey learned from your typing stays). Only
+  one-word records count (“Ministry of Health” is a phrase and adds
+  nothing), only Latin and Cyrillic words (words in other scripts are
+  skipped silently), and no more than 5000 of them. «Forget the word» on such a
+  word says it comes from the voice dictionary and to delete the record
+  there. If you undo a switch to it, or retype it by hand, Perekey leaves
+  it alone until you quit the app or change its record. Builds without voice
+  input are unchanged.
 - **Dictation language: as in the app.** In Settings → Voice you can pick
   «As in the app» for the dictation language. When the app you dictate into is
   one you type in one language and your layout is that language too, the

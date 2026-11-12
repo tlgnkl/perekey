@@ -78,6 +78,14 @@ final class HintController {
         present(.alwaysFixWithdrawn(word: HintMetrics.shortened(word)), action: nil)
     }
 
+    /// After «Forget the word» for a word of the voice dictionary: it stays while
+    /// its record does, and the hint says where to delete it. No button.
+    func showSharedWord() {
+        alwaysFixAction = nil
+        forgetAction = nil
+        present(.sharedWord, action: nil)
+    }
+
     /// After an undo with learning: «Remembered “word” · Forget».
     func showLearned(word: String, onForget: @escaping () -> Void) {
         alwaysFixAction = nil

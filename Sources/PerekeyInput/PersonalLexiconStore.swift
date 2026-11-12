@@ -164,9 +164,20 @@ public final class PersonalLexiconStore {
     /// stays elsewhere: they are the user's own settings, already in
     /// `voice-text.json`, and a new key (an erase) needs them again. They are
     /// never written by the store.
+    /// `deactivate` leaves them: the lexicon off keeps no fingerprint, but the
+    /// text of a dictionary record is the user's own and is in `voice-text.json`.
     @ObservationIgnored private var sharedTexts: [String] = []
-    /// Their fingerprints under the key now; empty while there is no key.
+    /// Their identities (`PersonalKey.sharedIdentity(ofWord:)`), no key needed.
+    @ObservationIgnored private var sharedIdentities: Set<String> = []
+    /// The shared words a confirmed undo or a retype by hand said were not the
+    /// user's after all, by identity. A strong signal against a shared word has
+    /// no entry to drop, so the word is kept out of the snapshot until the app
+    /// quits or its record in the dictionary changes (`setSharedWords`). In
+    /// memory only: nothing of it is written, and a new run starts without it.
+    @ObservationIgnored private var suppressed: Set<String> = []
+    /// Their fingerprints under the key now, the suppressed ones left out; empty while there is no key.
     @ObservationIgnored private var shared: [PersonalObservation] = []
+    /// The fingerprints of every shared word, the suppressed ones too: the dictionary has them, no batch counts them.
     @ObservationIgnored private var sharedWords: Set<UInt64> = []
     @ObservationIgnored private var model: PersonalLexiconModel
     @ObservationIgnored private var dirty = false
@@ -269,13 +280,25 @@ public final class PersonalLexiconStore {
     public func setSharedWords(_ texts: [String]) {
         guard texts != sharedTexts else { return }
         sharedTexts = texts
+        // A record that changed is a new word of the user's: the word it names is not suppressed any more.
+        // A word in the old list and in the new one has the record it had.
+        let identities = PersonalKey.sharedIdentities(of: texts, options: options)
+        suppressed.formIntersection(sharedIdentities.intersection(identities))
+        sharedIdentities = identities
         refreshShared()
         if isActive { publish() }
     }
 
     private func refreshShared() {
-        shared = key.map { $0.sharedObservations(of: sharedTexts, options: options) } ?? []
-        sharedWords = Set(shared.map(\.word))
+        guard let key else {
+            shared = []
+            sharedWords = []
+            return
+        }
+        shared = key.sharedObservations(of: sharedTexts, options: options, suppressing: suppressed)
+        sharedWords = suppressed.isEmpty
+            ? Set(shared.map(\.word))
+            : Set(key.sharedObservations(of: sharedTexts, options: options).map(\.word))
     }
 
     /// The Keychain refused the key when the lexicon was asked for (a locked
@@ -335,7 +358,8 @@ public final class PersonalLexiconStore {
         unavailable = reason
         key = nil
         wordCount = 0
-        // Off keeps no fingerprint in memory; on reads the file again.
+        // Off keeps no fingerprint in memory; on reads the file again. The texts of the
+        // shared words stay (`sharedTexts`): they are in `voice-text.json` anyway.
         model = PersonalLexiconModel(options: options, generation: model.generation)
         guard lexicon.isOn else { return }
         lexicon = .off
@@ -382,18 +406,50 @@ public final class PersonalLexiconStore {
         return kept
     }
 
-    /// Drops the word: «Забыть» in the hint, or a strong signal against it.
-    /// Returns whether the lexicon had it.
+    /// What «Забыть слово» did.
+    public enum ForgetResult: Hashable, Sendable {
+        /// The word was the set's own and is gone.
+        case forgotten
+        /// The word is in the voice dictionary, which this does not touch: the
+        /// record has to be deleted there. (An entry the set had for it is gone.)
+        case sharedWord
+        /// The lexicon does not have the word.
+        case notInLexicon
+    }
+
+    /// Drops the word the user asked to forget («Забыть слово» in the hint or
+    /// the menu). A word of the voice dictionary stays while its record does:
+    /// the answer says so, for the hint and the menu to tell the user where to
+    /// delete it.
     @discardableResult
-    public func forget(_ word: PersonalWordRef) -> Bool {
-        guard isActive, !sessionOnly, let key else { return false }
+    public func forget(_ word: PersonalWordRef) -> ForgetResult {
+        guard isActive, !sessionOnly, let key else { return .notInLexicon }
         let fingerprint = key.fingerprint(ofWord: Self.core(of: word.text), language: word.language)
         let before = model.entries.count
         let acceptedChanged = model.forget(fingerprint)
-        guard model.entries.count != before else { return false }
-        if acceptedChanged { publish() }
-        markDirty()
-        return true
+        let dropped = model.entries.count != before
+        if dropped {
+            if acceptedChanged { publish() }
+            markDirty()
+        }
+        if sharedWords.contains(fingerprint) { return .sharedWord }
+        return dropped ? .forgotten : .notInLexicon
+    }
+
+    /// A strong signal against the word: a confirmed undo of the switch to it,
+    /// or a retype of it by hand. The set's entry is dropped at once, as by
+    /// `forget`. A word of the voice dictionary has no entry, so it is kept
+    /// out of the snapshot for the session, from the first signal, until the
+    /// app quits or its record changes; the dictionary itself is not touched.
+    /// Nothing of this is written to disk.
+    public func withdraw(_ word: PersonalWordRef) {
+        guard isActive, !sessionOnly else { return }
+        if forget(word) == .sharedWord {
+            let identity = PersonalKey.sharedIdentity(ofWord: word.text)
+            guard sharedIdentities.contains(identity), suppressed.insert(identity).inserted else { return }
+            refreshShared()
+            publish()
+        }
     }
 
     /// «Стереть»: deletes the file and the key and starts a new generation,

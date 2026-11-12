@@ -726,6 +726,7 @@ enum DebugSnapshot {
             ("retyped-why", .retyped(original: "Fyz", word: "Аня", shortcut: "⌥", why: Self.sampleWhy, offersAlways: true)),
             ("always-fixed", .alwaysFixed(word: "аня")),
             ("always-withdrawn", .alwaysFixWithdrawn(word: "аня")),
+            ("shared-word", .sharedWord),
             ("learned", .learned(word: "дедлайн")),
             ("question-here", .question(word: "jrtq", choices: [.here, .everywhere, .no])),
             ("question-everywhere", .question(word: "jrtq", choices: [.everywhere, .no])),

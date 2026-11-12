@@ -36,8 +36,13 @@ import Testing
         #expect(shared("Дашка").count == 4)
     }
 
-    @Test func aTextIsSplitIntoWordsAndTheMarksAroundThemAreCut() {
-        #expect(shared("Open Source") == shared("open") + shared("source"))
+    @Test func aRecordOfOneWordKeepsItsMarksCutAndARecordOfSeveralIsAPhraseNotAWord() {
+        // «Ministry of Health» is a phrase: «Ministry» and «Health» are no words of the user's.
+        for phrase in ["Ministry of Health", "Open Source", "перекей сервис", " Perekey Mac "] {
+            #expect(shared(phrase).isEmpty, "«\(phrase)»")
+        }
+        #expect(personalKey.sharedObservations(of: ["Ministry of Health", "Perekey"]) == shared("Perekey"))
+        #expect(shared("  Perekey \n") == shared("Perekey"))
         #expect(shared("«Perekey».") == shared("Perekey"))
         #expect(shared("iPhone") == shared("iphone"), "a capital inside is no reason to leave the word out")
     }
@@ -50,6 +55,55 @@ import Testing
             #expect(shared(text).isEmpty, "«\(text)»")
         }
         #expect(!shared(String(repeating: "a", count: minimum)).isEmpty)
+    }
+
+    @Test func theLettersOfNoOtherScriptThanLatinAndCyrillicAreLeftOutWithoutAWord() {
+        for text in ["日本語日本語", "Ελληνικά", "עברית", "العربية"] {
+            #expect(shared(text).isEmpty, "«\(text)»")
+        }
+        #expect(shared("日本語日本語", "Perekey") == shared("Perekey"))
+    }
+
+    @Test func theWordsOfTheSnapshotAreCappedAtTheLimitOfTheLexiconInTheOrderTheyCome() {
+        var options = PersonalOptions()
+        options.maxWords = 3
+        let words = ["alpha", "bravo", "charlie", "delta", "echoes", "foxtrot"]
+        let taken = personalKey.sharedObservations(of: words, options: options)
+        #expect(taken == personalKey.sharedObservations(of: Array(words.prefix(3)), options: options))
+        #expect(taken.count == 3, "three words, one language each")
+        // The same list again: the same words; a word listed twice is one and takes no second place.
+        #expect(personalKey.sharedObservations(of: words, options: options) == taken)
+        #expect(personalKey.sharedObservations(of: ["alpha", "ALPHA", "bravo", "charlie", "delta"], options: options)
+            == personalKey.sharedObservations(of: ["alpha", "bravo", "charlie"], options: options))
+        // A phrase and a word that is no word take no place either.
+        #expect(personalKey.sharedObservations(of: ["two words", "a1b2c3", "alpha", "bravo", "charlie", "delta"], options: options)
+            == taken)
+    }
+
+    @Test func moreWordsThanTheLimitAreCutAtTheLimit() {
+        let limit = PersonalOptions().maxWords
+        let letters = Array("abcdefghijklmnopqrstuvwxyz")
+        func word(_ n: Int) -> String { "w" + String(String(n, radix: 26).compactMap { Int(String($0), radix: 26) }.map { letters[$0] }) + "xx" }
+        let texts = (0..<(limit + 40)).map(word)
+        #expect(Set(texts).count == texts.count)
+        let taken = personalKey.sharedObservations(of: texts)
+        #expect(taken.count == limit)
+        #expect(taken.first == shared(texts[0]).first && taken.last == shared(texts[limit - 1]).last, "the first ones, in order")
+        #expect(PersonalKey.sharedIdentities(of: texts).count == limit)
+        #expect(!PersonalKey.sharedIdentities(of: texts).contains(PersonalKey.sharedIdentity(ofWord: texts[limit])))
+    }
+
+    @Test func theIdentityOfAWordIsTheSameForItsSpellings() {
+        #expect(PersonalKey.sharedIdentity(ofWord: "Артём") == PersonalKey.sharedIdentity(ofWord: "«артем»"))
+        #expect(PersonalKey.sharedIdentity(ofWord: "Perekey") == PersonalKey.sharedIdentity(ofWord: "PEREKEY."))
+        #expect(PersonalKey.sharedIdentity(ofWord: "Perekey") != PersonalKey.sharedIdentity(ofWord: "Perekeys"))
+        #expect(PersonalKey.sharedIdentities(of: ["Perekey", "Ministry of Health", "Дашка"])
+            == [PersonalKey.sharedIdentity(ofWord: "Perekey"), PersonalKey.sharedIdentity(ofWord: "Дашка")])
+    }
+
+    @Test func aSuppressedWordIsLeftOutOfTheObservations() {
+        let suppressed: Set = [PersonalKey.sharedIdentity(ofWord: "Perekey")]
+        #expect(personalKey.sharedObservations(of: ["Perekey", "Дашка"], suppressing: suppressed) == shared("Дашка"))
     }
 
     @Test func theStartsAreThoseOfTheEarlySwitch() {

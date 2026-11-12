@@ -374,6 +374,7 @@
 "The file and the key are deleted. Perekey forgets every word it learned. This cannot be undone." = "The file and the key are deleted. Perekey forgets every word it learned. This cannot be undone.";
 "Forgotten" = "Forgotten";
 "Not in the lexicon" = "Not in the lexicon";
+"A word from the voice dictionary: delete its record there" = "A word from the voice dictionary: delete its record there";
 "Words you often type" = "Words you often type";
 "Learn my words" = "Learn my words";
 "Perekey can remember them as fingerprints, not as text, and stop switching and fixing them. The switch is in Privacy." = "Perekey can remember them as fingerprints, not as text, and stop switching and fixing them. The switch is in Privacy.";

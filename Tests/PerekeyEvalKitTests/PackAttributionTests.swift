@@ -34,6 +34,15 @@ import Testing
         #expect(answer.license == "CC BY-SA 2.5", "a dump with no license on the post: the date rule")
     }
 
+    @Test func aTagTextIsNamedByItsKind() throws {
+        let excerpt = try StackExchangeAttribution.post(
+            fromRow: row(#"<row Id="3" PostTypeId="4" CreationDate="2012-01-02T03:04:05.000" OwnerUserId="5" />"#), site: "s")
+        #expect(excerpt.type == "tag-excerpt")
+        let wiki = try StackExchangeAttribution.post(
+            fromRow: row(#"<row Id="3" PostTypeId="5" CreationDate="2012-01-02T03:04:05.000" OwnerUserId="5" />"#), site: "s")
+        #expect(wiki.type == "tag-wiki")
+    }
+
     @Test func theLicenseOfTheDumpWinsOverTheDateRuleAndTheTwoAreKept() throws {
         let post = try StackExchangeAttribution.post(
             fromRow: row(#"<row Id="9" PostTypeId="2" CreationDate="2012-01-02T03:04:05.000" OwnerUserId="1" ContentLicense="CC BY-SA 4.0" />"#),

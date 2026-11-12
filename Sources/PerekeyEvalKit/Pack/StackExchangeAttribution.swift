@@ -10,7 +10,8 @@ import Foundation
 struct StackExchangeAttribution {
     struct Post: Equatable {
         var id: String
-        /// `question`, `answer`, or `type<N>` for the other kinds of the dump (the excerpts and wikis of tags).
+        /// `question`, `answer`, `tag-excerpt`, `tag-wiki`, or `type<N>` for another kind of the dump. A tag text has no page of its own
+        /// that the dump names; its link is the `/q/` link of the id, which the pack does not promise to open.
         var type: String
         var site: String
         var url: String
@@ -60,7 +61,7 @@ struct StackExchangeAttribution {
             throw EvalError.input("pack: post \(id) of \(site) has no license and no date in the dump")
         }
         let kind = value("PostTypeId", in: row)
-        let type = kind == "1" ? "question" : kind == "2" ? "answer" : "type\(kind ?? "?")"
+        let type = ["1": "question", "2": "answer", "4": "tag-excerpt", "5": "tag-wiki"][kind ?? ""] ?? "type\(kind ?? "?")"
         let letter = type == "answer" ? "a" : "q"
         return Post(id: id, type: type, site: site, url: "https://\(site)/\(letter)/\(id)", author: author,
                     license: license, licenseByDate: byDate)

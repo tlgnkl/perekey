@@ -37,8 +37,10 @@ differently, what was fixed.
   skipped silently), and no more than 5000 of them. «Forget the word» on such a
   word says it comes from the voice dictionary and to delete the record
   there. If you undo a switch to it, or retype it by hand, Perekey leaves
-  it alone until you quit the app or change its record. Builds without voice
-  input are unchanged.
+  it alone until you quit the app or change its record; if you keep typing
+  such a word, Perekey can still learn it as your own. Undoing a switch is now
+  cheap even with 5000 dictionary words. Builds without voice input are
+  unchanged.
 - **Dictation language: as in the app.** In Settings → Voice you can pick
   «As in the app» for the dictation language. When the app you dictate into is
   one you type in one language and your layout is that language too, the

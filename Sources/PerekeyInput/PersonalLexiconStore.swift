@@ -157,7 +157,7 @@ public final class PersonalLexiconStore {
     @ObservationIgnored private var permitted: Bool
     @ObservationIgnored private var applied: Bool?
     @ObservationIgnored private var key: PersonalKey? {
-        didSet { refreshShared() }
+        didSet { buildShared() }
     }
     /// The words other settings name as the user's own (the right side of the
     /// voice dictionary), as text, for a moment longer than a word's text
@@ -175,10 +175,19 @@ public final class PersonalLexiconStore {
     /// quits or its record in the dictionary changes (`setSharedWords`). In
     /// memory only: nothing of it is written, and a new run starts without it.
     @ObservationIgnored private var suppressed: Set<String> = []
-    /// Their fingerprints under the key now, the suppressed ones left out; empty while there is no key.
+    /// Every shared word with its fingerprints under the key now, the suppressed ones too; empty
+    /// while there is no key. Built once for a list and a key (`buildShared`): a signal only
+    /// filters it, so it hashes nothing on the path of the input.
+    @ObservationIgnored private var sharedEntries: [PersonalKey.SharedEntry] = []
+    /// The fingerprints of the words in `sharedEntries` that are not suppressed: the snapshot's part.
     @ObservationIgnored private var shared: [PersonalObservation] = []
-    /// The fingerprints of every shared word, the suppressed ones too: the dictionary has them, no batch counts them.
+    /// The fingerprints of every shared word, the suppressed ones too: the dictionary has them, `forget` says so.
     @ObservationIgnored private var sharedWords: Set<UInt64> = []
+    /// The fingerprints of the shared words not suppressed: no batch counts these. A suppressed word is
+    /// counted like any other, so the user can teach it again before the app restarts.
+    @ObservationIgnored private var liveSharedWords: Set<UInt64> = []
+    /// How many times the fingerprints were built (the list cut, hashed): the tests' seam for the cost of a signal.
+    @ObservationIgnored private(set) var sharedFingerprintBuilds = 0
     @ObservationIgnored private var model: PersonalLexiconModel
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var lastSave: Double?
@@ -285,20 +294,30 @@ public final class PersonalLexiconStore {
         let identities = PersonalKey.sharedIdentities(of: texts, options: options)
         suppressed.formIntersection(sharedIdentities.intersection(identities))
         sharedIdentities = identities
-        refreshShared()
+        buildShared()
         if isActive { publish() }
     }
 
-    private func refreshShared() {
+    /// Cuts and hashes the list under the key: for a new list and for a new key, and for nothing else.
+    private func buildShared() {
         guard let key else {
-            shared = []
+            sharedEntries = []
             sharedWords = []
+            filterShared()
             return
         }
-        shared = key.sharedObservations(of: sharedTexts, options: options, suppressing: suppressed)
-        sharedWords = suppressed.isEmpty
-            ? Set(shared.map(\.word))
-            : Set(key.sharedObservations(of: sharedTexts, options: options).map(\.word))
+        sharedFingerprintBuilds += 1
+        sharedEntries = key.sharedEntries(of: sharedTexts, options: options)
+        sharedWords = Set(sharedEntries.lazy.flatMap(\.observations).map(\.word))
+        filterShared()
+    }
+
+    /// The part of the built list that is not suppressed. No text is cut and nothing is hashed.
+    private func filterShared() {
+        shared = suppressed.isEmpty
+            ? sharedEntries.flatMap(\.observations)
+            : sharedEntries.filter { !suppressed.contains($0.identity) }.flatMap(\.observations)
+        liveSharedWords = suppressed.isEmpty ? sharedWords : Set(shared.lazy.map(\.word))
     }
 
     /// The Keychain refused the key when the lexicon was asked for (a locked
@@ -400,9 +419,9 @@ public final class PersonalLexiconStore {
     /// (the user taught it before the dictionary named it) goes on counting, so it
     /// does not run out under the dictionary and stays when the record goes.
     private func withoutShared(_ tally: PersonalTally) -> PersonalTally {
-        guard !sharedWords.isEmpty else { return tally }
+        guard !liveSharedWords.isEmpty else { return tally }
         var kept = tally
-        kept.observations = tally.observations.filter { !sharedWords.contains($0.word) || model.entries[$0.word] != nil }
+        kept.observations = tally.observations.filter { !liveSharedWords.contains($0.word) || model.entries[$0.word] != nil }
         return kept
     }
 
@@ -423,17 +442,21 @@ public final class PersonalLexiconStore {
     /// delete it.
     @discardableResult
     public func forget(_ word: PersonalWordRef) -> ForgetResult {
-        guard isActive, !sessionOnly, let key else { return .notInLexicon }
+        let (result, acceptedChanged) = dropEntry(word)
+        if acceptedChanged { publish() }
+        return result
+    }
+
+    /// The model's part of `forget`: the entry dropped and the file marked, the snapshot left to the caller.
+    private func dropEntry(_ word: PersonalWordRef) -> (result: ForgetResult, acceptedChanged: Bool) {
+        guard isActive, !sessionOnly, let key else { return (.notInLexicon, false) }
         let fingerprint = key.fingerprint(ofWord: Self.core(of: word.text), language: word.language)
         let before = model.entries.count
         let acceptedChanged = model.forget(fingerprint)
         let dropped = model.entries.count != before
-        if dropped {
-            if acceptedChanged { publish() }
-            markDirty()
-        }
-        if sharedWords.contains(fingerprint) { return .sharedWord }
-        return dropped ? .forgotten : .notInLexicon
+        if dropped { markDirty() }
+        if sharedWords.contains(fingerprint) { return (.sharedWord, acceptedChanged && dropped) }
+        return (dropped ? .forgotten : .notInLexicon, acceptedChanged && dropped)
     }
 
     /// A strong signal against the word: a confirmed undo of the switch to it,
@@ -441,15 +464,21 @@ public final class PersonalLexiconStore {
     /// `forget`. A word of the voice dictionary has no entry, so it is kept
     /// out of the snapshot for the session, from the first signal, until the
     /// app quits or its record changes; the dictionary itself is not touched.
-    /// Nothing of this is written to disk.
+    /// Nothing of this is written to disk. The signal comes on the path of the
+    /// input: it filters the list built before and hashes nothing, and the
+    /// snapshot goes out once.
     public func withdraw(_ word: PersonalWordRef) {
         guard isActive, !sessionOnly else { return }
-        if forget(word) == .sharedWord {
+        let (result, acceptedChanged) = dropEntry(word)
+        var changed = acceptedChanged
+        if result == .sharedWord {
             let identity = PersonalKey.sharedIdentity(ofWord: word.text)
-            guard sharedIdentities.contains(identity), suppressed.insert(identity).inserted else { return }
-            refreshShared()
-            publish()
+            if sharedIdentities.contains(identity), suppressed.insert(identity).inserted {
+                filterShared()
+                changed = true
+            }
         }
+        if changed { publish() }
     }
 
     /// «Стереть»: deletes the file and the key and starts a new generation,

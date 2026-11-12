@@ -72,6 +72,8 @@ var targets: [Target] = [
         dependencies: ["PerekeyCore"] + (record ? ["PerekeyInput"] : []),
         swiftSettings: recordSettings
     ),
+    // Dev tool: times the shared words of the voice dictionary in the personal lexicon store.
+    .executableTarget(name: "perekey-shared-measure", dependencies: ["PerekeyCore", "PerekeyInput"]),
     // Dev tool: posts user-looking keystrokes for scripts/e2e.sh.
     .executableTarget(name: "perekey-e2e"),
     // Readers of third-party data and corpora for the two tools below.

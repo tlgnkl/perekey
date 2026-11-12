@@ -376,4 +376,89 @@ struct SharedWordsStoreTests {
         let session = Desk().store(sessionOnly: true)
         #expect(session.forget(ref("Perekey")) == .notInLexicon)
     }
+
+    // MARK: - The cost of a signal
+
+    @Test func aSignalHashesNothingOnceTheFingerprintsAreBuilt() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Perekey", "Дашка", "Саша"])
+        let key = try key(desk)
+        let builds = store.sharedFingerprintBuilds
+        #expect(builds > 0)
+        store.withdraw(ref("Perekey"))
+        store.withdraw(ref("Дашка", "ru"))
+        store.withdraw(ref("Perekey"))
+        #expect(store.sharedFingerprintBuilds == builds, "a signal filters the built list and hashes nothing")
+        let lexicon = try #require(desk.changes.last)
+        #expect(!lexicon.containsWord(try fingerprint("perekey", key: key)))
+        #expect(!lexicon.containsWord(try fingerprint("дашка", key: key, language: "ru")))
+        #expect(lexicon.containsWord(try fingerprint("саша", key: key, language: "ru")), "the word not signalled stays")
+        // A word the dictionary does not have: no suppression, no work.
+        store.withdraw(ref("Nothing"))
+        #expect(store.sharedFingerprintBuilds == builds)
+    }
+
+    @Test func aNewListOrAnEraseBuildsTheFingerprintsAnew() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setSharedWords(["Perekey"])
+        store.setEnabled(true)
+        var builds = store.sharedFingerprintBuilds
+        store.setSharedWords(["Perekey"])
+        #expect(store.sharedFingerprintBuilds == builds, "the same list is not built twice")
+        store.setSharedWords(["Perekey", "Дашка"])
+        #expect(store.sharedFingerprintBuilds == builds + 1)
+        builds = store.sharedFingerprintBuilds
+        store.erase()
+        #expect(store.sharedFingerprintBuilds == builds + 1, "a new key, new fingerprints")
+        let key = try key(desk)
+        #expect(store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        #expect(store.lexicon.containsWord(try fingerprint("дашка", key: key, language: "ru")))
+    }
+
+    @Test func aSuppressedWordIsCountedLikeAnyOtherUntilTheAppRestarts() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Perekey"])
+        let key = try key(desk)
+        store.withdraw(ref("Perekey"))
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        teach(store, desk, "perekey", key: key)
+        #expect(store.heldEntryCount == 1, "the batches count the word the user keeps typing")
+        #expect(store.lexicon.containsWord(try fingerprint("perekey", key: key)), "taught five times, it is the set's own")
+        #expect(store.wordCount == 1)
+        // The set's word is now its own: a signal drops the entry, and the dictionary stays out of it.
+        store.withdraw(ref("Perekey"))
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        #expect(store.forget(ref("Perekey")) == .sharedWord, "the dictionary still has the record")
+    }
+
+    @Test func aSignalAgainstAWordWithAnEntryPublishesOnce() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        let key = try key(desk)
+        teach(store, desk, "perekey", key: key)
+        store.setSharedWords(["Perekey"])
+        let before = desk.changes.count
+        store.withdraw(ref("Perekey"))
+        #expect(desk.changes.count == before + 1, "the entry and the shared word go in one snapshot")
+        #expect(!store.lexicon.containsWord(try fingerprint("perekey", key: key)))
+        #expect(store.heldEntryCount == 0)
+    }
+
+    @Test func aRecordEditedToTheSameWordFoldedKeepsTheSuppression() throws {
+        let desk = Desk()
+        let store = desk.store()
+        store.setEnabled(true)
+        store.setSharedWords(["Артём"])
+        let key = try key(desk)
+        store.withdraw(ref("Артём", "ru"))
+        // «Артём» and «артем» are one word to the fingerprint: the edit is no new word.
+        store.setSharedWords(["артем"])
+        #expect(!store.lexicon.containsWord(try fingerprint("артем", key: key, language: "ru")))
+    }
 }

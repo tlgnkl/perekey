@@ -78,27 +78,41 @@ extension PersonalKey {
         return found
     }
 
-    /// The observations that stand for `texts` in the lexicon: for each word
-    /// (`sharedCores`), its fingerprints and the fingerprints of its starts, one
-    /// observation per language. The same key, the same domains and the same
-    /// spelling as a word the user typed (`Classifier.personalObservation`),
+    /// One word of the list with its observations (`sharedEntries`).
+    public struct SharedEntry: Sendable {
+        public let identity: String
+        public let observations: [PersonalObservation]
+    }
+
+    /// The words of `texts` with the observations that stand for each: for each
+    /// word (`sharedCores`), its fingerprints and the fingerprints of its
+    /// starts, one observation per language. The same key, the same domains and
+    /// the same spelling as a word the user typed (`Classifier.personalObservation`),
     /// so «Perekey» and «perekey» are one word, and so are «Артём» and «артем».
-    /// The words whose identity is in `suppressing` are left out.
-    public func sharedObservations(of texts: some Sequence<String>,
-                                   options: PersonalOptions = PersonalOptions(),
-                                   suppressing: Set<String> = []) -> [PersonalObservation]
+    /// This is the one place the words are cut and hashed: the store keeps
+    /// the result and filters it, it does not call this again until the list
+    /// or the key changes.
+    public func sharedEntries(of texts: some Sequence<String>,
+                              options: PersonalOptions = PersonalOptions()) -> [SharedEntry]
     {
-        var found: [PersonalObservation] = []
-        for (identity, core) in Self.sharedCores(of: texts, options: options) where !suppressing.contains(identity) {
-            for language in Self.languages(ofScript: core[0]) {
-                found.append(PersonalObservation(
+        Self.sharedCores(of: texts, options: options).map { identity, core in
+            SharedEntry(identity: identity, observations: Self.languages(ofScript: core[0]).map { language in
+                PersonalObservation(
                     word: fingerprint(.word, language: language, core),
                     start3: fingerprint(.start3, language: language, core.prefix(Self.shortStart)),
                     start4: core.count >= Self.longStart
                         ? fingerprint(.start4, language: language, core.prefix(Self.longStart)) : nil,
-                    language: language))
-            }
+                    language: language)
+            })
         }
-        return found
+    }
+
+    /// The observations of `sharedEntries`, the words whose identity is in
+    /// `suppressing` left out.
+    public func sharedObservations(of texts: some Sequence<String>,
+                                   options: PersonalOptions = PersonalOptions(),
+                                   suppressing: Set<String> = []) -> [PersonalObservation]
+    {
+        sharedEntries(of: texts, options: options).filter { !suppressing.contains($0.identity) }.flatMap(\.observations)
     }
 }

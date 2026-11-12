@@ -86,6 +86,22 @@ enum Zstd {
         throw EvalError.input("pack: zstd is not installed (brew install zstd)")
     }
 
+    /// The version of the installed zstd (`1.5.7`): the `.zst` bytes depend on it, the tar's do not.
+    static func version() throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try executable())
+        process.arguments = ["--version"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        guard let range = text.range(of: #"v(\d+\.\d+\.\d+)"#, options: .regularExpression) else {
+            throw EvalError.input("pack: cannot read the version of zstd from «\(text.trimmingCharacters(in: .whitespacesAndNewlines))»")
+        }
+        return String(text[range].dropFirst())
+    }
+
     /// Compresses the file `input` into `output`.
     static func compress(_ input: String, to output: String) throws {
         let process = Process()

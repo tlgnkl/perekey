@@ -6,8 +6,11 @@ in its repository), tier `{{tier}}`. Any switcher can be measured with it: a cas
 only the final text of the field is scored.
 
 The pack holds the cases and nothing else: no program, no model, no text of the sources apart from the sentences
-and words the cases are made of. Licenses and authors: `LICENSE`, `ATTRIBUTION.md`. What it was made of, with the
-SHA-256 of every source file: `pack.json`.
+and words the cases are made of. The text of each case is under the license of its source, not under one license
+for the whole pack: `ATTRIBUTION.md` names every source and its license, and for Stack Exchange `attribution-se.tsv`
+gives the post, its author and its license, one row for each post. `LICENSE` (CC BY-SA 4.0) is for our annotation
+only: the choice of the cases, the scenarios, the tokens and the marks. What the pack was made of, with the SHA-256
+of every source file: `pack.json`.
 
 ## Contents
 
@@ -16,7 +19,9 @@ SHA-256 of every source file: `pack.json`.
   cases/<set>.jsonl     the cases, one line each
   pack.json             counts, hashes of the cases, of the source files and of the layouts
   ATTRIBUTION.md        sources, their licenses, how to find the authors
-  LICENSE               CC BY-SA 4.0
+  attribution-se.tsv    one row for each Stack Exchange post: id, type, site, link, author, license
+                        (only in a pack that holds such posts)
+  LICENSE               CC BY-SA 4.0, for our annotation (not for the text of the sources)
   README.md             this file
 ```
 
@@ -87,4 +92,7 @@ Wilson's at 95 %. The full definitions, with the alignment and the profiles, are
 
 `perekey-eval cases pack --tier {{tier}} --out {{file}}` builds this archive from the sources named in `pack.json`.
 The archive is deterministic: the same sources give the same tar, and with the same version of zstd the same
-`.tar.zst`. The SHA-256 of the tar is printed by the command and does not depend on zstd.
+`.tar.zst`. The `.tar.zst` of this pack was made with zstd {{zstd}} (level 19, one thread); another version may
+give other bytes of the archive from the same tar. The SHA-256 of the uncompressed tar does not depend on zstd: the
+command prints it and writes it beside the archive (`<file>.tar.sha256`; it cannot be inside the tar), and
+`zstd -dc {{file}} | shasum -a 256` gives the same value.

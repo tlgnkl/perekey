@@ -43,6 +43,20 @@ enum PackSource: String, CaseIterable, Sendable {
         }
     }
 
+    /// The files of the data cache (and of `eval/classes`) the license of the source covers: a folder ends with `/`,
+    /// a single file is named whole. A file outside the lists of its set's sources is never packed.
+    var pathPrefixes: [String] {
+        switch self {
+        case .tatoeba: ["tatoeba/"]
+        case .stackExchange: ["stackexchange/"]
+        case .wikipediaMisspellings: ["wikipedia-misspellings/"]
+        case .geonames: ["geonames/"]
+        case .wikidata: ["names.wikidata.tsv"]
+        case .tldr: ["tldr/"]
+        case .wordLists: ["wordfreq/", "hunspell-ru/", "esdb/"]
+        }
+    }
+
     /// What the pack does with the source and how a reader finds the authors.
     var attribution: String {
         switch self {
@@ -53,9 +67,14 @@ enum PackSource: String, CaseIterable, Sendable {
         case .stackExchange:
             "The sentences come from the posts of the users of the Stack Exchange sites `rus.stackexchange.com`, "
                 + "`russian.stackexchange.com` and `ukrainian.stackexchange.com` (data dump of April 2024 on archive.org). "
-                + "A case names its post in `meta.ref` as `post:<Id>#<n>` (the n-th sentence of the post); the post and its "
-                + "author are at `https://<site>/q/<Id>` (a question) or `https://<site>/a/<Id>` (an answer). The code blocks "
-                + "of the posts are cut out. Each post keeps the license it carries; the pack as a whole is offered under CC BY-SA 4.0."
+                + "A case names its post in `meta.ref` as `post:<Id>#<n>` (the n-th sentence of the post) and `meta.source` "
+                + "(the site). `attribution-se.tsv` has a row for every post the cases name: the post, its type, the site, "
+                + "the link `https://<site>/q/<Id>` (a question) or `https://<site>/a/<Id>` (an answer), the author and "
+                + "the license of the post. The code blocks of the posts are cut out. The text of a case keeps the license "
+                + "of its post (CC BY-SA 2.5, 3.0 or 4.0): the license of a post is the one the dump gives it "
+                + "(`ContentLicense`) and, for a post the dump gives none, the one Stack Exchange assigns by the date of the "
+                + "post: before 2011-04-08 CC BY-SA 2.5, before 2018-05-02 CC BY-SA 3.0, later CC BY-SA 4.0. The pack as a "
+                + "whole is not offered under one of them."
         case .wikipediaMisspellings:
             "The pairs «misspelling → correction» are the list of common misspellings of the English Wikipedia (revision "
                 + "1199637275 of 27 January 2024), written by its editors."
@@ -130,6 +149,21 @@ struct PackPolicy: Sendable {
         )
     )
 
+    /// The files of `files` that no source of the entry of `suite` covers, in the order given. A suite that is not in
+    /// the pack covers nothing. This is the license filter: it follows the file a set reads, not the name of the set.
+    func unlicensed(files: [String], suite: String) -> [String] {
+        let prefixes = entries.filter { $0.suite == suite }.flatMap(\.sources).flatMap(\.pathPrefixes)
+        return files.filter { file in
+            !prefixes.contains { $0.hasSuffix("/") ? file.hasPrefix($0) && file.count > $0.count : file == $0 }
+        }
+    }
+
+    /// The files of the data cache a manifest reads: its sources, the carrier, the corpus of a class rule.
+    static func files(of manifest: SuiteManifest) -> [String] {
+        manifest.sources + [manifest.carrier].compactMap { $0 }
+            + (manifest.classSpec.map { $0.corpusFiles + $0.corpusFullFiles } ?? [])
+    }
+
     /// Everything wrong with the policy against the manifests of `eval/suites`; empty when it is sound.
     func problems(manifests: [SuiteManifest]) -> [String] {
         var problems: [String] = []
@@ -151,6 +185,14 @@ struct PackPolicy: Sendable {
         for manifest in manifests.sorted(by: { $0.suite < $1.suite }) {
             if !included.contains(manifest.suite), excluded[manifest.suite] == nil {
                 problems.append("\(manifest.suite) has no decision: put it in the pack or leave it out with a reason (PackPolicy)")
+            }
+            if included.contains(manifest.suite) {
+                let outside = unlicensed(files: Self.files(of: manifest), suite: manifest.suite)
+                if !outside.isEmpty {
+                    problems.append("\(manifest.suite) reads \(outside.joined(separator: ", ")), which no source of the set covers "
+                        + "(\(entries.first { $0.suite == manifest.suite }?.sources.map(\.rawValue).joined(separator: ", ") ?? "")): "
+                        + "the license of a file decides, not the name of the set")
+                }
             }
             if included.contains(manifest.suite), manifest.epoch != epoch {
                 problems.append("\(manifest.suite) is of epoch \(manifest.epoch), the pack holds epoch \(epoch)")

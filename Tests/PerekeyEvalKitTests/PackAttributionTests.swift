@@ -162,8 +162,8 @@ import Testing
         let attribution = try String(contentsOfFile: root + "/ATTRIBUTION.md", encoding: .utf8)
         let readme = try String(contentsOfFile: root + "/README.md", encoding: .utf8)
         for (name, text) in [("ATTRIBUTION.md", attribution), ("README.md", readme)] {
-            #expect(!text.contains("as a whole is offered under CC BY-SA 4.0"), name)
-            #expect(text.contains("attribution-se.tsv"), name)
+            #expect(!text.contains("as a whole is offered under CC BY-SA 4.0"), "\(name)")
+            #expect(text.contains("attribution-se.tsv"), "\(name)")
             #expect(text.contains("license of its source"), "\(name): the text of a case keeps the license of its source")
         }
         #expect(attribution.contains("2011-04-08") && attribution.contains("2018-05-02"), "the rule of the dates")

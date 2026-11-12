@@ -24,6 +24,8 @@ import PerekeyModelKit
 ///     perekey-eval gate   <head run> [<base run>] [--gates <file>] [--profiles <file>] [--cases <files or directory>]
 ///                         [--format text|md|json] [--list N] [--stand-pr] [--out <file>]
 ///     perekey-eval learning run|sweep|vocabulary …   (Learning/LearningCommand.swift)
+///     perekey-eval cases fidelity <files or directory> --out <file>
+///     perekey-eval fidelity --cases <files> --app-run <run dir of perekey-e2e play> --model <dir> [--format text|md] [--out <file>]
 ///
 /// `play` also takes `--cache <data cache>` (and `--lexicon <dir>`, `--data <dir>`, `--noise <dir>`) to score with
 /// the lexicon: `disputed`, `silent` and the features `known`, `zipf`, `collision`, `seen`.
@@ -34,7 +36,7 @@ import PerekeyModelKit
 /// Every command takes `--layouts <dir>` (default eval/layouts). Exit status:
 /// 0 success, 1 a self-check failed or a bar is not taken, 2 bad input.
 public enum EvalCommands {
-    public static let names: Set<String> = ["cases", "play", "case", "selfcheck", "report", "diff", "gate", "learning"]
+    public static let names: Set<String> = ["cases", "play", "case", "selfcheck", "report", "diff", "gate", "learning", "fidelity"]
 
     public static func run(_ arguments: [String]) -> Int32 {
         run(arguments, policy: .standard)
@@ -54,6 +56,7 @@ public enum EvalCommands {
             case "diff": return try diff(parsed)
             case "gate": return try gate(parsed)
             case "learning": return try LearningCommand.run(&parsed)
+            case "fidelity": return try fidelity(parsed)
             default: throw EvalError.input("unknown command \(command)")
             }
         } catch {
@@ -120,8 +123,16 @@ public enum EvalCommands {
                 EvalContext.out("\(shown(item, store))\t\(item.split.rawValue)\t\(want)")
             }
             return 0
+        case "fidelity":
+            guard let out = parsed.value("--out") else { throw EvalError.input("cases fidelity: --out <file> is required") }
+            let chosen = FidelitySet.select(try CaseFiles.read(files, store: store).map(\.item))
+            guard !chosen.contains(where: \.isPersonal) else { throw EvalError.input("cases fidelity: a personal case is not played in an app") }
+            try CaseCodec.write(chosen).write(toFile: out, atomically: true, encoding: .utf8)
+            let counts = Dictionary(grouping: chosen, by: \.suite).mapValues(\.count)
+            EvalContext.out("\(chosen.count) cases: " + counts.keys.sorted().map { "\($0) \(counts[$0]!)" }.joined(separator: ", "))
+            return 0
         default:
-            throw EvalError.input("unknown command cases \(sub): check, list, build, personal or pack")
+            throw EvalError.input("unknown command cases \(sub): check, list, build, personal, pack or fidelity")
         }
     }
 
@@ -290,6 +301,29 @@ public enum EvalCommands {
             throw EvalError.input("cases do not pass the check:\n" + problems.joined(separator: "\n"))
         }
         return items
+    }
+
+    // MARK: - fidelity
+
+    /// Machine against a run of `perekey-e2e play` on the same cases (plan 12.4).
+    static func fidelity(_ parsed: Arguments) throws -> Int32 {
+        guard let runDirectory = parsed.value("--app-run") else { throw EvalError.input("fidelity: --app-run <run dir of perekey-e2e play> is required") }
+        let library = try parsed.library()
+        let files = try CaseFiles.expand(parsed.values("--cases"))
+        let items = try selected(files, parsed, library: library)
+        let run = try AppRun.read(from: runDirectory)
+        let playedIDs = Set(run.played.map(\.id))
+        var runner = Runner(config: try parsed.config(), library: library)
+        var machine: [String: (text: String, layout: String)] = [:]
+        for item in items where playedIDs.contains(item.id) {
+            let out = try runner.play(item).out
+            machine[item.id] = (out.text, out.layout.rawValue)
+        }
+        let report = FidelityReport(items: items, machine: machine, app: run, reveal: parsed.flag("--reveal-test"))
+        let format = parsed.value("--format") ?? "text"
+        guard ["text", "md"].contains(format) else { throw EvalError.input("--format text|md") }
+        try output(report.render(markdown: format == "md"), to: parsed.value("--out"))
+        return 0
     }
 
     // MARK: - report and diff
@@ -627,7 +661,7 @@ struct Arguments {
     var positional: [String] = []
     private var values: [String: [String]] = [:]
     private var flags: Set<String> = []
-    private static let booleans: Set<String> = ["--reveal-test", "--slices", "--stand-pr", "--mutants", "--skip-missing"]
+    private static let booleans: Set<String> = ["--dry-run", "--reveal-test", "--slices", "--stand-pr", "--mutants", "--skip-missing"]
 
     init(_ arguments: [String]) throws {
         var current: String?

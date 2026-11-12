@@ -79,11 +79,25 @@ public struct Runner {
         let item = prepared(original)
         let events = try typist.events(for: item, layouts: library)
         let classifier = config.system == .machine ? try classifier(for: item) : nil
-        let model = try languageModel(for: item)
         var setup = try CaseSetup(item: item, library: library, classifier: classifier)
         setup.tracesJudgements = config.tracesJudgements
+        let system = config.system
+        return try scored(item, events: events, setup: setup) { try system.play(setup, events: events) }
+    }
+
+    /// Plays a case in a real app (`AppSystem`) and scores it as any other: `app` gets the events of the
+    /// typist and returns the run. The preset of the case is the app's own, so `--settings` does not apply.
+    public mutating func playApp(_ item: EvalCase, app: (EvalCase, [TypedEvent]) throws -> RunResult) throws -> Played {
+        let events = try typist.events(for: item, layouts: library)
+        let setup = try CaseSetup(item: item, library: library, classifier: nil)
+        return try scored(item, events: events, setup: setup) { try app(item, events) }
+    }
+
+    private mutating func scored(_ item: EvalCase, events: [TypedEvent], setup: CaseSetup,
+                                 run: () throws -> RunResult) throws -> Played {
+        let model = try languageModel(for: item)
         let null = try SystemName.null.play(setup, events: events)
-        let out = try config.system.play(setup, events: events)
+        let out = try run()
         var score = scorer.score(item, null: null, out: out, events: events, model: model)
         score.failedChecks = Self.failedChecks(item, out, library: library)
         score.hidden = item.split == .test && !config.revealTest

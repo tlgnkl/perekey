@@ -74,8 +74,9 @@ var targets: [Target] = [
     ),
     // Dev tool: times the shared words of the voice dictionary in the personal lexicon store.
     .executableTarget(name: "perekey-shared-measure", dependencies: ["PerekeyCore", "PerekeyInput"]),
-    // Dev tool: posts user-looking keystrokes for scripts/e2e.sh.
-    .executableTarget(name: "perekey-e2e"),
+    // Dev tool: posts user-looking keystrokes for scripts/e2e.sh, and plays the cases of the quality
+    // bench in a real app (`play`, docs/eval.md).
+    .executableTarget(name: "perekey-e2e", dependencies: ["PerekeyCore", "PerekeyEvalKit"]),
     // Readers of third-party data and corpora for the two tools below.
     // Foundation is fine here: nothing of it ships in the app.
     // PerekeyDesk: a simulated replay of a recorded session runs on its desk.

@@ -1,7 +1,7 @@
 {
  "about": "Commands, flags and paths of the tldr-pages examples, one token each",
  "class": {
-  "corpus": "tldr/tldr-pages.en.zip",
+  "corpus": "tldr/tldr-c525fa0.zip",
   "rule": "cli",
   "seeds": "class.cli.txt"
  },

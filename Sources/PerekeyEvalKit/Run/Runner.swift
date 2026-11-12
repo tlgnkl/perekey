@@ -177,27 +177,31 @@ public enum CaseFiles {
     /// output, and one outside it must not stand for a person's words.
     public static func read(_ files: [String], store: PrivateStore? = nil) throws -> [(file: String, item: EvalCase)] {
         var result: [(String, EvalCase)] = []
+        try forEach(files, store: store) { result.append(($0, $1)) }
+        return result
+    }
+
+    /// The same cases one at a time, each file read in pieces: a corpus of gigabytes need not fit in memory.
+    public static func forEach(_ files: [String], store: PrivateStore? = nil,
+                               _ body: (_ file: String, _ item: EvalCase) throws -> Void) throws {
         for file in files {
             let inStore = store?.contains(file) ?? false
-            let items: [EvalCase]
             do {
-                items = try CaseCodec.read(file: file)
+                try CaseCodec.forEach(file: file) { item in
+                    if item.isPersonal, !inStore {
+                        throw EvalError.input("\(item.shownID(nil)): a personal case is read only from a file inside \(PrivateStore.variable)"
+                            + (store == nil ? ", which is not set" : ""))
+                    }
+                    if !item.isPersonal, inStore {
+                        throw EvalError.input("\(file): a file inside \(PrivateStore.variable) holds only personal. suites")
+                    }
+                    try body(file, item)
+                }
             } catch let error as CaseCodec.ReadError {
                 // The message of a decoding error may quote the value.
                 throw EvalError.input(inStore ? "\(file):\(error.line): not a case; the details of a personal file are withheld"
                     : error.description)
             }
-            for item in items {
-                if item.isPersonal, !inStore {
-                    throw EvalError.input("\(item.shownID(nil)): a personal case is read only from a file inside \(PrivateStore.variable)"
-                        + (store == nil ? ", which is not set" : ""))
-                }
-                if !item.isPersonal, inStore {
-                    throw EvalError.input("\(file): a file inside \(PrivateStore.variable) holds only personal. suites")
-                }
-                result.append((file, item))
-            }
         }
-        return result
     }
 }

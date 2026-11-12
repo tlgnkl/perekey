@@ -241,20 +241,30 @@ public enum EvalCommands {
         let library = try parsed.library()
         let files = try CaseFiles.expand(parsed.values("--cases"))
         let store = try parsed.store()
-        let items = try selected(files, parsed, library: library, store: store)
+        // The first pass checks the cases and takes from them what the run needs before it plays: whether the
+        // set is personal and the languages of the layouts. The second plays them. Neither keeps the cases:
+        // the files are read in pieces, and the run keeps counts, not scores.
+        var personal = false
+        var languages = Set<String>()
+        try forEachSelected(files, parsed, library: library, store: store) { _, item in
+            personal = personal || item.isPersonal
+            for map in try library.maps(of: item) { if let language = map.language { languages.insert(language) } }
+        }
         // A run with a personal set is written inside the private folder, and its words are hashes.
         var redactor: Redactor?
-        if items.contains(where: \.isPersonal) {
+        if personal {
             guard let store else { throw EvalError.input("a personal set needs \(PrivateStore.variable)") }
             try store.require(inside: out, what: "the run folder (--out)")
             redactor = try store.redactor()
         }
         var config = try parsed.config()
-        let knowledge = try parsed.knowledge(items: items, library: library)
+        let knowledge = try parsed.knowledge(languages: languages.sorted(), library: library)
         config.knowledge = knowledge?.knowledge
         var runner = Runner(config: config, library: library)
-        var scores: [CaseScore] = []
-        for item in items { scores.append(try runner.play(item).score) }
+        let writer = try RunFiles.Writer(to: out, personal: personal, redactor: redactor)
+        try forEachSelected(files, parsed, library: library, store: store, check: false) { _, item in
+            try writer.add(try runner.play(item).score)
+        }
         var info = RunFiles.Info(
             commit: GitCommit.current(), models: runner.modelHashes, system: runner.config.system.rawValue,
             settings: runner.config.settings, options: runner.config.optionsJSON,
@@ -265,8 +275,8 @@ public enum EvalCommands {
         info.lexicon = knowledge?.lexiconHashes
         info.seen = knowledge?.seenHash
         info.noise = knowledge?.knowledge.noise.files
-        try RunFiles.write(scores, info: info, to: out, redactor: redactor)
-        EvalContext.out(Console.summary(Summary(scores)), terminator: "")
+        let summary = try writer.finish(info: info)
+        EvalContext.out(Console.summary(summary), terminator: "")
         return 0
     }
 
@@ -274,22 +284,32 @@ public enum EvalCommands {
     /// pass the checks, or nothing is played.
     static func selected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary,
                          split override: String? = nil, store: PrivateStore? = nil) throws -> [EvalCase] {
+        var items: [EvalCase] = []
+        try forEachSelected(files, parsed, library: library, split: override, store: store) { items.append($1) }
+        return items
+    }
+
+    /// The same cases one at a time, each file read in pieces. With `check` the cases are checked as they come,
+    /// and the failures are thrown after the last case (the body has seen the cases by then).
+    static func forEachSelected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary, split override: String? = nil,
+                                store: PrivateStore? = nil, check: Bool = true,
+                                _ body: (_ file: String, _ item: EvalCase) throws -> Void) throws {
         let only = parsed.value("--only").map { Set($0.split(separator: ",").map(String.init)) }
         let split = override ?? parsed.value("--split") ?? "all"
         guard ["dev", "test", "all"].contains(split) else { throw EvalError.input("--split dev|test|all") }
-        var items: [EvalCase] = []
         var problems: [String] = []
-        for (file, item) in try CaseFiles.read(files, store: store) {
-            if let only, !only.contains(item.suite) { continue }
-            if split != "all", item.split.rawValue != split { continue }
-            problems += CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
-                .map { "\(file): \(shown(item, store)): \($0)" }
-            items.append(item)
+        try CaseFiles.forEach(files, store: store) { file, item in
+            if let only, !only.contains(item.suite) { return }
+            if split != "all", item.split.rawValue != split { return }
+            if check {
+                problems += CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
+                    .map { "\(file): \(shown(item, store)): \($0)" }
+            }
+            try body(file, item)
         }
         guard problems.isEmpty else {
             throw EvalError.input("cases do not pass the check:\n" + problems.joined(separator: "\n"))
         }
-        return items
     }
 
     // MARK: - report and diff
@@ -676,9 +696,13 @@ struct Arguments {
     /// The lexicon, the lists of `data/` and the noise decisions, for the languages of the
     /// cases' layouts. Without `--cache` and `--lexicon` the run has none.
     func knowledge(items: [EvalCase], library: LayoutLibrary) throws -> KnowledgeSetup? {
+        try knowledge(languages: Array(Set(try items.flatMap { try library.maps(of: $0).compactMap(\.language) })).sorted(),
+                      library: library)
+    }
+
+    func knowledge(languages: [String], library: LayoutLibrary) throws -> KnowledgeSetup? {
         guard value("--cache") != nil || value("--lexicon") != nil else { return nil }
         let directory = value("--lexicon") ?? ".build/quality"
-        let languages = Array(Set(try items.flatMap { try library.maps(of: $0).compactMap(\.language) })).sorted()
         let lexicon = try Lexicon.load(languages: languages, directory: directory, cache: value("--cache"))
         let dataPath = value("--data") ?? "data"
         let seen = FileManager.default.fileExists(atPath: dataPath) ? try SeenWords(directory: dataPath) : nil

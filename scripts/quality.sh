@@ -249,6 +249,9 @@ else
 fi
 # One process per suite: reading a source takes most of the time, and the suites are independent.
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+# A suite of the `full` level holds its source in memory: up to 1.5 GB for one (prose.tatoeba), so a build
+# per core took ~10 GB. Two at a time keep the peak near 3 GB; QUALITY_JOBS sets another number.
+if [[ "$TIER" == full ]]; then JOBS="${QUALITY_JOBS:-2}"; fi
 build_suite() {
     local t=$SECONDS
     local part="$OUT/parts/$TIER/$1"

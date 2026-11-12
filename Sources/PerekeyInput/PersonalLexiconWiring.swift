@@ -31,6 +31,12 @@ public final class PersonalLexiconWiring {
         store.apply(personalWords)
     }
 
+    /// The words the voice dictionary names as the user's own, whenever the
+    /// dictionary changes: the store makes their fingerprints.
+    public func sharedWordsChanged(_ words: [String]) {
+        store.setSharedWords(words)
+    }
+
     /// Listens for the app's activation on `application` and for the unlock on
     /// `distributed` (the system's notification center in the app; any in a test).
     /// Calling it again replaces the earlier listeners.

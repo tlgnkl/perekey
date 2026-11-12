@@ -243,6 +243,13 @@ final class InputController {
         return settings
     }
 
+    /// The words the voice dictionary names as the user's own: «Мои слова»
+    /// takes them as accepted while it is on (`PersonalLexiconWiring.sharedWordsChanged`).
+    /// The fingerprints are made by the store, on this thread.
+    func sharedWordsChanged(_ words: [String]) {
+        personalWiring?.sharedWordsChanged(words)
+    }
+
     /// The switch «Мои слова» goes to the store, which reaches the key and
     /// the file only while it is on, and the tap gets its snapshot from there.
     private func applyPersonalWords() {
@@ -400,7 +407,7 @@ final class InputController {
             // An automatic switch has its own hint, from `corrected`; an undo hides it.
             if manualAction(of: origin) != nil, !isDemo(original, text) {
                 // A word of the lexicon retyped by hand into another layout was no word of the user's.
-                if let word = PersonalWordRef(retyped: original, decision: decision) { personal.forget(word) }
+                if let word = PersonalWordRef(retyped: original, decision: decision) { personal.withdraw(word) }
                 onManualRetype?()
                 if manualAction(of: origin)?.action == .convertLastWord { unlearn(original, text, app: app) }
             }
@@ -433,8 +440,13 @@ final class InputController {
                 var onForget: (() -> Void)?
                 if let word = PersonalWordRef(switchedTo: correction) {
                     onForget = { [weak self] in
-                        self?.personal.forget(word)
-                        self?.hint.hide()
+                        guard let self else { return }
+                        // A word of the voice dictionary stays while its record does: the hint says where to delete it.
+                        if personal.forget(word) == .sharedWord {
+                            hint.showSharedWord()
+                        } else {
+                            hint.hide()
+                        }
                     }
                 }
                 // The button undoes this correction only, never a newer one.
@@ -468,7 +480,7 @@ final class InputController {
                 hint.hide()
             }
         case let .undoSettled(report):
-            if let word = personalSignals.settled(report) { personal.forget(word) }
+            if let word = personalSignals.settled(report) { personal.withdraw(word) }
             countUndo(report)
         case let .alwaysFixWithdrawn(word):
             store.update { $0.words.stopFixing(word) }

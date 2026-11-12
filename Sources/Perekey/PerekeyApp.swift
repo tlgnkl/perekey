@@ -104,6 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let voiceModes = VoiceModesStore()
         let voiceText = VoiceTextController()
         self.voiceText = voiceText
+        // The right side of the dictionary is the user's own words: «Мои слова» takes them as accepted.
+        // Called at once and after every change of the text settings; the store hears of a changed list only.
+        voiceText.text.observe { [input, text = voiceText.text] in
+            input.sharedWordsChanged(text.settings.dictionary.map(\.to))
+        }
         voice = VoiceSetup(input: input, models: voiceModels, modes: voiceModes, text: voiceText, usage: usage)
         let transcriptsController = TranscriptsController(voice: voiceModels.settings, models: { [voiceModels, voiceModes] in
             let local = voiceModels.statuses.filter { $0.state == .ready && $0.entry.engine.recognizes }

@@ -1,0 +1,27 @@
+{
+ "version": 1,
+ "zero": [
+  {"suite": "flow.*", "metric": "fail"},
+  {"suite": "flow.*", "metric": "checksFailed"},
+  {"suite": "incidents", "status": "fixed", "metric": "fail"},
+  {"suite": "incidents", "status": "fixed", "metric": "checksFailed"}
+ ],
+ "noWorse": [
+  {"profile": "*", "metric": "harm"},
+  {"profile": "*", "metric": "harm.incidents"},
+  {"profile": "*", "metric": "silent"},
+  {"profile": "*", "metric": "botched"},
+  {"profile": "*", "metric": "disputed"},
+  {"profile": "*", "metric": "miss.layout"},
+  {"profile": "*", "metric": "exact", "direction": "up"},
+  {"suite": "class.*", "metric": "harm"},
+  {"suite": "protect.*", "metric": "harm"},
+  {"suite": "class.frequent", "metric": "miss.layout"},
+  {"suite": "typos.*", "metric": "fixed", "direction": "up"},
+  {"suite": "hyphen", "metric": "fixed", "direction": "up"},
+  {"suite": "yo", "metric": "fixed", "direction": "up"},
+  {"suite": "doublecap", "metric": "fixed", "direction": "up"}
+ ],
+ "accepted": [],
+ "targets": []
+}

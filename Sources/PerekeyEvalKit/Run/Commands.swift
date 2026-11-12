@@ -16,10 +16,12 @@ import PerekeyModelKit
 ///                         [--system machine|null|oracle] [--options <json>] [--settings <preset>]
 ///                         [--only <suite,...>] [--split dev|test|all]
 ///     perekey-eval case   --cases <files> --id <id> [--model <dir>] [--system ...] [--reveal-test]
-///     perekey-eval selfcheck --cases <files or directory> --model <dir> [--suites <dir> --cache <dir> --tier ci|full]
+///     perekey-eval selfcheck --cases <files or directory> --model <dir> [--suites <dir> --cache <dir> --tier ci|full [--built <dir>] [--rebuild <suite,...>]] [--mutants]
 ///     perekey-eval report <run dir> [--format text|md|html|json] [--out <file>] [--profile chat,dev,office]
 ///                         [--profiles <file>] [--slices] [--words N] [--reveal-test]
 ///     perekey-eval diff   <run A> <run B> [--format text|md|json] [--list N] [--reveal-test]
+///     perekey-eval gate   <head run> [<base run>] [--gates <file>] [--profiles <file>] [--cases <files or directory>]
+///                         [--format text|md|json] [--list N] [--stand-pr] [--out <file>]
 ///     perekey-eval learning run|sweep|vocabulary …   (Learning/LearningCommand.swift)
 ///
 /// `play` also takes `--cache <data cache>` (and `--lexicon <dir>`, `--data <dir>`, `--noise <dir>`) to score with
@@ -29,9 +31,9 @@ import PerekeyModelKit
 /// (docs/eval.md, «Личные наборы»); a run with one is written there, and its words are hashes everywhere.
 ///
 /// Every command takes `--layouts <dir>` (default eval/layouts). Exit status:
-/// 0 success, 1 a self-check failed, 2 bad input.
+/// 0 success, 1 a self-check failed or a bar is not taken, 2 bad input.
 public enum EvalCommands {
-    public static let names: Set<String> = ["cases", "play", "case", "selfcheck", "report", "diff", "learning"]
+    public static let names: Set<String> = ["cases", "play", "case", "selfcheck", "report", "diff", "gate", "learning"]
 
     public static func run(_ arguments: [String]) -> Int32 {
         do {
@@ -44,6 +46,7 @@ public enum EvalCommands {
             case "selfcheck": return try selfcheck(parsed)
             case "report": return try report(parsed)
             case "diff": return try diff(parsed)
+            case "gate": return try gate(parsed)
             case "learning": return try LearningCommand.run(&parsed)
             default: throw EvalError.input("unknown command \(command)")
             }
@@ -263,9 +266,9 @@ public enum EvalCommands {
     /// The cases of the files after `--only` and `--split`; every case must
     /// pass the checks, or nothing is played.
     static func selected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary,
-                         store: PrivateStore? = nil) throws -> [EvalCase] {
+                         split override: String? = nil, store: PrivateStore? = nil) throws -> [EvalCase] {
         let only = parsed.value("--only").map { Set($0.split(separator: ",").map(String.init)) }
-        let split = parsed.value("--split") ?? "all"
+        let split = override ?? parsed.value("--split") ?? "all"
         guard ["dev", "test", "all"].contains(split) else { throw EvalError.input("--split dev|test|all") }
         var items: [EvalCase] = []
         var problems: [String] = []
@@ -331,6 +334,48 @@ public enum EvalCommands {
         }
         try output(text, to: parsed.value("--out"), privately: privately ? try parsed.store() : nil)
         return 0
+    }
+
+    /// The bars of `eval/gates.json` over a run, and over a run against its base (docs/eval.md, «Планки»).
+    static func gate(_ parsed: Arguments) throws -> Int32 {
+        guard (1 ... 2).contains(parsed.positional.count) else { throw EvalError.input("gate: <head run> [<base run>]") }
+        let gates = try GateFile.read(parsed.value("--gates") ?? "eval/gates.json")
+        let profilesPath = parsed.value("--profiles") ?? "eval/profiles.json"
+        let profiles = FileManager.default.fileExists(atPath: profilesPath) ? try ProfileFile.read(profilesPath) : nil
+        var options = Gate.Options()
+        options.standPullRequest = parsed.flag("--stand-pr")
+        // The changed files, one per line: a pull request whose files all lie in the stand is a stand one.
+        if let changed = parsed.value("--changed") {
+            guard let data = FileManager.default.contents(atPath: changed) else { throw EvalError.input("no such file: \(changed)") }
+            let files = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init)
+            options.standPullRequest = options.standPullRequest || StandChange.isStand(files)
+        }
+        if let list = parsed.value("--list") { options.listed = try count(list, "--list") }
+        var statuses: [String: String] = [:]
+        if gates.zero.contains(where: { $0.status != nil }) {
+            let cases = parsed.value("--cases") ?? "eval/cases"
+            for (_, item) in try CaseFiles.read(try CaseFiles.expand([cases])) {
+                if let status = item.status { statuses[item.id] = status }
+            }
+        }
+        let head = try RunData.load(parsed.positional[0])
+        let base = try parsed.positional.count == 2 ? RunData.load(parsed.positional[1]) : nil
+        if let base, base.scorer != head.scorer {
+            throw EvalError.input("the runs were scored by different scorers (\(base.scorer) and \(head.scorer)); play them again")
+        }
+        let result = Gate.check(gates, head: head, base: base, profiles: profiles, statusOf: statuses, options: options)
+        let text: String
+        switch parsed.value("--format") ?? "text" {
+        case "text": text = GateRender.text(result)
+        case "md": text = GateRender.text(result, markdown: true)
+        case "json":
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
+            text = String(decoding: try encoder.encode(result), as: UTF8.self) + "\n"
+        default: throw EvalError.input("--format text|md|json")
+        }
+        try output(text, to: parsed.value("--out"))
+        return result.passed ? 0 : 1
     }
 
     /// A report or a diff of a personal run, or of a run whose folder lies in the store, is a file of the
@@ -501,21 +546,68 @@ public enum EvalCommands {
         if parsed.value("--suites") == nil {
             lines.append("5. cases built twice: skipped, no --suites")
         } else {
-            let settings = try BuildSettings(parsed)
+            let settings = try BuildSettings(parsed, ignoringOnly: true)
             var identical = 0
             let manifests = try settings.manifests()
+            // `--built <dir>`: the files an earlier `cases build` wrote there are the first build.
+            let earlier = try parsed.value("--built").map { try BuildSummary.read(directory: $0) }
+            // `--rebuild <suite,...>`: build only these suites a second time (a source that reads fast).
+            let rebuilt = parsed.value("--rebuild").map { Set($0.split(separator: ",").map(String.init)) }
+            var compared = 0
             for manifest in manifests {
-                let first = try builtSuite(manifest, settings: settings, library: library)
+                if parsed.flag("--skip-missing"), let missing = settings.missingSource(of: manifest) {
+                    lines.append("   \(manifest.suite): пропущен, нет источника \(missing)")
+                    continue
+                }
+                if let rebuilt, !rebuilt.contains(manifest.suite) { continue }
+                let first: (sha256: String, report: BuildReport)
+                if let earlier {
+                    guard let entry = earlier.suites.first(where: { $0.report.suite == manifest.suite }) else {
+                        lines.append("   \(manifest.suite): not in --built, not compared")
+                        continue
+                    }
+                    first = (entry.sha256, entry.report)
+                } else {
+                    let built = try builtSuite(manifest, settings: settings, library: library)
+                    first = (built.sha256, built.report)
+                }
                 let second = try builtSuite(manifest, settings: settings, library: library)
+                compared += 1
                 if first.sha256 == second.sha256, first.report == second.report {
                     identical += 1
                 } else {
                     failures.append("building \(manifest.suite) twice gives different bytes")
                 }
             }
-            lines.append("5. cases built twice (\(settings.tier.rawValue)): \(identical) of \(manifests.count) suites identical")
+            lines.append("5. cases built twice (\(settings.tier.rawValue)): \(identical) of \(compared) suites identical")
         }
         lines.append("6. cases pass the check: \(items.count)")
+
+        // 7. Every mutant of the machine shifts the count it must shift (docs/eval.md, «Мутанты»).
+        if parsed.flag("--mutants") {
+            // Both parts: a shift is read off counts, and more cases make the counts firm.
+            let mutantItems = try selected(files, parsed, library: library, split: "all")
+            var ordinaryConfig = config
+            ordinaryConfig.system = .machine
+            var ordinaryRunner = Runner(config: ordinaryConfig, library: library)
+            let ordinary = try mutantItems.filter { item in Mutants.all.contains { Mutants.covers($0, item) } }
+                .map { try ordinaryRunner.play($0).score }
+            for mutant in Mutants.all {
+                var mutated = config
+                mutated.system = .machine
+                mutated.optionsJSON = mutant.options
+                mutated.options = try mutant.options.map(ClassifierOptions.parse) ?? Classifier.Options()
+                mutated.settings = mutant.settings ?? config.settings
+                var runner = Runner(config: mutated, library: library)
+                let scores = try mutantItems.filter { Mutants.covers(mutant, $0) }.map { try runner.play($0).score }
+                for finding in Mutants.judge(mutant, ordinary: ordinary, mutated: scores) {
+                    lines.append("7. mutant " + finding.line)
+                    if finding.verdict == .fail { failures.append(finding.line) }
+                }
+            }
+        } else {
+            lines.append("7. mutants: skipped, no --mutants")
+        }
 
         for line in lines { EvalContext.out(line) }
         for failure in failures { EvalContext.out("FAIL: \(failure)") }
@@ -528,7 +620,7 @@ struct Arguments {
     var positional: [String] = []
     private var values: [String: [String]] = [:]
     private var flags: Set<String> = []
-    private static let booleans: Set<String> = ["--reveal-test", "--slices"]
+    private static let booleans: Set<String> = ["--reveal-test", "--slices", "--stand-pr", "--mutants", "--skip-missing"]
 
     init(_ arguments: [String]) throws {
         var current: String?
@@ -552,7 +644,7 @@ struct Arguments {
 
     /// The next word: a command or a subcommand.
     mutating func command() throws -> String {
-        guard !positional.isEmpty else { throw EvalError.input("usage: perekey-eval cases|play|case|selfcheck|report|diff|learning …") }
+        guard !positional.isEmpty else { throw EvalError.input("usage: perekey-eval cases|play|case|selfcheck|report|diff|gate|learning …") }
         return positional.removeFirst()
     }
 

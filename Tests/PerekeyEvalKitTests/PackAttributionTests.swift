@@ -249,4 +249,41 @@ import Testing
         #expect(capture.stderr.contains("social.ru/x") && capture.stderr.contains("t.suite"))
         #expect(!FileManager.default.fileExists(atPath: work + "/p.tar.zst"))
     }
+
+    // MARK: - the version of zstd
+
+    @Test func theVersionOfZstdIsReadFromTheTool() throws {
+        let version = try Zstd.version()
+        #expect(version.range(of: #"^\d+\.\d+\.\d+$"#, options: .regularExpression) != nil, "\(version)")
+    }
+
+    @Test func theReadmeNamesTheVersionAndTheTarHashSitsBesideTheArchive() throws {
+        let (cache, work) = try dump()
+        let result = pack(cache: cache, work: work, suites: try seSuites())
+        #expect(result.code == 0, "\(result.err)")
+        let version = try Zstd.version()
+        let readme = try String(contentsOfFile: try unpack(work) + "/README.md", encoding: .utf8)
+        #expect(readme.contains("zstd \(version)"), "the README names the zstd the hash was made with")
+        #expect(!readme.contains("{{"))
+        // The hash of the uncompressed tar is beside the archive (it cannot be inside the tar) and is the one of `zstd -d`.
+        let sidecar = try String(contentsOfFile: work + "/se.tar.zst.tar.sha256", encoding: .utf8)
+        let tar = try SuiteFixtures.capture(try Zstd.executable(), ["-dc", work + "/se.tar.zst"])
+        #expect(sidecar == "\(Runner.sha256(tar))  se.tar\n")
+        #expect(result.out.contains("zstd \(version)"))
+    }
+}
+
+extension SuiteFixtures {
+    /// The standard output of a tool.
+    static func capture(_ tool: String, _ arguments: [String]) throws -> Data {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return data
+    }
 }

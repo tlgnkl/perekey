@@ -74,7 +74,14 @@ public enum Gate {
     {
         var checks: [GateCheck] = []
         var notes: [String] = []
-        let headSuites = Set(head.rows.map(\.suite)).sorted()
+        // The rows stay in their table: a full run has millions of them, and the bars read a few counters of each.
+        let headRows = head.rows
+        let headSuites = headRows.distinctSuites
+        var rowsOfSuite: [Int: [Int]] = [:]
+        if !gates.zero.isEmpty {
+            for index in headRows.indices { rowsOfSuite[headRows.suiteNumber(at: index), default: []].append(index) }
+        }
+        let numberOfSuite = Dictionary(headRows.suiteNames.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
 
         for rule in gates.zero {
             let suites = headSuites.filter { GateMetric.matches(rule.suite!, $0) }
@@ -85,16 +92,23 @@ public enum Gate {
                 checks.append(check)
                 continue
             }
-            let path = GateMetric.counts[rule.metric]!
+            let value = headRows.counter(GateMetric.counts[rule.metric]!)
             for suite in suites {
-                let rows = head.rows.filter { $0.suite == suite && (rule.status == nil || statusOf[$0.id] == rule.status) }
-                let total = rows.reduce(0) { $0 + $1.metrics[keyPath: path] }
-                let broken = rows.filter { $0.metrics[keyPath: path] > 0 }.sorted { $0.id < $1.id }
+                var total = 0
+                var broken: [Int] = []
+                for index in rowsOfSuite[numberOfSuite[suite]!] ?? []
+                where rule.status == nil || statusOf[headRows.id(at: index)] == rule.status
+                {
+                    let count = value(index)
+                    total += count
+                    if count > 0 { broken.append(index) }
+                }
+                broken.sort { headRows.id(at: $0) < headRows.id(at: $1) }
                 var check = GateCheck(kind: "zero", metric: rule.metric, scope: suite, direction: "down", head: Double(total),
                                       base: nil, verdict: total == 0 ? .pass : .fail, note: rule.status.map { "статус \($0)" },
                                       accepted: nil, cases: [], more: 0)
                 if total != 0 {
-                    check.cases = broken.prefix(options.listed).map { GateCase(id: $0.id, head: Double($0.metrics[keyPath: path]), base: nil) }
+                    check.cases = broken.prefix(options.listed).map { GateCase(id: headRows.id(at: $0), head: Double(value($0)), base: nil) }
                     check.more = max(0, broken.count - options.listed)
                     apply(gates.accepted, to: &check)
                 }
@@ -103,21 +117,37 @@ public enum Gate {
         }
 
         if let base {
-            let commonIDs = Set(head.rows.map(\.id)).intersection(base.rows.map(\.id))
-            let headRows = head.rows.filter { commonIDs.contains($0.id) }
-            let baseByID = Dictionary(base.rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            let baseRows = base.rows.filter { commonIDs.contains($0.id) }
-            let common = Set(headRows.map(\.suite)).intersection(baseRows.map(\.suite)).sorted()
-            if head.rows.count != commonIDs.count || base.rows.count != commonIDs.count {
-                notes.append("общих случаев \(commonIDs.count); только в голове \(head.rows.count - commonIDs.count), только в базе \(base.rows.count - commonIDs.count)")
+            let baseRows = base.rows
+            // The first row of each id; a head row is «common» when the base has its id, and its base row is the first of that id.
+            func firstRows(_ table: RowTable) -> [String: Int] {
+                var result: [String: Int] = [:]
+                result.reserveCapacity(table.count)
+                for index in table.indices where result[table.id(at: index)] == nil { result[table.id(at: index)] = index }
+                return result
+            }
+            let baseFirst = firstRows(baseRows)
+            let headFirst = firstRows(headRows)
+            let commonCount = headFirst.keys.reduce(0) { baseFirst[$1] != nil ? $0 + 1 : $0 }
+            var pairs: [(head: Int, base: Int)] = []
+            for index in headRows.indices {
+                if let other = baseFirst[headRows.id(at: index)] { pairs.append((index, other)) }
+            }
+            var headCommonSuites = Set<Int>(), baseCommonSuites = Set<Int>()
+            for pair in pairs { headCommonSuites.insert(headRows.suiteNumber(at: pair.head)) }
+            for index in baseRows.indices where headFirst[baseRows.id(at: index)] != nil {
+                baseCommonSuites.insert(baseRows.suiteNumber(at: index))
+            }
+            let common = Set(headCommonSuites.map { headRows.suiteNames[$0] })
+                .intersection(baseCommonSuites.map { baseRows.suiteNames[$0] }).sorted()
+            if headRows.count != commonCount || baseRows.count != commonCount {
+                notes.append("общих случаев \(commonCount); только в голове \(headRows.count - commonCount), только в базе \(baseRows.count - commonCount)")
             }
             // A head that lost cases of the base compares less than the base: the cases vanished, the bars did not see them.
             // A stand pull request may drop or rename cases; it is only noted above.
-            let headIDs = Set(head.rows.map(\.id))
-            let lost = base.rows.map(\.id).filter { !headIDs.contains($0) }.sorted()
+            let lost = baseRows.indices.map { baseRows.id(at: $0) }.filter { headFirst[$0] == nil }.sorted()
             if !lost.isEmpty, !options.standPullRequest {
-                checks.append(GateCheck(kind: "coverage", metric: "cases", scope: "all", direction: "down", head: Double(commonIDs.count),
-                                        base: Double(base.rows.count), verdict: .fail, note: "у головы нет случаев базы", accepted: nil,
+                checks.append(GateCheck(kind: "coverage", metric: "cases", scope: "all", direction: "down", head: Double(commonCount),
+                                        base: Double(baseRows.count), verdict: .fail, note: "у головы нет случаев базы", accepted: nil,
                                         cases: lost.prefix(options.listed).map { GateCase(id: $0, head: 0, base: 1) },
                                         more: max(0, lost.count - options.listed)))
             }
@@ -152,23 +182,24 @@ public enum Gate {
                         groups.append(("profile:\(name)", present.mapValues { $0 / sum }))
                     }
                 }
+                let headValue = headRows.counter(path), baseValue = baseRows.counter(path)
                 for (scope, weights) in groups {
-                    let rows = headRows.filter { weights[$0.suite] != nil }
+                    let weightOfNumber = headRows.suiteNames.map { weights[$0] }
                     var headSum = 0.0, baseSum = 0.0
-                    var moved: [(id: String, head: Double, base: Double)] = []
-                    for row in rows {
-                        let weight = weights[row.suite]!
-                        let h = Double(row.metrics[keyPath: path]), b = Double(baseByID[row.id]!.metrics[keyPath: path])
+                    var moved: [(index: Int, head: Double, base: Double)] = []
+                    for pair in pairs {
+                        guard let weight = weightOfNumber[headRows.suiteNumber(at: pair.head)] else { continue }
+                        let h = Double(headValue(pair.head)), b = Double(baseValue(pair.base))
                         headSum += weight * h
                         baseSum += weight * b
-                        if rule.up ? h < b : h > b { moved.append((row.id, h, b)) }
+                        if rule.up ? h < b : h > b { moved.append((pair.head, h, b)) }
                     }
                     let broke = rule.up ? baseSum - headSum > options.epsilon : headSum - baseSum > options.epsilon
                     var check = GateCheck(kind: "noWorse", metric: rule.metric, scope: scope, direction: direction, head: headSum,
                                           base: baseSum, verdict: broke ? .fail : .pass, note: nil, accepted: nil, cases: [], more: 0)
                     if broke {
-                        moved.sort { $0.id < $1.id }
-                        check.cases = moved.prefix(options.listed).map { GateCase(id: $0.id, head: $0.head, base: $0.base) }
+                        moved.sort { headRows.id(at: $0.index) < headRows.id(at: $1.index) }
+                        check.cases = moved.prefix(options.listed).map { GateCase(id: headRows.id(at: $0.index), head: $0.head, base: $0.base) }
                         check.more = max(0, moved.count - options.listed)
                         apply(gates.accepted, to: &check)
                         if check.verdict == .fail, options.standPullRequest { check.verdict = .shown }

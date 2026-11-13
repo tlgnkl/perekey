@@ -120,15 +120,17 @@ public enum ReportBuilder {
 
         if run.info.personal == true { notes.append("личный набор: слова в файлах прогона — хэши, соль у владельца") }
 
-        let key = { (row: RunData.Row) in [row.suite, row.scenario] }
+        // The groups hold positions, not rows: a row is made from the table when it is read.
         var order: [[String]] = []
-        var grouped: [[String]: [RunData.Row]] = [:]
-        for row in run.rows {
-            if grouped[key(row)] == nil { order.append(key(row)) }
-            grouped[key(row), default: []].append(row)
+        var grouped: [[String]: [Int]] = [:]
+        for index in run.rows.indices {
+            let row = run.rows[index]
+            let key = [row.suite, row.scenario]
+            if grouped[key] == nil { order.append(key) }
+            grouped[key, default: []].append(index)
         }
         let groups = order.sorted { $0.lexicographicallyPrecedes($1) }.map { name in
-            groupRow(name[0], name[1], grouped[name]!, options.stats)
+            groupRow(name[0], name[1], grouped[name]!.lazy.map { run.rows[$0] }, options.stats)
         }
         let total = groupRow("итого", "", run.rows, options.stats)
 
@@ -158,7 +160,7 @@ public enum ReportBuilder {
             .map { WordLine(word: $0.word, split: $0.split, occurrences: $0.occurrences, harm: $0.harm, miss: $0.miss,
                             botched: $0.botched, weight: $0.errorWeight) }
 
-        let protectedRows = run.rows.filter { $0.suite.hasPrefix(protectivePrefix) }
+        let protectedRows = run.rows.indices.filter { run.rows.suite(at: $0).hasPrefix(protectivePrefix) }.map { run.rows[$0] }
         var protective: Estimate?
         if !protectedRows.isEmpty {
             protective = Estimator.estimates(of: protectedRows, options: options.stats)[.harm]
@@ -181,7 +183,7 @@ public enum ReportBuilder {
         }
         return ReportData(
             system: run.info.system, commit: run.info.commit, models: run.info.models, tier: run.info.tier,
-            epochs: Array(Set(run.rows.map(\.epoch))).sorted(), settings: run.info.settings, options: run.info.options,
+            epochs: Array(Set(run.rows.lazy.map(\.epoch))).sorted(), settings: run.info.settings, options: run.info.options,
             scorer: run.scorer, testRevealed: reveal && run.info.testRevealed, profiles: profiles, groups: groups,
             total: total, worst: worst, words: Array(shown), seen: slices.features["seen"] ?? [:],
             reasons: slices.features["reason"] ?? [:], margins: slices.features["margin"] ?? [:], features: features,
@@ -189,7 +191,7 @@ public enum ReportBuilder {
         )
     }
 
-    static func groupRow(_ suite: String, _ scenario: String, _ rows: [RunData.Row], _ stats: Stats.Options) -> GroupRow {
+    static func groupRow(_ suite: String, _ scenario: String, _ rows: some Collection<RunData.Row>, _ stats: Stats.Options) -> GroupRow {
         var total = Metrics()
         var lagSum = 0, lagCount = 0
         for row in rows {

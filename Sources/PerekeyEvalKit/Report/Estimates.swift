@@ -101,7 +101,7 @@ extension Metrics {
 /// from the bootstrap over the cases (plan, 10.3).
 enum Estimator {
     /// Every measure of the cases in one set of resamples.
-    static func estimates(of rows: [RunData.Row], options: Stats.Options = Stats.Options()) -> [Measure: Estimate] {
+    static func estimates(of rows: some Collection<RunData.Row>, options: Stats.Options = Stats.Options()) -> [Measure: Estimate] {
         var total = Metrics()
         var sample = Stats.Sample(channels: Measure.channelCount)
         for row in rows {

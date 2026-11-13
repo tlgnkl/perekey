@@ -66,7 +66,7 @@ enum ProfileEstimator {
         var restFallbackPrefixes = ["slip."]
     }
 
-    static func row(_ name: String, weights: [String: Double], rows: [RunData.Row], options: Options = Options(),
+    static func row(_ name: String, weights: [String: Double], rows: some Collection<RunData.Row>, options: Options = Options(),
                     stats: Stats.Options = Stats.Options()) -> ProfileRow
     {
         let suites = weights.keys.sorted()

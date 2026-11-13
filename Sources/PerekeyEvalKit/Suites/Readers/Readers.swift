@@ -38,7 +38,8 @@ public enum LineStream {
             if line.last == 0x0D { line = line.dropLast() }
             if try !body(Array(line)) { stopped = true }
         }
-        reading: while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+        // The pool around `read`: its buffers are autoreleased and a loop over a big source never drains them.
+        reading: while let chunk = try autoreleasepool(invoking: { try handle.read(upToCount: 1 << 20) }), !chunk.isEmpty {
             buffer.append(contentsOf: chunk)
             // The line ends, found with memchr; the used part goes once per chunk.
             var ends: [Int] = []

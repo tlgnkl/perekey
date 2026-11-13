@@ -503,7 +503,8 @@ public enum EvalCommands {
         // 6. Every case passes the checks.
         var problems = 0
         let store = try parsed.store()
-        for (file, item) in try CaseFiles.read(files, store: store) {
+        // One case at a time: all the files together are gigabytes.
+        try CaseFiles.forEach(files, store: store) { file, item in
             let found = CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
             for problem in found { failures.append("\(file): \(shown(item, store)): \(problem)") }
             problems += found.isEmpty ? 0 : 1
@@ -615,10 +616,10 @@ public enum EvalCommands {
                     }
                     first = (entry.sha256, entry.report)
                 } else {
-                    let built = try builtSuite(manifest, settings: settings, library: library)
+                    let built = try streamedSuite(manifest, settings: settings, library: library)
                     first = (built.sha256, built.report)
                 }
-                let second = try builtSuite(manifest, settings: settings, library: library)
+                let second = try streamedSuite(manifest, settings: settings, library: library)
                 compared += 1
                 if first.sha256 == second.sha256, first.report == second.report {
                     identical += 1

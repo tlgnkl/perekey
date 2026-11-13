@@ -17,10 +17,12 @@ public protocol AppPlatform {
 ///                      [--dry-run]
 ///
 /// Exit status: 0 played, 2 bad input, 3 the screen is locked, 4 someone used the keyboard or the mouse
-/// (or the machine does not say), 5 the app is not in front.
+/// (or the machine does not say), 5 the app is not in front, 6 any other error in the middle of the run
+/// (what was played is written, `app.json` says why it stopped).
 public enum AppCommand {
     /// The apps that have a driver, by the name on the command line.
     public static let apps: [String: String] = ["TextEdit": "com.apple.TextEdit"]
+    static let brokeExitCode: Int32 = 6
 
     public static func run(_ arguments: [String], platform: any AppPlatform) -> Int32 {
         do {
@@ -61,7 +63,12 @@ public enum AppCommand {
         if let limit = try parsed.value("--limit").map({ text -> Int in
             guard let number = Int(text), number > 0 else { throw EvalError.input("--limit needs a positive number") }
             return number
-        }) { playable = Array(playable.prefix(limit)) }
+        }), playable.count > limit {
+            // The cut cases are counted like the others that are left out, so the numbers of the report
+            // and `app.json` add up.
+            skipped["limit"] = playable.count - limit
+            playable = Array(playable.prefix(limit))
+        }
 
         let typist = Typist()
         var seconds = 0.0
@@ -81,7 +88,12 @@ public enum AppCommand {
             EvalContext.out("note: the enabled layouts are not known; the layout of the cases is not checked")
         }
 
-        var input = InputGuard(probe: platform.probe)
+        let input = InputGuard(probe: platform.probe)
+        if input.probe.lastHumanKey == nil {
+            EvalContext.out("note: no listen-only tap on the keyboard (Input Monitoring is not given to this terminal): "
+                + "a person who types between two keys of the bench is not seen when the pace is above one key a second; "
+                + "the mouse is watched all the same")
+        }
         if dry {
             do {
                 try input.check(app: bundle)
@@ -102,16 +114,20 @@ public enum AppCommand {
         var runner = Runner(config: config, library: library)
         var scores: [CaseScore] = []
         var records: [AppRun.Played] = []
-        var aborted: InputGuard.Refusal?
+        var aborted: (reason: String, exitCode: Int32)?
         for item in playable {
             do {
                 let played = try runner.playApp(item) { item, events in
-                    try system.run(item, events: events, library: library, input: &input, app: bundle)
+                    try system.run(item, events: events, library: library, input: input, app: bundle)
                 }
                 scores.append(played.score)
                 records.append(AppRun.played(item, played.out, reveal: config.revealTest))
             } catch let refusal as InputGuard.Refusal {
-                aborted = refusal
+                aborted = ("\(refusal)", refusal.exitCode)
+                break
+            } catch {
+                // Whatever broke in the middle: what was played stays on disk, with the reason.
+                aborted = ("\(item.id): \(error)", Self.brokeExitCode)
                 break
             }
         }
@@ -122,10 +138,10 @@ public enum AppCommand {
             tier: nil, testRevealed: config.revealTest
         )
         try RunFiles.write(scores, info: info, to: out)
-        try AppRun(app: bundle, skipped: skipped, played: records, aborted: aborted?.description).write(to: out)
+        try AppRun(app: bundle, skipped: skipped, played: records, aborted: aborted?.reason).write(to: out)
         EvalContext.out(Console.summary(Summary(scores)), terminator: "")
         if let aborted {
-            EvalContext.err("perekey-e2e: stopped after \(records.count) of \(playable.count) cases: \(aborted)")
+            EvalContext.err("perekey-e2e: stopped after \(records.count) of \(playable.count) cases: \(aborted.reason)")
             return aborted.exitCode
         }
         return 0

@@ -65,6 +65,14 @@ public struct FidelityReport: Sendable {
     /// Cases of the run that were not in the files given, or whose machine text is missing.
     public var unmatched: Int
 
+    /// What the report says of the aim. A run that played nothing, or stopped early with the rate inside the
+    /// aim, never says «taken»: it has not shown the aim is met.
+    public var verdict: String {
+        if played == 0 { return "NOT taken (nothing played)" }
+        if rate > Self.aim { return aborted == nil ? "NOT taken" : "NOT taken (the run is incomplete)" }
+        return aborted == nil ? "taken" : "incomplete (the run stopped early; the aim is not shown)"
+    }
+
     public var differingTexts: Int { differences.filter(\.textDiffers).count }
     public var rate: Double { played == 0 ? 0 : Double(differingTexts) / Double(played) }
 
@@ -106,7 +114,7 @@ public struct FidelityReport: Sendable {
         lines.append("")
         let percent = String(format: "%.2f", rate * 100)
         lines.append("played \(played), final text differs in \(differingTexts) (\(percent) %), aim ≤ \(Int(Self.aim * 100)) %: "
-            + (rate <= Self.aim ? "taken" : "NOT taken"))
+            + verdict)
         let skippedTotal = skipped.values.reduce(0, +)
         lines.append("not played \(skippedTotal)" + (skipped.isEmpty ? "" : ": "
             + skipped.keys.sorted().map { "\($0) \(skipped[$0]!)" }.joined(separator: ", ")))

@@ -6,6 +6,8 @@ import PerekeyDesk
 import Testing
 @testable import PerekeyEvalKit
 
+struct FakeFailure: Error, CustomStringConvertible { var description: String }
+
 /// A machine that is only a script: what the guard reads, what the driver was told to do.
 final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     var locked = false
@@ -25,13 +27,30 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     /// Runs when the n-th case is prepared.
     var onPrepare: ((Int) -> Void)?
     var lastOwn: Double?
+    /// The clock at which a person moved the mouse; nil: nobody did.
+    var mouseTouched: Double?
+    /// The clock at which a person pressed a key, as the listen-only tap sees it; nil: nobody did.
+    var humanKeyAt: Double?
+    /// Whether the machine has the tap (Input Monitoring given).
+    var watched = true
+    /// The front app reads wrong at this one reading (counted from 1 over `checks`), and right again after it.
+    var wrongFrontOnCall: Int?
+    var checks = 0
+    /// How many of the guarded steps of `prepare` went through.
+    var prepareSteps = 0
 
     var probe: InputGuard.Probe {
         InputGuard.Probe(
             screenLocked: { self.locked },
             idleSeconds: { self.lastOwn.map { min(self.idle ?? .infinity, self.clock - $0) } ?? self.idle },
-            frontmostApp: { self.front },
-            now: { self.clock }
+            frontmostApp: {
+                self.checks += 1
+                return self.checks == self.wrongFrontOnCall ? "com.apple.Terminal" : self.front
+            },
+            now: { self.clock },
+            // A mouse nobody touched has been still longer than the run has lasted.
+            mouseIdleSeconds: { self.mouseTouched.map { self.clock - $0 } ?? 600 + self.clock - 1000 },
+            lastHumanKey: watched ? { self.humanKeyAt } : nil
         )
     }
 
@@ -42,15 +61,25 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
         return self
     }
 
-    func prepare(start: String) throws {
+    func prepare(start: String, beforePost: () throws -> Void) throws {
+        // As the real one: the guard before each of the two keys of Escape and before the choice of layout.
+        try beforePost()
+        prepareSteps += 1
+        lastOwn = clock
+        try beforePost()
+        prepareSteps += 1
+        try beforePost()
+        prepareSteps += 1
         prepared.append(start)
         layout = start
-        // The real `prepare` ends with a key of its own: the idle time is zero after it.
-        lastOwn = clock
         onPrepare?(prepared.count)
     }
 
+    /// The n-th action fails with an error that is not the guard's.
+    var failOnAction: Int?
+
     func perform(_ action: AppAction) throws {
+        if failOnAction == actions.count + 1 { throw FakeFailure(description: "the app did not answer") }
         actions.append(action)
         lastOwn = clock
         if let after, actions.count == after.count { after.run() }
@@ -74,7 +103,7 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     @Test func aLockedScreenStopsTheRunAndNothingIsPosted() throws {
         let machine = FakeMachine()
         machine.locked = true
-        var input = makeGuard(machine)
+        let input = makeGuard(machine)
         #expect(throws: InputGuard.Refusal.screenLocked) { try input.check(app: Self.app) }
         #expect(InputGuard.Refusal.screenLocked.exitCode == 3)
         #expect(machine.actions.isEmpty)
@@ -83,7 +112,7 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     @Test func aPersonAtTheKeyboardStopsTheRun() throws {
         let machine = FakeMachine()
         machine.idle = 9.9
-        var input = makeGuard(machine)
+        let input = makeGuard(machine)
         #expect(throws: InputGuard.Refusal.humanActive(idle: 9.9)) { try input.check(app: Self.app) }
         #expect(InputGuard.Refusal.humanActive(idle: 9.9).exitCode == 4)
         machine.idle = 10.5
@@ -93,38 +122,89 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     @Test func aMachineThatDoesNotSayHowLongItIsIdleIsNotTrusted() throws {
         let machine = FakeMachine()
         machine.idle = nil
-        var input = makeGuard(machine)
+        let input = makeGuard(machine)
         #expect(throws: InputGuard.Refusal.idleUnknown) { try input.check(app: Self.app) }
     }
 
     @Test func theBenchsOwnKeysAreNotAPerson() throws {
         let machine = FakeMachine()
-        var input = makeGuard(machine)
-        try input.check(app: Self.app)
+        let input = makeGuard(machine)
+        try input.beforePost(app: Self.app)
         // The key just posted makes the idle time zero; a person did not do it.
         try machine.perform(.keyDown(code: 0, flags: 0))
-        input.posted()
         machine.clock += 0.05
-        try input.check(app: Self.app)
+        try input.beforePost(app: Self.app)
         machine.clock += 3
-        try input.check(app: Self.app)
+        try input.beforePost(app: Self.app)
     }
 
     @Test func aPersonAfterTheBenchsLastKeyIsSeen() throws {
         let machine = FakeMachine()
-        var input = makeGuard(machine)
+        machine.watched = false
+        let input = makeGuard(machine)
+        try input.beforePost(app: Self.app)
         try machine.perform(.keyDown(code: 0, flags: 0))
-        input.posted()
         machine.clock += 5
-        // Someone touched the mouse 1 s ago: the idle time is 1 s, the last key of the bench was 5 s ago.
+        // Someone pressed a key 1 s ago: the idle time is 1 s, the last key of the bench was 5 s ago.
         machine.idle = 1
         #expect(throws: InputGuard.Refusal.humanActive(idle: 1)) { try input.check(app: Self.app) }
+    }
+
+    @Test func withoutATapAKeyBetweenFastKeysOfTheBenchIsNotSeen() throws {
+        // The limit of the fallback, said in docs/eval.md: a key every 0.1 s keeps the idle time under
+        // the slack, so a person's key among them changes nothing the guard reads.
+        let machine = FakeMachine()
+        machine.watched = false
+        let input = makeGuard(machine)
+        for _ in 0..<20 {
+            try input.beforePost(app: Self.app)
+            try machine.perform(.keyDown(code: 0, flags: 0))
+            machine.clock += 0.1
+        }
+        machine.idle = 0.05
+        try input.beforePost(app: Self.app)
+    }
+
+    @Test func theMouseIsSeenAtAnyPaceWithNoSlack() throws {
+        let machine = FakeMachine()
+        machine.watched = false
+        let input = makeGuard(machine)
+        try input.beforePost(app: Self.app)
+        for _ in 0..<5 {
+            machine.clock += 0.05
+            try input.beforePost(app: Self.app)
+            try machine.perform(.keyDown(code: 0, flags: 0))
+        }
+        machine.mouseTouched = machine.clock
+        machine.clock += 0.05
+        #expect(throws: InputGuard.Refusal.self) { try input.beforePost(app: Self.app) }
+    }
+
+    @Test func aKeyOfAPersonSeenByTheTapStopsTheRunAtAnyPace() throws {
+        let machine = FakeMachine()
+        let input = makeGuard(machine)
+        for _ in 0..<5 {
+            try input.beforePost(app: Self.app)
+            try machine.perform(.keyDown(code: 0, flags: 0))
+            machine.clock += 0.05
+        }
+        machine.humanKeyAt = machine.clock - 0.02
+        #expect(throws: InputGuard.Refusal.self) { try input.check(app: Self.app) }
+    }
+
+    @Test func aKeyOfAPersonBeforeTheRunIsLeftToTheQuietCheck() throws {
+        let machine = FakeMachine()
+        machine.humanKeyAt = machine.clock - 30
+        let input = makeGuard(machine)
+        try input.beforePost(app: Self.app)
+        machine.clock += 1
+        try input.beforePost(app: Self.app)
     }
 
     @Test func anotherAppInFrontStopsTheRun() throws {
         let machine = FakeMachine()
         machine.front = "com.apple.Terminal"
-        var input = makeGuard(machine)
+        let input = makeGuard(machine)
         let refusal = InputGuard.Refusal.wrongApp(expected: Self.app, actual: "com.apple.Terminal")
         #expect(throws: refusal) { try input.check(app: Self.app) }
         #expect(refusal.exitCode == 5)
@@ -136,7 +216,7 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
         machine.locked = true
         machine.idle = 0
         machine.front = nil
-        var input = makeGuard(machine)
+        let input = makeGuard(machine)
         #expect(throws: InputGuard.Refusal.screenLocked) { try input.check(app: Self.app) }
     }
 }
@@ -256,9 +336,9 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     @Test func theEventsAreGivenToTheAppAtTheirTimes() throws {
         let machine = FakeMachine()
         machine.text = "привет "
-        var guardian = input(machine)
+        let guardian = input(machine)
         let events = try Typist().events(for: item(), layouts: Repo.library)
-        let result = try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: &guardian, app: app)
+        let result = try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: guardian, app: app)
         #expect(result.text == "привет ")
         #expect(machine.prepared == ["com.apple.keylayout.ABC"])
         // Seven keys, each with a key down and a key up.
@@ -272,10 +352,10 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     @Test func aLockedScreenPostsNoKeyAndDoesNotTouchTheField() throws {
         let machine = FakeMachine()
         machine.locked = true
-        var guardian = input(machine)
+        let guardian = input(machine)
         let events = try Typist().events(for: item(), layouts: Repo.library)
         #expect(throws: InputGuard.Refusal.screenLocked) {
-            try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: &guardian, app: app)
+            try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: guardian, app: app)
         }
         #expect(machine.actions.isEmpty)
         #expect(machine.prepared.isEmpty)
@@ -284,10 +364,10 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
     @Test func theScreenLockedInTheMiddleOfACaseStopsTheNextKey() throws {
         let machine = FakeMachine()
         machine.after = (3, { machine.locked = true })
-        var guardian = input(machine)
+        let guardian = input(machine)
         let events = try Typist().events(for: item(), layouts: Repo.library)
         #expect(throws: InputGuard.Refusal.screenLocked) {
-            try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: &guardian, app: app)
+            try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: guardian, app: app)
         }
         // The key down and up of the event in hand are one event; the one after it is not posted.
         #expect(machine.actions.count <= 4)
@@ -295,24 +375,126 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
 
     @Test func aPersonTouchingTheKeyboardInTheMiddleStopsTheNextKey() throws {
         let machine = FakeMachine()
+        machine.watched = false
         let item = Cases.make([.type("привет ", on: "Russian"), .wait(3), .type("мир ", on: "Russian")], want: "привет мир")
         let events = try Typist().events(for: item, layouts: Repo.library)
         // The person touches the mouse during the wait: the idle time falls under the time since the last key.
         machine.after = (14, { machine.idle = 0.1 })
-        var guardian = input(machine)
+        let guardian = input(machine)
         #expect(throws: InputGuard.Refusal.humanActive(idle: 0.1)) {
-            try AppSystem(driver: machine).run(item, events: events, library: Repo.library, input: &guardian, app: app)
+            try AppSystem(driver: machine).run(item, events: events, library: Repo.library, input: guardian, app: app)
         }
         #expect(machine.actions.count == 14)
+    }
+
+    /// Keys 50 ms apart: faster than the one a second the fallback sees.
+    func fast() -> EvalCase {
+        var item = Cases.make([.type("привет мир ", on: "Russian")], want: "привет мир")
+        item.env = Env(pace: .burst)
+        return item
+    }
+
+    @Test func aPersonPressingAKeyInTheMiddleOfAFastCaseStopsTheNextKey() throws {
+        let machine = FakeMachine()
+        let item = fast()
+        let events = try Typist().events(for: item, layouts: Repo.library)
+        machine.after = (10, { machine.humanKeyAt = machine.clock })
+        let guardian = input(machine)
+        #expect(throws: InputGuard.Refusal.self) {
+            try AppSystem(driver: machine).run(item, events: events, library: Repo.library, input: guardian, app: app)
+        }
+        #expect(machine.actions.count == 10)
+    }
+
+    @Test func aMouseTouchedInTheMiddleOfAFastCaseStopsTheNextKey() throws {
+        let machine = FakeMachine()
+        machine.watched = false
+        let item = fast()
+        let events = try Typist().events(for: item, layouts: Repo.library)
+        machine.after = (10, { machine.mouseTouched = machine.clock })
+        let guardian = input(machine)
+        #expect(throws: InputGuard.Refusal.self) {
+            try AppSystem(driver: machine).run(item, events: events, library: Repo.library, input: guardian, app: app)
+        }
+        #expect(machine.actions.count == 10)
+    }
+
+    @Test func theGuardIsAskedBeforeEveryKeyOfAnEventAndInsidePrepare() throws {
+        let machine = FakeMachine()
+        // Three keys of prepare, then the keys of the case: the lock comes after the key down of an arrow, so
+        // its key up (the second action of the same event) must not go out.
+        let item = Cases.make([.type("привет ", on: "Russian"), .key(.left, n: 1, mods: nil)], want: "привет")
+        let events = try Typist().events(for: item, layouts: Repo.library)
+        machine.after = (15, { machine.locked = true })
+        let guardian = input(machine)
+        #expect(throws: InputGuard.Refusal.screenLocked) {
+            try AppSystem(driver: machine).run(item, events: events, library: Repo.library, input: guardian, app: app)
+        }
+        #expect(machine.actions.count == 15)
+    }
+
+    @Test func aRefusalInsidePrepareStopsTheStepsThatFollowIt() throws {
+        let machine = FakeMachine()
+        // Readings of the front app: 1 the look before `prepare`, 2 and 3 the two keys of Escape, 4 the choice
+        // of the layout. The fourth reads wrong.
+        machine.wrongFrontOnCall = 4
+        let guardian = input(machine)
+        let events = try Typist().events(for: item(), layouts: Repo.library)
+        #expect(throws: InputGuard.Refusal.wrongApp(expected: app, actual: "com.apple.Terminal")) {
+            try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: guardian, app: app)
+        }
+        #expect(machine.prepareSteps == 2)
+        #expect(machine.prepared.isEmpty && machine.actions.isEmpty)
+    }
+
+    func selecting() -> EvalCase {
+        Cases.make([.type("привет ", on: "Russian"), .select(3)], want: "привет")
+    }
+
+    /// The actions of a whole play of `selecting()` and the index of the one that puts Shift down.
+    func shiftDownIndex(_ item: EvalCase, _ events: [TypedEvent]) throws -> Int {
+        let dry = FakeMachine()
+        _ = try AppSystem(driver: dry).run(item, events: events, library: Repo.library, input: input(dry), app: app)
+        return dry.actions.firstIndex { if case let .modifier(_, flags) = $0 { flags != 0 } else { false } }!
+    }
+
+    @Test func aRefusalInTheMiddleOfASelectionLetsGoOfShiftWhenTheGuardLetsTheBenchPost() throws {
+        let machine = FakeMachine()
+        let item = selecting()
+        let events = try Typist().events(for: item, layouts: Repo.library)
+        let down = try shiftDownIndex(item, events)
+        // Right after the key down of Shift a window comes in front for one reading and goes: the next
+        // key is refused, the one after it would pass.
+        machine.after = (down + 2, { machine.wrongFrontOnCall = machine.checks + 1 })
+        let guardian = input(machine)
+        #expect(throws: InputGuard.Refusal.self) {
+            try AppSystem(driver: machine).run(item, events: events, library: Repo.library, input: guardian, app: app)
+        }
+        #expect(machine.actions.count == down + 3)
+        #expect(machine.actions.last == .modifier(code: 56, flags: 0))
+    }
+
+    @Test func aRefusalInTheMiddleOfASelectionSendsNothingWhileTheGuardStaysShut() throws {
+        let machine = FakeMachine()
+        let item = selecting()
+        let events = try Typist().events(for: item, layouts: Repo.library)
+        let down = try shiftDownIndex(item, events)
+        machine.after = (down + 2, { machine.locked = true })
+        let guardian = input(machine)
+        #expect(throws: InputGuard.Refusal.screenLocked) {
+            try AppSystem(driver: machine).run(item, events: events, library: Repo.library, input: guardian, app: app)
+        }
+        // Shift is still down in the system, and the bench posts nothing more: the screen is locked.
+        #expect(machine.actions.count == down + 2)
     }
 
     @Test func theFirstCaseNeedsAQuietKeyboard() throws {
         let machine = FakeMachine()
         machine.idle = 3
-        var guardian = input(machine)
+        let guardian = input(machine)
         let events = try Typist().events(for: item(), layouts: Repo.library)
         #expect(throws: InputGuard.Refusal.humanActive(idle: 3)) {
-            try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: &guardian, app: app)
+            try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: guardian, app: app)
         }
         #expect(machine.actions.isEmpty)
     }
@@ -428,6 +610,22 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
         #expect(result.err.contains("stopped after 1 of 2 cases"))
     }
 
+    @Test func anyErrorInTheMiddleKeepsWhatWasPlayedAndEndsWithItsOwnCode() throws {
+        let directory = temp("broke")
+        let file = try cases(sample, in: directory)
+        let machine = FakeMachine()
+        // The second case fails on its sixth key: the first case is played, the run stops.
+        machine.failOnAction = 14 + 6
+        let result = run(["play", "--cases", file, "--out", directory + "/run"], on: machine)
+        #expect(result.status == 6)
+        #expect(result.err.contains("the app did not answer"))
+        #expect(result.err.contains("stopped after 1 of 2 cases"))
+        let record = try AppRun.read(from: directory + "/run")
+        #expect(record.played.count == 1)
+        #expect(record.aborted?.contains("the app did not answer") == true)
+        #expect(FileManager.default.fileExists(atPath: directory + "/run/run.json"))
+    }
+
     @Test func theTestPartKeepsOnlyTheHashOfTheText() throws {
         var item = Cases.make([.type("привет ", on: "Russian")], want: "привет", suite: "flow.test")
         item.split = .test
@@ -463,7 +661,11 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
         let machine = FakeMachine()
         let result = run(["play", "--cases", file, "--out", directory + "/run", "--limit", "1"], on: machine)
         #expect(result.status == 0)
-        #expect(try AppRun.read(from: directory + "/run").played.count == 1)
+        let record = try AppRun.read(from: directory + "/run")
+        #expect(record.played.count == 1)
+        // The cut case is counted under its own reason: 3 cases = 1 played + mode 1 + limit 1.
+        #expect(record.skipped == ["mode": 1, "limit": 1])
+        #expect(result.out.contains("3 cases: 1 to play, 2 not played (limit 1, mode 1)"), "\(result.out)")
     }
 }
 
@@ -561,6 +763,34 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
         run.aborted = "the screen is locked"
         #expect(FidelityReport(items: items, machine: machine, app: run, reveal: false).render()
             .contains("THE RUN STOPPED EARLY: the screen is locked"))
+    }
+
+    @Test func aRunThatPlayedNothingDoesNotTakeTheAim() throws {
+        let items = try make("flow.a", 2)
+        let run = AppRun(app: "com.apple.TextEdit", skipped: ["mode": 2], played: [])
+        let text = FidelityReport(items: items, machine: [:], app: run, reveal: false).render()
+        #expect(text.contains("NOT taken (nothing played)"))
+        #expect(text.contains("played 0"))
+    }
+
+    @Test func aRunStoppedEarlyIsNeverTaken() throws {
+        let items = try make("flow.a", 4)
+        var machine: [String: (text: String, layout: String)] = [:]
+        for item in items { machine[item.id] = ("привет", "com.apple.keylayout.ABC") }
+        let played = items.prefix(2).map {
+            AppRun.played($0, RunResult(text: "привет", layout: LayoutID("com.apple.keylayout.ABC")), reveal: false)
+        }
+        let early = AppRun(app: "com.apple.TextEdit", skipped: [:], played: Array(played), aborted: "the screen is locked")
+        let report = FidelityReport(items: items, machine: machine, app: early, reveal: false)
+        #expect(report.differingTexts == 0)
+        let text = report.render()
+        #expect(text.contains("incomplete"))
+        #expect(!text.contains(": taken"))
+        // Over the aim already, an early stop is still «not taken».
+        var worse = early
+        worse.played[0].sha256 = "other"
+        #expect(FidelityReport(items: items, machine: machine, app: worse, reveal: false).render()
+            .contains("NOT taken (the run is incomplete)"))
     }
 
     @Test func theCommandsBuildTheSetAndCompareARecordedRun() throws {

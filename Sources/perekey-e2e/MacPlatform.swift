@@ -13,14 +13,111 @@ import IOKit
 import PerekeyCore
 import PerekeyEvalKit
 
+/// What the bench writes into `eventSourceUserData` of every key it posts. Not Perekey's mark
+/// (`SyntheticMark`): Perekey must go on taking these keys as a person's, which is the point of the test.
+let benchMark: Int64 = 0x4245 << 48 // "BE"
+
+/// A listen-only tap on the keyboard of the session that remembers the last key which is neither the
+/// bench's nor Perekey's retype: a person's. It sees what `HIDIdleTime` cannot, a key between two keys of
+/// the bench. Needs Input Monitoring; without it `make` returns nil and the guard falls back (docs/eval.md).
+final class HumanKeyWatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last: Double?
+    private var tap: CFMachPort?
+
+    static func make() -> HumanKeyWatch? {
+        guard CGPreflightListenEventAccess() else { return nil }
+        let watch = HumanKeyWatch()
+        let started = DispatchSemaphore(value: 0)
+        let thread = Thread {
+            let mask: CGEventMask = 1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
+                | 1 << CGEventType.flagsChanged.rawValue
+            let refcon = Unmanaged.passUnretained(watch).toOpaque()
+            guard let tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly, eventsOfInterest: mask,
+                callback: { _, type, event, refcon in
+                    let watch = Unmanaged<HumanKeyWatch>.fromOpaque(refcon!).takeUnretainedValue()
+                    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                        watch.tapLost()
+                    } else {
+                        watch.saw(event)
+                    }
+                    return Unmanaged.passUnretained(event)
+                },
+                userInfo: refcon
+            ) else { started.signal(); return }
+            watch.begin(tap)
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0), .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            started.signal()
+            CFRunLoopRun()
+        }
+        thread.name = "perekey-e2e.human-key-watch"
+        thread.start()
+        started.wait()
+        return watch.isRunning ? watch : nil
+    }
+
+    fileprivate func begin(_ tap: CFMachPort) {
+        lock.lock()
+        self.tap = tap
+        lock.unlock()
+    }
+
+    var isRunning: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return tap != nil
+    }
+
+    private func saw(_ event: CGEvent) {
+        let data = event.getIntegerValueField(.eventSourceUserData)
+        if data == benchMark { return }
+        // Perekey's own keys are not a person's; a key of the person that Perekey held back and posts again is.
+        if let mark = SyntheticMark(userData: data), mark != .replayed { return }
+        lock.lock()
+        last = ProcessInfo.processInfo.systemUptime
+        lock.unlock()
+    }
+
+    /// The system switched the tap off: keys may have gone unseen, so count it as a person's key.
+    private func tapLost() {
+        lock.lock()
+        last = ProcessInfo.processInfo.systemUptime
+        let tap = tap
+        lock.unlock()
+        if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+    }
+
+    var lastKey: Double? {
+        lock.lock()
+        defer { lock.unlock() }
+        return last
+    }
+}
+
 struct MacPlatform: AppPlatform {
+    private let watch = HumanKeyWatch.make()
+
     var probe: InputGuard.Probe {
         InputGuard.Probe(
             screenLocked: Self.screenIsLocked,
             idleSeconds: Self.hidIdleSeconds,
             frontmostApp: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
-            now: { ProcessInfo.processInfo.systemUptime }
+            now: { ProcessInfo.processInfo.systemUptime },
+            mouseIdleSeconds: Self.mouseIdleSeconds,
+            lastHumanKey: watch.map { watch in { watch.lastKey } }
         )
+    }
+
+    /// The least of the times since the last mouse event of each kind. The bench posts no mouse event.
+    static func mouseIdleSeconds() -> Double? {
+        let types: [CGEventType] = [.mouseMoved, .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown,
+                                    .rightMouseUp, .rightMouseDragged, .otherMouseDown, .otherMouseUp, .otherMouseDragged,
+                                    .scrollWheel]
+        let ages = types.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }
+        guard let least = ages.min(), least >= 0 else { return nil }
+        return least
     }
 
     func enabledLayouts() -> Set<String>? {
@@ -137,7 +234,7 @@ final class MacDriver: AppDriver {
     /// A new field, as the stand's: the focus goes to Finder and back, so Perekey forgets the words of the
     /// last case; the text is emptied through Accessibility, which posts no key; the layout is chosen and
     /// confirmed. Escape ends a word that is left in Perekey's buffer.
-    func prepare(start: String) throws {
+    func prepare(start: String, beforePost: () throws -> Void) throws {
         if let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first {
             try activate(finder)
         }
@@ -145,8 +242,11 @@ final class MacDriver: AppDriver {
         let target = try field()
         guard AXUIElementSetAttributeValue(target, kAXValueAttribute as CFString, "" as CFString) == .success,
               wait(2, until: { (try? readText()) == "" }) else { throw DriverError("cannot empty the field") }
+        try beforePost()
         try perform(.keyDown(code: UInt16(kVK_Escape), flags: 0))
+        try beforePost()
         try perform(.keyUp(code: UInt16(kVK_Escape), flags: 0))
+        try beforePost()
         try select(layout: start)
     }
 
@@ -164,6 +264,7 @@ final class MacDriver: AppDriver {
             throw DriverError("cannot create an event")
         }
         if modifier { event.type = .flagsChanged }
+        event.setIntegerValueField(.eventSourceUserData, value: benchMark)
         event.flags = CGEventFlags(rawValue: flags)
         event.post(tap: .cghidEventTap)
     }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import CryptoKit
 import Foundation
 
 /// `perekey-eval cases build` (docs/eval.md, «Команды»):
@@ -71,18 +72,38 @@ extension EvalCommands {
         var sha256: String
     }
 
-    static func builtSuite(_ manifest: SuiteManifest, settings: BuildSettings, library: LayoutLibrary) throws -> BuiltSuite {
-        let output: SuiteBuilder.Output
-        if manifest.reader == .class {
-            output = try ClassSuiteBuilder(manifest: manifest, library: library, context: settings.classContext)
-                .build(tier: settings.tier)
-        } else if manifest.correction != nil {
-            output = try CorrectionBuilder(manifest: manifest, library: library).build(tier: settings.tier, cache: settings.cache)
-        } else {
-            output = try SuiteBuilder(manifest: manifest, library: library).build(tier: settings.tier, cache: settings.cache)
+    /// Builds the suite and gives its file one case at a time to `write` (when there is one): the hash and the
+    /// count of bytes come out as the cases go, and no case is kept. The bytes are those of `CaseCodec.write`.
+    static func streamedSuite(_ manifest: SuiteManifest, settings: BuildSettings, library: LayoutLibrary,
+                              write: ((Data) throws -> Void)? = nil) throws -> (report: BuildReport, sha256: String, bytes: Int) {
+        var hasher = SHA256()
+        var count = 0
+        func emit(_ item: EvalCase) throws {
+            try autoreleasepool {
+                let data = Data((try CaseCodec.line(item) + "\n").utf8)
+                hasher.update(data: data)
+                count += data.count
+                try write?(data)
+            }
         }
-        let bytes = Data(try CaseCodec.write(output.cases).utf8)
-        return BuiltSuite(report: output.report, bytes: bytes, sha256: Runner.sha256(bytes))
+        let report: BuildReport
+        if manifest.reader == .class {
+            report = try ClassSuiteBuilder(manifest: manifest, library: library, context: settings.classContext)
+                .build(tier: settings.tier, emit: emit)
+        } else if manifest.correction != nil {
+            report = try CorrectionBuilder(manifest: manifest, library: library)
+                .build(tier: settings.tier, cache: settings.cache, emit: emit)
+        } else {
+            report = try SuiteBuilder(manifest: manifest, library: library)
+                .build(tier: settings.tier, cache: settings.cache, emit: emit)
+        }
+        return (report, hasher.finalize().map { String(format: "%02x", $0) }.joined(), count)
+    }
+
+    static func builtSuite(_ manifest: SuiteManifest, settings: BuildSettings, library: LayoutLibrary) throws -> BuiltSuite {
+        var bytes = Data()
+        let streamed = try streamedSuite(manifest, settings: settings, library: library) { bytes.append($0) }
+        return BuiltSuite(report: streamed.report, bytes: bytes, sha256: streamed.sha256)
     }
 
     static func build(_ parsed: Arguments) throws -> Int32 {
@@ -96,10 +117,14 @@ extension EvalCommands {
                 print("\(manifest.suite)  пропущен: нет источника \(missing)")
                 continue
             }
-            let built = try builtSuite(manifest, settings: settings, library: library)
             let path = (out as NSString).appendingPathComponent("\(manifest.suite).jsonl")
-            try built.bytes.write(to: URL(fileURLWithPath: path))
-            entries.append(.init(report: built.report, sha256: built.sha256, bytes: built.bytes.count))
+            guard FileManager.default.createFile(atPath: path, contents: nil) else {
+                throw EvalError.input("cannot write \(path)")
+            }
+            let handle = try FileHandle(forWritingTo: URL(fileURLWithPath: path))
+            defer { try? handle.close() }
+            let built = try streamedSuite(manifest, settings: settings, library: library) { try handle.write(contentsOf: $0) }
+            entries.append(.init(report: built.report, sha256: built.sha256, bytes: built.bytes))
             print(Console.buildLine(built.report, sha256: built.sha256))
         }
         let summary = BuildSummary(tier: settings.tier.rawValue, suites: entries)

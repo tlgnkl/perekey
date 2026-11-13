@@ -308,7 +308,7 @@ public enum TextLines {
         defer { try? handle.close() }
         var rest = Data()
         while true {
-            let block = try handle.read(upToCount: 4 << 20) ?? Data()
+            let block = try autoreleasepool(invoking: { try handle.read(upToCount: 4 << 20) }) ?? Data()
             if block.isEmpty { break }
             rest.append(block)
             var start = rest.startIndex

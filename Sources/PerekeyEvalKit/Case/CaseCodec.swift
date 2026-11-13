@@ -79,14 +79,20 @@ public enum CaseCodec {
             }
             try body(item)
         }
-        while let chunk = try handle.read(upToCount: 1 << 22), !chunk.isEmpty {
-            pending.append(chunk)
-            var start = pending.startIndex
-            while let newline = pending[start...].firstIndex(of: 0x0A) {
-                try decodeLine(pending[start..<newline])
-                start = newline + 1
+        // A pool for each piece: the buffers `read` hands out are autoreleased, and a command that loops over a
+        // corpus never leaves the scope that would free them (gigabytes of pieces were kept to the end).
+        var more = true
+        while more {
+            try autoreleasepool {
+                guard let chunk = try handle.read(upToCount: 1 << 22), !chunk.isEmpty else { more = false; return }
+                pending.append(chunk)
+                var start = pending.startIndex
+                while let newline = pending[start...].firstIndex(of: 0x0A) {
+                    try decodeLine(pending[start..<newline])
+                    start = newline + 1
+                }
+                pending = Data(pending[start...])
             }
-            pending = Data(pending[start...])
         }
         try decodeLine(pending)
     }

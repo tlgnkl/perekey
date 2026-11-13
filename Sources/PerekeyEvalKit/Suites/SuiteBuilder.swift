@@ -62,6 +62,13 @@ public struct SuiteBuilder {
 
     /// Reads the source from `cache` and builds the cases of `tier`.
     public func build(tier: SuiteManifest.Tier, cache: String) throws -> Output {
+        var cases: [EvalCase] = []
+        let report = try build(tier: tier, cache: cache) { cases.append($0) }
+        return Output(cases: cases, report: report)
+    }
+
+    /// The same, one case at a time to `emit`: a suite of a gigabyte is not held whole.
+    public func build(tier: SuiteManifest.Tier, cache: String, emit: (EvalCase) throws -> Void) throws -> BuildReport {
         let sets = try manifest.layoutSets.map { try LayoutSet(names: $0, library: library) }
         let budget = manifest.tiers.tokens(tier)
         var report = BuildReport(suite: manifest.suite, tier: tier.rawValue, epoch: manifest.epoch, seed: manifest.seed)
@@ -96,7 +103,6 @@ public struct SuiteBuilder {
         let builder = ScenarioBuilder(manifest: manifest, library: library)
         var remaining = Dictionary(uniqueKeysWithValues: manifest.scenarios.map { ($0, budget) })
         var texts = Set<UInt64>()
-        var cases: [EvalCase] = []
         for entry in ordered {
             if remaining.values.allSatisfy({ $0 <= 0 }) { break }
             report.examined += 1
@@ -130,7 +136,7 @@ public struct SuiteBuilder {
                 case let .success(item):
                     let count = item.tokens?.count ?? 0
                     remaining[scenario, default: 0] -= count
-                    cases.append(item)
+                    try emit(item)
                     var stats = report.scenarios[scenario, default: .init()]
                     stats.cases += 1
                     stats.tokens += count
@@ -145,7 +151,7 @@ public struct SuiteBuilder {
             stats.shortfall = max(remaining[scenario, default: 0], 0)
             report.scenarios[scenario] = stats
         }
-        return Output(cases: cases, report: report)
+        return report
     }
 
     /// Short sentences in one script that every set can type, the first

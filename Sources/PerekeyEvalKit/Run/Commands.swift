@@ -326,7 +326,7 @@ public enum EvalCommands {
             options.profilesFile = profilesPath
         }
         if options.words == nil, (parsed.value("--format") ?? "text") == "text" { options.words = 20 }
-        let run = try RunData.load(directory, withholdDetails: try parsed.inStore(directory))
+        let run = try RunData.load(directory, withholdDetails: try parsed.inStore(directory), parts: [.words])
         let privately = try requirePrivateOutput(for: [run], to: parsed.value("--out"), parsed)
         let data = try ReportBuilder.build(run, options: options)
         let text: String
@@ -346,7 +346,11 @@ public enum EvalCommands {
         var options = DiffOptions()
         options.revealTest = parsed.flag("--reveal-test")
         if let list = parsed.value("--list") { options.list = try count(list, "--list") }
-        let runs = try parsed.positional.map { try RunData.load($0, withholdDetails: try parsed.inStore($0)) }
+        // The diff reads the counters it compares and the outcome letters; the events are read for the changed cases only.
+        let columns = RowTable.Columns.only([\.exact, \.harm, \.miss, \.botched, \.silent, \.disputed])
+        let runs = try parsed.positional.map {
+            try RunData.load($0, withholdDetails: try parsed.inStore($0), columns: columns, parts: [.outcomes])
+        }
         let privately = try requirePrivateOutput(for: runs, to: parsed.value("--out"), parsed)
         let data = try DiffBuilder.build(runs[0], runs[1], options: options)
         let text: String
@@ -385,8 +389,10 @@ public enum EvalCommands {
                 if let status = item.status { statuses[item.id] = status }
             }
         }
-        let head = try RunData.load(parsed.positional[0])
-        let base = try parsed.positional.count == 2 ? RunData.load(parsed.positional[1]) : nil
+        // The bars read a few counters of each case, and neither the outcome letters nor the words.
+        let columns = RowTable.Columns.only((gates.zero + gates.noWorse).compactMap { GateMetric.counts[$0.metric] })
+        let head = try RunData.load(parsed.positional[0], columns: columns, parts: [])
+        let base = try parsed.positional.count == 2 ? RunData.load(parsed.positional[1], columns: columns, parts: []) : nil
         if let base, base.scorer != head.scorer {
             throw EvalError.input("the runs were scored by different scorers (\(base.scorer) and \(head.scorer)); play them again")
         }

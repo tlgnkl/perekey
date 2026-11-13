@@ -13,12 +13,11 @@ import IOKit
 import PerekeyCore
 import PerekeyEvalKit
 
-/// What the bench writes into `eventSourceUserData` of every key it posts. Not Perekey's mark
-/// (`SyntheticMark`): Perekey must go on taking these keys as a person's, which is the point of the test.
-let benchMark: Int64 = 0x4245 << 48 // "BE"
+let benchMark = HumanKey.benchMark
 
-/// A listen-only tap on the keyboard of the session that remembers the last key which is neither the
-/// bench's nor Perekey's retype: a person's. It sees what `HIDIdleTime` cannot, a key between two keys of
+/// A listen-only tap on the keyboard at the level of the hardware (`.cghidEventTap`, before the session
+/// taps of Perekey) that remembers the last key which has no mark, neither the bench's nor Perekey's
+/// (`HumanKey.isHuman`): a person's. It sees what `HIDIdleTime` cannot, a key between two keys of
 /// the bench. Needs Input Monitoring; without it `make` returns nil and the guard falls back (docs/eval.md).
 final class HumanKeyWatch: @unchecked Sendable {
     private let lock = NSLock()
@@ -34,7 +33,7 @@ final class HumanKeyWatch: @unchecked Sendable {
                 | 1 << CGEventType.flagsChanged.rawValue
             let refcon = Unmanaged.passUnretained(watch).toOpaque()
             guard let tap = CGEvent.tapCreate(
-                tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly, eventsOfInterest: mask,
+                tap: .cghidEventTap, place: .headInsertEventTap, options: .listenOnly, eventsOfInterest: mask,
                 callback: { _, type, event, refcon in
                     let watch = Unmanaged<HumanKeyWatch>.fromOpaque(refcon!).takeUnretainedValue()
                     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
@@ -71,10 +70,7 @@ final class HumanKeyWatch: @unchecked Sendable {
     }
 
     private func saw(_ event: CGEvent) {
-        let data = event.getIntegerValueField(.eventSourceUserData)
-        if data == benchMark { return }
-        // Perekey's own keys are not a person's; a key of the person that Perekey held back and posts again is.
-        if let mark = SyntheticMark(userData: data), mark != .replayed { return }
+        guard HumanKey.isHuman(userData: event.getIntegerValueField(.eventSourceUserData)) else { return }
         lock.lock()
         last = ProcessInfo.processInfo.systemUptime
         lock.unlock()

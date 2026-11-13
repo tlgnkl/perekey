@@ -92,16 +92,48 @@ public enum Mutants {
         mutant.expectations.contains { GateMetric.matches($0.suite, item.suite) && item.scenario.hasPrefix($0.scenarioPrefix) }
     }
 
+    /// The counts of a run that one mutant's expectations read, taken as the cases are scored, so the
+    /// self-check need not keep the scores of a corpus.
+    public struct Tally {
+        struct Part {
+            var seen = false
+            var total = Metrics()
+            var slices = SliceTable.Accumulator()
+        }
+        let expectations: [Mutant.Expectation]
+        var parts: [Part]
+
+        public init(_ mutant: Mutant) {
+            expectations = mutant.expectations
+            parts = Array(repeating: Part(), count: mutant.expectations.count)
+        }
+
+        /// A score counts for the expectations that cover it.
+        public mutating func add(_ score: CaseScore) {
+            for index in expectations.indices where expectations[index].covers(score) {
+                parts[index].seen = true
+                if expectations[index].slice != nil { parts[index].slices.add(score) } else { parts[index].total.merge(Metrics(score)) }
+            }
+        }
+    }
+
     /// Compares counts of the ordinary run and the mutated one, which played the same cases.
     public static func judge(_ mutant: Mutant, ordinary: [CaseScore], mutated: [CaseScore]) -> [MutantFinding] {
-        mutant.expectations.map { expectation in
-            let before = ordinary.filter(expectation.covers)
-            let after = mutated.filter(expectation.covers)
-            guard !before.isEmpty else {
+        var before = Tally(mutant), after = Tally(mutant)
+        for score in ordinary { before.add(score) }
+        for score in mutated { after.add(score) }
+        return judge(mutant, ordinary: before, mutated: after)
+    }
+
+    /// The same, from the counts of the two runs.
+    public static func judge(_ mutant: Mutant, ordinary: Tally, mutated: Tally) -> [MutantFinding] {
+        mutant.expectations.indices.map { index in
+            let expectation = mutant.expectations[index]
+            guard ordinary.parts[index].seen else {
                 return MutantFinding(verdict: .skipped,
                                      line: "\(mutant.name): \(expectation.what): пропущен, нет набора \(expectation.suite)")
             }
-            let a = count(expectation, before), b = count(expectation, after)
+            let a = count(expectation, ordinary.parts[index]), b = count(expectation, mutated.parts[index])
             switch expectation.relation {
             case let .grows(times):
                 let needed = times * max(Double(a), 1)
@@ -129,9 +161,9 @@ public enum Mutants {
         }
     }
 
-    private static func count(_ expectation: Mutant.Expectation, _ scores: [CaseScore]) -> Int {
+    private static func count(_ expectation: Mutant.Expectation, _ part: Tally.Part) -> Int {
         if let slice = expectation.slice {
-            let table = SliceTable(scores)
+            let table = SliceTable(part.slices)
             let parts = slice.split(separator: "=", maxSplits: 1).map(String.init)
             guard let counters = table.features[parts[0]]?[parts[1]] else { return 0 }
             switch expectation.count {
@@ -141,13 +173,11 @@ public enum Mutants {
             case .silent: return counters.silent
             }
         }
-        var total = Metrics()
-        for score in scores { total.merge(Metrics(score)) }
         switch expectation.count {
-        case .harm: return total.harm
-        case .missLayout: return total.missLayout
-        case .fixed: return total.fixed
-        case .silent: return total.silent
+        case .harm: return part.total.harm
+        case .missLayout: return part.total.missLayout
+        case .fixed: return part.total.fixed
+        case .silent: return part.total.silent
         }
     }
 

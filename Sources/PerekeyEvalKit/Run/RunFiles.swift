@@ -193,6 +193,14 @@ public enum RunFiles {
         return lines
     }
 
+    static func summaryJSON(_ accumulated: Summary.Accumulator) throws -> String {
+        try pretty(Summary(accumulated))
+    }
+
+    static func slicesJSON(_ accumulated: SliceTable.Accumulator) throws -> String {
+        try pretty(SliceTable(accumulated))
+    }
+
     public static func summaryJSON(_ scores: [CaseScore]) throws -> String {
         try pretty(Summary(scores))
     }
@@ -317,7 +325,7 @@ public enum RunFiles {
         }
     }
 
-    private static func pretty(_ value: some Encodable) throws -> String {
+    static func pretty(_ value: some Encodable) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
         return String(decoding: try encoder.encode(value), as: UTF8.self) + "\n"

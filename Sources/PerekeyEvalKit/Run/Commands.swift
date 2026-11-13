@@ -513,65 +513,78 @@ public enum EvalCommands {
             EvalContext.out("selfcheck: \(problems) cases do not pass the check")
             return 1
         }
-        let items = try selected(files, parsed, library: library, store: store)
         let config = try parsed.config()
-        // `keep` takes from a played case what the check needs, so the events and the results
-        // of every case are not all alive at once: the corpus is large.
-        func run<Kept>(_ system: SystemName, settings: String? = nil, keep: (Runner.Played) -> Kept) throws -> [Kept] {
+        // One pass over the cases, one at a time (the files are read in pieces): the corpus is large, and a
+        // check keeps counts and the lines of its failures, not the cases or their results. The lines come
+        // out in the order of the checks, as the failures of each check come out in the order of the cases.
+        func runner(_ system: SystemName, settings: String? = nil) -> Runner {
             var config = config
             config.system = system
             config.settings = settings ?? config.settings
-            var runner = Runner(config: config, library: library)
-            return try items.map { keep(try runner.play($0)) }
+            return Runner(config: config, library: library)
         }
+        var nullRunner = runner(.null), oracleRunner = runner(.oracle), offRunner = runner(.machine, settings: "off")
+        var firstRunner = runner(.machine), secondRunner = runner(.machine)
 
+        var itemCount = 0
         // 1. Null harms and fixes nothing.
-        let null = try run(.null) { played in
-            (text: played.out.text,
-             harmed: played.score.measured.filter { $0.outcome == .harm || $0.outcome == .fixed }.count)
-        }
-        let nullHarm = null.reduce(0) { $0 + $1.harmed }
-        lines.append("1. null: harm and fixed \(nullHarm)")
-        if nullHarm != 0 { failures.append("null has \(nullHarm) harmed or fixed tokens") }
-
+        var nullHarm = 0
         // 2. Oracle: every token ok or fixed, every text exact. The checks of
         // whole cases (layout, corrections) are not the oracle's: it only has the text.
-        let oracle = try run(.oracle) { played in
-            played.score.scoring == .token ? !played.score.exact
-                : Scorer.normalize(played.out.text, played.item.effectiveFold)
-                != Scorer.normalize(played.item.want, played.item.effectiveFold)
-        }
-        let oracleWrong = zip(items, oracle).filter { $0.1 }.map(\.0)
-        lines.append("2. oracle: \(oracle.count - oracleWrong.count) of \(oracle.count) exact")
-        for item in oracleWrong { failures.append("oracle is not exact on \(shown(item, store))") }
-
+        var oracleWrong: [String] = []
         // 3. The machine with the preset `off` types what Null types, where
         // the case presses no shortcut and no Undo.
-        let off = try run(.machine, settings: "off") { played in
-            (text: played.out.text, hidden: played.score.hidden || played.score.personal)
-        }
+        var offFailures: [String] = []
         var compared = 0
-        for (item, (played, nullPlayed)) in zip(items, zip(off, null)) where !item.allSteps.contains(where: {
-            switch $0 {
-            case .hotkey, .undo: true
-            default: false
-            }
-        }) {
-            compared += 1
-            if played.text != nullPlayed.text {
-                failures.append("machine off differs from null on \(shown(item, store))" + (played.hidden ? ""
-                        : ": \(played.text.debugDescription) vs \(nullPlayed.text.debugDescription)"))
-            }
-        }
-        lines.append("3. machine off = null on \(compared) cases without shortcuts")
+        // 4. Two runs of the machine give the same bytes: the lines of a case are compared as the two runs
+        // play it, and the counts of the files that grow with the cases (summary, slices, words) at the end.
+        var same = true
+        var firstSummary = Summary.Accumulator(), secondSummary = Summary.Accumulator()
+        var firstSlices = SliceTable.Accumulator(), secondSlices = SliceTable.Accumulator()
+        var firstWords = RunFiles.Words(redactor: nil), secondWords = RunFiles.Words(redactor: nil)
 
-        // 4. Two runs of the machine give the same bytes.
-        let first = try run(.machine, keep: \.score), second = try run(.machine, keep: \.score)
-        let same = try RunFiles.casesTSV(first) == RunFiles.casesTSV(second)
-            && RunFiles.summaryJSON(first) == RunFiles.summaryJSON(second)
-            && RunFiles.countsTSV(first) == RunFiles.countsTSV(second)
-            && RunFiles.slicesJSON(first) == RunFiles.slicesJSON(second)
-            && RunFiles.wordsTSV(first) == RunFiles.wordsTSV(second)
+        try forEachSelected(files, parsed, library: library, store: store, check: false) { _, item in
+            itemCount += 1
+            let nullPlayed = try nullRunner.play(item)
+            nullHarm += nullPlayed.score.measured.filter { $0.outcome == .harm || $0.outcome == .fixed }.count
+
+            let oraclePlayed = try oracleRunner.play(item)
+            let wrong = oraclePlayed.score.scoring == .token ? !oraclePlayed.score.exact
+                : Scorer.normalize(oraclePlayed.out.text, oraclePlayed.item.effectiveFold)
+                != Scorer.normalize(oraclePlayed.item.want, oraclePlayed.item.effectiveFold)
+            if wrong { oracleWrong.append("oracle is not exact on \(shown(item, store))") }
+
+            let offPlayed = try offRunner.play(item)
+            if !item.allSteps.contains(where: {
+                switch $0 {
+                case .hotkey, .undo: true
+                default: false
+                }
+            }) {
+                compared += 1
+                if offPlayed.out.text != nullPlayed.out.text {
+                    let hidden = offPlayed.score.hidden || offPlayed.score.personal
+                    offFailures.append("machine off differs from null on \(shown(item, store))" + (hidden ? ""
+                        : ": \(offPlayed.out.text.debugDescription) vs \(nullPlayed.out.text.debugDescription)"))
+                }
+            }
+
+            let first = try firstRunner.play(item).score, second = try secondRunner.play(item).score
+            if RunFiles.caseLine(first) != RunFiles.caseLine(second)
+                || RunFiles.countsLine(first) != RunFiles.countsLine(second) { same = false }
+            firstSummary.add(first); secondSummary.add(second)
+            firstSlices.add(first); secondSlices.add(second)
+            firstWords.add(first); secondWords.add(second)
+        }
+        lines.append("1. null: harm and fixed \(nullHarm)")
+        if nullHarm != 0 { failures.append("null has \(nullHarm) harmed or fixed tokens") }
+        lines.append("2. oracle: \(itemCount - oracleWrong.count) of \(itemCount) exact")
+        failures += oracleWrong
+        failures += offFailures
+        lines.append("3. machine off = null on \(compared) cases without shortcuts")
+        same = try same && RunFiles.summaryJSON(firstSummary) == RunFiles.summaryJSON(secondSummary)
+            && RunFiles.slicesJSON(firstSlices) == RunFiles.slicesJSON(secondSlices)
+            && firstWords.tsv() == secondWords.tsv()
         lines.append("4. machine twice: "
             + (same ? "cases.tsv, summary.json, counts.tsv, slices.json and words.tsv the same" : "DIFFERENT"))
         if !same { failures.append("two runs of the machine differ") }
@@ -615,26 +628,36 @@ public enum EvalCommands {
             }
             lines.append("5. cases built twice (\(settings.tier.rawValue)): \(identical) of \(compared) suites identical")
         }
-        lines.append("6. cases pass the check: \(items.count)")
+        lines.append("6. cases pass the check: \(itemCount)")
 
         // 7. Every mutant of the machine shifts the count it must shift (docs/eval.md, «Мутанты»).
         if parsed.flag("--mutants") {
-            // Both parts: a shift is read off counts, and more cases make the counts firm.
-            let mutantItems = try selected(files, parsed, library: library, split: "all")
+            // Both parts: a shift is read off counts, and more cases make the counts firm. The cases come one
+            // at a time and only the counts of what the mutants must shift are kept.
             var ordinaryConfig = config
             ordinaryConfig.system = .machine
             var ordinaryRunner = Runner(config: ordinaryConfig, library: library)
-            let ordinary = try mutantItems.filter { item in Mutants.all.contains { Mutants.covers($0, item) } }
-                .map { try ordinaryRunner.play($0).score }
+            var runners: [Runner] = []
             for mutant in Mutants.all {
                 var mutated = config
                 mutated.system = .machine
                 mutated.optionsJSON = mutant.options
                 mutated.options = try mutant.options.map(ClassifierOptions.parse) ?? Classifier.Options()
                 mutated.settings = mutant.settings ?? config.settings
-                var runner = Runner(config: mutated, library: library)
-                let scores = try mutantItems.filter { Mutants.covers(mutant, $0) }.map { try runner.play($0).score }
-                for finding in Mutants.judge(mutant, ordinary: ordinary, mutated: scores) {
+                runners.append(Runner(config: mutated, library: library))
+            }
+            var ordinaryTallies = Mutants.all.map { Mutants.Tally($0) }
+            var mutatedTallies = Mutants.all.map { Mutants.Tally($0) }
+            try forEachSelected(files, parsed, library: library, split: "all", store: store, check: false) { _, item in
+                guard Mutants.all.contains(where: { Mutants.covers($0, item) }) else { return }
+                let score = try ordinaryRunner.play(item).score
+                for index in Mutants.all.indices { ordinaryTallies[index].add(score) }
+                for (index, mutant) in Mutants.all.enumerated() where Mutants.covers(mutant, item) {
+                    mutatedTallies[index].add(try runners[index].play(item).score)
+                }
+            }
+            for (index, mutant) in Mutants.all.enumerated() {
+                for finding in Mutants.judge(mutant, ordinary: ordinaryTallies[index], mutated: mutatedTallies[index]) {
                     lines.append("7. mutant " + finding.line)
                     if finding.verdict == .fail { failures.append(finding.line) }
                 }

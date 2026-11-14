@@ -63,6 +63,16 @@ differently, what was fixed.
   speech model always gets the whole recording, one request per dictation. Off
   by default.
 
+### Fixed
+
+- **Whisper no longer answers a short phrase with nothing.** A phrase of a
+  second or less («привет», «ок», «спасибо», «hello») came out empty: the
+  model was never run on it. Now it is, and the phrase is pasted.
+- **Whisper no longer drops a stretch of a long dictation.** In a dictation
+  of over 30 seconds without pauses, a sentence or two near the 30-second
+  mark could go missing. The text now continues from where the model
+  stopped.
+
 ## [0.2.0] - 2026-10-27
 
 Perekey is now signed with its own certificate, the same for every release.

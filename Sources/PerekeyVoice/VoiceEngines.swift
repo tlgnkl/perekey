@@ -119,6 +119,27 @@ public actor WhisperKitEngine: SpeechEngine {
         return result
     }
 
+    /// WhisperKit's window: 30 s of audio.
+    static let windowSamples = Constants.defaultWindowSamples
+
+    /// WhisperKit does not decode the last `windowClipTime` seconds of a
+    /// recording as a window of their own (1 s by default, against made-up
+    /// text at the end). A recording of 1 s or less has no window before that
+    /// tail, so the model was never called and the text came out empty. At
+    /// most half the recording is held back: the first window always runs.
+    static func windowClipTime(samples: Int) -> Float {
+        min(1, Float(samples) / Float(WhisperKit.sampleRate) / 2)
+    }
+
+    /// Without timestamps WhisperKit moves on by a whole window, wherever the
+    /// model stopped: when it ends the text at a sentence in the middle of
+    /// the window, the speech after it is lost (a stretch of 16-18 words in a
+    /// 40-60 s dictation without pauses). With them the next window starts at
+    /// the last timestamp. One window needs no moving on.
+    static func needsTimestamps(samples: Int) -> Bool {
+        samples > windowSamples
+    }
+
     public init(id: String = "whisper-large-v3-turbo-632mb", store: VoiceModelStore) {
         self.id = id
         self.store = store
@@ -162,7 +183,9 @@ public actor WhisperKitEngine: SpeechEngine {
         guard let kit else { throw SpeechEngineError.notPrepared }
         let options = DecodingOptions(
             task: .transcribe, language: language, detectLanguage: language == nil, skipSpecialTokens: true,
-            withoutTimestamps: true, promptTokens: promptTokens(prompt, kit: kit))
+            withoutTimestamps: !Self.needsTimestamps(samples: audio.samples.count),
+            windowClipTime: Self.windowClipTime(samples: audio.samples.count),
+            promptTokens: promptTokens(prompt, kit: kit))
         let results = try await kit.transcribe(audioArray: audio.samples, decodeOptions: options)
         let text = results.map(\.text).joined(separator: " ")
         return Transcript(text: text.trimmingCharacters(in: .whitespacesAndNewlines))

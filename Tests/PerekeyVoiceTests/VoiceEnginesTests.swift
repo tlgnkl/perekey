@@ -3,7 +3,7 @@
 import FluidAudio
 import Foundation
 import PerekeyCore
-import PerekeyVoice
+@testable import PerekeyVoice
 import PerekeyVoiceCore
 import Testing
 
@@ -58,5 +58,24 @@ struct VoiceEnginesTests {
     // normalization engine (a static library for TTS and ITN) stays out.
     @Test func nemoTextProcessingIsOff() {
         #expect(!TextNormalizer.shared.isNativeAvailable)
+    }
+
+    // WhisperKit decodes a window only while `seek < end - clip` (TranscribeTask):
+    // a clip as long as the recording means no window and an empty text.
+    @Test func whisperRunsItsFirstWindowOnEveryRecording() {
+        for samples in [1, 800, 8000, 10_400, 14_000, 16_000, 16_001, 24_000, 48_000, 480_000, 960_000] {
+            let clip = Int(WhisperKitEngine.windowClipTime(samples: samples) * 16000)
+            #expect(0 < samples - clip, "\(samples) samples, clip \(clip)")
+        }
+        // Long recordings keep WhisperKit's guard against a made-up tail.
+        #expect(WhisperKitEngine.windowClipTime(samples: 160_000) == 1)
+    }
+
+    // Without timestamps WhisperKit skips a whole window after each one, and
+    // what the model left out at the end of a window is lost.
+    @Test func whisperUsesTimestampsOnlyBeyondOneWindow() {
+        #expect(!WhisperKitEngine.needsTimestamps(samples: 16_000))
+        #expect(!WhisperKitEngine.needsTimestamps(samples: 480_000))
+        #expect(WhisperKitEngine.needsTimestamps(samples: 480_001))
     }
 }

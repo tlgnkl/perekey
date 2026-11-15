@@ -68,8 +68,11 @@ differently, what was fixed.
 - **The first letter after switching programs is no longer lost.** Typing
   right after ⌘Tab (within about a tenth of a second) could drop the first key
   from the word, so «привет» came out as «gривет»: some programs name the
-  focused element twice in a row. Moving to another field with Tab or a click
-  still starts a new word.
+  focused element twice in a row. Perekey treats the first second element as
+  the same field if it arrives within 0.15 s after the focus became known and
+  is the same kind of field. Limit: a Tab or a click in the first 0.15 s after
+  a switch counts as the same field too, so a word typed across it stays whole.
+  A password field is never taken for the same field.
 - **The Perekey menu no longer fixes the keys you press in it.** With the menu
   open over another program, keys typed into the menu were judged as words and
   could leave a false correction in «Recent corrections».

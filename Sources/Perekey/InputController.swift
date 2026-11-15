@@ -60,6 +60,9 @@ final class InputController {
     /// The delayed checks after an access notification, and the periodic one.
     @ObservationIgnored private var accessRechecks: Task<Void, Never>?
     @ObservationIgnored private var accessPoll: Task<Void, Never>?
+    /// The second focus read after Secure Input ended. One at a time, and
+    /// dropped on an app switch: a new one replaces the old.
+    @ObservationIgnored private var focusRecheck: Task<Void, Never>?
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "input")
     @ObservationIgnored private let hint = HintController()
     /// The correction the hint shows, so a late undo of an older one leaves it.
@@ -174,9 +177,12 @@ final class InputController {
             // app's focus notification was lost, this read finds the new field
             // (a second one covers an app that updates AX a moment later).
             guard !isOn else { return }
-            self?.focus.refresh()
-            Task { @MainActor [weak self] in
+            guard let self else { return }
+            focus.refresh()
+            focusRecheck?.cancel()
+            focusRecheck = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
                 self?.focus.refresh()
             }
         }
@@ -690,6 +696,7 @@ final class InputController {
             self?.accessMayHaveChanged()
         }
         on(workspace, NSWorkspace.didActivateApplicationNotification) { [weak self] in
+            self?.focusRecheck?.cancel()
             self?.accessMayHaveChanged()
         }
         accessPoll = Task { @MainActor [weak self] in

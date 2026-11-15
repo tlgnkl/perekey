@@ -147,6 +147,7 @@ private final class Worker: @unchecked Sendable {
     func activate(_ target: App?) {
         let switched = target != app
         app = target
+        if !switched { tracker.refreshed() }
         guard let target else {
             detach()
             send(tracker.activated(.unknown(bundleID: nil), switched: switched, at: Self.now))

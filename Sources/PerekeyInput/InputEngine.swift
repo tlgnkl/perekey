@@ -464,10 +464,8 @@ public final class InputEngine: @unchecked Sendable {
     /// through the tap; keys typed meanwhile wait for them.
     private func postReplayed(_ events: [CGEvent], at time: Double, counted: Bool = true) {
         guard !events.isEmpty else { return }
-        let mark = SyntheticMark.replayed.userData
         for event in events {
-            event.setIntegerValueField(.eventSourceUserData, value: mark)
-            event.post(tap: .cghidEventTap)
+            ReplayMark.marked(event).post(tap: .cghidEventTap)
         }
         if counted { replays.posted(events.count, at: time) }
     }

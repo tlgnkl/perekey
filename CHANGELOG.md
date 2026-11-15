@@ -65,6 +65,12 @@ differently, what was fixed.
 
 ### Fixed
 
+- **Keys held during a fix are no longer delayed when another program marks
+  its keys.** If a program that types or remaps keys (a keyboard tool, a
+  remote desktop) put its own mark on them, the keys Perekey held back and
+  posted again were not recognized as its own. The keys you typed next
+  waited half a second, and the held keys passed through Perekey a second
+  time. They are now always recognized.
 - **Whisper no longer answers a short phrase with nothing.** A phrase of a
   second or less («привет», «ок», «спасибо», «hello») came out empty: the
   model was never run on it. Now it is, and the phrase is pasted.

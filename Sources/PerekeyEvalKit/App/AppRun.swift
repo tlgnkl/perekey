@@ -22,12 +22,15 @@ public struct AppRun: Codable, Equatable, Sendable {
     public var played: [Played]
     /// Why the run stopped before its last case; nil when it did not.
     public var aborted: String?
+    /// The pause after `prepare` before the first key, in ms; absent in a run folder written before it existed.
+    public var afterPrepareMs: Int?
 
-    public init(app: String, skipped: [String: Int], played: [Played], aborted: String? = nil) {
+    public init(app: String, skipped: [String: Int], played: [Played], aborted: String? = nil, afterPrepareMs: Int? = nil) {
         self.app = app
         self.skipped = skipped
         self.played = played
         self.aborted = aborted
+        self.afterPrepareMs = afterPrepareMs
     }
 
     public static let fileName = "app.json"

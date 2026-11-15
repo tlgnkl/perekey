@@ -18,16 +18,38 @@ public enum FidelitySet {
     /// is a hash of the content), so the choice depends on the content alone. Suites in name order,
     /// cases in hash order.
     public static func select(_ items: [EvalCase], options: Options = Options()) -> [EvalCase] {
-        var bySuite: [String: [EvalCase]] = [:]
-        for item in items { bySuite[item.suite, default: []].append(item) }
-        var chosen: [EvalCase] = []
-        for suite in bySuite.keys.sorted() {
-            let count = suite.hasPrefix("flow.") ? options.perFlowSuite : options.perSuite[suite] ?? 0
-            let ordered = bySuite[suite]!.sorted { (key($0), $0.id) < (key($1), $1.id) }
-            chosen += ordered.prefix(count)
-        }
-        return chosen
+        var selector = Selector(options: options)
+        for item in items { selector.add(item) }
+        return selector.chosen
     }
+
+    /// The same choice made one case at a time: it keeps at most the number each suite needs, so a folder
+    /// of any size is read as a stream.
+    public struct Selector {
+        private let options: Options
+        private var bySuite: [String: [EvalCase]] = [:]
+
+        public init(options: Options = Options()) { self.options = options }
+
+        public mutating func add(_ item: EvalCase) {
+            let count = FidelitySet.count(for: item.suite, options)
+            guard count > 0 else { return }
+            var kept = bySuite[item.suite] ?? []
+            let at = kept.firstIndex { FidelitySet.before(item, $0) } ?? kept.endIndex
+            guard at < count else { return }
+            kept.insert(item, at: at)
+            if kept.count > count { kept.removeLast() }
+            bySuite[item.suite] = kept
+        }
+
+        public var chosen: [EvalCase] { bySuite.keys.sorted().flatMap { bySuite[$0]! } }
+    }
+
+    static func count(for suite: String, _ options: Options) -> Int {
+        suite.hasPrefix("flow.") ? options.perFlowSuite : options.perSuite[suite] ?? 0
+    }
+
+    static func before(_ a: EvalCase, _ b: EvalCase) -> Bool { (key(a), a.id) < (key(b), b.id) }
 
     private static func key(_ item: EvalCase) -> String { String(item.id.split(separator: "/").last ?? "") }
 }

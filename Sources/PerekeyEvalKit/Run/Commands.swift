@@ -125,7 +125,9 @@ public enum EvalCommands {
             return 0
         case "fidelity":
             guard let out = parsed.value("--out") else { throw EvalError.input("cases fidelity: --out <file> is required") }
-            let chosen = FidelitySet.select(try CaseFiles.read(files, store: store).map(\.item))
+            var selector = FidelitySet.Selector()
+            try CaseFiles.forEach(files, store: store) { _, item in selector.add(item) }
+            let chosen = selector.chosen
             guard !chosen.contains(where: \.isPersonal) else { throw EvalError.input("cases fidelity: a personal case is not played in an app") }
             try CaseCodec.write(chosen).write(toFile: out, atomically: true, encoding: .utf8)
             let counts = Dictionary(grouping: chosen, by: \.suite).mapValues(\.count)

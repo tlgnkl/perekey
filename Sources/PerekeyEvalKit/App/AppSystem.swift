@@ -38,9 +38,16 @@ public struct AppSystem {
         /// After the last event of the case (which already ends in the pause of the typist): the app
         /// and Perekey finish their last retype before the text is read.
         public var settleSeconds = 0.5
+        /// After `prepare`, before the first key: Perekey does not see the first one or two keys that come
+        /// at once after the focus has moved (Finder, then the app). Measured on 9 cases of `flow.basics`:
+        /// no pause lost 4 to 6 of them, 30 to 100 ms 0 to 1, 150 ms and more none. 200 ms is left over.
+        public var afterPrepareSeconds = AppSystem.afterPrepareSeconds
 
         public init() {}
     }
+
+    /// The default of `Options.afterPrepareSeconds`; the run folder records it (`app.json`).
+    public static let afterPrepareSeconds = 0.2
 
     public let driver: any AppDriver
     public let options: Options
@@ -62,6 +69,7 @@ public struct AppSystem {
         guard let first = events.first?.time else {
             return RunResult(text: try driver.readText(), layout: LayoutID(driver.currentLayout()))
         }
+        driver.sleep(options.afterPrepareSeconds)
         var held = HeldModifiers()
         let began = driver.now()
         do {

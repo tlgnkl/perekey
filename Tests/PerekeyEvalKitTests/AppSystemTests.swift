@@ -346,7 +346,32 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
         // The pauses add up to the time of the case, the pause at its end (the last event) and the settling time.
         let total = machine.sleeps.reduce(0, +)
         let span = events.last!.time - events.first!.time
-        #expect(abs(total - (span + Typist.Options().endPause + AppSystem.Options().settleSeconds)) < 1e-6)
+        #expect(abs(total - (span + Typist.Options().endPause + AppSystem.Options().settleSeconds
+            + AppSystem.Options().afterPrepareSeconds)) < 1e-6)
+    }
+
+    @Test func theFirstKeyWaitsForThePauseAfterPrepare() throws {
+        let machine = FakeMachine()
+        machine.text = "привет "
+        var firstKeyAt: Double?
+        let start = machine.clock
+        machine.after = (1, { firstKeyAt = machine.clock })
+        let events = try Typist().events(for: item(), layouts: Repo.library)
+        _ = try AppSystem(driver: machine).run(item(), events: events, library: Repo.library, input: input(machine), app: app)
+        #expect(AppSystem.afterPrepareSeconds == 0.2)
+        #expect(machine.sleeps.first == AppSystem.afterPrepareSeconds)
+        #expect(abs((firstKeyAt ?? 0) - start - AppSystem.afterPrepareSeconds) < 1e-6)
+    }
+
+    @Test func theRunFolderRecordsThePauseAndAnOlderOneStillReads() throws {
+        let run = AppRun(app: app, skipped: [:], played: [], afterPrepareMs: 200)
+        let directory = NSTemporaryDirectory() + "pause-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        try run.write(to: directory)
+        #expect(try AppRun.read(from: directory).afterPrepareMs == 200)
+        try Data(#"{"app":"a","skipped":{},"played":[]}"#.utf8).write(to: URL(fileURLWithPath: directory + "/app.json"))
+        #expect(try AppRun.read(from: directory).afterPrepareMs == nil)
     }
 
     @Test func aLockedScreenPostsNoKeyAndDoesNotTouchTheField() throws {
@@ -684,6 +709,18 @@ final class FakeMachine: AppDriver, AppPlatform, @unchecked Sendable {
         let chosen = FidelitySet.select(items)
         let counts = Dictionary(grouping: chosen, by: \.suite).mapValues(\.count)
         #expect(counts == ["flow.a": 20, "flow.b": 20, "flow.c": 5, "tech.ruso": 100])
+    }
+
+    @Test func theStreamedChoiceIsTheSameAndKeepsNoMoreThanTheSetNeeds() throws {
+        let items = try make("flow.a", 40) + make("tech.ruso", 130) + make("prose.uk", 50)
+        var selector = FidelitySet.Selector()
+        var kept = 0
+        for item in items.shuffled() {
+            selector.add(item)
+            kept = max(kept, selector.chosen.count)
+        }
+        #expect(selector.chosen.map(\.id) == FidelitySet.select(items).map(\.id))
+        #expect(kept == 120)
     }
 
     @Test func theChoiceDependsOnTheContentNotTheOrder() throws {

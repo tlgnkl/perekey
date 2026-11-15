@@ -95,11 +95,33 @@ final class HumanKeyWatch: @unchecked Sendable {
 struct MacPlatform: AppPlatform {
     private let watch = HumanKeyWatch.make()
 
+    /// The process of the app in front, read through Accessibility. `NSWorkspace.frontmostApplication` and
+    /// the input sources are notifications that need a run loop; a command-line tool without one keeps
+    /// the value it saw first, so `activate` and the guard would read an old app.
+    static func frontmostPID() -> pid_t? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedApplicationAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        var pid: pid_t = 0
+        return AXUIElementGetPid(value as! AXUIElement, &pid) == .success ? pid : nil // swiftlint:disable:this force_cast
+    }
+
+    static func frontmostBundle() -> String? {
+        frontmostPID().flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+    }
+
+    /// Delivers what the system has sent to this thread's run loop, so that the current input source is the
+    /// one in force now. `play` runs on the main thread, where the notifications arrive; on another thread
+    /// this would deliver nothing.
+    static func deliverPending() {
+        while CFRunLoopRunInMode(.defaultMode, 0, true) == .handledSource {}
+    }
+
     var probe: InputGuard.Probe {
         InputGuard.Probe(
             screenLocked: Self.screenIsLocked,
             idleSeconds: Self.hidIdleSeconds,
-            frontmostApp: { NSWorkspace.shared.frontmostApplication?.bundleIdentifier },
+            frontmostApp: MacPlatform.frontmostBundle,
             now: { ProcessInfo.processInfo.systemUptime },
             mouseIdleSeconds: Self.mouseIdleSeconds,
             lastHumanKey: watch.map { watch in { watch.lastKey } }
@@ -161,7 +183,14 @@ struct DriverError: Error, CustomStringConvertible {
 final class MacDriver: AppDriver {
     private let bundle: String
     private let app: NSRunningApplication
-    private let source = CGEventSource(stateID: .hidSystemState)
+    /// The mark of the bench is the user data of the source, not a field set on each event: when an event
+    /// already has non-zero user data, `setIntegerValueField` leaves it as it is, so Perekey could not mark
+    /// its replay of a key (`.replayed`) and the keys that follow would wait for it (docs/eval.md).
+    private let source: CGEventSource? = {
+        let source = CGEventSource(stateID: .hidSystemState)
+        source?.userData = benchMark
+        return source
+    }()
 
     init(bundle: String) throws {
         guard AXIsProcessTrusted() else {
@@ -192,7 +221,7 @@ final class MacDriver: AppDriver {
 
     private func activate(_ target: NSRunningApplication) throws {
         target.activate()
-        guard wait(3, until: { NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier }) else {
+        guard wait(3, until: { MacPlatform.frontmostPID() == target.processIdentifier }) else {
             throw DriverError("\(target.bundleIdentifier ?? "app") did not come to the front")
         }
     }
@@ -213,6 +242,7 @@ final class MacDriver: AppDriver {
     }
 
     func currentLayout() -> String {
+        MacPlatform.deliverPending()
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return "unknown" }
         return MacPlatform.id(source) ?? "unknown"
     }
@@ -260,7 +290,6 @@ final class MacDriver: AppDriver {
             throw DriverError("cannot create an event")
         }
         if modifier { event.type = .flagsChanged }
-        event.setIntegerValueField(.eventSourceUserData, value: benchMark)
         event.flags = CGEventFlags(rawValue: flags)
         event.post(tap: .cghidEventTap)
     }

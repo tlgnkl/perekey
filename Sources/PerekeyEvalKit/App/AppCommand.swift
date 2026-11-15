@@ -109,6 +109,7 @@ public enum AppCommand {
         try input.check(app: bundle)
         let driver = try platform.makeDriver(bundle: bundle)
         let system = AppSystem(driver: driver)
+        let afterPrepareMs = Int((system.options.afterPrepareSeconds * 1000).rounded())
         var config = Runner.Config()
         config.revealTest = parsed.flag("--reveal-test")
         var runner = Runner(config: config, library: library)
@@ -138,7 +139,7 @@ public enum AppCommand {
             tier: nil, testRevealed: config.revealTest
         )
         try RunFiles.write(scores, info: info, to: out)
-        try AppRun(app: bundle, skipped: skipped, played: records, aborted: aborted?.reason).write(to: out)
+        try AppRun(app: bundle, skipped: skipped, played: records, aborted: aborted?.reason, afterPrepareMs: afterPrepareMs).write(to: out)
         EvalContext.out(Console.summary(Summary(scores)), terminator: "")
         if let aborted {
             EvalContext.err("perekey-e2e: stopped after \(records.count) of \(playable.count) cases: \(aborted.reason)")

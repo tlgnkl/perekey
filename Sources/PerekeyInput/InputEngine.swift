@@ -115,6 +115,8 @@ public final class InputEngine: @unchecked Sendable {
     // Tap thread
     private var runLoop: CFRunLoop?
     private var machine: InputMachine
+    /// The enabled layouts as the machine knows them: for `ReplayMark`.
+    private var layoutMaps: [LayoutMap]
     private var keyboardTap: CFMachPort?
     private var keyboardSource: CFRunLoopSource?
     private var mouseTap: CFMachPort?
@@ -158,6 +160,7 @@ public final class InputEngine: @unchecked Sendable {
                 onMessage: @escaping @MainActor @Sendable (EngineMessage) -> Void)
     {
         self.machine = machine
+        self.layoutMaps = machine.snapshot.layouts
         self.textProbe = textProbe
         self.onMessage = onMessage
     }
@@ -465,7 +468,7 @@ public final class InputEngine: @unchecked Sendable {
     private func postReplayed(_ events: [CGEvent], at time: Double, counted: Bool = true) {
         guard !events.isEmpty else { return }
         for event in events {
-            ReplayMark.marked(event).post(tap: .cghidEventTap)
+            ReplayMark.marked(event, layouts: layoutMaps).post(tap: .cghidEventTap)
         }
         if counted { replays.posted(events.count, at: time) }
     }
@@ -614,6 +617,7 @@ public final class InputEngine: @unchecked Sendable {
     /// The one way into the machine: every event the tap thread hands it
     /// passes here, the keys from `keyboard` and the rest from `handle`.
     private func step(_ event: InputEvent) -> Output {
+        if case let .layoutsChanged(maps) = event { layoutMaps = maps }
         let output = machine.handle(event)
         #if PEREKEY_RECORD
         // Memory only: the buffer hands a full batch to the recorder's queue.

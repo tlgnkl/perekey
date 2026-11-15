@@ -11,10 +11,14 @@
 //   perekey-e2e key NAME...           return, tab, delete, space, cmd-a, cmd-c, ctrl-d
 //   perekey-e2e option | shift        tap the modifier (flagsChanged down, up)
 //   perekey-e2e sleep-ms N            pause
+//   perekey-e2e play --cases <files> --app TextEdit --out <run dir> [--dry-run] …
+//                                     play the cases of the quality bench in a real app
+//                                     (docs/eval.md, «Настоящая программа»)
 
 import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
+import PerekeyEvalKit
 
 /// Key codes of the ABC (US) layout: character -> (keyCode, needs Shift).
 let abc: [Character: (UInt16, Bool)] = {
@@ -124,7 +128,7 @@ func currentLayoutID() -> String {
 }
 
 var args = Array(CommandLine.arguments.dropFirst())
-guard !args.isEmpty else { fail("usage: perekey-e2e check|layout|type|key|option|shift|sleep-ms") }
+guard !args.isEmpty else { fail("usage: perekey-e2e check|layout|type|key|option|shift|sleep-ms|play") }
 let command = args.removeFirst()
 
 switch command {
@@ -148,6 +152,8 @@ case "shift":
     tapModifier(code: 56, flag: .maskShift)
 case "sleep-ms":
     pause(ms: Int(args.first ?? "") ?? 0)
+case "play":
+    exit(AppCommand.run(args, platform: MacPlatform()))
 default:
     fail("unknown command \(command)")
 }

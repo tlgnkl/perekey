@@ -267,6 +267,19 @@ private let ru = Fixture.russian.id
         #expect(desk.text == "ghbdtn хорошо ")
     }
 
+    @Test func ownMenuKeepsItQuiet() {
+        // The menu's panel takes the keys while another app is in front: they
+        // are no typing, so no word is judged and no correction is written.
+        var desk = Desk()
+        desk.send(.ownMenuChanged(true))
+        desk.type("ntcn ")
+        #expect(desk.text == "ntcn ")
+        #expect(desk.log.isEmpty)
+        desk.send(.ownMenuChanged(false))
+        desk.type("[jhjij ")
+        #expect(desk.text == "ntcn хорошо ")
+    }
+
     @Test func settingToggle() {
         var desk = Desk(Settings(autoswitch: false))
         desk.type("ghbdtn ")

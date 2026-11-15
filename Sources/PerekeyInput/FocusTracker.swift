@@ -12,11 +12,19 @@ import PerekeyCore
 /// names it. Electron apps often fail the read right after the switch: it is
 /// tried again at `retryOffsets` until the focus is known. A notification
 /// about the element published already is not a new place either; another
-/// element is, even a field of the same kind.
+/// element is, even a field of the same kind. One exception: apps often name
+/// a container first and the text view a few ms later. The first other
+/// element within `settleWindow` after the focus became known is the same
+/// place, because the only keys the core holds were typed after the switch.
 struct FocusTracker<Element: Equatable> {
     /// Seconds after the switch at which a read that gave no known focus is
     /// tried again. Only while the focus is unknown: no timers while idle.
     static var retryOffsets: [Double] { [0.05, 0.15, 0.4] }
+
+    /// Seconds after the focus became known in which the first other element
+    /// still counts as the same place (measured: it arrives 50–125 ms later).
+    /// A human changes the field with Tab or a click later than that.
+    static var settleWindow: Double { 0.2 }
 
     struct Publication: Equatable {
         var focus: Focus
@@ -44,6 +52,9 @@ struct FocusTracker<Element: Equatable> {
     /// When the app was switched to, while its focus is not known yet.
     private var switchedAt: Double?
     private var reads = 0
+    /// When the focus became known after a switch, until the first other
+    /// element is absorbed or the window ends.
+    private var settlingSince: Double?
 
     /// The focus is not known since the last switch: a read may be tried again.
     var isWaiting: Bool { switchedAt != nil }
@@ -53,6 +64,7 @@ struct FocusTracker<Element: Equatable> {
     mutating func activated(_ focus: Focus, switched: Bool, at time: Double) -> Publication? {
         element = nil
         switchedAt = time
+        settlingSince = nil
         reads = 0
         return publish(focus, .moved, always: switched)
     }
@@ -61,6 +73,7 @@ struct FocusTracker<Element: Equatable> {
     mutating func lost(_ focus: Focus) -> Publication? {
         element = nil
         switchedAt = nil
+        settlingSince = nil
         return publish(focus, .moved, always: false)
     }
 
@@ -92,12 +105,15 @@ struct FocusTracker<Element: Equatable> {
 
     private mutating func found(_ new: Element, _ focus: Focus, at time: Double, byNotification: Bool) -> Step {
         let first = element == nil
-        let change: FocusChange = first || element == new ? .resolved : .moved
+        var change: FocusChange = first || element == new ? .resolved : .moved
+        if change == .moved, let since = settlingSince, time - since <= Self.settleWindow { change = .resolved }
+        if element != new { settlingSince = nil }
         element = new
         var note: Note?
         if let switchedAt, focus.isKnown {
             note = .known(seconds: time - switchedAt, reads: reads, byNotification: byNotification)
             self.switchedAt = nil
+            settlingSince = time
         }
         let publication = publish(focus, change, always: change == .moved)
         if publication == nil, byNotification, !first { note = .sameElement }

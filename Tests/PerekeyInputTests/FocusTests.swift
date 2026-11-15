@@ -226,6 +226,42 @@ struct FocusTrackerTests {
         #expect(tracker.read(9, focus: known, at: 2).publication == .init(focus: known, change: .moved))
     }
 
+    @Test func secondElementRightAfterTheSwitchIsTheSamePlace() {
+        // TextEdit: a container is named first, the text view 50-125 ms later.
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        let second = tracker.notified(8, focus: known, at: 0.03 + 0.125)
+        #expect(second.publication == nil || second.publication?.change == .resolved)
+        // Only the first one: the next element is a new place again.
+        #expect(tracker.notified(9, focus: known, at: 0.2).publication == .init(focus: known, change: .moved))
+    }
+
+    @Test func tabOrClickAfterTheWindowIsANewPlace() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        let later = 0.03 + Tracker.settleWindow + 0.01
+        #expect(tracker.notified(8, focus: known, at: later).publication == .init(focus: known, change: .moved))
+    }
+
+    @Test func movingBeforeTheWindowEndsClosesIt() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        _ = tracker.notified(8, focus: known, at: 0.1)
+        #expect(tracker.notified(9, focus: known, at: 0.12).publication?.change == .moved)
+    }
+
+    @Test func windowDoesNotCarryOverASwitch() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        _ = tracker.activated(unknown, switched: true, at: 1)
+        _ = tracker.read(1, focus: known, at: 1.5)
+        #expect(tracker.notified(2, focus: known, at: 1.5 + Tracker.settleWindow + 0.1).publication?.change == .moved)
+    }
+
     @Test func unreadableKindKeepsRetrying() {
         var tracker = Tracker()
         _ = tracker.activated(unknown, switched: true, at: 0)

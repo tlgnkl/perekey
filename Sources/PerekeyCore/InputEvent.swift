@@ -107,6 +107,10 @@ public enum InputEvent: Sendable {
     /// The set of enabled layouts changed, with tables built on the main thread.
     case layoutsChanged([LayoutMap])
     case secureInputChanged(Bool)
+    /// Perekey's own menu opened or closed. While it is open its panel takes
+    /// the keys, whatever app is in front: they are not typing, so no word is
+    /// judged and no correction is written (`InputMachine`).
+    case ownMenuChanged(Bool)
     case settingsChanged(Settings)
     /// The system layer posted the retype with this `seq`. The fence
     /// timeout starts now.

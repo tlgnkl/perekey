@@ -168,8 +168,17 @@ final class InputController {
             engine.send(.focusChanged(focus, change))
             Task { @MainActor in pause.setPasswordField(focus.isKnown && focus.isSecureField) }
         }
-        secureInput.onChange = { [secureInput] isOn in
+        secureInput.onChange = { [secureInput, weak self] isOn in
             pause.setSecureInput(isOn, owner: secureInput.ownerName)
+            // Secure Input ends when the caret leaves a password field. If the
+            // app's focus notification was lost, this read finds the new field
+            // (a second one covers an app that updates AX a moment later).
+            guard !isOn else { return }
+            self?.focus.refresh()
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                self?.focus.refresh()
+            }
         }
         pause.setSecureInput(secureInput.isOn, owner: secureInput.ownerName)
 
@@ -304,6 +313,12 @@ final class InputController {
         }
         let site = SiteObserver.browserBundleIDs.contains(app) ? appModes.frontHost : nil
         return languages.context(app: app, site: site)
+    }
+
+    /// Perekey's menu opened or closed. Its panel takes the keys even while
+    /// another app is in front; the machine must not judge them as typing.
+    func ownMenuChanged(_ isOpen: Bool) {
+        engine.send(.ownMenuChanged(isOpen))
     }
 
     #if PEREKEY_VOICE

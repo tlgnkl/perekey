@@ -63,6 +63,17 @@ differently, what was fixed.
   speech model always gets the whole recording, one request per dictation. Off
   by default.
 
+### Changed
+
+- **Short words typed in the wrong layout are fixed more often.** A sentence
+  typed on the wrong layout after one typed right («Hello. d ljvt») now gets
+  its first short word fixed too («Hello. В доме»), and short words such as
+  «в», «я», «не», «a», «to» left alone before a word Perekey switches go with
+  it in the same fix: «d ghbdtn» becomes «в привет», not «d привет». One
+  undo (Backspace or the hint) puts all of it back, and the hint and «Why?»
+  show the short words apart. A short word that ends a sentence, one you
+  clicked away from, erased into or switched the layout after stays as typed.
+
 ### Fixed
 
 - **Keys held during a fix are no longer delayed when another program marks

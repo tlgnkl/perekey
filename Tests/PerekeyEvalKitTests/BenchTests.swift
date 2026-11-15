@@ -77,7 +77,8 @@ import Testing
         for name in ClassifierOptions.names {
             let options = try ClassifierOptions.parse("{\"\(name)\": 7}")
             let value = Mirror(reflecting: options).children.first { $0.label == name }?.value
-            #expect(String(describing: value!) == "7.0" || String(describing: value!) == "7", "\(name)")
+            // A switch reads any number but 0 as on.
+            #expect(["7.0", "7", "true"].contains(String(describing: value!)), "\(name)")
         }
     }
 

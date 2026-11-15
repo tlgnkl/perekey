@@ -212,6 +212,7 @@ public struct InputMachine: Sendable {
             if !fence.confirmed(id, effects: &effects) {
                 // Someone else switched: the user from the menu, or another app.
                 layouts.makeCurrent(id)
+                judge.forgetShortWords()
             }
             if layouts[id] == nil { buffer.clear() }
 
@@ -555,7 +556,7 @@ public struct InputMachine: Sendable {
         if let word = retype.word {
             buffer.replacePhrase(words: retype.words, with: word, in: retype.target)
         } else {
-            buffer.relabel(to: retype.target)
+            buffer.relabel(words: retype.words, to: retype.target)
         }
         fence.holdsBoundary(retype.held)
         undo.forget()
@@ -776,6 +777,8 @@ public struct InputMachine: Sendable {
 
     /// `byUser`: see `LayoutState.makeCurrent`.
     private mutating func select(_ id: LayoutID, byUser: Bool = true, effects: inout [Effect]) {
+        // A layout the user chose: the short words before stay as they are.
+        if byUser { judge.forgetShortWords() }
         guard layouts.makeCurrent(id, byUser: byUser) else { return }
         fence.selected(id)
         effects.append(.selectLayout(id))

@@ -90,6 +90,24 @@ public struct Classifier: Sendable {
         /// up: the output is as it was. From `perekey-eval run
         /// --word-context-sweep` (docs/classifier.md, «Слова в контексте»).
         public var wordContextLimit = 0.0
+        /// A 1–2 letter word that starts a sentence (`Context.startsSentence`)
+        /// is judged as without context: the language of the sentence before
+        /// neither keeps it nor lowers the bar. After "Hello. " a "d" may be
+        /// the "в" of a sentence typed on the wrong layout: the rule without
+        /// context switches it when "в" is more frequent by a unit of Zipf.
+        /// After "Привет. " a "в" typed on Russian on purpose stays unless "d"
+        /// is that much more frequent. Off judges it by the sentence before,
+        /// as in the middle of one. On from `perekey-eval play` over the
+        /// `ci` suites (docs/classifier.md, «Короткие слова»): misses of
+        /// short words in `slip.warm` fall, harm nowhere grows.
+        public var shortWordSentenceStart = true
+        /// How many 1–2 letter words, kept by the rule of short words right
+        /// before a word that switches, go with it in one retype when they
+        /// would switch after a word in its language (`carriesShortWord`):
+        /// "d ghbdtn" becomes "в привет", not "d привет". 0 carries none.
+        /// 2 from the same measure as `shortWordSentenceStart`: one word
+        /// leaves "z yt" of "я не" half done.
+        public var shortWordsCarried = 2
 
         public init() {}
     }
@@ -115,6 +133,9 @@ public struct Classifier: Sendable {
         /// nil when it is not known (`PreviousWord`). Looked up only when
         /// `Options.wordContextLimit` is above 0.
         public var previousWord: PreviousWordRef?
+        /// The word starts a sentence: after `. ! ?`, a line end, or at the
+        /// start of a field. Read by `Options.shortWordSentenceStart` only.
+        public var startsSentence = false
 
         /// The language the previous word was judged to be in, e.g. "ru".
         public var previousLanguage: String? { recent.latest }
@@ -441,6 +462,26 @@ public struct Classifier: Sendable {
         return marks
     }
 
+    /// Whether a 1–2 letter word kept by the rule of short words goes to
+    /// `other` with the word after it, which switched there
+    /// (`Options.shortWordsCarried`). The word after says the words before
+    /// it may be in its language too, and lifts what kept the short word:
+    /// the word before it in the typed language. So the short word is
+    /// judged again as without context: it goes when its reading there is a
+    /// frequent form (`Options.shortWordRank`) more frequent than the typed
+    /// one by a unit of Zipf, by every guard before the rule, and ends in no
+    /// mark. "d" before "ghbdtn" is "в"; "I" before it stays: "Ш" is no
+    /// frequent word; "N" before "xtkjdtr" stays too: "т" is not that much
+    /// more frequent than "n".
+    public func carriesShortWord(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap,
+                                 personal: PersonalLexicon = .off) -> Bool
+    {
+        let decision = classify(strokes, typed: typed, other: other,
+                                context: Context(recent: RecentLanguages(), personal: personal))
+        return decision.verdict == .switch(to: other.id) && decision.reason == .shortWord
+            && decision.punctuationKeys == 0
+    }
+
     /// "..." and no more.
     static let maxPunctuationKeys = 3
 
@@ -731,12 +772,15 @@ public struct Classifier: Sendable {
                 Int((wordContext(typed, other, languages: languages, typedCode: typedCode, otherCode: otherCode,
                                  context: context) * TypoCorrector.Options.rankUnitsPerBit).rounded())
             }
+            // A sentence start judged as without context: the sentence before
+            // says little about the language of the next one.
+            let fresh = options.shortWordSentenceStart && context.startsSentence
             let wins: Bool
             if typed.letters == 0
-                || (context.previousLanguage == typedCode && !isMixed(context.recent, typedCode, otherCode))
+                || (!fresh && context.previousLanguage == typedCode && !isMixed(context.recent, typedCode, otherCode))
             {
                 wins = false
-            } else if context.previousLanguage == otherCode {
+            } else if !fresh, context.previousLanguage == otherCode {
                 wins = frequent && Int(typedRank) < Int(other.rank ?? 0) + shift()
             } else {
                 wins = frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0) + shift()
@@ -1068,7 +1112,7 @@ extension Classifier.Options: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
-             personalRank, personalNoiseCost, wordContextLimit
+             personalRank, personalNoiseCost, wordContextLimit, shortWordSentenceStart, shortWordsCarried
     }
 
     /// The keys the file format knows, one per stored property (a test holds
@@ -1099,6 +1143,8 @@ extension Classifier.Options: Codable {
         try read(.personalRank, &personalRank)
         try read(.personalNoiseCost, &personalNoiseCost)
         try read(.wordContextLimit, &wordContextLimit)
+        try read(.shortWordSentenceStart, &shortWordSentenceStart)
+        try read(.shortWordsCarried, &shortWordsCarried)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -1123,5 +1169,14 @@ extension Classifier.Options: Codable {
         // Written only when on: the file of a limit of 0 is the file of
         // before the word context, byte for byte.
         if wordContextLimit != 0 { try container.encode(wordContextLimit, forKey: .wordContextLimit) }
+        // The rules of short words only when not the default: the file of the
+        // default options is the file of before them, and reads back the same.
+        let defaults = Classifier.Options()
+        if shortWordSentenceStart != defaults.shortWordSentenceStart {
+            try container.encode(shortWordSentenceStart, forKey: .shortWordSentenceStart)
+        }
+        if shortWordsCarried != defaults.shortWordsCarried {
+            try container.encode(shortWordsCarried, forKey: .shortWordsCarried)
+        }
     }
 }

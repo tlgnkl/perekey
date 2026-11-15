@@ -227,6 +227,11 @@ struct WordJudge: Sendable {
     private func context(focus: Focus?, buffer: WordBuffer, layouts: LayoutState) -> Classifier.Context {
         var context = Classifier.Context(recent: recent, prior: inContextApp(focus) ? languageContext.prior : LanguagePrior(),
                                          personal: personal)
+        // Read only by the rule of short words, and only while it is on.
+        if classifier?.options.shortWordSentenceStart == true {
+            context.startsSentence = sentenceStartOfWord(in: buffer)
+                && !Self.isInitial(buffer.previousWord, layouts: layouts)
+        }
         // The word before is read for every context the classifier judges
         // with, the verdict's, the explanation's and the choice's alike, and
         // only while the limit is above 0.
@@ -283,6 +288,13 @@ struct WordJudge: Sendable {
     /// The layout the word was typed in before a switch inside it
     /// (`.switchedInside`).
     private var switchedFrom: LayoutID?
+    /// How many words right before the one being typed the rule of short
+    /// words kept in `shortKeptLayout`, the latest of them last: the words a
+    /// switch of the next one may carry along (`carryShortWords`). Any
+    /// other judgement, a sentence end, a word undone or retyped by hand, a
+    /// layout chosen by the user and the caret leaving the text set it to 0.
+    private var shortKept = 0
+    private var shortKeptLayout: LayoutID?
     /// Keep a `JudgeTrace` of every word (`InputMachine.tracesJudgements`).
     /// Off on the tap thread of the app: then no trace is made and nothing
     /// is classified twice.
@@ -387,6 +399,7 @@ struct WordJudge: Sendable {
     mutating func leaveWordAlone() {
         switching = .suppressed
         pendingObservation = nil
+        forgetShortWords()
     }
 
     /// A correction of the word was undone: the word is back in its layout.
@@ -394,6 +407,14 @@ struct WordJudge: Sendable {
         switching = .suppressed
         judged = true
         pendingObservation = nil
+        forgetShortWords()
+    }
+
+    /// The short words kept before the word being typed go with no switch
+    /// of it: the user chose a layout, or the text before is not known.
+    mutating func forgetShortWords() {
+        shortKept = 0
+        shortKeptLayout = nil
     }
 
     /// The undo of the word was posted: it is in `language`. Not before: a
@@ -446,6 +467,7 @@ struct WordJudge: Sendable {
     /// The text before the caret is unknown now.
     mutating func forgetContext(newField: Bool) {
         sentenceStartBeforeMark = nil
+        forgetShortWords()
         recent.removeAll()
         previousForTypo = nil
         languageRecorded = false
@@ -550,6 +572,7 @@ struct WordJudge: Sendable {
     /// keeps leaning to Ukrainian). Words in another script stay, so a short
     /// word after an English word still sees the Russian sentence around it.
     mutating func languageChosen(_ language: String?) {
+        forgetShortWords()
         record(language)
         // `record` put the chosen word first; the words before it stay or go.
         recent.dropLatest()
@@ -637,6 +660,11 @@ struct WordJudge: Sendable {
             return .keep
         }
         judged = true
+        // The short words kept before this word: a switch of it carries them,
+        // and any other end of it leaves them where they are.
+        let keptBefore = shortKept
+        let keptLayout = shortKeptLayout
+        forgetShortWords()
         counting = inContextApp(focus)
         contextAtJudge = context(focus: focus, buffer: buffer, layouts: layouts)
         if pendingObservation != nil {
@@ -798,6 +826,11 @@ struct WordJudge: Sendable {
                     buffer.entries.lazy.map(\.stroke), typed: auto.typed, other: auto.other,
                     context: contextAtJudge, explaining: true
                 )
+                // Nothing but the layout changed: the short words before go along.
+                if switches, !forced, listed == nil, spelling == nil, retype.word == nil, keptLayout == auto.typed.id {
+                    carryShortWords(&retype, kept: keptBefore, auto: auto, buffer: buffer, layouts: layouts,
+                                    settings: settings, focus: focus)
+                }
                 // An undo of a switch to a listed word withdraws it from the
                 // list instead of learning, whoever decided the switch.
                 retype.pending.alwaysFix = listed
@@ -826,6 +859,12 @@ struct WordJudge: Sendable {
         } else {
             record(typed.language)
         }
+        // A short word the rule kept, before no sentence end: the switch of
+        // the next word may carry it (`Options.shortWordsCarried`). Counted
+        // below once nothing corrects it in its layout.
+        let keptShort = auto.map { $0.classifier.options.shortWordsCarried > 0 } == true
+            && decision?.reason == .shortWord && decision?.verdict == .keep && !startsSentence
+            && !isException(buffer, in: typed, settings, focus)
         // The word stays in its layout: fix it there, together with the
         // words before it first.
         guard let typo, !isException(buffer, in: typo, settings, focus),
@@ -841,6 +880,10 @@ struct WordJudge: Sendable {
                 } else {
                     trace(.kept, buffer, layouts: layouts, context: contextAtJudge, decision: nil, focus: focus)
                 }
+            }
+            if keptShort {
+                shortKept = (keptLayout == typed.id ? keptBefore : 0) + 1
+                shortKeptLayout = typed.id
             }
             // Kept as typed, by a decision to keep and no correction.
             // A word the model knows is the common case: the decision says so already.
@@ -982,6 +1025,13 @@ struct WordJudge: Sendable {
                                       midWord: true, undoable: true, layouts: layouts, settings: settings)
         else { return nil }
         retype.dropsLastKey = true
+        let kept = shortKept
+        let keptLayout = shortKeptLayout
+        forgetShortWords()
+        if keptLayout == context.typed.id {
+            carryShortWords(&retype, kept: kept, auto: context, buffer: buffer, layouts: layouts, settings: settings,
+                            focus: focus)
+        }
         // Decided for the whole word: the end of it must not switch it back.
         switching = .switchedInside
         switchedFrom = context.typed.id
@@ -1169,6 +1219,54 @@ struct WordJudge: Sendable {
         return WordRetype(keys: keys, expected: word.expected, deleteCount: word.keys.count,
                           target: context.other.id, pending: pending, word: fix?.strokes,
                           held: .boundary(keyCode: heldKeyCode, endsWord: !midWord))
+    }
+
+    /// The 1–2 letter words the rule of short words kept right before the
+    /// word `retype` switches go with it, in one retype (`Options.shortWordsCarried`):
+    /// "d ghbdtn" becomes "в привет". The word after says the sentence goes
+    /// on in the language it switched to; a short word that would switch
+    /// after a word in that language goes too (`Classifier.carriesShortWord`).
+    /// Only words still in the buffer as typed: all their keys in the layout
+    /// the word was typed in, one space after each, none on the user's list.
+    /// A click, a Backspace into them, a sentence end or a layout chosen by
+    /// the user since ends the chance (`shortKept`). The correction then
+    /// spans the words: one hint, one undo for all of them.
+    private func carryShortWords(_ retype: inout WordRetype, kept: Int, auto: AutoContext, buffer: WordBuffer,
+                                 layouts: LayoutState, settings: Settings, focus: Focus?)
+    {
+        let limit = min(kept, auto.classifier.options.shortWordsCarried)
+        guard limit > 0 else { return }
+        var carried = 0
+        for back in 1...limit {
+            guard let word = buffer.word(back: back), word.count >= 2, let gap = word.last, gap.isSpace,
+                  !word.dropLast().contains(where: \.isGap),
+                  !word.contains(where: { $0.layout != auto.typed.id || $0.endsPart
+                      || $0.stroke.modifiers.contains(.option) }),
+                  auto.classifier.carriesShortWord(word.dropLast().lazy.map(\.stroke), typed: auto.typed,
+                                                   other: auto.other, personal: personal)
+            else { break }
+            if !settings.exceptions.isEmpty || !settings.appExceptions.isEmpty {
+                let isListed = [auto.typed, auto.other].contains { map in
+                    Self.text(of: Array(word), in: map).map {
+                        settings.isException(Self.exceptionKey($0), app: focus?.bundleID)
+                    } == true
+                }
+                if isListed { break }
+            }
+            carried = back
+        }
+        guard carried > 0, let phrase = buffer.phrase(words: carried + 1) else { return }
+        let before = phrase.prefix(phrase.count - buffer.entries.count)
+        guard case let .keys(words) = layouts.retypeKeys(for: before, into: auto.other) else { return }
+        retype.keys = words.keys + retype.keys
+        retype.expected = words.expected + retype.expected
+        retype.deleteCount += words.keys.count
+        retype.words = carried + 1
+        retype.pending.strokes = before.map(\.stroke) + retype.pending.strokes
+        retype.pending.wordLength += before.count
+        retype.pending.words = carried + 1
+        retype.pending.correction.carried = carried
+        CorrectionUndo.describe(&retype.pending, layouts: layouts)
     }
 
     /// The word in the buffer corrected in its own layout, as `autoRetype`
@@ -1460,6 +1558,30 @@ struct WordJudge: Sendable {
     /// Return and Tab end the line, not only the word.
     static func endsLine(_ key: KeyEvent) -> Bool {
         key.keyCode == KeyCode.return || key.keyCode == KeyCode.tab || key.keyCode == KeyCode.keypadEnter
+    }
+
+    /// Whether `entries` are one letter and a period: "J." of "J. R. R.
+    /// Tolkien", "т." of "т. д.". The period after an initial or such an
+    /// abbreviation ends no sentence for the rule of short words
+    /// (`Classifier.Options.shortWordSentenceStart`): the "R" after "J. " is
+    /// in the middle of a name.
+    static func isInitial(_ entries: ArraySlice<WordBuffer.Entry>?, layouts: LayoutState) -> Bool {
+        guard let entries else { return false }
+        var letters = 0
+        var period = false
+        for entry in entries where !entry.isGap {
+            guard let text = layouts[entry.layout]?.text(for: entry.stroke) else { return false }
+            for scalar in text.unicodeScalars {
+                if scalar == "." {
+                    period = true
+                } else if isLetter(scalar), !period {
+                    letters += 1
+                } else {
+                    return false
+                }
+            }
+        }
+        return letters == 1 && period
     }
 
     /// Whether the stroke ends a sentence in this layout: `. ! ? …`.

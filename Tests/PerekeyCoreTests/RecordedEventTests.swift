@@ -153,6 +153,9 @@ import Testing
         all.knownRank = 90
         // Written only when on (`withTheWordContextOffTheOptionsAreCodedAsOnMain`).
         all.wordContextLimit = 4
+        // Written only when not the default (`ShortWordRuleTests`).
+        all.shortWordSentenceStart.toggle()
+        all.shortWordsCarried += 1
         #expect(try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(all)) == all)
         // An option added to `Classifier.Options` needs its key in the coding too.
         let keys = try JSONSerialization.jsonObject(with: JSONEncoder().encode(all)) as? [String: Any]
@@ -220,6 +223,8 @@ import Testing
         options.personalRank += 1
         options.personalNoiseCost += 1
         options.wordContextLimit += 1
+        options.shortWordSentenceStart.toggle()
+        options.shortWordsCarried += 1
         let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(options))
         #expect(read == options)
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any]

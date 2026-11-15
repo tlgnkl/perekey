@@ -59,6 +59,13 @@ public struct CorrectionBuilder {
     }
 
     public func build(tier: SuiteManifest.Tier, cache: String) throws -> SuiteBuilder.Output {
+        var cases: [EvalCase] = []
+        let report = try build(tier: tier, cache: cache) { cases.append($0) }
+        return SuiteBuilder.Output(cases: cases, report: report)
+    }
+
+    /// The same, one case at a time to `emit`.
+    public func build(tier: SuiteManifest.Tier, cache: String, emit: (EvalCase) throws -> Void) throws -> BuildReport {
         let sets = try manifest.layoutSets.map { try LayoutSet(names: $0, library: library) }
         let budget = manifest.tiers.tokens(tier)
         var report = BuildReport(suite: manifest.suite, tier: tier.rawValue, epoch: manifest.epoch, seed: manifest.seed)
@@ -69,7 +76,6 @@ public struct CorrectionBuilder {
         }
         report.pooled = ordered.values.map(\.count).max() ?? 0
 
-        var cases: [EvalCase] = []
         var seen = Set<UInt64>()
         var built = Set<String>()
         for scenario in manifest.scenarios {
@@ -90,7 +96,7 @@ public struct CorrectionBuilder {
                     built.insert(candidate.ref)
                     let count = item.tokens?.count ?? 0
                     remaining -= count
-                    cases.append(item)
+                    try emit(item)
                     var stats = report.scenarios[scenario, default: .init()]
                     stats.cases += 1
                     stats.tokens += count
@@ -105,7 +111,7 @@ public struct CorrectionBuilder {
             report.scenarios[scenario] = stats
         }
         report.built = built.count
-        return SuiteBuilder.Output(cases: cases, report: report)
+        return report
     }
 
     // MARK: - Candidates

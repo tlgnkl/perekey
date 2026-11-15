@@ -79,34 +79,49 @@ public struct SliceTable: Hashable, Sendable, Codable {
     public init() {}
 
     public init(_ scores: [CaseScore], pairSupport: Int = SliceTable.storedPairSupport) {
+        var accumulator = Accumulator()
+        for score in scores { accumulator.add(score) }
+        self.init(accumulator, pairSupport: pairSupport)
+    }
+
+    /// The counts of cases one at a time, so a run need not keep all its scores.
+    public struct Accumulator {
         // Tokens with the same values and the same outcome count the same: group first.
-        var names: [String] = []
-        var ids: [String: Int] = [:]
-        func id(_ feature: String, _ value: String) -> Int {
-            let name = feature + "=" + value
-            if let known = ids[name] { return known }
-            names.append(name)
-            ids[name] = names.count - 1
-            return names.count - 1
-        }
-        struct Signature: Hashable {
+        fileprivate var names: [String] = []
+        fileprivate var ids: [String: Int] = [:]
+        fileprivate struct Signature: Hashable {
             var values: [Int]
             var outcome: Outcome
             var silent: Bool
             var layoutError: Bool
             var word: Bool
         }
-        var groups: [Signature: Int] = [:]
-        for score in scores {
+        fileprivate var groups: [Signature: Int] = [:]
+
+        public init() {}
+
+        fileprivate mutating func id(_ feature: String, _ value: String) -> Int {
+            let name = feature + "=" + value
+            if let known = ids[name] { return known }
+            names.append(name)
+            ids[name] = names.count - 1
+            return names.count - 1
+        }
+
+        public mutating func add(_ score: CaseScore) {
             for token in score.tokens where token.measured {
                 guard let found = token.features else { continue }
                 var values: [Int] = []
-                for (feature, value) in Self.values(of: found) { values.append(id(feature, value)) }
+                for (feature, value) in SliceTable.values(of: found) { values.append(id(feature, value)) }
                 let signature = Signature(values: values, outcome: token.outcome, silent: token.silent,
                                           layoutError: token.err == .layout, word: Tokenizer.isWord(token.want))
                 groups[signature, default: 0] += 1
             }
         }
+    }
+
+    public init(_ accumulated: Accumulator, pairSupport: Int = SliceTable.storedPairSupport) {
+        let names = accumulated.names, groups = accumulated.groups
         var singles: [Int: SliceCounters] = [:]
         var pairCounts: [UInt64: SliceCounters] = [:]
         for (signature, count) in groups {

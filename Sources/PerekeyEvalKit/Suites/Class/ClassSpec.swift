@@ -19,7 +19,7 @@ public struct ClassSpec: Hashable, Sendable {
     /// The least occurrences per million tokens of the corpus.
     public var minPerMillion: Double?
     /// Files of the data cache, comma-separated, that the rule reads: Stack
-    /// Exchange dumps, `geonames/cities15000.zip`, `tldr/tldr-pages.en.zip`,
+    /// Exchange dumps, `geonames/cities15000.zip`, `tldr/tldr-c525fa0.zip`,
     /// archives of source code.
     public var corpus: String?
     /// More files, read at tier `full` when they are in the cache.

@@ -30,8 +30,8 @@ enum Runs {
                                metrics: metrics)
         }
         let info = RunFiles.Info(commit: commit, models: [:], system: "machine", files: [], split: "all")
-        return RunData(directory: "-", info: info, scorer: Scorer.version, incidents: Summary.Incidents(), rows: rows,
-                       outcomes: [:], events: [], slices: SliceTable(), words: [])
+        return RunData(directory: "-", info: info, scorer: Scorer.version, incidents: Summary.Incidents(), rows: RowTable(rows),
+                       outcomeLetters: [], slices: SliceTable(), words: [])
     }
 
     static let profiles = ProfileFile(profiles: ["chat": ["a": 0.75, "b": 0.25], "dev": ["c": 1, "a": 1]])

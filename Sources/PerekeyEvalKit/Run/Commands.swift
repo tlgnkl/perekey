@@ -252,20 +252,30 @@ public enum EvalCommands {
         let library = try parsed.library()
         let files = try CaseFiles.expand(parsed.values("--cases"))
         let store = try parsed.store()
-        let items = try selected(files, parsed, library: library, store: store)
+        // The first pass checks the cases and takes from them what the run needs before it plays: whether the
+        // set is personal and the languages of the layouts. The second plays them. Neither keeps the cases:
+        // the files are read in pieces, and the run keeps counts, not scores.
+        var personal = false
+        var languages = Set<String>()
+        try forEachSelected(files, parsed, library: library, store: store) { _, item in
+            personal = personal || item.isPersonal
+            for map in try library.maps(of: item) { if let language = map.language { languages.insert(language) } }
+        }
         // A run with a personal set is written inside the private folder, and its words are hashes.
         var redactor: Redactor?
-        if items.contains(where: \.isPersonal) {
+        if personal {
             guard let store else { throw EvalError.input("a personal set needs \(PrivateStore.variable)") }
             try store.require(inside: out, what: "the run folder (--out)")
             redactor = try store.redactor()
         }
         var config = try parsed.config()
-        let knowledge = try parsed.knowledge(items: items, library: library)
+        let knowledge = try parsed.knowledge(languages: languages.sorted(), library: library)
         config.knowledge = knowledge?.knowledge
         var runner = Runner(config: config, library: library)
-        var scores: [CaseScore] = []
-        for item in items { scores.append(try runner.play(item).score) }
+        let writer = try RunFiles.Writer(to: out, personal: personal, redactor: redactor)
+        try forEachSelected(files, parsed, library: library, store: store, check: false) { _, item in
+            try writer.add(try runner.play(item).score)
+        }
         var info = RunFiles.Info(
             commit: GitCommit.current(), models: runner.modelHashes, system: runner.config.system.rawValue,
             settings: runner.config.settings, options: runner.config.optionsJSON,
@@ -276,8 +286,8 @@ public enum EvalCommands {
         info.lexicon = knowledge?.lexiconHashes
         info.seen = knowledge?.seenHash
         info.noise = knowledge?.knowledge.noise.files
-        try RunFiles.write(scores, info: info, to: out, redactor: redactor)
-        EvalContext.out(Console.summary(Summary(scores)), terminator: "")
+        let summary = try writer.finish(info: info)
+        EvalContext.out(Console.summary(summary), terminator: "")
         return 0
     }
 
@@ -285,22 +295,32 @@ public enum EvalCommands {
     /// pass the checks, or nothing is played.
     static func selected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary,
                          split override: String? = nil, store: PrivateStore? = nil) throws -> [EvalCase] {
+        var items: [EvalCase] = []
+        try forEachSelected(files, parsed, library: library, split: override, store: store) { items.append($1) }
+        return items
+    }
+
+    /// The same cases one at a time, each file read in pieces. With `check` the cases are checked as they come,
+    /// and the failures are thrown after the last case (the body has seen the cases by then).
+    static func forEachSelected(_ files: [String], _ parsed: Arguments, library: LayoutLibrary, split override: String? = nil,
+                                store: PrivateStore? = nil, check: Bool = true,
+                                _ body: (_ file: String, _ item: EvalCase) throws -> Void) throws {
         let only = parsed.value("--only").map { Set($0.split(separator: ",").map(String.init)) }
         let split = override ?? parsed.value("--split") ?? "all"
         guard ["dev", "test", "all"].contains(split) else { throw EvalError.input("--split dev|test|all") }
-        var items: [EvalCase] = []
         var problems: [String] = []
-        for (file, item) in try CaseFiles.read(files, store: store) {
-            if let only, !only.contains(item.suite) { continue }
-            if split != "all", item.split.rawValue != split { continue }
-            problems += CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
-                .map { "\(file): \(shown(item, store)): \($0)" }
-            items.append(item)
+        try CaseFiles.forEach(files, store: store) { file, item in
+            if let only, !only.contains(item.suite) { return }
+            if split != "all", item.split.rawValue != split { return }
+            if check {
+                problems += CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
+                    .map { "\(file): \(shown(item, store)): \($0)" }
+            }
+            try body(file, item)
         }
         guard problems.isEmpty else {
             throw EvalError.input("cases do not pass the check:\n" + problems.joined(separator: "\n"))
         }
-        return items
     }
 
     // MARK: - fidelity
@@ -340,7 +360,7 @@ public enum EvalCommands {
             options.profilesFile = profilesPath
         }
         if options.words == nil, (parsed.value("--format") ?? "text") == "text" { options.words = 20 }
-        let run = try RunData.load(directory, withholdDetails: try parsed.inStore(directory))
+        let run = try RunData.load(directory, withholdDetails: try parsed.inStore(directory), parts: [.words])
         let privately = try requirePrivateOutput(for: [run], to: parsed.value("--out"), parsed)
         let data = try ReportBuilder.build(run, options: options)
         let text: String
@@ -360,7 +380,11 @@ public enum EvalCommands {
         var options = DiffOptions()
         options.revealTest = parsed.flag("--reveal-test")
         if let list = parsed.value("--list") { options.list = try count(list, "--list") }
-        let runs = try parsed.positional.map { try RunData.load($0, withholdDetails: try parsed.inStore($0)) }
+        // The diff reads the counters it compares and the outcome letters; the events are read for the changed cases only.
+        let columns = RowTable.Columns.only([\.exact, \.harm, \.miss, \.botched, \.silent, \.disputed])
+        let runs = try parsed.positional.map {
+            try RunData.load($0, withholdDetails: try parsed.inStore($0), columns: columns, parts: [.outcomes])
+        }
         let privately = try requirePrivateOutput(for: runs, to: parsed.value("--out"), parsed)
         let data = try DiffBuilder.build(runs[0], runs[1], options: options)
         let text: String
@@ -399,8 +423,10 @@ public enum EvalCommands {
                 if let status = item.status { statuses[item.id] = status }
             }
         }
-        let head = try RunData.load(parsed.positional[0])
-        let base = try parsed.positional.count == 2 ? RunData.load(parsed.positional[1]) : nil
+        // The bars read a few counters of each case, and neither the outcome letters nor the words.
+        let columns = RowTable.Columns.only((gates.zero + gates.noWorse).compactMap { GateMetric.counts[$0.metric] })
+        let head = try RunData.load(parsed.positional[0], columns: columns, parts: [])
+        let base = try parsed.positional.count == 2 ? RunData.load(parsed.positional[1], columns: columns, parts: []) : nil
         if let base, base.scorer != head.scorer {
             throw EvalError.input("the runs were scored by different scorers (\(base.scorer) and \(head.scorer)); play them again")
         }
@@ -517,7 +543,8 @@ public enum EvalCommands {
         // 6. Every case passes the checks.
         var problems = 0
         let store = try parsed.store()
-        for (file, item) in try CaseFiles.read(files, store: store) {
+        // One case at a time: all the files together are gigabytes.
+        try CaseFiles.forEach(files, store: store) { file, item in
             let found = CaseCheck.problems(item, layouts: library, reveal: parsed.flag("--reveal-test"))
             for problem in found { failures.append("\(file): \(shown(item, store)): \(problem)") }
             problems += found.isEmpty ? 0 : 1
@@ -527,58 +554,78 @@ public enum EvalCommands {
             EvalContext.out("selfcheck: \(problems) cases do not pass the check")
             return 1
         }
-        let items = try selected(files, parsed, library: library, store: store)
         let config = try parsed.config()
-        func run(_ system: SystemName, settings: String? = nil) throws -> [Runner.Played] {
+        // One pass over the cases, one at a time (the files are read in pieces): the corpus is large, and a
+        // check keeps counts and the lines of its failures, not the cases or their results. The lines come
+        // out in the order of the checks, as the failures of each check come out in the order of the cases.
+        func runner(_ system: SystemName, settings: String? = nil) -> Runner {
             var config = config
             config.system = system
             config.settings = settings ?? config.settings
-            var runner = Runner(config: config, library: library)
-            return try items.map { try runner.play($0) }
+            return Runner(config: config, library: library)
         }
+        var nullRunner = runner(.null), oracleRunner = runner(.oracle), offRunner = runner(.machine, settings: "off")
+        var firstRunner = runner(.machine), secondRunner = runner(.machine)
 
+        var itemCount = 0
         // 1. Null harms and fixes nothing.
-        let null = try run(.null)
-        let nullHarm = null.flatMap(\.score.measured).filter { $0.outcome == .harm || $0.outcome == .fixed }
-        lines.append("1. null: harm and fixed \(nullHarm.count)")
-        if !nullHarm.isEmpty { failures.append("null has \(nullHarm.count) harmed or fixed tokens") }
-
+        var nullHarm = 0
         // 2. Oracle: every token ok or fixed, every text exact. The checks of
         // whole cases (layout, corrections) are not the oracle's: it only has the text.
-        let oracle = try run(.oracle)
-        let oracleWrong = oracle.filter { played in
-            played.score.scoring == .token ? !played.score.exact
-                : Scorer.normalize(played.out.text, played.item.effectiveFold)
-                != Scorer.normalize(played.item.want, played.item.effectiveFold)
-        }
-        lines.append("2. oracle: \(oracle.count - oracleWrong.count) of \(oracle.count) exact")
-        for played in oracleWrong { failures.append("oracle is not exact on \(shown(played.item, store))") }
-
+        var oracleWrong: [String] = []
         // 3. The machine with the preset `off` types what Null types, where
         // the case presses no shortcut and no Undo.
-        let off = try run(.machine, settings: "off")
+        var offFailures: [String] = []
         var compared = 0
-        for (played, nullPlayed) in zip(off, null) where !played.item.allSteps.contains(where: {
-            switch $0 {
-            case .hotkey, .undo: true
-            default: false
-            }
-        }) {
-            compared += 1
-            if played.out.text != nullPlayed.out.text {
-                failures.append("machine off differs from null on \(shown(played.item, store))" + (played.score.hidden || played.score.personal ? ""
-                        : ": \(played.out.text.debugDescription) vs \(nullPlayed.out.text.debugDescription)"))
-            }
-        }
-        lines.append("3. machine off = null on \(compared) cases without shortcuts")
+        // 4. Two runs of the machine give the same bytes: the lines of a case are compared as the two runs
+        // play it, and the counts of the files that grow with the cases (summary, slices, words) at the end.
+        var same = true
+        var firstSummary = Summary.Accumulator(), secondSummary = Summary.Accumulator()
+        var firstSlices = SliceTable.Accumulator(), secondSlices = SliceTable.Accumulator()
+        var firstWords = RunFiles.Words(redactor: nil), secondWords = RunFiles.Words(redactor: nil)
 
-        // 4. Two runs of the machine give the same bytes.
-        let first = try run(.machine).map(\.score), second = try run(.machine).map(\.score)
-        let same = try RunFiles.casesTSV(first) == RunFiles.casesTSV(second)
-            && RunFiles.summaryJSON(first) == RunFiles.summaryJSON(second)
-            && RunFiles.countsTSV(first) == RunFiles.countsTSV(second)
-            && RunFiles.slicesJSON(first) == RunFiles.slicesJSON(second)
-            && RunFiles.wordsTSV(first) == RunFiles.wordsTSV(second)
+        try forEachSelected(files, parsed, library: library, store: store, check: false) { _, item in
+            itemCount += 1
+            let nullPlayed = try nullRunner.play(item)
+            nullHarm += nullPlayed.score.measured.filter { $0.outcome == .harm || $0.outcome == .fixed }.count
+
+            let oraclePlayed = try oracleRunner.play(item)
+            let wrong = oraclePlayed.score.scoring == .token ? !oraclePlayed.score.exact
+                : Scorer.normalize(oraclePlayed.out.text, oraclePlayed.item.effectiveFold)
+                != Scorer.normalize(oraclePlayed.item.want, oraclePlayed.item.effectiveFold)
+            if wrong { oracleWrong.append("oracle is not exact on \(shown(item, store))") }
+
+            let offPlayed = try offRunner.play(item)
+            if !item.allSteps.contains(where: {
+                switch $0 {
+                case .hotkey, .undo: true
+                default: false
+                }
+            }) {
+                compared += 1
+                if offPlayed.out.text != nullPlayed.out.text {
+                    let hidden = offPlayed.score.hidden || offPlayed.score.personal
+                    offFailures.append("machine off differs from null on \(shown(item, store))" + (hidden ? ""
+                        : ": \(offPlayed.out.text.debugDescription) vs \(nullPlayed.out.text.debugDescription)"))
+                }
+            }
+
+            let first = try firstRunner.play(item).score, second = try secondRunner.play(item).score
+            if RunFiles.caseLine(first) != RunFiles.caseLine(second)
+                || RunFiles.countsLine(first) != RunFiles.countsLine(second) { same = false }
+            firstSummary.add(first); secondSummary.add(second)
+            firstSlices.add(first); secondSlices.add(second)
+            firstWords.add(first); secondWords.add(second)
+        }
+        lines.append("1. null: harm and fixed \(nullHarm)")
+        if nullHarm != 0 { failures.append("null has \(nullHarm) harmed or fixed tokens") }
+        lines.append("2. oracle: \(itemCount - oracleWrong.count) of \(itemCount) exact")
+        failures += oracleWrong
+        failures += offFailures
+        lines.append("3. machine off = null on \(compared) cases without shortcuts")
+        same = try same && RunFiles.summaryJSON(firstSummary) == RunFiles.summaryJSON(secondSummary)
+            && RunFiles.slicesJSON(firstSlices) == RunFiles.slicesJSON(secondSlices)
+            && firstWords.tsv() == secondWords.tsv()
         lines.append("4. machine twice: "
             + (same ? "cases.tsv, summary.json, counts.tsv, slices.json and words.tsv the same" : "DIFFERENT"))
         if !same { failures.append("two runs of the machine differ") }
@@ -609,10 +656,10 @@ public enum EvalCommands {
                     }
                     first = (entry.sha256, entry.report)
                 } else {
-                    let built = try builtSuite(manifest, settings: settings, library: library)
+                    let built = try streamedSuite(manifest, settings: settings, library: library)
                     first = (built.sha256, built.report)
                 }
-                let second = try builtSuite(manifest, settings: settings, library: library)
+                let second = try streamedSuite(manifest, settings: settings, library: library)
                 compared += 1
                 if first.sha256 == second.sha256, first.report == second.report {
                     identical += 1
@@ -622,26 +669,36 @@ public enum EvalCommands {
             }
             lines.append("5. cases built twice (\(settings.tier.rawValue)): \(identical) of \(compared) suites identical")
         }
-        lines.append("6. cases pass the check: \(items.count)")
+        lines.append("6. cases pass the check: \(itemCount)")
 
         // 7. Every mutant of the machine shifts the count it must shift (docs/eval.md, «Мутанты»).
         if parsed.flag("--mutants") {
-            // Both parts: a shift is read off counts, and more cases make the counts firm.
-            let mutantItems = try selected(files, parsed, library: library, split: "all")
+            // Both parts: a shift is read off counts, and more cases make the counts firm. The cases come one
+            // at a time and only the counts of what the mutants must shift are kept.
             var ordinaryConfig = config
             ordinaryConfig.system = .machine
             var ordinaryRunner = Runner(config: ordinaryConfig, library: library)
-            let ordinary = try mutantItems.filter { item in Mutants.all.contains { Mutants.covers($0, item) } }
-                .map { try ordinaryRunner.play($0).score }
+            var runners: [Runner] = []
             for mutant in Mutants.all {
                 var mutated = config
                 mutated.system = .machine
                 mutated.optionsJSON = mutant.options
                 mutated.options = try mutant.options.map(ClassifierOptions.parse) ?? Classifier.Options()
                 mutated.settings = mutant.settings ?? config.settings
-                var runner = Runner(config: mutated, library: library)
-                let scores = try mutantItems.filter { Mutants.covers(mutant, $0) }.map { try runner.play($0).score }
-                for finding in Mutants.judge(mutant, ordinary: ordinary, mutated: scores) {
+                runners.append(Runner(config: mutated, library: library))
+            }
+            var ordinaryTallies = Mutants.all.map { Mutants.Tally($0) }
+            var mutatedTallies = Mutants.all.map { Mutants.Tally($0) }
+            try forEachSelected(files, parsed, library: library, split: "all", store: store, check: false) { _, item in
+                guard Mutants.all.contains(where: { Mutants.covers($0, item) }) else { return }
+                let score = try ordinaryRunner.play(item).score
+                for index in Mutants.all.indices { ordinaryTallies[index].add(score) }
+                for (index, mutant) in Mutants.all.enumerated() where Mutants.covers(mutant, item) {
+                    mutatedTallies[index].add(try runners[index].play(item).score)
+                }
+            }
+            for (index, mutant) in Mutants.all.enumerated() {
+                for finding in Mutants.judge(mutant, ordinary: ordinaryTallies[index], mutated: mutatedTallies[index]) {
                     lines.append("7. mutant " + finding.line)
                     if finding.verdict == .fail { failures.append(finding.line) }
                 }
@@ -703,9 +760,13 @@ struct Arguments {
     /// The lexicon, the lists of `data/` and the noise decisions, for the languages of the
     /// cases' layouts. Without `--cache` and `--lexicon` the run has none.
     func knowledge(items: [EvalCase], library: LayoutLibrary) throws -> KnowledgeSetup? {
+        try knowledge(languages: Array(Set(try items.flatMap { try library.maps(of: $0).compactMap(\.language) })).sorted(),
+                      library: library)
+    }
+
+    func knowledge(languages: [String], library: LayoutLibrary) throws -> KnowledgeSetup? {
         guard value("--cache") != nil || value("--lexicon") != nil else { return nil }
         let directory = value("--lexicon") ?? ".build/quality"
-        let languages = Array(Set(try items.flatMap { try library.maps(of: $0).compactMap(\.language) })).sorted()
         let lexicon = try Lexicon.load(languages: languages, directory: directory, cache: value("--cache"))
         let dataPath = value("--data") ?? "data"
         let seen = FileManager.default.fileExists(atPath: dataPath) ? try SeenWords(directory: dataPath) : nil

@@ -184,8 +184,20 @@ public struct Summary: Hashable, Sendable, Codable {
     public var incidents = Incidents()
 
     public init(_ scores: [CaseScore]) {
-        var groups: [String: Group] = [:]
-        for score in scores {
+        var accumulator = Accumulator()
+        for score in scores { accumulator.add(score) }
+        self.init(accumulator)
+    }
+
+    /// The counts of cases one at a time, so a run need not keep all its scores.
+    public struct Accumulator {
+        fileprivate var groups: [String: Group] = [:]
+        fileprivate var total = Metrics()
+        fileprivate var incidents = Incidents()
+
+        public init() {}
+
+        public mutating func add(_ score: CaseScore) {
             let key = score.suite + "\u{1F}" + score.scenario
             let counts = Metrics(score)
             groups[key, default: Group(suite: score.suite, scenario: score.scenario, metrics: Metrics())].metrics.merge(counts)
@@ -201,8 +213,13 @@ public struct Summary: Hashable, Sendable, Codable {
                 break
             }
         }
-        self.groups = groups.keys.sorted().compactMap { groups[$0] }
-        for index in self.groups.indices { self.groups[index].metrics.computeRates() }
+    }
+
+    public init(_ accumulated: Accumulator) {
+        total = accumulated.total
+        incidents = accumulated.incidents
+        groups = accumulated.groups.keys.sorted().compactMap { accumulated.groups[$0] }
+        for index in groups.indices { groups[index].metrics.computeRates() }
         total.computeRates()
     }
 }

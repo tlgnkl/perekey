@@ -342,22 +342,48 @@ enum ClassFixtures {
 
     @Test func cliReadsThePagesOfAnArchive() throws {
         let cache = try SuiteFixtures.directory()
-        let pages = try SuiteFixtures.directory()
+        let root = try SuiteFixtures.directory()
+        let pages = root + "/tldr-0123abc/pages"
         try FileManager.default.createDirectory(atPath: pages + "/common", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: root + "/tldr-0123abc/pages.de/common", withIntermediateDirectories: true)
+        try "# ls\n\n- Auflisten:\n\n`ls auflisten`\n".write(toFile: root + "/tldr-0123abc/pages.de/common/ls.md", atomically: true, encoding: .utf8)
         try FileManager.default.createDirectory(atPath: pages + "/windows", withIntermediateDirectories: true)
         try "# git commit\n\n> Commit.\n\n- Commit all:\n\n`git commit -a`\n".write(toFile: pages + "/common/git-commit.md", atomically: true, encoding: .utf8)
         try "# dir\n\n- List:\n\n`dir /b`\n".write(toFile: pages + "/windows/dir.md", atomically: true, encoding: .utf8)
         try FileManager.default.createDirectory(atPath: pages + "/osx", withIntermediateDirectories: true)
         try "# say\n\n- Speak:\n\n`say {{hello}}`\n".write(toFile: pages + "/osx/say.md", atomically: true, encoding: .utf8)
-        try SuiteFixtures.run("/usr/bin/zip", ["-qr", cache + "/tldr.zip", "common", "windows", "osx"], in: pages)
+        try SuiteFixtures.run("/usr/bin/zip", ["-qr", cache + "/tldr.zip", "tldr-0123abc"], in: root)
         let manifest = try ClassFixtures.manifest(rule: "cli", classBody: "\"corpus\":\"tldr.zip\"")
         let (rules, context) = try ClassFixtures.rules(manifest, lexicon: [:])
         let items = try ClassRules(manifest: manifest, spec: manifest.classSpec!, context: ClassContext(cache: cache, lexiconDirectory: cache, classesDirectory: cache),
                                    library: Repo.library, sets: rules.sets, tier: .ci).cli().0
         _ = context
-        // The Windows page is not read; the heading `git commit` has a space and is not a command name; a platform
+        // The Windows page and the translated pages (`pages.de`) are not read; the heading `git commit` has a space and is not a command name; a platform
         // the archive lacks (`linux` here) is not an error.
         #expect(Set(ClassFixtures.texts(items)) == ["git", "commit", "-a", "say"])
+    }
+
+    @Test func cliKindDoesNotDependOnTheOrderOfFiles() throws {
+        func items(order: [String]) throws -> [String] {
+            let cache = try SuiteFixtures.directory()
+            let root = try SuiteFixtures.directory()
+            let pages = root + "/tldr-0123abc/pages/common"
+            try FileManager.default.createDirectory(atPath: pages, withIntermediateDirectories: true)
+            try "# git\n\n- A:\n\n`git add`\n".write(toFile: pages + "/git.md", atomically: true, encoding: .utf8)
+            try "# docs\n\n- B:\n\n`man git`\n".write(toFile: pages + "/man.md", atomically: true, encoding: .utf8)
+            try "# other\n\n- C:\n\n`ls -l git ~/git`\n".write(toFile: pages + "/ls.md", atomically: true, encoding: .utf8)
+            try SuiteFixtures.run("/usr/bin/zip", ["-q", cache + "/tldr.zip"] + order.map { "tldr-0123abc/pages/common/" + $0 }, in: root)
+            let manifest = try ClassFixtures.manifest(rule: "cli", classBody: "\"corpus\":\"tldr.zip\"")
+            let (rules, _) = try ClassFixtures.rules(manifest, lexicon: [:])
+            let result = try ClassRules(manifest: manifest, spec: manifest.classSpec!, context: ClassContext(cache: cache, lexiconDirectory: cache, classesDirectory: cache),
+                                        library: Repo.library, sets: rules.sets, tier: .ci).cli().0
+            return result.map { "\($0.text) \($0.tags.joined(separator: ",")) \($0.weight)" }.sorted()
+        }
+        let forward = try items(order: ["git.md", "man.md", "ls.md"])
+        #expect(try items(order: ["ls.md", "man.md", "git.md"]) == forward)
+        #expect(try items(order: ["man.md", "ls.md", "git.md"]) == forward)
+        // `git` is a command on one page and a word on others: a command.
+        #expect(forward.contains { $0.hasPrefix("git ") && $0.contains("cli:command") })
     }
 
     @Test func codeSkipsCommentsAndCountsTokensPerMillion() throws {

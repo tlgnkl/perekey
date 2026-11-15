@@ -67,18 +67,58 @@ public enum DiffBuilder {
             notes.append("лексикон или списки data/ у прогонов разные: исходы «спорно» и «тихо» сравнимы не полностью")
         }
         if a.info.testRevealed != b.info.testRevealed { notes.append("тест раскрыт только в одном из прогонов") }
-        let rowsA = Dictionary(a.rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let rowsB = Dictionary(b.rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let common = rowsA.keys.filter { rowsB[$0] != nil }.sorted()
-        let eventsA = index(a.events), eventsB = index(b.events)
+        // The rows stay in their tables, the events on disk: a full run has millions of cases and gigabytes of events.
+        // Both tables by id, and a walk over the two orders: the common ids come sorted, as the report lists them.
+        // Of rows with one id the first is the case; the outcome letters of the last are the ones of the id.
+        let idsA = a.rows, idsB = b.rows
+        let orderA = idsA.orderedByID(), orderB = idsB.orderedByID()
+        var pairs: [(a: Int32, b: Int32, lastA: Int32, lastB: Int32)] = []
+        var distinctA = 0, distinctB = 0
+        do {
+            func groupEnd(_ order: [Int32], _ table: RowTable, from start: Int) -> Int {
+                let id = table.id(at: Int(order[start]))
+                var end = start + 1
+                while end < order.count, table.id(at: Int(order[end])) == id { end += 1 }
+                return end
+            }
+            var i = 0, j = 0
+            while i < orderA.count || j < orderB.count {
+                let endA = i < orderA.count ? groupEnd(orderA, idsA, from: i) : i
+                let endB = j < orderB.count ? groupEnd(orderB, idsB, from: j) : j
+                if i < orderA.count, j < orderB.count {
+                    let x = idsA.id(at: Int(orderA[i])), y = idsB.id(at: Int(orderB[j]))
+                    if x == y {
+                        pairs.append((orderA[i], orderB[j], orderA[endA - 1], orderB[endB - 1]))
+                        distinctA += 1
+                        distinctB += 1
+                        i = endA
+                        j = endB
+                    } else if x < y {
+                        distinctA += 1
+                        i = endA
+                    } else {
+                        distinctB += 1
+                        j = endB
+                    }
+                } else if i < orderA.count {
+                    distinctA += 1
+                    i = endA
+                } else {
+                    distinctB += 1
+                    j = endB
+                }
+            }
+        }
+        let common = pairs.count
 
         var sums: [(String, KeyPath<Metrics, Int>, Int, Int, Int, Int)] = []
         let measures: [(String, KeyPath<Metrics, Int>)] = [("вред", \.harm), ("пропуск", \.miss), ("порча", \.botched),
                                                            ("тихий вред", \.silent), ("спорно", \.disputed)]
         for (name, path) in measures {
+            let valueA = a.rows.counter(path), valueB = b.rows.counter(path)
             var total = (0, 0, 0, 0)
-            for id in common {
-                let before = rowsA[id]!.metrics[keyPath: path], after = rowsB[id]!.metrics[keyPath: path]
+            for pair in pairs {
+                let before = valueA(Int(pair.a)), after = valueB(Int(pair.b))
                 total.0 += before
                 total.1 += after
                 if after < before { total.2 += 1 } else if after > before { total.3 += 1 }
@@ -89,31 +129,39 @@ public enum DiffBuilder {
             DiffRow(name: $0.0, a: $0.2, b: $0.3, better: $0.4, worse: $0.5, p: Stats.mcNemar(better: $0.4, worse: $0.5))
         }
 
+        // The words of the changes are in the events. The changes come first, with `want` empty; the events of their
+        // cases are read once after, and only theirs are kept.
+        enum Lookup { case token(Int), whole }
         var broken: [TokenChange] = [], fixed: [TokenChange] = []
+        var brokenLookups: [Lookup] = [], fixedLookups: [Lookup] = []
         var brokenTest: [String: Int] = [:], fixedTest: [String: Int] = [:]
-        for id in common {
-            let rowA = rowsA[id]!, rowB = rowsB[id]!
-            let hide = rowB.split == "test" && !options.revealTest
+        let exactA = a.rows.counter(\.exact), exactB = b.rows.counter(\.exact)
+        for pair in pairs {
+            let indexA = Int(pair.a), indexB = Int(pair.b)
+            let id = idsA.id(at: indexA)
+            let splitB = b.rows.split(at: indexB), suiteB = b.rows.suite(at: indexB)
+            let hide = splitB == "test" && !options.revealTest
             var brokeHere = false, fixedHere = false
-            func shown(_ text: String) -> String { hide ? RunFiles.hiddenText : text }
-            func record(_ list: inout [TokenChange], _ change: TokenChange, test: inout [String: Int], flag: inout Bool) {
+            func record(_ list: inout [TokenChange], _ lookups: inout [Lookup], _ change: TokenChange, _ lookup: Lookup,
+                        test: inout [String: Int], flag: inout Bool)
+            {
                 if hide {
-                    if !flag { test[rowB.suite, default: 0] += 1 }
+                    if !flag { test[suiteB, default: 0] += 1 }
                     flag = true
                 } else {
                     list.append(change)
+                    lookups.append(lookup)
                 }
             }
-            let lettersA = a.outcomes[id]?.letters ?? "", lettersB = b.outcomes[id]?.letters ?? ""
+            let lettersA = a.outcomeLetters.isEmpty ? "" : a.outcomeLetters[Int(pair.lastA)]
+            let lettersB = b.outcomeLetters.isEmpty ? "" : b.outcomeLetters[Int(pair.lastB)]
             if lettersA.isEmpty, lettersB.isEmpty {
                 // Scored as a whole: the text is right or not.
-                if rowA.metrics.exact != rowB.metrics.exact {
-                    let line = eventsB[id]?.wholeCase ?? eventsA[id]?.wholeCase
-                    let change = TokenChange(id: id, index: nil, want: shown(line?.want ?? "?"),
-                                             before: rowA.metrics.exact == 1 ? "exact" : "fail",
-                                             after: rowB.metrics.exact == 1 ? "exact" : "fail")
-                    if rowB.metrics.exact == 0 { record(&broken, change, test: &brokenTest, flag: &brokeHere) }
-                    else { record(&fixed, change, test: &fixedTest, flag: &fixedHere) }
+                if exactA(indexA) != exactB(indexB) {
+                    let change = TokenChange(id: id, index: nil, want: "", before: exactA(indexA) == 1 ? "exact" : "fail",
+                                             after: exactB(indexB) == 1 ? "exact" : "fail")
+                    if exactB(indexB) == 0 { record(&broken, &brokenLookups, change, .whole, test: &brokenTest, flag: &brokeHere) }
+                    else { record(&fixed, &fixedLookups, change, .whole, test: &fixedTest, flag: &fixedHere) }
                 }
                 continue
             }
@@ -124,26 +172,31 @@ public enum DiffBuilder {
             for (index, (x, y)) in zip(lettersA, lettersB).enumerated() where x != y {
                 let wasRight = right.contains(x), isRight = right.contains(y)
                 guard wasRight != isRight, y != "D", x != "D" else { continue }
-                let word = (eventsB[id]?[index] ?? eventsA[id]?[index])?.want ?? "?"
-                let change = TokenChange(id: id, index: index, want: shown(word), before: names[x] ?? String(x),
+                let change = TokenChange(id: id, index: index, want: "", before: names[x] ?? String(x),
                                          after: names[y] ?? String(y))
-                if isRight { record(&fixed, change, test: &fixedTest, flag: &fixedHere) }
-                else { record(&broken, change, test: &brokenTest, flag: &brokeHere) }
+                if isRight { record(&fixed, &fixedLookups, change, .token(index), test: &fixedTest, flag: &fixedHere) }
+                else { record(&broken, &brokenLookups, change, .token(index), test: &brokenTest, flag: &brokeHere) }
             }
         }
-        return DiffData(a: label(a), b: label(b), common: common.count, onlyA: rowsA.count - common.count,
-                        onlyB: rowsB.count - common.count, rows: rows, broken: broken, fixed: fixed,
+        let wanted = Set(broken.map(\.id)).union(fixed.map(\.id))
+        let eventsA = try a.events(of: wanted), eventsB = try b.events(of: wanted)
+        func fill(_ list: inout [TokenChange], _ lookups: [Lookup]) {
+            for (position, lookup) in lookups.enumerated() {
+                let id = list[position].id
+                switch lookup {
+                case let .token(index): list[position].want = (eventsB[id]?[index] ?? eventsA[id]?[index])?.want ?? "?"
+                case .whole: list[position].want = (eventsB[id]?.wholeCase ?? eventsA[id]?.wholeCase)?.want ?? "?"
+                }
+            }
+        }
+        fill(&broken, brokenLookups)
+        fill(&fixed, fixedLookups)
+        return DiffData(a: label(a), b: label(b), common: common, onlyA: distinctA - common,
+                        onlyB: distinctB - common, rows: rows, broken: broken, fixed: fixed,
                         brokenTest: brokenTest, fixedTest: fixedTest, notes: notes)
     }
 
     private static func label(_ run: RunData) -> String { "\(run.info.system)@\(run.info.commit)" }
-
-    /// The events of a run by case, then by token number (a case scored as a whole: position 0).
-    private static func index(_ events: [RunData.Event]) -> [String: [Int: RunData.Event]] {
-        var result: [String: [Int: RunData.Event]] = [:]
-        for event in events { result[event.id, default: [:]][event.index ?? 0] = event }
-        return result
-    }
 }
 
 extension Dictionary where Key == Int, Value == RunData.Event {

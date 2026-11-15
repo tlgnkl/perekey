@@ -21,6 +21,13 @@ struct ClassSuiteBuilder {
     }
 
     func build(tier: SuiteManifest.Tier) throws -> SuiteBuilder.Output {
+        var cases: [EvalCase] = []
+        let report = try build(tier: tier) { cases.append($0) }
+        return SuiteBuilder.Output(cases: cases, report: report)
+    }
+
+    /// The same, one case at a time to `emit`.
+    func build(tier: SuiteManifest.Tier, emit: (EvalCase) throws -> Void) throws -> BuildReport {
         guard let spec = manifest.classSpec else { throw EvalError.input("\(manifest.suite): no class rule") }
         let sets = try manifest.layoutSets.map { try LayoutSet(names: $0, library: library) }
         for language in spec.languages where language != "en" {
@@ -85,7 +92,6 @@ struct ClassSuiteBuilder {
                                           maxTokens: SuiteBuilder.Options().warmupMaxTokens)
 
         let builder = ScenarioBuilder(manifest: manifest, library: library)
-        var cases: [EvalCase] = []
         for entry in chosen {
             report.examined += 1
             let key = entry.key
@@ -120,7 +126,7 @@ struct ClassSuiteBuilder {
                         let tags = (item.tokens?[index].tags ?? []) + entry.tags
                         item.tokens?[index].tags = tags
                     }
-                    cases.append(item)
+                    try emit(item)
                     let count = item.tokens?.count ?? 0
                     var stats = report.scenarios[scenario, default: .init()]
                     stats.cases += 1
@@ -132,7 +138,7 @@ struct ClassSuiteBuilder {
             }
         }
         for scenario in manifest.scenarios { report.scenarios[scenario, default: .init()] = report.scenarios[scenario] ?? .init() }
-        return SuiteBuilder.Output(cases: cases, report: report)
+        return report
     }
 
     /// The sentences to warm up with, read once for all the suites that name the same files.

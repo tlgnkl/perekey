@@ -85,7 +85,7 @@ struct ClassSuiteBuilder {
         for item in chosen { for tag in item.tags { tagCounts[tag, default: 0] += 1 } }
         report.classes?.tags = tagCounts
 
-        let wantsWarmup = manifest.scenarios.contains { $0.hasSuffix(".warm") }
+        let wantsWarmup = manifest.scenarios.contains { $0.hasSuffix(".warm") || $0 == "clean.same" }
         let warmups = wantsWarmup ? try warmupPool(sets: sets) : [:]
         report.warmupPool = ["cyrillic": warmups[.cyrillic]?.count ?? 0, "latin": warmups[.latin]?.count ?? 0]
         let filter = SuiteManifest.Filter(minTokens: SuiteBuilder.Options().warmupMinTokens,
@@ -117,7 +117,11 @@ struct ClassSuiteBuilder {
             let warmup = SuiteBuilder.warmup(for: parsed, ref: key, pool: warmups, manifest: manifest, library: library,
                                              filter: filter)
             for scenario in manifest.scenarios {
-                switch try builder.build(ref: key, unit: parsed, scenario: scenario, warmup: warmup) {
+                let warm = scenario == "clean.same"
+                    ? SuiteBuilder.warmup(for: parsed, ref: key, pool: warmups, manifest: manifest, library: library,
+                                          filter: filter, sameScript: true)
+                    : warmup
+                switch try builder.build(ref: key, unit: parsed, scenario: scenario, warmup: warm) {
                 case let .failure(drop):
                     report.scenarios[scenario, default: .init()].drops[drop.rawValue, default: 0] += 1
                 case var .success(item):

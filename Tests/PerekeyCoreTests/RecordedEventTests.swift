@@ -241,7 +241,8 @@ import Testing
     @Test func withTheWordContextOffTheOptionsAreCodedAsOnMain() throws {
         let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(Classifier.Options()))
             as? [String: Any])
-        #expect(Set(json.keys) == Self.keysOnMain)
+        // The rules of short words are written whatever their value (`aSessionFromBeforeTheRulesPlaysWithThemOff`).
+        #expect(Set(json.keys) == Self.keysOnMain.union(["shortWordSentenceStart", "shortWordsCarried"]))
         // Read back, the missing key is the default, off.
         let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(Classifier.Options()))
         #expect(read == Classifier.Options())
@@ -251,8 +252,26 @@ import Testing
         var options = Classifier.Options()
         options.wordContextLimit = 4
         let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
-        #expect(Set(json.keys) == Self.keysOnMain.union(["wordContextLimit"]))
+        #expect(Set(json.keys) == Self.keysOnMain.union(["wordContextLimit", "shortWordSentenceStart", "shortWordsCarried"]))
         #expect(json["wordContextLimit"] as? Double == 4)
+    }
+
+    @Test func aSessionFromBeforeTheRulesPlaysWithThemOff() throws {
+        let old = Data(#"{"languages":["en","ru"],"options":{"threshold":12}}"#.utf8)
+        let spec = try JSONDecoder().decode(ClassifierSpec.self, from: old)
+        #expect(!spec.options.shortWordSentenceStart && spec.options.shortWordsCarried == 0)
+        #expect(spec.options.threshold == 12)
+        // A record of today names them, and reads back as written, on or off.
+        for on in [true, false] {
+            var options = Classifier.Options()
+            options.shortWordSentenceStart = on
+            options.shortWordsCarried = on ? 2 : 0
+            let written = ClassifierSpec(languages: ["en", "ru"], options: options)
+            #expect(try JSONDecoder().decode(ClassifierSpec.self, from: JSONEncoder().encode(written)) == written)
+        }
+        // A candidate's options name what they change: the rest is the default, on.
+        let candidate = try JSONDecoder().decode(Classifier.Options.self, from: Data(#"{"threshold": 12}"#.utf8))
+        #expect(candidate.shortWordSentenceStart && candidate.shortWordsCarried == 2)
     }
 
     @Test func aMissingKeyKeepsTheDefault() throws {

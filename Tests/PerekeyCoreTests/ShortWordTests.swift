@@ -13,7 +13,8 @@ import Testing
     let russian = Fixture.russian
 
     /// "yt" an English word of rank 220 here: "не" (235) is ahead, but by less than a unit of Zipf.
-    static let model = ModelFixture.model(withEnglishWords: [("yt", 220)], russianPairs: [])
+    /// "d" one of rank 100, a frequent word; "z" is no word, and "в" and "я" are far ahead of them.
+    static let model = ModelFixture.model(withEnglishWords: [("yt", 220), ("d", 100)], russianPairs: [])
 
     private func classifier(sentenceStart: Bool) -> Classifier {
         var options = Classifier.Options()
@@ -31,12 +32,22 @@ import Testing
 
     @Test func aShortWordAtASentenceStartIsJudgedWithoutTheSentenceBefore() {
         let on = classifier(sentenceStart: true)
-        // "Hello. d": "в" is far more frequent than "d", as without context.
-        #expect(decide(on, "d", after: "en", startsSentence: true) == .switch(to: russian.id))
+        // "Hello. z": "я" is far more frequent than the no-word "z", as without context.
+        #expect(decide(on, "z", after: "en", startsSentence: true) == .switch(to: russian.id))
         // In the middle of a sentence the English word before keeps it.
-        #expect(decide(on, "d", after: "en", startsSentence: false) == .keep)
+        #expect(decide(on, "z", after: "en", startsSentence: false) == .keep)
         // Off, the sentence before keeps it at its start too.
-        #expect(decide(classifier(sentenceStart: false), "d", after: "en", startsSentence: true) == .keep)
+        #expect(decide(classifier(sentenceStart: false), "z", after: "en", startsSentence: true) == .keep)
+    }
+
+    @Test func aFrequentWordOfTheSentenceBeforeIsNotTakenForAMistake() {
+        // "Hello there. d": "d" is a frequent English word (rank 100, Zipf 3): after a sentence in English it is
+        // kept, as on main, whatever "в" is. After a Russian sentence it is the "в" of a wrong layout.
+        let on = classifier(sentenceStart: true)
+        #expect(decide(on, "d", after: "en", startsSentence: true) == .keep)
+        #expect(decide(on, "d", after: "ru", startsSentence: true) == .switch(to: russian.id))
+        // A no-word, "ytn" or "z", is no such word.
+        #expect(decide(on, "z", after: "en", startsSentence: true) == .switch(to: russian.id))
     }
 
     @Test func atASentenceStartTheOtherLanguageNoLongerLowersTheBar() {
@@ -60,7 +71,7 @@ import Testing
         #expect(!classifier.carriesShortWord(abc.strokes("d,"), typed: abc, other: russian))
     }
 
-    @Test func theOptionsOfTheRulesAreCodedOnlyWhenNotTheDefault() throws {
+    @Test func theOptionsOfTheRulesAreAlwaysCoded() throws {
         var options = Classifier.Options()
         options.shortWordSentenceStart.toggle()
         options.shortWordsCarried = 1
@@ -68,16 +79,20 @@ import Testing
         #expect(read == options)
         let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
         #expect(json["shortWordSentenceStart"] != nil && json["shortWordsCarried"] != nil)
+        // The default ones too: a record of a session says which rules it ran with.
+        let defaults = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(Classifier.Options()))
+            as? [String: Any])
+        #expect(defaults["shortWordSentenceStart"] as? Bool == true && defaults["shortWordsCarried"] as? Int == 2)
     }
 }
 
 /// The rules inside the machine: what the text becomes, and one undo for a
 /// carried switch.
 @Suite struct ShortWordMachineTests {
-    /// "d" and "z" English words of rank 100 here, so the language of the
+    /// "d" and "z" English words of rank 60 here (below `Classifier.sentenceStartKeepRank`), so the language of the
     /// sentence goes on through them, and "vbh" a possible start of an
     /// English word ("vbhs"): "vbh" switches at its end, "ghbdtn" inside.
-    static let model = ModelFixture.model(withEnglishWords: [("d", 100), ("z", 100), ("vbhs", 50)], russianPairs: [])
+    static let model = ModelFixture.model(withEnglishWords: [("d", 60), ("z", 60), ("vbhs", 50)], russianPairs: [])
 
     static func desk(sentenceStart: Bool = true, carried: Int = 2, settings: Settings = Settings()) -> Desk {
         var options = Classifier.Options()
@@ -190,19 +205,86 @@ import Testing
     }
 }
 
-@Suite struct ShortWordPartsTests {
-    @Test func theWordsBackAreSlicesOfTheHistory() {
-        var buffer = WordBuffer()
-        for stroke in Fixture.abc.strokes("ab cd e") { buffer.type(stroke, in: Fixture.abc.id) }
-        #expect(buffer.word(back: 1).map { $0.map(\.stroke) } == Fixture.abc.strokes("cd "))
-        #expect(buffer.word(back: 2).map { $0.map(\.stroke) } == Fixture.abc.strokes("ab "))
-        #expect(buffer.word(back: 3) == nil)
-        buffer.relabel(words: 2, to: Fixture.russian.id)
-        #expect(buffer.entries.allSatisfy { $0.layout == Fixture.russian.id })
-        #expect(buffer.word(back: 1)?.allSatisfy { $0.layout == Fixture.russian.id } == true)
-        #expect(buffer.word(back: 2)?.allSatisfy { $0.layout == Fixture.abc.id } == true)
+/// What the retype erases: how many keys, and the text the caret check compares.
+@Suite struct ShortWordErasureTests {
+    /// The retypes the desk asked for, the text typed on the layout it stood in.
+    private func retypes(_ text: String, focus: Focus? = Desk.textEdit, carried: Int = 2) -> [Retype] {
+        var desk = ShortWordMachineTests.desk(carried: carried)
+        if let focus { desk.send(.focusChanged(focus)) }
+        desk.type(text)
+        return desk.history
     }
 
+    @Test func aSwitchAtTheWordsEndErasesTheShortWordToo() throws {
+        let retype = try #require(retypes("hello d vbh ").last)
+        #expect(retype.expected == "d vbh")
+        #expect(retype.deleteCount == "d vbh".count)
+        #expect(retype.text == "в мир")
+        let two = try #require(retypes("hello z d vbh ").last)
+        #expect(two.expected == "z d vbh")
+        #expect(two.deleteCount == "z d vbh".count)
+        #expect(two.text == "я в мир")
+    }
+
+    @Test func aSwitchInsideTheWordErasesTheShortWordAndWhatIsTypedOfTheWord() throws {
+        let all = retypes("hello d ghbdtn ")
+        let first = try #require(all.first)
+        // The text before the caret is "d " and the keys of the word typed so far, all in ABC.
+        #expect(first.expected.hasPrefix("d g") && "d ghbdtn".hasPrefix(first.expected))
+        #expect(first.deleteCount == first.expected.count)
+        #expect(first.text.hasPrefix("в "))
+        // The end of the word, a space, retypes nothing again: the rest of the word is typed in Russian.
+        #expect(all.count == 1)
+    }
+
+    @Test func theMarksGivenBackEraseTheCarriedWordOnce() throws {
+        let all = retypes("hello d ytn, ")
+        let last = try #require(all.last)
+        // "в нет" and the comma that the Russian layout types as "б": one retype for the word with its mark,
+        // without "в" again.
+        #expect(last.expected == "в нетб")
+        #expect(last.deleteCount == "в нетб".count)
+        #expect(last.text == "в нет,")
+        #expect(all.count == 2)
+    }
+
+    @Test func aCarriedWordIsNotCarriedAgain() {
+        // After the switch inside the word the layout is Russian: the rest of the word, the space and the words
+        // typed next ask for no second retype, so nothing is erased twice.
+        var desk = ShortWordMachineTests.desk()
+        desk.type("hello d ghbdtn ")
+        desk.type("z yt vbh ")
+        #expect(desk.text == "hello в привет я не мир ")
+        #expect(desk.history.count == 1)
+    }
+
+    @Test func whereTheCaretCannotBeReadOnlyTheWordIsRetyped() throws {
+        let blind = Focus(bundleID: "com.example.electron", caretReadable: false)
+        var end = ShortWordMachineTests.desk()
+        end.send(.focusChanged(blind))
+        end.type("hello d vbh ")
+        #expect(end.text == "hello d мир ")
+        let last = try #require(end.history.last)
+        #expect(last.expected == "vbh" && last.deleteCount == 3)
+        var inside = ShortWordMachineTests.desk()
+        inside.send(.focusChanged(blind))
+        inside.type("hello d ghbdtn ")
+        #expect(inside.text == "hello d привет ")
+        #expect(inside.corrections.allSatisfy { $0.carried == 0 })
+    }
+
+    @Test func theFocusOfASessionWithoutTheFlagReadsAsReadable() throws {
+        let old = Data(#"{"bundleID":"a.b","isSecureField":false,"isKnown":true}"#.utf8)
+        #expect(try JSONDecoder().decode(Focus.self, from: old) == Focus(bundleID: "a.b"))
+        // Written only when false: a recorded readable focus is the file of before.
+        let readable = try JSONEncoder().encode(Focus(bundleID: "a.b"))
+        #expect(!String(decoding: readable, as: UTF8.self).contains("caretReadable"))
+        let blind = Focus(bundleID: "a.b", caretReadable: false)
+        #expect(try JSONDecoder().decode(Focus.self, from: JSONEncoder().encode(blind)) == blind)
+    }
+}
+
+@Suite struct ShortWordPartsTests {
     @Test func theExplanationTellsTheCarriedWordsApart() {
         var correction = Correction(seq: 1, original: "d ghbdtn", replacement: "в привет", source: Fixture.abc.id,
                                     target: Fixture.russian.id)

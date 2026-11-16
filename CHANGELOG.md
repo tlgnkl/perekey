@@ -73,6 +73,12 @@ differently, what was fixed.
   undo (Backspace or the hint) puts all of it back, and the hint and «Why?»
   show the short words apart. A short word that ends a sentence, one you
   clicked away from, erased into or switched the layout after stays as typed.
+  After a sentence in the same language a frequent short word that is right as
+  typed («to», «a», «I», «vs») is never taken for a slip. In apps where Perekey
+  cannot read the text before the caret (Chromium and Electron apps, Telegram,
+  terminals) only the last word is retyped, as before.
+  Session files now always name these two classifier options; a file recorded
+  before them replays with both off.
 
 ### Fixed
 

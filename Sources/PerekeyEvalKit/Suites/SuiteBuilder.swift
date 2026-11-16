@@ -204,10 +204,26 @@ public struct SuiteBuilder {
 
     /// The sentence to warm up with: of the script the unit does not start
     /// in, picked by the hash of the unit's reference.
+    /// `sameScript` picks a sentence of the script the unit starts in that ends
+    /// a sentence (`clean.same`): the first of the pool, from the hash of the
+    /// reference on, that parses and ends with `.`, `!` or `?`.
     static func warmup(for unit: ParsedUnit, ref: String, pool: [LetterScript: [Pooled]], manifest: SuiteManifest,
-                       library: LayoutLibrary, filter: SuiteManifest.Filter) -> Warmup?
+                       library: LayoutLibrary, filter: SuiteManifest.Filter, sameScript: Bool = false) -> Warmup?
     {
         guard let first = unit.firstScript else { return nil }
+        if sameScript {
+            guard let candidates = pool[first], !candidates.isEmpty else { return nil }
+            let from = Int(FNV1a.hash64(ref + "\u{1F}warmup.same") % UInt64(candidates.count))
+            for step in 0..<min(candidates.count, 200) {
+                let pick = candidates[(from + step) % candidates.count]
+                if case let .success(parsed) = UnitParser.parse(pick.text, manifest: manifest, set: unit.set, library: library,
+                                                                   filter: filter) {
+                    let warm = Warmup(unit: parsed, script: first)
+                    if warm.endsSentence { return warm }
+                }
+            }
+            return nil
+        }
         let script: LetterScript = first == .latin ? .cyrillic : .latin
         guard let candidates = pool[script], !candidates.isEmpty else { return nil }
         let pick = candidates[Int(FNV1a.hash64(ref + "\u{1F}warmup") % UInt64(candidates.count))]

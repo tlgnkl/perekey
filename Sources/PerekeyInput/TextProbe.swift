@@ -82,6 +82,20 @@ public final class TextProbe: Sendable {
         return element
     }
 
+    /// Whether `checkBeforeCaret` can tell a match from a mismatch in this
+    /// element: its app is not one whose AX text lags, and it reports a
+    /// caret. Asked at focus, so the machine knows before a retype is planned
+    /// (`Focus.caretReadable`); an answer that changes later is the check's.
+    static func canReadCaretText(of element: AXUIElement) -> Bool {
+        var pid: pid_t = 0
+        if AXUIElementGetPid(element, &pid) == .success, LaggingAXApps.contains(pid: pid) { return false }
+        var rangeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue)
+            == .success, let rangeValue, CFGetTypeID(rangeValue) == AXValueGetTypeID()
+        else { return false }
+        return true
+    }
+
     private static func checkBeforeCaret(expected: String) -> CaretCheck.Verdict {
         guard let element = focusedElement() else { return .unavailable }
         // Chromium and Electron update their AX text after the keystroke has

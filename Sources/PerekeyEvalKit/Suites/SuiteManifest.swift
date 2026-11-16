@@ -8,6 +8,8 @@ import Foundation
 public struct SuiteManifest: Hashable, Sendable {
     /// The scenarios a corpus suite may list, in the order they are built.
     public static let scenarioNames = ["clean.cold", "clean.warm", "slip.cold", "slip.warm", "stuck", "clean.toggle"]
+    /// The scenarios only a class suite may list: a sentence of the unit's own language first (`clean.same`).
+    public static let classScenarioNames = ["clean.same"]
     /// The scenarios of the correction suites (`correction` in the manifest).
     public static let correctionScenarioNames = ["fix", "fix.merged", "fix.spaced", "keep"]
 
@@ -175,7 +177,7 @@ public struct SuiteManifest: Hashable, Sendable {
             problems.append("layout set \(set) must be two different layouts")
         }
         if scenarios.isEmpty { problems.append("no scenarios") }
-        let known = correction.map { Set($0.kind.scenarios) } ?? Set(Self.scenarioNames)
+        let known = correction.map { Set($0.kind.scenarios) } ?? Set(Self.scenarioNames + Self.classScenarioNames)
         for name in scenarios where !known.contains(name) { problems.append("unknown scenario \(name)") }
         if let correction {
             let pairs = reader == .misspellings || reader == .typopairs

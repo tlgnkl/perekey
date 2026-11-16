@@ -827,7 +827,7 @@ ru.stackoverflow.com (группа `heavy`): в CI они пропускаютс
 | `reader`, `source` | `tatoeba` или `stackexchange`; файлы кэша данных через запятую (`tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2`) |
 | `sampling` | `token` — текст как написан. `type` — список слов, каждое один раз: так строятся наборы классов («Наборы классов»); у корпусного читателя `type` — ошибка |
 | `layoutSets` | Пары раскладок: одна латинская (`ABC`), одна кириллическая. Предложение попадает в пару по хэшу ссылки |
-| `scenarios` | Из `clean.cold`, `clean.warm`, `slip.cold`, `slip.warm`, `stuck`, `clean.toggle` |
+| `scenarios` | Из `clean.cold`, `clean.warm`, `slip.cold`, `slip.warm`, `stuck`, `clean.toggle`, `clean.same` |
 | `epoch`, `seed` | Номер выборки и зерно. Порядок единиц задаёт `seed + epoch` |
 | `tiers` | `{"ci":N,"full":M}` — сколько токенов измеряемой части брать на каждый сценарий |
 | `split` | `{"dev":20,"by":"unit"}` — доля части `dev` в процентах |
@@ -867,6 +867,7 @@ ru.stackoverflow.com (группа `heavy`): в CI они пропускаютс
 | `slip.warm` | раскладка `warmup` | как у `slip.cold` | то же, что у `clean.warm` |
 | `stuck` | `X₀` | нет | нет |
 | `clean.toggle` | `X₀` | `hotkey switchLayout` на сменах цели | нет |
+| `clean.same` | раскладка `warmup` (она же `X₀`) | как у `clean.cold` | предложение **того же** письма, что у первого токена, набранное верно и кончающееся `. ! ?`; только наборы классов (`class.short.same`) |
 
 `stuck` и `clean.toggle` строятся только для предложения с обоими письмами.
 У одноязычного они равны `clean.cold`; такие случаи сборщик не строит и

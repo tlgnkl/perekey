@@ -87,7 +87,7 @@ public struct ClassSpec: Hashable, Sendable {
         if rule == .caps, !corpusFiles.isEmpty, (minPerMillion ?? 0) <= 0 {
             problems.append("class.minPerMillion of caps must be positive when it reads a corpus")
         }
-        for name in scenarios where !["clean.cold", "clean.warm", "slip.cold", "slip.warm"].contains(name) {
+        for name in scenarios where !["clean.cold", "clean.warm", "slip.cold", "slip.warm", "clean.same"].contains(name) {
             problems.append("a class suite has no scenario \(name)")
         }
         return problems

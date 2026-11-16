@@ -123,7 +123,7 @@ struct PackPolicy: Sendable {
                                 "typos.synth.neighbor", "typos.synth.swap", "hyphen", "yo", "doublecap"]
     static let stackExchangeSuites = ["lang.rus-se", "lang.russian-se", "mixed.uk-se"]
     /// Class suites whose words come from the word lists; their warm-up sentences are Tatoeba's.
-    static let classSuites = ["class.frequent", "class.short", "class.collision", "protect.url", "protect.captcha",
+    static let classSuites = ["class.frequent", "class.short", "class.short.same", "class.collision", "protect.url", "protect.captcha",
                               "protect.numbers", "protect.password"]
 
     static let fullOnly = "Built at the full tier only; the pack is the ci tier (the suites of the ci step of scripts/quality.sh)."

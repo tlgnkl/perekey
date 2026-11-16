@@ -293,6 +293,9 @@ struct WordJudge: Sendable {
     /// switch of the next one may carry along (`carryShortWords`). Any
     /// other judgement, a sentence end, a word undone or retyped by hand, a
     /// layout chosen by the user and the caret leaving the text set it to 0.
+    /// Not in `MachineSnapshot`: a machine restored from one (a replay, a
+    /// session segment) starts with 0, so the first switch after the restore
+    /// carries nothing. That is the safe side: one word retyped, not three.
     private var shortKept = 0
     private var shortKeptLayout: LayoutID?
     /// How many short words the switch inside the word being typed carried:
@@ -1249,7 +1252,9 @@ struct WordJudge: Sendable {
                                  layouts: LayoutState, settings: Settings, focus: Focus?)
     {
         let limit = min(kept, auto.classifier.options.shortWordsCarried)
-        guard limit > 0 else { return }
+        // Where the caret check cannot read the text, the retype would erase
+        // the words before blind: only the word itself is retyped.
+        guard limit > 0, focus?.caretReadable != false else { return }
         var carried = 0
         for back in 1...limit {
             guard let word = buffer.word(back: back), word.count >= 2, let gap = word.last, gap.isSpace,

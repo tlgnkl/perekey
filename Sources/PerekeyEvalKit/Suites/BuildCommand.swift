@@ -159,7 +159,7 @@ extension Console {
     /// One line per built suite: counts, no words.
     static func buildLine(_ report: BuildReport, sha256: String) -> String {
         var line = "\(report.suite)  units \(report.units)  pooled \(report.pooled)  sha256 \(sha256.prefix(16))"
-        for name in SuiteManifest.scenarioNames + SuiteManifest.correctionScenarioNames {
+        for name in SuiteManifest.scenarioNames + SuiteManifest.classScenarioNames + SuiteManifest.correctionScenarioNames {
             guard let stats = report.scenarios[name] else { continue }
             line += "\n  \(name.padding(toLength: 12, withPad: " ", startingAt: 0))"
                 + String(format: "%7d cases %8d tokens  dev %6d  test %6d", stats.cases, stats.tokens, stats.dev, stats.test)

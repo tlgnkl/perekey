@@ -666,6 +666,12 @@ public struct Classifier: Sendable {
     /// it by the rule of short words (`Options.shortWordRank`, `Reason.shortWord`),
     /// and the personal lexicon leaves it alone (`PersonalOptions.minLetters`).
     static let shortWordLetters = 2
+    /// The rank from which the typed reading of a short word at a sentence
+    /// start, after a sentence in its own language, stays whatever the other
+    /// reading is (Zipf 3, the lowest of `class.short`). Chosen on
+    /// `class.short.same` against 32 and 64 more of margin and against a
+    /// guard of any known word (docs/classifier.md, «Короткие слова»).
+    static let sentenceStartKeepRank = 96
 
     /// Strokes up to the last one that is not a space.
     static func wordLength(_ strokes: some Collection<KeyStroke>) -> Int {
@@ -783,7 +789,13 @@ public struct Classifier: Sendable {
             } else if !fresh, context.previousLanguage == otherCode {
                 wins = frequent && Int(typedRank) < Int(other.rank ?? 0) + shift()
             } else {
-                wins = frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0) + shift()
+                // A sentence start after a sentence in the typed language: a
+                // correct short word of it ("C", "vs", "to") would pass the
+                // bar of an empty field, so a word the dictionary knows as
+                // frequent stays (`Self.sentenceStartKeepRank`).
+                let sameLanguage = fresh && context.previousLanguage == typedCode
+                    && Int(typedRank) >= Self.sentenceStartKeepRank
+                wins = !sameLanguage && frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0) + shift()
             }
             return Decision(verdict: wins ? .switch(to: otherLayout.id) : .keep, score: score, reason: .shortWord,
                             language: wins ? otherCode : (typed.isWord && plausible(typed) ? typedCode : nil))
@@ -1169,14 +1181,10 @@ extension Classifier.Options: Codable {
         // Written only when on: the file of a limit of 0 is the file of
         // before the word context, byte for byte.
         if wordContextLimit != 0 { try container.encode(wordContextLimit, forKey: .wordContextLimit) }
-        // The rules of short words only when not the default: the file of the
-        // default options is the file of before them, and reads back the same.
-        let defaults = Classifier.Options()
-        if shortWordSentenceStart != defaults.shortWordSentenceStart {
-            try container.encode(shortWordSentenceStart, forKey: .shortWordSentenceStart)
-        }
-        if shortWordsCarried != defaults.shortWordsCarried {
-            try container.encode(shortWordsCarried, forKey: .shortWordsCarried)
-        }
+        // The rules of short words always, whatever their value: a session
+        // records the options it ran with, and a record without these keys is
+        // one from before the rules (`ClassifierSpec` reads it as off).
+        try container.encode(shortWordSentenceStart, forKey: .shortWordSentenceStart)
+        try container.encode(shortWordsCarried, forKey: .shortWordsCarried)
     }
 }

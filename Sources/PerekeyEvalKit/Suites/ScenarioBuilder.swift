@@ -10,6 +10,11 @@ struct Warmup {
     var script: LetterScript
     /// The tokens joined by a space.
     var text: String { unit.tokens.map(\.text).joined(separator: " ") }
+    /// The last token ends with `.`, `!` or `?`.
+    var endsSentence: Bool {
+        guard let last = unit.tokens.last?.text.last else { return false }
+        return ".!?".contains(last)
+    }
 }
 
 /// Turns a unit with the language of each token into the steps of a scenario
@@ -107,6 +112,17 @@ struct ScenarioBuilder {
             warmupSteps = [.type(warmupText, on: warmLayout)]
             start = warmLayout
             believing = scenario == "clean.warm" ? warmLayout : first.on
+        case "clean.same":
+            // A sentence of the language the unit is typed in, closed by a
+            // sentence end, then the unit as typed: the words a rule for the
+            // start of a sentence must leave alone.
+            guard let warmup, warmup.script == unit.firstScript, warmup.endsSentence,
+                  let warmLayout = set.layout(for: warmup.script), warmLayout == first.on
+            else { return .failure(.noWarmup) }
+            warmupText = warmup.text + " "
+            warmupSteps = [.type(warmupText, on: warmLayout)]
+            start = warmLayout
+            believing = warmLayout
         case "slip.cold":
             start = set.other(than: first.on)
         case "stuck", "clean.toggle":

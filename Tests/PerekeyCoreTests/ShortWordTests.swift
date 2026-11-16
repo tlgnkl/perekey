@@ -164,6 +164,20 @@ import Testing
         #expect(desk.learned == ["vbh"])
     }
 
+    @Test func theMarksGivenBackAtTheWordsEndKeepTheCarriedWords() throws {
+        // "ytn" goes to Russian inside the word and carries "d"; the comma typed next is "б" there,
+        // and the end of the word gives it back: one correction for all of it.
+        var desk = Self.desk()
+        desk.type("hello d ytn, ")
+        #expect(desk.text == "hello в нет, ")
+        let correction = try #require(desk.corrections.last)
+        #expect(correction.original == "d ytn," && correction.replacement == "в нет,")
+        #expect(correction.carried == 1)
+        desk.press(KeyCode.delete)
+        #expect(desk.text == "hello d ytn, ")
+        #expect(desk.undone.count == 1)
+    }
+
     @Test func oneUndoOfASwitchInsideTheWordPutsBackAllTheWords() {
         var desk = Self.desk()
         desk.type("hello d ghbdtn ")

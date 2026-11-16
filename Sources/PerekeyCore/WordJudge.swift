@@ -295,6 +295,9 @@ struct WordJudge: Sendable {
     /// layout chosen by the user and the caret leaving the text set it to 0.
     private var shortKept = 0
     private var shortKeptLayout: LayoutID?
+    /// How many short words the switch inside the word being typed carried:
+    /// a retype at its end that stands for that switch carries them too.
+    private var carriedInside = 0
     /// Keep a `JudgeTrace` of every word (`InputMachine.tracesJudgements`).
     /// Off on the tap thread of the app: then no trace is made and nothing
     /// is classified twice.
@@ -361,6 +364,7 @@ struct WordJudge: Sendable {
     ///   - drops: the key goes on with a word that has a letter already.
     mutating func typed(startsWord: Bool, confirms: Bool = false, drops: Bool = false) {
         if startsWord {
+            carriedInside = 0
             sentenceStartBeforeMark = nil
             switching = .allowed
             languageRecorded = false
@@ -400,6 +404,7 @@ struct WordJudge: Sendable {
         switching = .suppressed
         pendingObservation = nil
         forgetShortWords()
+        carriedInside = 0
     }
 
     /// A correction of the word was undone: the word is back in its layout.
@@ -408,6 +413,7 @@ struct WordJudge: Sendable {
         judged = true
         pendingObservation = nil
         forgetShortWords()
+        carriedInside = 0
     }
 
     /// The short words kept before the word being typed go with no switch
@@ -468,6 +474,7 @@ struct WordJudge: Sendable {
     mutating func forgetContext(newField: Bool) {
         sentenceStartBeforeMark = nil
         forgetShortWords()
+        carriedInside = 0
         recent.removeAll()
         previousForTypo = nil
         languageRecorded = false
@@ -698,13 +705,19 @@ struct WordJudge: Sendable {
             if startsSentence { recent.keepLatest() }
         }
 
+        let carriedInside = self.carriedInside
+        self.carriedInside = 0
         if switching == .switchedInside {
             switching = .suppressed
             if let auto, let source = switchedFrom.flatMap({ layouts[$0] }),
-               let retype = marksAfterSwitch(buffer, auto: auto, source: source, held: endsLine ? nil : stroke,
+               var retype = marksAfterSwitch(buffer, auto: auto, source: source, held: endsLine ? nil : stroke,
                                              heldKeyCode: key.keyCode, undoable: !endsLine, layouts: layouts,
                                              settings: settings)
             {
+                // This correction stands for the switch inside the word, and for
+                // the short words that switch carried: one undo takes them back too.
+                if carriedInside > 0 { prependWords(carriedInside, to: &retype, into: auto.typed, buffer: buffer,
+                                                    layouts: layouts) }
                 record(auto.typed.language)
                 return .retype(retype)
             }
@@ -1031,6 +1044,7 @@ struct WordJudge: Sendable {
         if keptLayout == context.typed.id {
             carryShortWords(&retype, kept: kept, auto: context, buffer: buffer, layouts: layouts, settings: settings,
                             focus: focus)
+            carriedInside = retype.pending.correction.carried
         }
         // Decided for the whole word: the end of it must not switch it back.
         switching = .switchedInside
@@ -1223,9 +1237,9 @@ struct WordJudge: Sendable {
 
     /// The 1–2 letter words the rule of short words kept right before the
     /// word `retype` switches go with it, in one retype (`Options.shortWordsCarried`):
-    /// "d ghbdtn" becomes "в привет". The word after says the sentence goes
-    /// on in the language it switched to; a short word that would switch
-    /// after a word in that language goes too (`Classifier.carriesShortWord`).
+    /// "d ghbdtn" becomes "в привет". The word after lifts what kept them,
+    /// the word before them in the typed language: a short word the rule
+    /// without context would switch goes (`Classifier.carriesShortWord`).
     /// Only words still in the buffer as typed: all their keys in the layout
     /// the word was typed in, one space after each, none on the user's list.
     /// A click, a Backspace into them, a sentence end or a layout chosen by
@@ -1255,14 +1269,29 @@ struct WordJudge: Sendable {
             }
             carried = back
         }
-        guard carried > 0, let phrase = buffer.phrase(words: carried + 1) else { return }
+        guard carried > 0 else { return }
+        prependWords(carried, to: &retype, into: auto.other, buffer: buffer, layouts: layouts)
+    }
+
+    /// `count` words before the one `retype` retypes into `target` go with it:
+    /// deleted and typed there too, and part of its correction. Nothing when
+    /// the buffer does not know them or their keys type nothing there.
+    private func prependWords(_ count: Int, to retype: inout WordRetype, into target: LayoutMap, buffer: WordBuffer,
+                              layouts: LayoutState)
+    {
+        guard let phrase = buffer.phrase(words: count + 1) else { return }
         let before = phrase.prefix(phrase.count - buffer.entries.count)
-        guard case let .keys(words) = layouts.retypeKeys(for: before, into: auto.other) else { return }
+        guard case let .keys(words) = layouts.retypeKeys(for: before, into: target) else { return }
+        let carried = count
+        let strokes = before.map(\.stroke)
+        // A word spelt anew ("нет," with its comma kept) has the words before it too.
+        if let word = retype.word { retype.word = strokes + word }
+        if let typed = retype.pending.typed { retype.pending.typed = strokes + typed }
         retype.keys = words.keys + retype.keys
         retype.expected = words.expected + retype.expected
         retype.deleteCount += words.keys.count
         retype.words = carried + 1
-        retype.pending.strokes = before.map(\.stroke) + retype.pending.strokes
+        retype.pending.strokes = strokes + retype.pending.strokes
         retype.pending.wordLength += before.count
         retype.pending.words = carried + 1
         retype.pending.correction.carried = carried

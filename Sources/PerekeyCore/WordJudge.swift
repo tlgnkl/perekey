@@ -109,9 +109,13 @@ struct WordJudge: Sendable {
         /// once, to learn it and to pass its language on.
         var judged = false
         var switching = Switching.allowed
-        /// The switch inside the word looks at the fifth key too: the slip guard (`Classifier.Options.typoWordRank`)
-        /// held back a word of three or four letters, and the fifth shows it is no slip of a short word.
+        /// The slip guard (`Classifier.Options.typoWordRank`) is on.
         var slipGuard = false
+        /// The slip guard held back a switch inside this word on the third or
+        /// fourth key. Only then the switch inside the word looks at the fifth
+        /// key too: it shows the word is no slip of a short word. Any other
+        /// word has the window of three and four keys, as without the guard.
+        var slipHeld = false
 
         /// The flags that let automatic switching act, without any lookup.
         func autoswitchMayAct(_ settings: Settings) -> Bool {
@@ -144,7 +148,7 @@ struct WordJudge: Sendable {
         /// Whether `insideWord` may act: the cheap checks, as `mayJudge`.
         func mayActInsideWord(buffer: WordBuffer, settings: Settings) -> Bool {
             let count = buffer.entries.count
-            return (count == 3 || count == 4 || (count == 5 && slipGuard)) && autoswitchMayAct(settings) && switching == .allowed
+            return (count == 3 || count == 4 || (count == 5 && slipGuard && slipHeld)) && autoswitchMayAct(settings) && switching == .allowed
                 && buffer.entries.last?.isGap == false
         }
     }
@@ -357,6 +361,7 @@ struct WordJudge: Sendable {
         if startsWord {
             sentenceStartBeforeMark = nil
             switching = .allowed
+            gate.slipHeld = false
             languageRecorded = false
             wordTraced = false
         }
@@ -972,17 +977,28 @@ struct WordJudge: Sendable {
         let count = buffer.entries.count
         guard gate.mayActInsideWord(buffer: buffer, settings: settings),
               var context = autoContext(layouts: layouts, settings: settings, focus: focus, secureInput: secureInput),
-              wordIsPlain(buffer, layouts: layouts),
-              let other = Self.onlyPossibleStart(buffer, context)
+              wordIsPlain(buffer, layouts: layouts)
         else { return nil }
-        context.other = other
         // A word the user keeps typing may start like no word of its
         // language ("Lfirf" is no English, but someone's name): its end decides.
-        guard !isExceptionPrefix(buffer, context, settings, focus),
-              !isAlwaysFixPrefix(buffer, in: context.typed, settings),
-              !context.classifier.startsPersonalWord(buffer.entries.lazy.map(\.stroke), in: context.typed,
-                                                     personal: personal)
-        else { return nil }
+        func isException(_ context: AutoContext) -> Bool {
+            isExceptionPrefix(buffer, context, settings, focus)
+                || isAlwaysFixPrefix(buffer, in: context.typed, settings)
+                || context.classifier.startsPersonalWord(buffer.entries.lazy.map(\.stroke), in: context.typed,
+                                                         personal: personal)
+        }
+        guard let other = Self.onlyPossibleStart(buffer, context) else {
+            // Would the switch act without the slip guard? Then the guard held it.
+            if gate.slipGuard, count <= 4, !gate.slipHeld,
+               let raw = Self.onlyPossibleStart(buffer, context, guardingSlips: false) {
+                var held = context
+                held.other = raw
+                if !isException(held) { gate.slipHeld = true }
+            }
+            return nil
+        }
+        context.other = other
+        guard !isException(context) else { return nil }
         let trigger = buffer.entries[count - 1].stroke
         guard var retype = autoRetype(context, buffer.entries.dropLast(), held: trigger, heldKeyCode: trigger.keyCode,
                                       midWord: true, undoable: true, layouts: layouts, settings: settings)
@@ -1095,11 +1111,12 @@ struct WordJudge: Sendable {
     /// The one candidate whose language can start a word with the strokes so
     /// far while the typed one cannot ("ghb" → "при"). With two that can
     /// (ru and uk share most starts) the end of the word decides.
-    private static func onlyPossibleStart(_ buffer: WordBuffer, _ context: AutoContext) -> LayoutMap? {
+    private static func onlyPossibleStart(_ buffer: WordBuffer, _ context: AutoContext,
+                                          guardingSlips: Bool = true) -> LayoutMap? {
         var found: LayoutMap?
         for other in context.candidates
             where context.classifier.impossiblePrefix(buffer.entries.lazy.map(\.stroke), typed: context.typed,
-                                                      other: other)
+                                                      other: other, guardingSlips: guardingSlips)
         {
             guard found == nil else { return nil }
             found = other

@@ -607,6 +607,13 @@ public struct Classifier: Sendable {
     /// language, but can in the other's: "ghb" is no English start, "при" is a
     /// Russian one. Cheap enough for every key stroke; needs 3 or 4 letters.
     public func impossiblePrefix(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap) -> Bool {
+        impossiblePrefix(strokes, typed: typed, other: other, guardingSlips: true)
+    }
+
+    /// `impossiblePrefix`; with `guardingSlips` false it ignores the slip
+    /// guard (`isSlipOfCommonWord`): what the answer would be without it.
+    func impossiblePrefix(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap,
+                          guardingSlips: Bool) -> Bool {
         let count = Self.wordLength(strokes)
         guard count >= 3, let typedCode = typed.language, let otherCode = other.language, typedCode != otherCode,
               let typedLanguage = model.language(typedCode), let otherLanguage = model.language(otherCode)
@@ -630,7 +637,7 @@ public struct Classifier: Sendable {
                     return false
                 }
                 // A slip of a common word of its own language: let the end of the word decide.
-                return !isSlipOfCommonWord(strokes, in: typed)
+                return !guardingSlips || !isSlipOfCommonWord(strokes, in: typed)
             }
         }
     }

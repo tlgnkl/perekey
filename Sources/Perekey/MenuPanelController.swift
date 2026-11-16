@@ -115,6 +115,7 @@ final class MenuPanelController {
         teardown?.cancel()
         panel?.ignoresMouseEvents = false
         isOpen = true
+        input?.ownMenuChanged(true)
         nav = MenuNav()
         presentation = MenuPresentation()
         presentation.budget = budget()
@@ -154,6 +155,7 @@ final class MenuPanelController {
     func close() {
         guard isOpen else { return }
         isOpen = false
+        input?.ownMenuChanged(false)
         closedAt = Date()
         // Still on screen while it fades: no keys or clicks may reach it.
         panel?.ignoresMouseEvents = true

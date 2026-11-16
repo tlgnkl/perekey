@@ -24,6 +24,7 @@ import Testing
         .layoutChanged(Fixture.russian.id),
         .layoutsChanged([Fixture.abc, Fixture.russian]),
         .secureInputChanged(true),
+        .ownMenuChanged(true),
         .settingsChanged(Settings(autoswitch: false, learnFromUndos: false)),
         .retypePosted(seq: 9, time: 4),
         .retypeCancelled(seq: 10),
@@ -53,6 +54,7 @@ import Testing
         case .layoutChanged: "layoutChanged"
         case .layoutsChanged: "layoutsChanged"
         case .secureInputChanged: "secureInputChanged"
+        case .ownMenuChanged: "ownMenuChanged"
         case .settingsChanged: "settingsChanged"
         case .retypePosted: "retypePosted"
         case .retypeCancelled: "retypeCancelled"
@@ -85,7 +87,7 @@ import Testing
         let sampled = Set(Self.events.map(Self.name(of:)))
         let all: Set = [
             "key", "flagsChanged", "click", "scroll", "focusChanged", "layoutChanged", "layoutsChanged",
-            "secureInputChanged", "settingsChanged", "retypePosted", "retypeCancelled", "selectionRead", "inputLost",
+            "secureInputChanged", "ownMenuChanged", "settingsChanged", "retypePosted", "retypeCancelled", "selectionRead", "inputLost",
             "dictationTyping", "deadline", "appModeChanged", "classifierChanged", "undoLastCorrection",
             "languageContextChanged", "personalLexiconChanged", "voiceHoldLost", "voiceSession",
         ]

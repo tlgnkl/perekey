@@ -12,11 +12,20 @@ import PerekeyCore
 /// names it. Electron apps often fail the read right after the switch: it is
 /// tried again at `retryOffsets` until the focus is known. A notification
 /// about the element published already is not a new place either; another
-/// element is, even a field of the same kind.
+/// element is, even a field of the same kind. One exception: apps often name
+/// a container first and the text view a few ms later. The first other
+/// element of the same kind within `settleWindow` after the focus became known
+/// is the same place, because the only keys the core holds were typed after the switch.
 struct FocusTracker<Element: Equatable> {
     /// Seconds after the switch at which a read that gave no known focus is
     /// tried again. Only while the focus is unknown: no timers while idle.
     static var retryOffsets: [Double] { [0.05, 0.15, 0.4] }
+
+    /// Seconds after the focus became known in which the first other element
+    /// still counts as the same place. The number comes from the live
+    /// measurement: the second element arrives 50–125 ms after the first.
+    /// A change of the field's kind (password or not) is never absorbed.
+    static var settleWindow: Double { 0.15 }
 
     struct Publication: Equatable {
         var focus: Focus
@@ -44,6 +53,11 @@ struct FocusTracker<Element: Equatable> {
     /// When the app was switched to, while its focus is not known yet.
     private var switchedAt: Double?
     private var reads = 0
+    /// When the focus became known after a switch, until the first other
+    /// element is absorbed or the window ends.
+    private var settlingSince: Double?
+    /// The read in progress follows a switch, not a reread of the same app.
+    private var afterSwitch = false
 
     /// The focus is not known since the last switch: a read may be tried again.
     var isWaiting: Bool { switchedAt != nil }
@@ -53,14 +67,21 @@ struct FocusTracker<Element: Equatable> {
     mutating func activated(_ focus: Focus, switched: Bool, at time: Double) -> Publication? {
         element = nil
         switchedAt = time
+        settlingSince = nil
+        afterSwitch = switched
         reads = 0
         return publish(focus, .moved, always: switched)
     }
+
+    /// The same app is read again (`FocusObserver.refresh()`): the first
+    /// other element after it is a new place, not the settling of a switch.
+    mutating func refreshed() { settlingSince = nil }
 
     /// Accessibility stopped answering for good (the permission was revoked).
     mutating func lost(_ focus: Focus) -> Publication? {
         element = nil
         switchedAt = nil
+        settlingSince = nil
         return publish(focus, .moved, always: false)
     }
 
@@ -92,12 +113,17 @@ struct FocusTracker<Element: Equatable> {
 
     private mutating func found(_ new: Element, _ focus: Focus, at time: Double, byNotification: Bool) -> Step {
         let first = element == nil
-        let change: FocusChange = first || element == new ? .resolved : .moved
+        var change: FocusChange = first || element == new ? .resolved : .moved
+        // A change of the field's kind (password or not) is never the same place.
+        if change == .moved, let since = settlingSince, time - since <= Self.settleWindow,
+           focus.isSecureField == lastPublished?.isSecureField { change = .resolved }
+        if element != new { settlingSince = nil }
         element = new
         var note: Note?
         if let switchedAt, focus.isKnown {
             note = .known(seconds: time - switchedAt, reads: reads, byNotification: byNotification)
             self.switchedAt = nil
+            settlingSince = afterSwitch ? time : nil
         }
         let publication = publish(focus, change, always: change == .moved)
         if publication == nil, byNotification, !first { note = .sameElement }

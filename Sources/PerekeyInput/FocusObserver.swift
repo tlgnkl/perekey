@@ -147,6 +147,7 @@ private final class Worker: @unchecked Sendable {
     func activate(_ target: App?) {
         let switched = target != app
         app = target
+        if !switched { tracker.refreshed() }
         guard let target else {
             detach()
             send(tracker.activated(.unknown(bundleID: nil), switched: switched, at: Self.now))
@@ -200,9 +201,14 @@ private final class Worker: @unchecked Sendable {
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         // Fails for apps without AX support or that do not answer in time; the
         // focus then stays unknown until the next activation or `refresh()`.
-        guard AXObserverAddNotification(created, element, kAXFocusedUIElementChangedNotification as CFString,
-                                        refcon) == .success
-        else { return }
+        let added = AXObserverAddNotification(created, element, kAXFocusedUIElementChangedNotification as CFString,
+                                              refcon)
+        guard added == .success else {
+            // Silent before: no observer means no notification for the whole
+            // stay in the app, until a switch or `refresh()` attaches again.
+            log.info("Focus: no observer for \(self.app?.bundleID ?? "?", privacy: .public): AX error \(added.rawValue, privacy: .public)")
+            return
+        }
         CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(created), .defaultMode)
         observer = created
     }

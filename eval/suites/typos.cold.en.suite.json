@@ -1,0 +1,53 @@
+{
+ "about": "Tatoeba en sentences, one made-up typo in the FIRST word (three or four letters): the word has nothing before it, as a word typed alone",
+ "correction": {
+  "firstWord": true,
+  "kind": "typo.synth",
+  "maxLetters": 4,
+  "minLetters": 3,
+  "weights": {
+   "double": 10,
+   "drop": 20,
+   "neighbor": 30,
+   "stray": 10,
+   "swap": 30
+  }
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 12,
+  "minTokens": 1
+ },
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": [
+  "fix"
+ ],
+ "seed": 1,
+ "settings": "all",
+ "source": "tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "typos.cold.en",
+ "tags": [
+  "typo",
+  "synthetic",
+  "cold"
+ ],
+ "tiers": {
+  "ci": 3000,
+  "full": 100000
+ },
+ "version": 1
+}

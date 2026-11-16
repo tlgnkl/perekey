@@ -109,6 +109,9 @@ struct WordJudge: Sendable {
         /// once, to learn it and to pass its language on.
         var judged = false
         var switching = Switching.allowed
+        /// The switch inside the word looks at the fifth key too: the slip guard (`Classifier.Options.typoWordRank`)
+        /// held back a word of three or four letters, and the fifth shows it is no slip of a short word.
+        var slipGuard = false
 
         /// The flags that let automatic switching act, without any lookup.
         func autoswitchMayAct(_ settings: Settings) -> Bool {
@@ -141,14 +144,17 @@ struct WordJudge: Sendable {
         /// Whether `insideWord` may act: the cheap checks, as `mayJudge`.
         func mayActInsideWord(buffer: WordBuffer, settings: Settings) -> Bool {
             let count = buffer.entries.count
-            return (count == 3 || count == 4) && autoswitchMayAct(settings) && switching == .allowed
+            return (count == 3 || count == 4 || (count == 5 && slipGuard)) && autoswitchMayAct(settings) && switching == .allowed
                 && buffer.entries.last?.isGap == false
         }
     }
 
     private(set) var gate = Gate()
     private(set) var classifier: Classifier? {
-        didSet { gate.hasClassifier = classifier != nil }
+        didSet {
+            gate.hasClassifier = classifier != nil
+            gate.slipGuard = (classifier?.options.typoWordRank ?? 0) > 0
+        }
     }
     /// Typo correction over the model of `classifier`; nil without a model.
     private var typoCorrector: TypoCorrector? {

@@ -29,6 +29,8 @@ public enum ClassifierOptions {
         "personalRank": { $0.personalRank = try rank($1, "personalRank") },
         "personalNoiseCost": { $0.personalNoiseCost = $1 },
         "wordContextLimit": { $0.wordContextLimit = $1 },
+        "typoWordRank": { $0.typoWordRank = try rank($1, "typoWordRank") },
+        "typoWordGap": { $0.typoWordGap = try rank($1, "typoWordGap") },
     ]
 
     /// The names the table knows.

@@ -90,6 +90,16 @@ public struct Classifier: Sendable {
         /// up: the output is as it was. From `perekey-eval run
         /// --word-context-sweep` (docs/classifier.md, «Слова в контексте»).
         public var wordContextLimit = 0.0
+        /// A word of 3–4 letters that is two neighbouring letters swapped
+        /// from a word of its own language with at least this rank is not switched inside the
+        /// word, even when no word of its language starts like it: "hte" is
+        /// "the", and its other reading "реу" is no better. The end of the
+        /// word decides as it always did. 0 is off, the default: the output is
+        /// as it was; 160 is what `perekey-eval` measured (docs/classifier.md, «Опечатка своего языка»).
+        public var typoWordRank: UInt8 = 0
+        /// How far above the typed word the common word must stand, in rank
+        /// units (32 per unit of Zipf).
+        public var typoWordGap: UInt8 = 64
 
         public init() {}
     }
@@ -616,7 +626,11 @@ public struct Classifier: Sendable {
                 let length = min(4, typedReading.letters)
                 let typedPrefix = UnsafeBufferPointer(rebasing: symbols[0..<length])
                 let otherPrefix = UnsafeBufferPointer(rebasing: symbols[half..<half + length])
-                return !typedLanguage.isPossiblePrefix(typedPrefix) && otherLanguage.isPossiblePrefix(otherPrefix)
+                guard !typedLanguage.isPossiblePrefix(typedPrefix), otherLanguage.isPossiblePrefix(otherPrefix) else {
+                    return false
+                }
+                // A slip of a common word of its own language: let the end of the word decide.
+                return !isSlipOfCommonWord(strokes, in: typed)
             }
         }
     }
@@ -1068,7 +1082,7 @@ extension Classifier.Options: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
-             personalRank, personalNoiseCost, wordContextLimit
+             personalRank, personalNoiseCost, wordContextLimit, typoWordRank, typoWordGap
     }
 
     /// The keys the file format knows, one per stored property (a test holds
@@ -1099,6 +1113,8 @@ extension Classifier.Options: Codable {
         try read(.personalRank, &personalRank)
         try read(.personalNoiseCost, &personalNoiseCost)
         try read(.wordContextLimit, &wordContextLimit)
+        try read(.typoWordRank, &typoWordRank)
+        try read(.typoWordGap, &typoWordGap)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -1123,5 +1139,10 @@ extension Classifier.Options: Codable {
         // Written only when on: the file of a limit of 0 is the file of
         // before the word context, byte for byte.
         if wordContextLimit != 0 { try container.encode(wordContextLimit, forKey: .wordContextLimit) }
+        // Likewise: written only when on.
+        if typoWordRank != 0 {
+            try container.encode(typoWordRank, forKey: .typoWordRank)
+            try container.encode(typoWordGap, forKey: .typoWordGap)
+        }
     }
 }

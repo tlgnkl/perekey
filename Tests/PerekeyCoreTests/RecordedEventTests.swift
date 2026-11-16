@@ -153,6 +153,7 @@ import Testing
         all.knownRank = 90
         // Written only when on (`withTheWordContextOffTheOptionsAreCodedAsOnMain`).
         all.wordContextLimit = 4
+        all.typoWordRank = 160
         #expect(try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(all)) == all)
         // An option added to `Classifier.Options` needs its key in the coding too.
         let keys = try JSONSerialization.jsonObject(with: JSONEncoder().encode(all)) as? [String: Any]
@@ -220,13 +221,15 @@ import Testing
         options.personalRank += 1
         options.personalNoiseCost += 1
         options.wordContextLimit += 1
+        options.typoWordRank += 1
+        options.typoWordGap += 1
         let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(options))
         #expect(read == options)
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any]
         #expect(Set(json?.keys ?? [:].keys) == Set(Classifier.Options.codingKeyNames))
     }
 
-    /// The keys `Classifier.Options` wrote on origin/main, before the word context.
+    /// The keys `Classifier.Options` wrote on origin/main, before the word context and the slip guard.
     static let keysOnMain: Set<String> = [
         "threshold", "readingMargin", "unknownWordExtra", "noiseCost", "unknownNoiseCost", "openerBonus",
         "dictionaryBonus", "rankBonus", "knownRank", "mixedCaseRank", "contextBonus", "contextDecay", "priorLimit",

@@ -65,6 +65,8 @@ differently, what was fixed.
 
 ### Fixed
 
+- **Typos of short English words.** Opt-in rule, off by default: a word of three or four letters that is two neighbouring letters swapped from a common word («hte», «taht») is no longer switched to Russian letters in the middle of the word. Measured in docs/classifier.md.
+
 - **Keys held during a fix are no longer delayed when another program marks
   its keys.** If a program that types or remaps keys (a keyboard tool, a
   remote desktop) put its own mark on them, the keys Perekey held back and

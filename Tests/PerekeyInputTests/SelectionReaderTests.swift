@@ -2,6 +2,7 @@
 
 import AppKit
 import Foundation
+import PerekeyCore
 import Testing
 @testable import PerekeyInput
 
@@ -122,6 +123,8 @@ import Testing
 
     @Test func autocorrectIsMismatch() {
         #expect(CaretCheck.verdict(expected: "teh ", around: "the ") == .mismatch)
+        #expect(CaretCheck.verdict(expected: "привет ", around: "Привет ") == .matchRaised, "macOS raised the first letter")
+        #expect(CaretCheck.verdict(expected: "привет ", around: "ПРивет ") == .mismatch)
         #expect(CaretCheck.verdict(expected: "ghbdtn", around: "ghb") == .mismatch, "shorter")
     }
 
@@ -135,5 +138,53 @@ import Testing
     @Test func utf16Offsets() {
         // AX ranges count UTF-16 units: an emoji takes two.
         #expect(CaretCheck.verdict(expected: "🙂ab", around: "🙂ab ") == .match)
+    }
+}
+
+/// What the engine does with a verdict (`InputEngine.postIfPending` asks `RetypeGate`).
+@Suite struct RetypeGateTests {
+    static let retype = Retype(
+        deleteCount: 6, keys: [Retype.Key(stroke: KeyStroke(5), text: "g"), Retype.Key(stroke: KeyStroke(4), text: "h")],
+        target: "com.apple.keylayout.ABC", expected: "привет", seq: 3, origin: .manual(.convertLastWord))
+
+    @Test func aMatchPostsAndVerifiesTheBackspaces() {
+        #expect(RetypeGate.decide(Self.retype, verdict: .match, hasSnapshot: true) == .go(Self.retype, verify: true))
+    }
+
+    /// The path of "Привет " in TextEdit: the word comes back raised, and is checked after the Backspaces.
+    @Test func aRaisedMatchBringsTheWordBackRaised() {
+        #expect(RetypeGate.decide(Self.retype, verdict: .matchRaised, hasSnapshot: true)
+            == .go(Self.retype.raisingFirstLetter(), verify: true))
+        #expect(Self.retype.raisingFirstLetter().text == "Gh")
+    }
+
+    @Test func aMismatchCancels() {
+        guard case .cancel = RetypeGate.decide(Self.retype, verdict: .mismatch, hasSnapshot: false) else {
+            Issue.record("a mismatch posts nothing")
+            return
+        }
+    }
+
+    /// A field AX normally answers for, now silent: no blind retype.
+    @Test func anUnreadableFieldCancels() {
+        guard case .cancel = RetypeGate.decide(Self.retype, verdict: .unreadable, hasSnapshot: false) else {
+            Issue.record("an unreadable field posts nothing")
+            return
+        }
+    }
+
+    /// A field AX never answers for (terminals, lagging apps): as it always was, all at once, unchecked.
+    @Test func anUnavailableFieldIsRetypedBlind() {
+        #expect(RetypeGate.decide(Self.retype, verdict: .unavailable, hasSnapshot: false) == .go(Self.retype, verify: false))
+        #expect(RetypeGate.decide(Self.retype, verdict: nil, hasSnapshot: false) == .go(Self.retype, verify: false))
+    }
+
+    @Test func aRetypeWithNothingToHoldBackIsPostedWhole() {
+        var selection = Self.retype
+        selection.deleteCount = 0
+        #expect(RetypeGate.decide(selection, verdict: .match, hasSnapshot: true) == .go(selection, verify: false))
+        var viaAX = Self.retype
+        viaAX.viaAccessibility = true
+        #expect(RetypeGate.decide(viaAX, verdict: .match, hasSnapshot: true) == .go(viaAX, verify: false))
     }
 }

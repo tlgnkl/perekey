@@ -45,4 +45,18 @@ import Testing
         #expect(marks.dropLast().allSatisfy { $0 == .own(seq: 7, last: false) })
         #expect(marks.last == .own(seq: 7, last: true))
     }
+
+    /// The Backspaces and the keys posted apart (`Erasure`): the two parts are the whole retype, and
+    /// only the last event of the second is marked last.
+    @Test func theTwoPartsAreTheWholeRetype() {
+        let all = TextSink.events(for: retype, source: nil)
+        let erase = TextSink.events(for: retype, source: nil, part: .erase)
+        let type = TextSink.events(for: retype, source: nil, part: .type)
+        func codes(_ events: [CGEvent]) -> [Int64] { events.map { $0.getIntegerValueField(.keyboardEventKeycode) } }
+        #expect(codes(erase) + codes(type) == codes(all))
+        #expect(erase.count == 4 && type.count == 4)
+        let marks = (erase + type).map { SyntheticMark(userData: $0.getIntegerValueField(.eventSourceUserData)) }
+        #expect(marks.dropLast().allSatisfy { $0 == .own(seq: 7, last: false) }, "no Backspace is the last event")
+        #expect(marks.last == .own(seq: 7, last: true))
+    }
 }

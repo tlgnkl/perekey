@@ -65,6 +65,29 @@ differently, what was fixed.
 
 ### Fixed
 
+- **Retyping a first word works again in TextEdit and Notes.** Right after
+  Perekey typed a word at the start of a sentence, macOS capitalized it
+  («привет» became «Привет»). Perekey then found the word changed, did
+  nothing, and Backspace after a fix erased only the space. Now the word is
+  recognized, and goes back with its capital letter («Ghbdtn»), as you saw it.
+  If the text before the caret really differs, Perekey still leaves it alone.
+
+- **A retype never leaves a mix of the old and the new word.** Perekey read
+  the field once, before the Backspaces. If the app changed the text after that
+  (it capitalized a letter, finished an autocorrection, swallowed a Backspace),
+  the new word was typed over the leftovers («Hellhello»). Now Perekey reads the
+  field again after the Backspaces and types only when exactly the word is
+  gone. If the Backspaces took more than the word, Perekey types the lost text
+  back only when the rest of the field is as it was, the text is plain (no
+  line break, no tab) and at most 64 characters long, and calls it restored
+  only when the field read as before for a short check (0.1 s); a Backspace
+  that comes later is not seen. A half-erased word is left as it is: a late Backspace would land
+  before anything typed back. The whole check ends before held keys are let
+  go, so they never mix with it. In a field
+  where the accessibility API normally answers but did not this time, the
+  retype is refused instead of done blind. Fields with no accessibility text
+  (terminals) work as before.
+
 - **The first letter after switching programs is no longer lost.** Typing
   right after ⌘Tab (within about a tenth of a second) could drop the first key
   from the word, so «привет» came out as «gривет»: some programs name the

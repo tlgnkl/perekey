@@ -155,6 +155,7 @@ import Testing
         all.knownRank = 90
         // Written only when on (`withTheWordContextOffTheOptionsAreCodedAsOnMain`).
         all.wordContextLimit = 4
+        all.typoWordRank = 160
         #expect(try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(all)) == all)
         // An option added to `Classifier.Options` needs its key in the coding too.
         let keys = try JSONSerialization.jsonObject(with: JSONEncoder().encode(all)) as? [String: Any]
@@ -222,13 +223,15 @@ import Testing
         options.personalRank += 1
         options.personalNoiseCost += 1
         options.wordContextLimit += 1
+        options.typoWordRank += 1
+        options.typoWordGap += 1
         let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(options))
         #expect(read == options)
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any]
         #expect(Set(json?.keys ?? [:].keys) == Set(Classifier.Options.codingKeyNames))
     }
 
-    /// The keys `Classifier.Options` wrote on origin/main, before the word context.
+    /// The keys `Classifier.Options` wrote on origin/main, before the word context and the slip guard.
     static let keysOnMain: Set<String> = [
         "threshold", "readingMargin", "unknownWordExtra", "noiseCost", "unknownNoiseCost", "openerBonus",
         "dictionaryBonus", "rankBonus", "knownRank", "mixedCaseRank", "contextBonus", "contextDecay", "priorLimit",
@@ -250,6 +253,29 @@ import Testing
         let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
         #expect(Set(json.keys) == Self.keysOnMain.union(["wordContextLimit"]))
         #expect(json["wordContextLimit"] as? Double == 4)
+    }
+
+    @Test func theSlipGuardIsWrittenWithItsGap() throws {
+        var options = Classifier.Options()
+        options.typoWordRank = 160
+        options.typoWordGap = 40
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
+        #expect(Set(json.keys) == Self.keysOnMain.union(["typoWordRank", "typoWordGap"]))
+        #expect(json["typoWordRank"] as? Int == 160)
+        #expect(json["typoWordGap"] as? Int == 40)
+        let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(options))
+        #expect(read == options)
+    }
+
+    /// The gap alone does nothing: the guard is off at rank 0, and the gap of a file without the rank is not
+    /// written (the file is the file of before the guard).
+    @Test func theGapWithoutTheRankIsInertAndNotWritten() throws {
+        var options = Classifier.Options()
+        options.typoWordGap = 40
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
+        #expect(Set(json.keys) == Self.keysOnMain)
+        let classifier = Classifier(model: ModelFixture.model, options: options)
+        #expect(!classifier.isSlipOfCommonWord(Fixture.abc.strokes("hte"), in: Fixture.abc))
     }
 
     @Test func aMissingKeyKeepsTheDefault() throws {

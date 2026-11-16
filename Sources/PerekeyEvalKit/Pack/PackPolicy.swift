@@ -120,7 +120,8 @@ struct PackPolicy: Sendable {
     var fileName: String { name + ".tar.zst" }
 
     static let tatoebaSuites = ["prose.tatoeba", "chat.tatoeba", "prose.uk", "typos.none", "typos.synth.equal",
-                                "typos.synth.neighbor", "typos.synth.swap", "hyphen", "yo", "doublecap"]
+                                "typos.synth.neighbor", "typos.synth.swap", "typos.cold.en", "typos.cold.ru", "typos.cold.swap.en", "typos.cold.swap.ru",
+                                "hyphen", "yo", "doublecap"]
     static let stackExchangeSuites = ["lang.rus-se", "lang.russian-se", "mixed.uk-se"]
     /// Class suites whose words come from the word lists; their warm-up sentences are Tatoeba's.
     static let classSuites = ["class.frequent", "class.short", "class.collision", "protect.url", "protect.captcha",

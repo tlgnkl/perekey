@@ -67,6 +67,12 @@ public struct SuiteManifest: Hashable, Sendable {
         public var kind: Kind
         /// The shares of the kinds of slip (typo.synth only), in percent.
         public var weights: TypoWeights?
+        /// The shortest word that gets a slip (typo.synth only); 4 when absent.
+        public var minLetters: Int?
+        /// The longest word that gets a slip (typo.synth only); no limit when absent.
+        public var maxLetters: Int?
+        /// The slip goes in the first word of the sentence, which has no word before it (typo.synth only).
+        public var firstWord: Bool?
 
         public enum Kind: String, Hashable, Sendable, Codable, CaseIterable {
             case typoSynth = "typo.synth", yo, hyphen, doublecap, capslock, abbrev, typoReal = "typo.real"
@@ -185,8 +191,14 @@ public struct SuiteManifest: Hashable, Sendable {
                    [weights.neighbor, weights.swap, weights.drop, weights.double, weights.stray].allSatisfy({ $0 >= 0 }) {} else {
                     problems.append("typo.synth needs weights that are not negative and add up to 100")
                 }
+                if let minimum = correction.minLetters, minimum < 3 { problems.append("correction.minLetters must be at least 3") }
+                if let maximum = correction.maxLetters, maximum < (correction.minLetters ?? 4) {
+                    problems.append("correction.maxLetters is below minLetters")
+                }
             } else if correction.weights != nil {
                 problems.append("weights belong to typo.synth")
+            } else if correction.minLetters != nil || correction.maxLetters != nil || correction.firstWord != nil {
+                problems.append("minLetters, maxLetters and firstWord belong to typo.synth")
             }
         } else if reader == .misspellings || reader == .typopairs {
             problems.append("reader \(reader.rawValue) needs a correction of kind typo.real")
@@ -285,15 +297,21 @@ extension SuiteManifest: Codable {
 extension SuiteManifest.Correction: Codable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: AnyKey.self)
-        try c.onlyKeys(["kind", "weights"], in: "correction")
+        try c.onlyKeys(["kind", "weights", "minLetters", "maxLetters", "firstWord"], in: "correction")
         kind = try c.required(Kind.self, "kind")
         weights = try c.optional(SuiteManifest.TypoWeights.self, "weights")
+        minLetters = try c.optional(Int.self, "minLetters")
+        maxLetters = try c.optional(Int.self, "maxLetters")
+        firstWord = try c.optional(Bool.self, "firstWord")
     }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: AnyKey.self)
         try c.encode(kind, forKey: AnyKey("kind"))
         try c.encodeIfPresent(weights, forKey: AnyKey("weights"))
+        try c.encodeIfPresent(minLetters, forKey: AnyKey("minLetters"))
+        try c.encodeIfPresent(maxLetters, forKey: AnyKey("maxLetters"))
+        try c.encodeIfPresent(firstWord, forKey: AnyKey("firstWord"))
     }
 }
 

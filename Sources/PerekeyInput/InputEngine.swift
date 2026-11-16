@@ -612,7 +612,7 @@ public final class InputEngine: @unchecked Sendable {
             handle(.retypePosted(seq: retype.seq, time: Self.now))
             toMainRetyped(retype)
         case .restored:
-            log.error("Retype \(retype.seq, privacy: .public) cancelled: the Backspaces erased more than the word; it was typed back and the field reads as before")
+            log.error("Retype \(retype.seq, privacy: .public) cancelled: the Backspaces erased more than the word; it was typed back and the field read as before for the 0.1 s check")
             handle(.retypeCancelled(seq: retype.seq))
         case let .stopped(failure):
             log.error("Retype \(retype.seq, privacy: .public) cancelled after \(backspaces, privacy: .public) Backspaces: \(failure.rawValue, privacy: .public); new text not typed")

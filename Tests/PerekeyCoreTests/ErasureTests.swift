@@ -175,6 +175,25 @@ import Testing
         #expect(field.typedBack.isEmpty)
     }
 
+    /// The text typed back is posted at once, two events per unit: 64 units
+    /// are typed back, 65 are not and the outcome says the word is lost.
+    @Test(arguments: [(56, true), (57, false)])
+    func theTextTypedBackHasALimit(wordLength: Int, typed: Bool) {
+        let word = String(repeating: "w", count: wordLength)
+        let field = AppField("abcdefgh" + word)
+        let snapshot = field.snapshot(word: word)
+        // The Backspaces take the word and the 8 units before it.
+        field.text = ""
+        let outcome = field.confirm(snapshot)
+        if typed {
+            #expect(outcome == .restored)
+            #expect(field.typedBack.map(\.utf16.count) == [64])
+        } else {
+            #expect(outcome == .stopped(.overErased))
+            #expect(field.typedBack.isEmpty)
+        }
+    }
+
     @Test func aCaretInsideASurrogatePairIsNeverTypedBackFrom() {
         var clock = 0.0
         let snapshot = Erasure.Snapshot(start: 3, lead: "😀 ", word: "hello")

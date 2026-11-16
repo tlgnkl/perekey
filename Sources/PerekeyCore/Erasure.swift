@@ -105,7 +105,13 @@ public enum Erasure {
         /// The text is not safe to type (`isSafeToType`), or it starts in the
         /// middle of a surrogate pair.
         case unsafe
+        /// The text is longer than `maxPutBack` UTF-16 units.
+        case tooLong
     }
+
+    /// The most UTF-16 units typed back. `restore` posts two events per unit
+    /// at once, so the text must stay short; a longer loss is not typed back.
+    static let maxPutBack = 64
 
     static func putBack(_ snapshot: Snapshot, location: Int) -> PutBack {
         let lost = snapshot.start - location
@@ -113,6 +119,7 @@ public enum Erasure {
         guard lost > 0, lost <= units.count else { return .unknown }
         let text = Array(units.suffix(lost)) + Array(snapshot.word.utf16)
         let string = String(decoding: text, as: UTF16.self)
+        guard text.count <= maxPutBack else { return .tooLong }
         guard Array(string.utf16) == text, isSafeToType(string) else { return .unsafe }
         return .text(string)
     }
@@ -136,7 +143,7 @@ public enum Erasure {
         case idle = "no Backspace worked in time"
         case stalled = "the Backspaces stopped halfway; nothing is typed back, a Backspace still on its way would mix with it"
         case unsafeText = "the Backspaces erased more than the word, and the text to put back holds a line break, a tab or a broken character; nothing is typed back"
-        case restoreFailed = "the text typed back does not read as before; the field may differ"
+        case restoreFailed = "the text typed back did not read as before for the whole check; the field may differ"
         case late = "the check would not end before the input fence lets the held keys go"
     }
 
@@ -214,15 +221,26 @@ public enum Erasure {
         var restoredAt: Double?
         // The field was seen holding something other than the word being erased.
         var tainted = false
+        var lastProgress: Progress?
         while true {
             let time = now()
-            guard time + timing.read < deadline else { return .stopped(restoredAt == nil ? .late : .restoreFailed) }
+            guard time + timing.read < deadline else {
+                guard restoredAt == nil else { return .stopped(.restoreFailed) }
+                // Say what the field looked like, not only that time ran out.
+                switch lastProgress {
+                case .changed: return .stopped(.changed)
+                case let .pending(remaining) where remaining.utf16.count == snapshot.word.utf16.count:
+                    return .stopped(.idle)
+                default: return .stopped(.late)
+                }
+            }
             let reading = read()
             if let reading, reading != lastReading {
                 lastReading = reading
                 lastChange = time
             }
             let progress = judge(snapshot, reading)
+            lastProgress = progress
             if let restoredAt {
                 // Only the field exactly as in the snapshot, standing still, counts.
                 if isSnapshot(snapshot, reading), time - lastChange >= timing.verify { return .restored }
@@ -243,7 +261,7 @@ public enum Erasure {
                 let text: String
                 switch putBack(snapshot, location: reading.location) {
                 case let .text(safe): text = safe
-                case .unknown: return .stopped(.overErased)
+                case .unknown, .tooLong: return .stopped(.overErased)
                 case .unsafe: return .stopped(.unsafeText)
                 }
                 // Typing back and the wait to see it must end before the fence does.

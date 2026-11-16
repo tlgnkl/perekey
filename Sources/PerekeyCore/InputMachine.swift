@@ -145,6 +145,13 @@ public struct InputMachine: Sendable {
     /// The retype the fence waits for; post a retype only while this is its `seq`.
     public var pendingRetypeSeq: UInt32? { fence.hold?.seq }
 
+    /// When the fence lets the user's input go at the latest; nil while it
+    /// holds nothing. Until `.retypePosted` it is `settings.postTimeout` after
+    /// the retype started, then `settings.fenceTimeout` after the posting. Any
+    /// wait between the Backspaces and the new text (`Erasure.confirm`) must
+    /// end before it, or the user's keys mix with the retype's.
+    public var fenceDeadline: Double? { fence.hold?.deadline }
+
     public mutating func handle(_ event: InputEvent) -> Output {
         var effects: [Effect] = []
         let output = handle(event, effects: &effects)

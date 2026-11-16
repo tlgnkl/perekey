@@ -30,6 +30,20 @@ public struct TextField: Hashable, Sendable {
         return characters[(caret - tail.count)..<caret].elementsEqual(tail)
     }
 
+    /// How the text before the caret compares with `expected`; see `CaretText`.
+    public func match(before expected: String) -> CaretText.Match? {
+        let count = Array(expected).count
+        guard count <= caret else { return nil }
+        return CaretText.match(expected: expected, actual: String(characters[(caret - count)..<caret]))
+    }
+
+    /// Makes the letter at `index` a capital, as macOS does to the first word of a sentence.
+    public mutating func raiseLetter(at index: Int) {
+        guard characters.indices.contains(index) else { return }
+        let raised = Array(String(characters[index]).uppercased())
+        if raised.count == 1 { characters[index] = raised[0] }
+    }
+
     /// Types `text` at the caret. Typing replaces the selection.
     public mutating func insert(_ text: String) {
         deleteSelection()

@@ -1146,8 +1146,8 @@ extension Classifier.Options: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
-             personalRank, personalNoiseCost, wordContextLimit, shortWordSentenceStart, shortWordsCarried
-             personalRank, personalNoiseCost, wordContextLimit, typoWordRank, typoWordGap
+             personalRank, personalNoiseCost, wordContextLimit, shortWordSentenceStart, shortWordsCarried,
+             typoWordRank, typoWordGap
     }
 
     /// The keys the file format knows, one per stored property (a test holds

@@ -24,6 +24,31 @@ struct Desk {
     var log: [Effect] = []
     /// Answer the next retypes with `.retypeCancelled`, as a failed caret check.
     var cancelRetypes = false
+    /// The app raises the first letter of the word a retype typed at the start
+    /// of a sentence, as TextEdit and Notes do with macOS autocapitalization.
+    var autocapitalizes = false
+    /// What the app does to the word between the caret check and the end of the
+    /// Backspaces of a retype. The check reads the field before the Backspaces,
+    /// so each of these is a change it cannot see.
+    enum Interference: Equatable {
+        /// macOS makes the first letter of the word a capital.
+        case raisesLetter
+        /// The autocorrection finishes: the app puts this text in the word's place.
+        case replacesWord(String)
+        /// The first `count` Backspaces are eaten (a correction panel takes the key).
+        case eatsBackspaces(count: Int)
+        /// The app is busy: it handles one Backspace every this many seconds.
+        case slowBackspaces(every: Double)
+    }
+    var interference: Interference?
+    /// How each retype's Backspaces ended, in order.
+    var erasures: [Erasure.Outcome] = []
+    /// For each check after the Backspaces: when it ended, the fence's
+    /// deadline it was given, and whether the fence still held then.
+    var erasureEnds: [(ended: Double, fenceDeadline: Double, holding: Bool)] = []
+    /// The check after the Backspaces. Off, the retype types blindly, as it did
+    /// before that check existed; the tests of it show what that leaves.
+    var confirmsErasure = true
     /// Every event the machine handled and what it answered, while not nil:
     /// a session as the recorder writes it (`SessionStep`).
     var tape: [SessionStep]?
@@ -157,15 +182,25 @@ struct Desk {
     mutating func settle() {
         while selected != nil || !retypes.isEmpty {
             if !retypes.isEmpty {
-                let retype = retypes.removeFirst()
+                var retype = retypes.removeFirst()
                 // The engine drops a retype whose fence is gone.
                 guard machine.pendingRetypeSeq == retype.seq else { continue }
-                if cancelRetypes || !text.hasSuffix(retype.expected) {
+                let before = String(text.suffix(retype.expected.count))
+                guard !cancelRetypes, let match = CaretText.match(expected: retype.expected, actual: before) else {
                     send(.retypeCancelled(seq: retype.seq))
                     continue
                 }
-                text.removeLast(retype.deleteCount)
+                if match == .firstLetterRaised { retype = retype.raisingFirstLetter() }
+                guard erase(retype, word: before) else {
+                    send(.retypeCancelled(seq: retype.seq))
+                    continue
+                }
+                let start = text.count
                 text += retype.text
+                if autocapitalizes, CaretText.startsSentence(after: text.prefix(start)), let first = text.dropFirst(start).first {
+                    text.replaceSubrange(text.index(text.startIndex, offsetBy: start)...text.index(text.startIndex, offsetBy: start),
+                                         with: String(first).uppercased())
+                }
                 time += 0.001
                 send(.retypePosted(seq: retype.seq, time: time))
                 let count = retype.deleteCount + retype.keys.count
@@ -180,6 +215,49 @@ struct Desk {
                 send(.layoutChanged(id))
             }
         }
+    }
+
+    /// The Backspaces of `retype`, what the app does meanwhile, and the check
+    /// after them (`InputEngine.erased`), until the fence's deadline as the
+    /// engine gives it. False: nothing may be typed.
+    private mutating func erase(_ retype: Retype, word: String) -> Bool {
+        let field = AppField(text, clock: time)
+        let snapshot = field.snapshot(word: word)
+        var eaten: Set<Int> = []
+        switch interference {
+        case .raisesLetter:
+            let index = text.index(text.startIndex, offsetBy: text.count - word.count)
+            field.text.replaceSubrange(index...index, with: String(text[index]).uppercased())
+        case let .replacesWord(other):
+            field.text = String(text.dropLast(word.count)) + other
+        case let .eatsBackspaces(count):
+            eaten = Set(0..<min(count, retype.deleteCount))
+        case let .slowBackspaces(every):
+            field.step = every
+        case nil:
+            break
+        }
+        guard confirmsErasure else {
+            field.postBackspaces(retype.deleteCount, eaten: eaten)
+            field.drain()
+            text = field.text
+            return true
+        }
+        let deadline = machine.fenceDeadline ?? time
+        var outcome = Erasure.Outcome.stopped(.late)
+        // With too little time left no Backspace is posted (`TextProbe.eraseAndConfirm`).
+        if Erasure.hasTime(at: field.clock, deadline: deadline) {
+            field.postBackspaces(retype.deleteCount, eaten: eaten)
+            outcome = field.confirm(snapshot, deadline: deadline)
+        }
+        erasureEnds.append((field.clock, deadline, machine.pendingRetypeSeq == retype.seq && field.clock < deadline))
+        time = field.clock
+        text = field.text
+        erasures.append(outcome)
+        // Keys still on their way reach the field once the fence lets go: after the outcome.
+        field.drain()
+        text = field.text
+        return outcome == .erased
     }
 
     /// Presses and releases a key the way a person does.

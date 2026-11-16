@@ -90,6 +90,24 @@ public struct Classifier: Sendable {
         /// up: the output is as it was. From `perekey-eval run
         /// --word-context-sweep` (docs/classifier.md, «Слова в контексте»).
         public var wordContextLimit = 0.0
+        /// A 1–2 letter word that starts a sentence (`Context.startsSentence`)
+        /// is judged as without context: the language of the sentence before
+        /// neither keeps it nor lowers the bar. After "Hello. " a "d" may be
+        /// the "в" of a sentence typed on the wrong layout: the rule without
+        /// context switches it when "в" is more frequent by a unit of Zipf.
+        /// After "Привет. " a "в" typed on Russian on purpose stays unless "d"
+        /// is that much more frequent. Off judges it by the sentence before,
+        /// as in the middle of one. On from `perekey-eval play` over the
+        /// `ci` suites (docs/classifier.md, «Короткие слова»): misses of
+        /// short words in `slip.warm` fall, harm nowhere grows.
+        public var shortWordSentenceStart = true
+        /// How many 1–2 letter words, kept by the rule of short words right
+        /// before a word that switches, go with it in one retype when they
+        /// would switch after a word in its language (`carriesShortWord`):
+        /// "d ghbdtn" becomes "в привет", not "d привет". 0 carries none.
+        /// 2 from the same measure as `shortWordSentenceStart`: one word
+        /// leaves "z yt" of "я не" half done.
+        public var shortWordsCarried = 2
         /// A word of 3–4 letters that is two neighbouring letters swapped
         /// from a word of its own language with at least this rank is not switched inside the
         /// word, even when no word of its language starts like it: "hte" is
@@ -125,6 +143,9 @@ public struct Classifier: Sendable {
         /// nil when it is not known (`PreviousWord`). Looked up only when
         /// `Options.wordContextLimit` is above 0.
         public var previousWord: PreviousWordRef?
+        /// The word starts a sentence: after `. ! ?`, a line end, or at the
+        /// start of a field. Read by `Options.shortWordSentenceStart` only.
+        public var startsSentence = false
 
         /// The language the previous word was judged to be in, e.g. "ru".
         public var previousLanguage: String? { recent.latest }
@@ -451,6 +472,26 @@ public struct Classifier: Sendable {
         return marks
     }
 
+    /// Whether a 1–2 letter word kept by the rule of short words goes to
+    /// `other` with the word after it, which switched there
+    /// (`Options.shortWordsCarried`). The word after says the words before
+    /// it may be in its language too, and lifts what kept the short word:
+    /// the word before it in the typed language. So the short word is
+    /// judged again as without context: it goes when its reading there is a
+    /// frequent form (`Options.shortWordRank`) more frequent than the typed
+    /// one by a unit of Zipf, by every guard before the rule, and ends in no
+    /// mark. "d" before "ghbdtn" is "в"; "I" before it stays: "Ш" is no
+    /// frequent word; "N" before "xtkjdtr" stays too: "т" is not that much
+    /// more frequent than "n".
+    public func carriesShortWord(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap,
+                                 personal: PersonalLexicon = .off) -> Bool
+    {
+        let decision = classify(strokes, typed: typed, other: other,
+                                context: Context(recent: RecentLanguages(), personal: personal))
+        return decision.verdict == .switch(to: other.id) && decision.reason == .shortWord
+            && decision.punctuationKeys == 0
+    }
+
     /// "..." and no more.
     static let maxPunctuationKeys = 3
 
@@ -646,6 +687,13 @@ public struct Classifier: Sendable {
     /// it by the rule of short words (`Options.shortWordRank`, `Reason.shortWord`),
     /// and the personal lexicon leaves it alone (`PersonalOptions.minLetters`).
     static let shortWordLetters = 2
+    /// The rank from which the typed reading of a short word at a sentence
+    /// start, after a sentence in its own language, stays whatever the other
+    /// reading is (Zipf 3, the lowest of `class.short`). Checked on sets the
+    /// bar never saw (words of Zipf 2,5–3, other sentences) against 64 to 128:
+    /// lower keeps more wrong-layout words as typed, for a harm that weighs
+    /// next to nothing (docs/classifier.md, «Короткие слова»).
+    static let sentenceStartKeepRank = 96
 
     /// Strokes up to the last one that is not a space.
     static func wordLength(_ strokes: some Collection<KeyStroke>) -> Int {
@@ -752,15 +800,24 @@ public struct Classifier: Sendable {
                 Int((wordContext(typed, other, languages: languages, typedCode: typedCode, otherCode: otherCode,
                                  context: context) * TypoCorrector.Options.rankUnitsPerBit).rounded())
             }
+            // A sentence start judged as without context: the sentence before
+            // says little about the language of the next one.
+            let fresh = options.shortWordSentenceStart && context.startsSentence
             let wins: Bool
             if typed.letters == 0
-                || (context.previousLanguage == typedCode && !isMixed(context.recent, typedCode, otherCode))
+                || (!fresh && context.previousLanguage == typedCode && !isMixed(context.recent, typedCode, otherCode))
             {
                 wins = false
-            } else if context.previousLanguage == otherCode {
+            } else if !fresh, context.previousLanguage == otherCode {
                 wins = frequent && Int(typedRank) < Int(other.rank ?? 0) + shift()
             } else {
-                wins = frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0) + shift()
+                // A sentence start after a sentence in the typed language: a
+                // correct short word of it ("C", "vs", "to") would pass the
+                // bar of an empty field, so a word the dictionary knows as
+                // frequent stays (`Self.sentenceStartKeepRank`).
+                let sameLanguage = fresh && context.previousLanguage == typedCode
+                    && Int(typedRank) >= Self.sentenceStartKeepRank
+                wins = !sameLanguage && frequent && Int(typedRank) + 32 <= Int(other.rank ?? 0) + shift()
             }
             return Decision(verdict: wins ? .switch(to: otherLayout.id) : .keep, score: score, reason: .shortWord,
                             language: wins ? otherCode : (typed.isWord && plausible(typed) ? typedCode : nil))
@@ -1089,7 +1146,8 @@ extension Classifier.Options: Codable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
-             personalRank, personalNoiseCost, wordContextLimit, typoWordRank, typoWordGap
+             personalRank, personalNoiseCost, wordContextLimit, shortWordSentenceStart, shortWordsCarried,
+             typoWordRank, typoWordGap
     }
 
     /// The keys the file format knows, one per stored property (a test holds
@@ -1120,6 +1178,8 @@ extension Classifier.Options: Codable {
         try read(.personalRank, &personalRank)
         try read(.personalNoiseCost, &personalNoiseCost)
         try read(.wordContextLimit, &wordContextLimit)
+        try read(.shortWordSentenceStart, &shortWordSentenceStart)
+        try read(.shortWordsCarried, &shortWordsCarried)
         try read(.typoWordRank, &typoWordRank)
         try read(.typoWordGap, &typoWordGap)
     }
@@ -1146,6 +1206,11 @@ extension Classifier.Options: Codable {
         // Written only when on: the file of a limit of 0 is the file of
         // before the word context, byte for byte.
         if wordContextLimit != 0 { try container.encode(wordContextLimit, forKey: .wordContextLimit) }
+        // The rules of short words always, whatever their value: a session
+        // records the options it ran with, and a record without these keys is
+        // one from before the rules (`ClassifierSpec` reads it as off).
+        try container.encode(shortWordSentenceStart, forKey: .shortWordSentenceStart)
+        try container.encode(shortWordsCarried, forKey: .shortWordsCarried)
         // Likewise: written only when on.
         if typoWordRank != 0 {
             try container.encode(typoWordRank, forKey: .typoWordRank)

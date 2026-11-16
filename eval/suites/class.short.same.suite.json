@@ -1,0 +1,45 @@
+{
+ "about": "Words of one or two letters with Zipf 3 and above typed right after a sentence of their own language: «a», «vs», «я», «в». Nothing to switch: the harm of a rule for the start of a sentence",
+ "class": {
+  "languages": [
+   "ru",
+   "en"
+  ],
+  "maxLetters": 2,
+  "requireDictionary": false,
+  "rule": "short",
+  "seeds": "class.short.txt"
+ },
+ "end": "space",
+ "epoch": 1,
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "wordfreq CC BY-SA 4.0 + Hunspell/SCOWL (data/SOURCES.md); sentences to warm up with: Tatoeba CC BY 2.0 FR (part CC0)",
+ "reader": "class",
+ "sampling": "type",
+ "scenarios": [
+  "clean.same"
+ ],
+ "seed": 1,
+ "settings": "default",
+ "source": "tatoeba/rus_sentences.tsv.bz2,tatoeba/eng_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 50
+ },
+ "suite": "class.short.same",
+ "tags": [
+  "class",
+  "short",
+  "same"
+ ],
+ "tiers": {
+  "ci": 600,
+  "full": 100000
+ },
+ "version": 1
+}

@@ -150,6 +150,30 @@ public struct WordBuffer: Hashable, Sendable {
         return history[start...]
     }
 
+    /// The keys of the word `back` words before the current one (1 is the
+    /// word right before it), with the gap after it; nil when the buffer
+    /// does not know it. No allocation: a slice of `history`.
+    public func word(back: Int) -> ArraySlice<Entry>? {
+        guard back >= 1, !entries.isEmpty, back <= min(historyCount, Self.historyWords) else { return nil }
+        var start = history.endIndex
+        var end = start
+        for _ in 0..<back {
+            end = start
+            while start > history.startIndex, history[start - 1].isGap { start -= 1 }
+            while start > history.startIndex, !history[start - 1].isGap { start -= 1 }
+        }
+        return history[start..<end]
+    }
+
+    /// After a retype of the last `words` words into `layout`, the same keys
+    /// stand for them there (`relabel(to:)` for a phrase).
+    public mutating func relabel(words: Int, to layout: LayoutID) {
+        guard words > 1 else { return relabel(to: layout) }
+        guard let phrase = phrase(words: words) else { return clear() }
+        relabel(to: layout)
+        for index in history.indices.suffix(phrase.count - entries.count) { history[index].layout = layout }
+    }
+
     /// Puts other layouts on the last `phrase.count` keys: the phrase, or the
     /// end of the word, as a retype left it. The keys themselves must be the same.
     public mutating func relabelPhrase(_ phrase: [Entry]) {

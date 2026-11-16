@@ -46,7 +46,7 @@ unset PEREKEY_VOICE
 # reading its source (about 6 s each); the budget of the step is 5 minutes (RE9).
 CI_SUITES=(prose.tatoeba chat.tatoeba lang.rus-se lang.russian-se mixed.uk-se prose.uk
            typos.none typos.real.en typos.cold.en typos.cold.ru typos.cold.swap.en typos.cold.swap.ru typos.synth.equal typos.synth.neighbor typos.synth.swap hyphen yo doublecap
-           class.frequent class.short class.collision class.names class.cli class.code
+           class.frequent class.short class.short.same class.collision class.names class.cli class.code
            protect.url protect.captcha protect.numbers protect.password)
 # Suites that read the ru.stackoverflow corpus (`fetch-data.sh heavy`, a gigabyte): built when the
 # cache has it, skipped without an error when it does not, never required.

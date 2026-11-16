@@ -200,9 +200,14 @@ struct CorrectionUndo: Sendable {
         // which stops both forms. Abbreviations and «ё» are about the word
         // itself, so they learn.
         let typed = last.words > 1 ? correction.original.filter { $0 != " " } : correction.original
+        // Short words carried along with a switch (`Correction.carried`) are
+        // no decision of their own: the switch of the last word took them,
+        // and its undo learns that word alone, once.
+        let switched = correction.carried > 0 ? Self.lastWord(correction.original) : correction.original
+        let switchedTo = correction.carried > 0 ? Self.lastWord(correction.replacement) : correction.replacement
         let learn: String? = switch correction.kind {
         case _ where last.isOpen || !learnFromUndos || last.alwaysFix != nil: nil
-        case .layout, .abbreviation, .yo: Self.learnable(correction.original, or: correction.replacement)
+        case .layout, .abbreviation, .yo: Self.learnable(switched, or: switchedTo)
         case .typo, .hyphen: Self.learnable(typed, or: nil)
         case .capsLock, .doubleCapitals: nil
         }
@@ -248,7 +253,7 @@ struct CorrectionUndo: Sendable {
         last.extended = false
         last.reported = true
         if !alwaysFix.isEmpty {
-            last.alwaysFix = alwaysFix[WordRules.matchKey(WordJudge.exceptionKey(last.correction.replacement))]
+            last.alwaysFix = alwaysFix[WordRules.matchKey(WordJudge.exceptionKey(Self.lastWord(last.correction.replacement)))]
         }
         effects.append(.corrected(last.correction))
         self.last = last
@@ -267,6 +272,11 @@ struct CorrectionUndo: Sendable {
         for stroke in pending.typed ?? [] { replacement += target.text(for: stroke) ?? "" }
         pending.correction.original = original
         pending.correction.replacement = replacement
+    }
+
+    /// The text after the last space: the word a carrying switch decided.
+    static func lastWord(_ text: String) -> String {
+        text.split(separator: " ", omittingEmptySubsequences: false).last.map(String.init) ?? text
     }
 
     /// The word to put on the learned list: the typed reading if

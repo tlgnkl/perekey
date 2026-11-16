@@ -57,11 +57,18 @@ public struct Focus: Hashable, Sendable {
     /// on an unknown focus. A manual shortcut still may: the user asked for it,
     /// and a password field normally turns Secure Input on anyway.
     public var isKnown: Bool
+    /// The text before the caret can be read back (`CaretCheck`): false in
+    /// the apps whose accessibility text lags or is missing (Chromium and
+    /// Electron, Telegram, terminals). A retype there goes without the check,
+    /// so automatic switching retypes only the word itself and takes no short
+    /// words from before it (`Classifier.Options.shortWordsCarried`).
+    public var caretReadable: Bool
 
-    public init(bundleID: String?, isSecureField: Bool = false, isKnown: Bool = true) {
+    public init(bundleID: String?, isSecureField: Bool = false, isKnown: Bool = true, caretReadable: Bool = true) {
         self.bundleID = bundleID
         self.isSecureField = isSecureField
         self.isKnown = isKnown
+        self.caretReadable = caretReadable
     }
 
     /// The app is known, its focused element is not.
@@ -176,5 +183,27 @@ public enum InputEvent: Sendable {
 extension EventOrigin: Codable {}
 extension KeyEvent.Phase: Codable {}
 extension KeyEvent: Codable {}
-extension Focus: Codable {}
+/// By hand: `caretReadable` is written only when false, and a file without it
+/// reads as true, so the sessions recorded before it read and write as they did.
+extension Focus: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case bundleID, isSecureField, isKnown, caretReadable
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(bundleID: try container.decodeIfPresent(String.self, forKey: .bundleID),
+                  isSecureField: try container.decode(Bool.self, forKey: .isSecureField),
+                  isKnown: try container.decode(Bool.self, forKey: .isKnown),
+                  caretReadable: try container.decodeIfPresent(Bool.self, forKey: .caretReadable) ?? true)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(bundleID, forKey: .bundleID)
+        try container.encode(isSecureField, forKey: .isSecureField)
+        try container.encode(isKnown, forKey: .isKnown)
+        if !caretReadable { try container.encode(false, forKey: .caretReadable) }
+    }
+}
 extension FocusChange: Codable {}

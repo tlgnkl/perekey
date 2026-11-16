@@ -24,6 +24,9 @@ public struct Explanation: Equatable, Sendable {
         case typo(TypoCorrector.Change)
         /// A word correction that follows a fixed rule.
         case rule(Correction.Kind)
+        /// Short words before the word went along with its switch: what was
+        /// typed, what they became (`Correction.carried`).
+        case carried(typed: String, other: String)
     }
 
     public var statements: [Statement]
@@ -38,11 +41,16 @@ public struct Explanation: Equatable, Sendable {
     /// Why an automatic correction happened.
     public init(correction: Correction) {
         var statements: [Statement] = []
+        // The facts are about the last word; the short words before it went
+        // with its switch and say so in a statement of their own.
+        let (typedBefore, typed) = Self.split(correction.original, carried: correction.carried)
+        let (otherBefore, other) = Self.split(correction.replacement, carried: correction.carried)
         if correction.insideWord {
-            statements.append(.impossibleStart(text: correction.original, language: correction.decision?.typedLanguage))
+            statements.append(.impossibleStart(text: typed, language: correction.decision?.typedLanguage))
         } else if let decision = correction.decision, decision.verdict != .keep, decision.verdict != .unsure {
-            statements = Self.facts(of: decision, typed: correction.original, other: correction.replacement)
+            statements = Self.facts(of: decision, typed: typed, other: other)
         }
+        if correction.carried > 0 { statements.append(.carried(typed: typedBefore, other: otherBefore)) }
         if let change = correction.typoChange {
             statements.append(.typo(change))
         } else if correction.kind != .layout, correction.kind != .typo {
@@ -57,6 +65,12 @@ public struct Explanation: Equatable, Sendable {
         var switched = false
         if case .switch = decision.verdict { switched = true }
         self.init(statements: Self.facts(of: decision, typed: typed, other: other), switched: switched)
+    }
+
+    /// The text of `carried` words and the word after them, apart.
+    private static func split(_ text: String, carried: Int) -> (before: String, word: String) {
+        guard carried > 0, let space = text.lastIndex(of: " ") else { return ("", text) }
+        return (String(text[..<space]), String(text[text.index(after: space)...]))
     }
 
     private static func facts(of decision: Classifier.Decision, typed: String, other: String) -> [Statement] {

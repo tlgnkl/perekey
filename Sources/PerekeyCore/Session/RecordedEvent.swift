@@ -3,7 +3,7 @@
 /// The classifier a session ran with: the languages of its model and its
 /// options. A replay loads the model of those languages from a directory
 /// (`perekey-eval replay --model`); the model itself is not recorded.
-public struct ClassifierSpec: Hashable, Sendable, Codable {
+public struct ClassifierSpec: Hashable, Sendable {
     /// The codes of the model's languages, in its order.
     public var languages: [String]
     public var options: Classifier.Options
@@ -15,6 +15,36 @@ public struct ClassifierSpec: Hashable, Sendable, Codable {
 
     public init(_ classifier: Classifier) {
         self.init(languages: classifier.model.languages.map(\.code), options: classifier.options)
+    }
+}
+
+/// A record keeps the options of its session whole (`Classifier.Options.encode`
+/// writes every key). One without the keys of the rules of short words was
+/// recorded before them: it reads with the rules off, so a replay plays what
+/// the session did. (A candidate's `--candidate-options` keeps the defaults
+/// for a key left out: that is `Classifier.Options` alone.)
+extension ClassifierSpec: Codable {
+    private enum CodingKeys: String, CodingKey { case languages, options }
+    private struct Keys: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        languages = try container.decode([String].self, forKey: .languages)
+        options = try container.decode(Classifier.Options.self, forKey: .options)
+        let written = Set(try container.nestedContainer(keyedBy: Keys.self, forKey: .options).allKeys.map(\.stringValue))
+        if !written.contains("shortWordSentenceStart") { options.shortWordSentenceStart = false }
+        if !written.contains("shortWordsCarried") { options.shortWordsCarried = 0 }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(languages, forKey: .languages)
+        try container.encode(options, forKey: .options)
     }
 }
 

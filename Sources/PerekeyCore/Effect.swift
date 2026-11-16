@@ -136,6 +136,11 @@ public struct Correction: Hashable, Sendable {
     public var insideWord = false
     /// What a typo correction changed.
     public var typoChange: TypoCorrector.Change?
+    /// How many 1–2 letter words before the word went along with its switch
+    /// (`Classifier.Options.shortWordsCarried`): `original` and
+    /// `replacement` then hold them too, with a space after each, and
+    /// `decision` is the one on the last word.
+    public var carried = 0
 
     /// The corrections of the word-boundary pipeline (docs/PLAN.md, «Этап 4»).
     public enum Kind: Hashable, Sendable {

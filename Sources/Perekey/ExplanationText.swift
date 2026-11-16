@@ -36,6 +36,8 @@ enum ExplanationText {
             return note(reason)
         case let .impossibleStart(text, language):
             return String(localized: "“\(text)” cannot start a word \(languageIn(language))")
+        case let .carried(typed, other):
+            return String(localized: "Switched along with the word after it: “\(typed)” → “\(other)”")
         case let .typo(change):
             switch change {
             case .substitute: return String(localized: "One letter was wrong, and the fixed word is a known one")

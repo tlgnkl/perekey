@@ -159,6 +159,7 @@
 "your retype shortcut" = "your retype shortcut";
 "— revert" = "— revert";
 "“%@” cannot start a word %@" = "“%@” cannot start a word %@";
+"Switched along with the word after it: “%@” → “%@”" = "Switched along with the word after it: “%@” → “%@”";
 "“%@” is a common word %@" = "“%@” is a common word %@";
 "“%@” is a word you often type" = "“%@” is a word you often type";
 "“%@” is a rare word %@" = "“%@” is a rare word %@";

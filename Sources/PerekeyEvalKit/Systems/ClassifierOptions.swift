@@ -29,6 +29,8 @@ public enum ClassifierOptions {
         "personalRank": { $0.personalRank = try rank($1, "personalRank") },
         "personalNoiseCost": { $0.personalNoiseCost = $1 },
         "wordContextLimit": { $0.wordContextLimit = $1 },
+        "shortWordSentenceStart": { $0.shortWordSentenceStart = $1 != 0 },
+        "shortWordsCarried": { $0.shortWordsCarried = try count($1, "shortWordsCarried") },
         "typoWordRank": { $0.typoWordRank = try rank($1, "typoWordRank") },
         "typoWordGap": { $0.typoWordGap = try rank($1, "typoWordGap") },
     ]
@@ -53,6 +55,13 @@ public enum ClassifierOptions {
             try set(&options, number.doubleValue)
         }
         return options
+    }
+
+    private static func count(_ value: Double, _ name: String) throws -> Int {
+        guard value >= 0, value <= Double(WordBuffer.historyWords), value == value.rounded() else {
+            throw EvalError.input("--options: \(name) is a count of words, 0…\(WordBuffer.historyWords)")
+        }
+        return Int(value)
     }
 
     private static func rank(_ value: Double, _ name: String) throws -> UInt8 {

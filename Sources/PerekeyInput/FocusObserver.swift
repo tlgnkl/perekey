@@ -276,7 +276,9 @@ private final class Worker: @unchecked Sendable {
     private func focus(of element: AXUIElement) -> Focus {
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &value)
-        return FocusObserver.focus(bundleID: app?.bundleID, subroleError: status, subrole: value as? String)
+        var focus = FocusObserver.focus(bundleID: app?.bundleID, subroleError: status, subrole: value as? String)
+        focus.caretReadable = TextProbe.canReadCaretText(of: element)
+        return focus
     }
 
     private func apply(_ step: FocusTracker<Element>.Step) {

@@ -253,6 +253,29 @@ import Testing
         #expect(json["wordContextLimit"] as? Double == 4)
     }
 
+    @Test func theSlipGuardIsWrittenWithItsGap() throws {
+        var options = Classifier.Options()
+        options.typoWordRank = 160
+        options.typoWordGap = 40
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
+        #expect(Set(json.keys) == Self.keysOnMain.union(["typoWordRank", "typoWordGap"]))
+        #expect(json["typoWordRank"] as? Int == 160)
+        #expect(json["typoWordGap"] as? Int == 40)
+        let read = try JSONDecoder().decode(Classifier.Options.self, from: JSONEncoder().encode(options))
+        #expect(read == options)
+    }
+
+    /// The gap alone does nothing: the guard is off at rank 0, and the gap of a file without the rank is not
+    /// written (the file is the file of before the guard).
+    @Test func theGapWithoutTheRankIsInertAndNotWritten() throws {
+        var options = Classifier.Options()
+        options.typoWordGap = 40
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
+        #expect(Set(json.keys) == Self.keysOnMain)
+        let classifier = Classifier(model: ModelFixture.model, options: options)
+        #expect(!classifier.isSlipOfCommonWord(Fixture.abc.strokes("hte"), in: Fixture.abc))
+    }
+
     @Test func aMissingKeyKeepsTheDefault() throws {
         let read = try JSONDecoder().decode(Classifier.Options.self, from: Data(#"{"threshold": 12}"#.utf8))
         var expected = Classifier.Options()

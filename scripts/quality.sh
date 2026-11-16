@@ -24,6 +24,8 @@
 #                        not checked. A ref that is not a commit is an error (exit 2)
 #                        in a pull request (GITHUB_EVENT_NAME=pull_request), a note on
 #                        a push (the `before` of a first push is all zeros)
+#   QUALITY_HEAD_OPTIONS classifier options as JSON, for the head only (`perekey-eval play --options`):
+#                        what a rule that is off by default would do on. The base plays with its defaults
 #   PEREKEY_DATA_CACHE   the data cache (default: .build/data-cache)
 #
 # Needs the held-out sources: scripts/fetch-data.sh lexicon wikifreq pairs heldout.
@@ -328,7 +330,10 @@ if [[ "$TIER" != ci ]]; then
 fi
 (
     t=$SECONDS
-    "$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" --out "$OUT/run-head" >"$OUT/play-head.txt"
+    head_options=()
+    [[ -z "${QUALITY_HEAD_OPTIONS:-}" ]] || head_options=(--options "$QUALITY_HEAD_OPTIONS")
+    "$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" ${head_options[@]+"${head_options[@]}"} \
+        --out "$OUT/run-head" >"$OUT/play-head.txt"
     lap "head: play" "$t"
 ) &
 head_pid=$!

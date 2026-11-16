@@ -27,6 +27,14 @@ public enum CaretText {
         return .firstLetterRaised
     }
 
+    /// Whether a sentence starts after `text`: it is empty, or it ends with a
+    /// full stop, "!", "?" or a line break and spaces. Where macOS raises the
+    /// first letter of a word; the simulated fields use the same rule.
+    public static func startsSentence(after text: some BidirectionalCollection<Character>) -> Bool {
+        guard let last = text.reversed().first(where: { $0 != " " }) else { return true }
+        return ".!?\n".contains(last)
+    }
+
     private static func normalized(_ text: String) -> String {
         text.replacingOccurrences(of: "\u{00A0}", with: " ")
     }
@@ -37,6 +45,14 @@ extension Retype {
     /// it is about to replace, so the word comes back raised too. That is what
     /// the user saw ("Привет " goes back to "Ghbdtn ", not to "ghbdtn "), and
     /// what the app would have made of the typed word in the first place.
+    ///
+    /// It raises the first *key* of the retype, not the first letter of the
+    /// text. They differ only when the new word starts with a non-letter (the
+    /// key types "." or "[": nothing to raise, the retype stays as it is). The
+    /// word typed in the old layout is what decides whether the field raised
+    /// anything (`CaretText.match`: its first character is a lowercase letter
+    /// the field made a capital), so a word that starts with a non-letter
+    /// there is never "raised" and never reaches this.
     public func raisingFirstLetter() -> Retype {
         guard var first = keys.first, let letter = first.text.first else { return self }
         first.text = String(letter).uppercased() + first.text.dropFirst()

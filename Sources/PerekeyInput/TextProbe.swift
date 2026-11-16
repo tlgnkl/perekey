@@ -49,9 +49,33 @@ public final class TextProbe: Sendable {
     }
 
     /// Compares the text right before the caret with `expected`; see `CaretCheck`.
-    public func checkBeforeCaret(expected: String, _ completion: @escaping @Sendable (CaretCheck.Verdict) -> Void) {
+    /// With a match, the snapshot is what `confirmErased` needs.
+    public func checkBeforeCaret(
+        expected: String, _ completion: @escaping @Sendable (CaretCheck.Verdict, Erasure.Snapshot?) -> Void
+    ) {
         thread.perform {
-            completion(Self.checkBeforeCaret(expected: expected))
+            let (verdict, snapshot) = Self.checkBeforeCaret(expected: expected)
+            completion(verdict, snapshot)
+        }
+    }
+
+    /// Posts the Backspaces of `retype`, waits until the field shows exactly
+    /// the word gone (`Erasure.confirm`), and answers. Posts no keys of the
+    /// new text: the caller types them on `.erased`, and only then.
+    public func eraseAndConfirm(
+        _ retype: Retype, snapshot: Erasure.Snapshot, _ completion: @escaping @Sendable (Erasure.Outcome) -> Void
+    ) {
+        thread.perform {
+            // Read before anything is posted: with no field to read, nothing is erased.
+            guard let element = Self.focusedElement() else { return completion(.stopped(.unreadable)) }
+            TextSink.post(retype, part: .erase)
+            completion(Erasure.confirm(
+                snapshot,
+                now: { ProcessInfo.processInfo.systemUptime },
+                pause: { usleep(2000) },
+                read: { Self.reading(of: element, snapshot: snapshot) },
+                restore: { TextSink.type($0, seq: retype.seq) }
+            ))
         }
     }
 
@@ -82,36 +106,83 @@ public final class TextProbe: Sendable {
         return element
     }
 
-    private static func checkBeforeCaret(expected: String) -> CaretCheck.Verdict {
-        guard let element = focusedElement() else { return .unavailable }
+    /// The field for `Erasure.judge`; nil when AX does not answer.
+    static func reading(of element: AXUIElement, snapshot: Erasure.Snapshot) -> Erasure.Reading? {
+        guard let selection = selectedRange(of: element) else { return nil }
+        var lead = ""
+        let leadLength = snapshot.lead.utf16.count
+        if leadLength > 0 {
+            guard let text = string(of: element, in: CFRange(location: snapshot.start - leadLength, length: leadLength))
+            else { return nil }
+            lead = text
+        }
+        var remaining = ""
+        // A caret far from the word is no word's remainder: judged by its length alone.
+        let gap = selection.location - snapshot.start
+        if gap > 0, gap <= snapshot.word.utf16.count {
+            guard let text = string(of: element, in: CFRange(location: snapshot.start, length: gap)) else { return nil }
+            remaining = text
+        }
+        return Erasure.Reading(location: selection.location, selectionLength: selection.length,
+                               lead: lead, remaining: remaining)
+    }
+
+    private static func selectedRange(of element: AXUIElement) -> CFRange? {
+        var rangeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue)
+            == .success, let rangeValue, CFGetTypeID(rangeValue) == AXValueGetTypeID()
+        else { return nil }
+        var selection = CFRange()
+        guard AXValueGetValue(unsafeDowncast(rangeValue, to: AXValue.self), .cfRange, &selection),
+              selection.location != kCFNotFound, selection.location >= 0
+        else { return nil }
+        return selection
+    }
+
+    /// Whether AX normally answers for this element: it has a role and a text
+    /// value. Then a failed read is a failure, not a field that has no AX text.
+    private static func answersText(_ element: AXUIElement) -> Bool {
+        var role: CFTypeRef?
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success
+            && AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success
+            && value is String
+    }
+
+    private static func checkBeforeCaret(expected: String) -> (CaretCheck.Verdict, Erasure.Snapshot?) {
+        guard let element = focusedElement() else { return (.unavailable, nil) }
+        let unreadable: (CaretCheck.Verdict, Erasure.Snapshot?) = (answersText(element) ? .unreadable : .unavailable, nil)
         // Chromium and Electron update their AX text after the keystroke has
         // already been typed, so a correct word can read as a mismatch there;
         // Telegram Desktop always reads as one. A false cancel breaks the
         // shortcut; skip the check in those apps.
         var pid: pid_t = 0
         if AXUIElementGetPid(element, &pid) == .success, LaggingAXApps.contains(pid: pid) {
-            return .unavailable
+            return (.unavailable, nil)
         }
-        var rangeValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue)
-            == .success, let rangeValue, CFGetTypeID(rangeValue) == AXValueGetTypeID()
-        else { return .unavailable }
-        var selection = CFRange()
-        guard AXValueGetValue(unsafeDowncast(rangeValue, to: AXValue.self), .cfRange, &selection),
-              selection.location != kCFNotFound, selection.location >= 0
-        else { return .unavailable }
+        guard let selection = selectedRange(of: element) else { return unreadable }
 
         let length = expected.utf16.count
         // A selection would go with the first Backspace; the caret too close
         // to the start cannot have the word before it.
-        guard selection.length == 0, selection.location >= length else { return .mismatch }
+        guard selection.length == 0, selection.location >= length else { return (.mismatch, nil) }
         // One unit after the caret too, for an auto-closed bracket. At the end
         // of the text that range is too long; then without it.
         let start = selection.location - length
         let around = string(of: element, in: CFRange(location: start, length: length + 1))
             ?? string(of: element, in: CFRange(location: start, length: length))
-        guard let around else { return .unavailable }
-        return CaretCheck.verdict(expected: expected, around: around)
+        guard let around else { return unreadable }
+        let (verdict, actual) = CaretCheck.inspect(expected: expected, around: around)
+        guard verdict == .match || verdict == .matchRaised, let actual else { return (verdict, nil) }
+        // What is before the word, to see after the Backspaces that it is untouched.
+        let leadStart = max(0, start - Erasure.Snapshot.leadLength)
+        var lead = ""
+        if start > leadStart {
+            guard let text = string(of: element, in: CFRange(location: leadStart, length: start - leadStart))
+            else { return unreadable }
+            lead = text
+        }
+        return (verdict, Erasure.Snapshot(start: start, lead: lead, word: actual))
     }
 
     /// `kAXStringForRangeParameterizedAttribute`, so a long document is not
@@ -147,12 +218,18 @@ public enum CaretCheck {
         /// raised too (`Retype.raisingFirstLetter`).
         case matchRaised
         case mismatch
-        /// AX cannot tell: no permission, no answer within the timeout, or the
-        /// app exposes no text. The retype goes ahead, as it would without the
-        /// check: refusing would make retyping useless in every app without
-        /// AX text (terminals, games, many Electron apps), and the shortcut is
-        /// the user's explicit request.
+        /// AX does not tell anything about this field: no permission, no
+        /// focused element, an app known to lag, or an element with no text
+        /// value. The retype goes ahead, as it would without the check:
+        /// refusing would make retyping useless in every app without AX text
+        /// (terminals, games, many Electron apps), and the shortcut is the
+        /// user's explicit request. Nothing can be read afterwards either, so
+        /// the Backspaces and the text are posted together, as before.
         case unavailable
+        /// The field has a role and a text value, so AX answers here, but this
+        /// time the caret or the text could not be read. The retype is
+        /// refused: it would erase a word nobody has seen.
+        case unreadable
     }
 
     private static let closing: [Character: Character] = [
@@ -162,19 +239,60 @@ public enum CaretCheck {
     /// `around`: the `expected.utf16.count` units before the caret, then the
     /// unit after it if there is one.
     public static func verdict(expected: String, around: String) -> Verdict {
+        inspect(expected: expected, around: around).verdict
+    }
+
+    /// The verdict, and the word as the app has it (raised or not) when it is there.
+    public static func inspect(expected: String, around: String) -> (verdict: Verdict, actual: String?) {
         let units = Array(around.utf16)
         let length = expected.utf16.count
-        guard units.count >= length else { return .mismatch }
+        guard units.count >= length else { return (.mismatch, nil) }
         let before = String(decoding: units[..<length], as: UTF16.self)
-        guard let match = CaretText.match(expected: expected, actual: before) else { return .mismatch }
+        guard let match = CaretText.match(expected: expected, actual: before) else { return (.mismatch, nil) }
         // The word ends in an opening bracket the app closed: one Backspace
         // erases the pair in some editors, only the opening one in others.
         if units.count > length, let last = expected.last, let closer = closing[last],
            String(decoding: units[length...], as: UTF16.self).first == closer
         {
-            return .mismatch
+            return (.mismatch, nil)
         }
-        return match == .exact ? .match : .matchRaised
+        return (match == .exact ? .match : .matchRaised, before)
+    }
+}
+
+/// What a retype does with the verdict of its caret check.
+public enum RetypeGate {
+    public enum Decision: Equatable, Sendable {
+        /// Post the retype. `verify`: post its Backspaces first and the keys
+        /// only once the field shows the word gone (`Erasure`).
+        case go(Retype, verify: Bool)
+        /// Post nothing and send `.retypeCancelled`.
+        case cancel(reason: String)
+    }
+
+    /// - Parameters:
+    ///   - verdict: nil when no check ran: nothing to compare, or no probe.
+    ///   - hasSnapshot: the check came back with what `Erasure` needs.
+    public static func decide(_ retype: Retype, verdict: CaretCheck.Verdict?, hasSnapshot: Bool) -> Decision {
+        switch verdict {
+        case .mismatch:
+            return .cancel(reason: "the text before the caret differs")
+        case .unreadable:
+            return .cancel(reason: "the field could not be read")
+        case .matchRaised:
+            // The app raised the first letter of the word: bring it back raised.
+            return .go(retype.raisingFirstLetter(), verify: hasSnapshot && canVerify(retype))
+        case .match:
+            return .go(retype, verify: hasSnapshot && canVerify(retype))
+        case .unavailable, nil:
+            return .go(retype, verify: false)
+        }
+    }
+
+    /// A retype of a selection erases nothing, one through AX posts no keys,
+    /// and one with no keys has nothing to hold back.
+    private static func canVerify(_ retype: Retype) -> Bool {
+        retype.deleteCount > 0 && !retype.keys.isEmpty && !retype.viaAccessibility
     }
 }
 

@@ -92,3 +92,44 @@ import Testing
         #expect(desk.text == "Hellx")
     }
 }
+
+/// The retype of a word macOS raised reports "привет " as the original and
+/// "Ghbdtn " as the text. What learning and the undo count must be the same as
+/// for the word the app did not raise.
+@Suite struct RaisedUndoAccountingTests {
+    static func undoReports(autocapitalizes: Bool, _ undo: (inout Desk) -> Void) -> [UndoReport] {
+        var desk = Desk()
+        desk.autocapitalizes = autocapitalizes
+        desk.type("ghbdtn ")
+        undo(&desk)
+        return desk.undoReports
+    }
+
+    @Test func backspaceUndoCountsTheSameWord() {
+        let raised = Self.undoReports(autocapitalizes: true) { $0.press(KeyCode.delete) }
+        let plain = Self.undoReports(autocapitalizes: false) { $0.press(KeyCode.delete) }
+        #expect(raised.map(\.word) == plain.map(\.word))
+        #expect(raised.map(\.channel) == plain.map(\.channel))
+    }
+
+    @Test func shortcutUndoCountsTheSameWord() {
+        let raised = Self.undoReports(autocapitalizes: true) { $0.tapOption() }
+        let plain = Self.undoReports(autocapitalizes: false) { $0.tapOption() }
+        #expect(raised.map(\.word) == plain.map(\.word))
+        #expect(raised.map(\.channel) == plain.map(\.channel))
+        #expect(raised.map(\.word) == ["ghbdtn"], "the word the user typed, not \"Ghbdtn \" or \"привет \"")
+    }
+
+    /// `InputController` unlearns with the event's two strings: the word the machine expected in the
+    /// field ("jrtq ") and what the retype typed, which macOS raised in the field ("Окей ").
+    @Test func aRetypedWordIsUnlearnedWhateverTheCaseOfTheText() {
+        func rules() -> WordRules {
+            WordRules(learned: [LearnedWord(word: "jrtq", learnedAt: 1), LearnedWord(word: "ytn", learnedAt: 1)])
+        }
+        var plain = rules(), raised = rules()
+        let expected = plain.unlearn(typed: "jrtq ", retyped: "окей ", app: nil)
+        #expect(expected == Unlearned(word: "jrtq", app: nil))
+        #expect(raised.unlearn(typed: "jrtq ", retyped: "Окей ", app: nil) == expected)
+        #expect(raised.learned == plain.learned)
+    }
+}

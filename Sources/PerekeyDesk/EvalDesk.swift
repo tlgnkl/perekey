@@ -517,7 +517,7 @@ public struct EvalDesk: Sendable {
         field.deleteLeft(retype.deleteCount)
         let start = field.caret
         field.insert(retype.text)
-        if options.autocapitalizes, startsSentence(at: start) { field.raiseLetter(at: start) }
+        if options.autocapitalizes, CaretText.startsSentence(after: field.characters[..<start]) { field.raiseLetter(at: start) }
         posted.append(Posted(event: cause, retype: retype))
         time += options.retypeStep
         send(.retypePosted(seq: retype.seq, time: time))
@@ -526,14 +526,6 @@ public struct EvalDesk: Sendable {
             time += options.ownKeyStep
             key(KeyEvent(.down, keyCode: 0, origin: .own(seq: retype.seq, last: index == count - 1)))
         }
-    }
-
-    /// Whether a sentence starts at `index`: the field's start, or after a
-    /// full stop, "!" or "?" and spaces.
-    private func startsSentence(at index: Int) -> Bool {
-        let before = field.characters[..<index].reversed().drop { $0 == " " }
-        guard let last = before.first else { return true }
-        return ".!?\n".contains(last)
     }
 
     /// The main thread and the app catch up, in order: a selection is read;

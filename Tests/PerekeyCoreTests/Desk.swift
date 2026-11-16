@@ -27,6 +27,23 @@ struct Desk {
     /// The app raises the first letter of the word a retype typed at the start
     /// of a sentence, as TextEdit and Notes do with macOS autocapitalization.
     var autocapitalizes = false
+    /// What the app does to the word between the caret check and the end of the
+    /// Backspaces of a retype. The check reads the field before the Backspaces,
+    /// so each of these is a change it cannot see.
+    enum Interference: Equatable {
+        /// macOS makes the first letter of the word a capital.
+        case raisesLetter
+        /// The autocorrection finishes: the app puts this text in the word's place.
+        case replacesWord(String)
+        /// The first `count` Backspaces are eaten (a correction panel takes the key).
+        case eatsBackspaces(count: Int)
+    }
+    var interference: Interference?
+    /// How each retype's Backspaces ended, in order.
+    var erasures: [Erasure.Outcome] = []
+    /// The check after the Backspaces. Off, the retype types blindly, as it did
+    /// before that check existed; the tests of it show what that leaves.
+    var confirmsErasure = true
     /// Every event the machine handled and what it answered, while not nil:
     /// a session as the recorder writes it (`SessionStep`).
     var tape: [SessionStep]?
@@ -169,10 +186,13 @@ struct Desk {
                     continue
                 }
                 if match == .firstLetterRaised { retype = retype.raisingFirstLetter() }
-                text.removeLast(retype.deleteCount)
+                guard erase(retype, word: before) else {
+                    send(.retypeCancelled(seq: retype.seq))
+                    continue
+                }
                 let start = text.count
                 text += retype.text
-                if autocapitalizes, startsSentence(at: start), let first = text.dropFirst(start).first {
+                if autocapitalizes, CaretText.startsSentence(after: text.prefix(start)), let first = text.dropFirst(start).first {
                     text.replaceSubrange(text.index(text.startIndex, offsetBy: start)...text.index(text.startIndex, offsetBy: start),
                                          with: String(first).uppercased())
                 }
@@ -192,10 +212,58 @@ struct Desk {
         }
     }
 
-    private func startsSentence(at index: Int) -> Bool {
-        let last = text.prefix(index).reversed().first { $0 != " " }
-        guard let last else { return true }
-        return ".!?\n".contains(last)
+    /// The Backspaces of `retype`, what the app does meanwhile, and the check
+    /// after them (`InputEngine.erased`). False: nothing may be typed.
+    private mutating func erase(_ retype: Retype, word: String) -> Bool {
+        let wordUnits = word.utf16.count
+        let start = text.utf16.count - wordUnits
+        let snapshot = Erasure.Snapshot(start: start, lead: Self.slice(text, max(0, start - Erasure.Snapshot.leadLength)..<start),
+                                        word: word)
+        var backspaces = retype.deleteCount
+        var eaten = 0
+        switch interference {
+        case .raisesLetter:
+            let index = text.index(text.startIndex, offsetBy: text.count - word.count)
+            text.replaceSubrange(index...index, with: String(text[index]).uppercased())
+        case let .replacesWord(other):
+            text.removeLast(word.count)
+            text += other
+        case let .eatsBackspaces(count):
+            eaten = min(count, backspaces)
+            backspaces -= eaten
+        case nil:
+            break
+        }
+        guard confirmsErasure else {
+            text.removeLast(min(backspaces, text.count))
+            return true
+        }
+        // One Backspace works per pause: the app is a few milliseconds behind.
+        var queue = backspaces
+        var clock = time
+        let outcome = Erasure.confirm(
+            snapshot, now: { clock },
+            pause: {
+                clock += 0.002
+                if queue > 0, !text.isEmpty { text.removeLast(); queue -= 1 }
+            },
+            read: {
+                let location = text.utf16.count
+                let gap = location - start
+                return Erasure.Reading(
+                    location: location, lead: Self.slice(text, max(0, start - Erasure.Snapshot.leadLength)..<start),
+                    remaining: gap > 0 && gap <= wordUnits ? Self.slice(text, start..<location) : "")
+            },
+            restore: { text += $0 })
+        time = clock
+        erasures.append(outcome)
+        return outcome == .erased
+    }
+
+    private static func slice(_ text: String, _ range: Range<Int>) -> String {
+        guard range.lowerBound < range.upperBound else { return "" }
+        let units = Array(text.utf16)
+        return String(decoding: units[range.lowerBound..<min(range.upperBound, units.count)], as: UTF16.self)
     }
 
     /// Presses and releases a key the way a person does.

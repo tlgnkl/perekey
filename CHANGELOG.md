@@ -72,6 +72,16 @@ differently, what was fixed.
   recognized, and goes back with its capital letter («Ghbdtn»), as you saw it.
   If the text before the caret really differs, Perekey still leaves it alone.
 
+- **A retype never leaves a mix of the old and the new word.** Perekey read
+  the field once, before the Backspaces. If the app changed the text after that
+  (it capitalized a letter, finished an autocorrection, swallowed a Backspace),
+  the new word was typed over the leftovers («Hellhello»). Now Perekey reads the
+  field again after the Backspaces and types only when exactly the word is
+  gone; if a Backspace did not work, it puts the erased end back. In a field
+  where the accessibility API normally answers but did not this time, the
+  retype is refused instead of done blind. Fields with no accessibility text
+  (terminals) work as before.
+
 - **Keys held during a fix are no longer delayed when another program marks
   its keys.** If a program that types or remaps keys (a keyboard tool, a
   remote desktop) put its own mark on them, the keys Perekey held back and

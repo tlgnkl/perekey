@@ -145,6 +145,8 @@ public final class InputEngine: @unchecked Sendable {
         var seq: UInt32
         var started: Double
         var verdict: CaretCheck.Verdict?
+        /// Where the word is and what is around it, for the check after the Backspaces.
+        var snapshot: Erasure.Snapshot?
         /// The retype, once its layout is selected, waiting for the verdict.
         var waiting: Retype?
     }
@@ -552,19 +554,22 @@ public final class InputEngine: @unchecked Sendable {
             handle(.inputLost)
             return
         }
+        var verified: Erasure.Snapshot?
         if let pending = check, pending.seq == retype.seq {
             guard let verdict = pending.verdict else {
                 check?.waiting = retype
                 return
             }
             check = nil
-            if verdict == .mismatch {
-                log.info("Retype \(retype.seq, privacy: .public) cancelled: the text before the caret differs")
+            switch RetypeGate.decide(retype, verdict: verdict, hasSnapshot: pending.snapshot != nil) {
+            case let .cancel(reason):
+                log.info("Retype \(retype.seq, privacy: .public) cancelled: \(reason, privacy: .public)")
                 handle(.retypeCancelled(seq: retype.seq))
                 return
+            case let .go(decided, verify):
+                retype = decided
+                if verify { verified = pending.snapshot }
             }
-            // The app raised the first letter of the word: bring it back raised.
-            if verdict == .matchRaised { retype = retype.raisingFirstLetter() }
         }
         if retype.viaAccessibility, let textProbe {
             let final = retype
@@ -573,9 +578,39 @@ public final class InputEngine: @unchecked Sendable {
             }
             return
         }
+        if let verified, let textProbe {
+            // The Backspaces now, the keys once the field shows the word gone.
+            let final = retype
+            textProbe.eraseAndConfirm(final, snapshot: verified) { [self] outcome in
+                perform { $0.erased(final, outcome: outcome) }
+            }
+            return
+        }
         TextSink.post(retype)
         handle(.retypePosted(seq: retype.seq, time: Self.now))
         toMainRetyped(retype)
+    }
+
+    /// The Backspaces of `retype` were posted and the field read again.
+    private func erased(_ retype: Retype, outcome: Erasure.Outcome) {
+        guard machine.pendingRetypeSeq == retype.seq else {
+            // The fence let input go while the field was read: the keys would land among the user's.
+            log.error("Retype \(retype.seq, privacy: .public): its fence ended after the Backspaces; new text not typed")
+            handle(.inputLost)
+            return
+        }
+        switch outcome {
+        case .erased:
+            TextSink.post(retype, part: .type)
+            handle(.retypePosted(seq: retype.seq, time: Self.now))
+            toMainRetyped(retype)
+        case .restored:
+            log.error("Retype \(retype.seq, privacy: .public) cancelled: a Backspace did not work; the word was put back")
+            handle(.retypeCancelled(seq: retype.seq))
+        case let .stopped(failure):
+            log.error("Retype \(retype.seq, privacy: .public) cancelled after its Backspaces: \(failure.rawValue, privacy: .public); new text not typed")
+            handle(.retypeCancelled(seq: retype.seq))
+        }
     }
 
     private func toMainRetyped(_ retype: Retype) {
@@ -601,17 +636,18 @@ public final class InputEngine: @unchecked Sendable {
         guard retype.deleteCount > 0, !retype.expected.isEmpty, let textProbe else { return }
         let seq = retype.seq
         check = CaretCheckState(seq: seq, started: Self.now)
-        textProbe.checkBeforeCaret(expected: retype.expected) { [self] verdict in
-            perform { $0.checkFinished(seq: seq, verdict: verdict) }
+        textProbe.checkBeforeCaret(expected: retype.expected) { [self] verdict, snapshot in
+            perform { $0.checkFinished(seq: seq, verdict: verdict, snapshot: snapshot) }
         }
     }
 
-    private func checkFinished(seq: UInt32, verdict: CaretCheck.Verdict) {
+    private func checkFinished(seq: UInt32, verdict: CaretCheck.Verdict, snapshot: Erasure.Snapshot?) {
         guard let pending = check, pending.seq == seq else { return }
         // Numbers only: the text never reaches the log.
         let ms = (Self.now - pending.started) * 1000
         log.info("Caret check \(seq, privacy: .public): \(String(describing: verdict), privacy: .public) in \(ms, format: .fixed(precision: 1), privacy: .public) ms")
         check?.verdict = verdict
+        check?.snapshot = snapshot
         if let waiting = pending.waiting {
             check?.waiting = nil
             postIfPending(waiting)

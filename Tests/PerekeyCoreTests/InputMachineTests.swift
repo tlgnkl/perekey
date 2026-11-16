@@ -109,6 +109,14 @@ private let ru = Fixture.russian.id
         #expect(kb.tapOption().startsSelectionConversion)
     }
 
+    @Test func ownMenuForgetsWord() {
+        var kb = Keyboard()
+        kb.type("ghbdtn", in: Fixture.abc)
+        kb.send(.ownMenuChanged(true))
+        kb.send(.ownMenuChanged(false))
+        #expect(kb.tapOption().startsSelectionConversion)
+    }
+
     @Test func focusChangeForgetsWord() {
         var kb = Keyboard()
         kb.type("ghbdtn", in: Fixture.abc)

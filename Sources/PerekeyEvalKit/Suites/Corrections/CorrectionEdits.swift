@@ -71,21 +71,27 @@ enum CorrectionEdits {
     }
 
     static func apply(_ kind: SuiteManifest.Correction.Kind, scenario: String, tokens: [ParsedToken], language: String,
-                      weights: SuiteManifest.TypoWeights?, random: inout SplitMix64) -> Result<Edited, Drop>
+                      weights: SuiteManifest.TypoWeights?, minLetters: Int? = nil, maxLetters: Int? = nil, firstWord: Bool = false,
+                      random: inout SplitMix64) -> Result<Edited, Drop>
     {
         let plain = tokens.map(\.text)
         let none = [[String]](repeating: [], count: plain.count)
         switch kind {
         case .typoSynth:
             guard let weights else { return .failure(.noTarget) }
+            var typoOptions = TypoMaker.Options()
+            if let minLetters { typoOptions.minLetters = minLetters }
             let eligible = plain.indices.filter {
                 let anatomy = Anatomy(plain[$0])
-                return anatomy.isWord && anatomy.letters.count >= TypoMaker.Options().minLetters && !tokens[$0].code
+                return (!firstWord || $0 == 0) && anatomy.isWord && anatomy.letters.count >= typoOptions.minLetters
+                    && anatomy.letters.count <= (maxLetters ?? .max)
+                    && !tokens[$0].code
             }
             guard !eligible.isEmpty else { return .failure(.noTarget) }
             let index = eligible[Int(random.next() % UInt64(eligible.count))]
             let anatomy = Anatomy(plain[index])
-            guard let made = TypoMaker.make(word: anatomy.core, language: language, weights: weights, random: &random)
+            guard let made = TypoMaker.make(word: anatomy.core, language: language, weights: weights, options: typoOptions,
+                                         random: &random)
             else { return .failure(.noTypo) }
             var typed = plain
             typed[index] = anatomy.with(core: made.typo)

@@ -108,6 +108,16 @@ public struct Classifier: Sendable {
         /// 2 from the same measure as `shortWordSentenceStart`: one word
         /// leaves "z yt" of "я не" half done.
         public var shortWordsCarried = 2
+        /// A word of 3–4 letters that is two neighbouring letters swapped
+        /// from a word of its own language with at least this rank is not switched inside the
+        /// word, even when no word of its language starts like it: "hte" is
+        /// "the", and its other reading "реу" is no better. The end of the
+        /// word decides as it always did. 0 is off, the default: the output is
+        /// as it was; 160 is what `perekey-eval` measured (docs/classifier.md, «Опечатка своего языка»).
+        public var typoWordRank: UInt8 = 0
+        /// How far above the typed word the common word must stand, in rank
+        /// units (32 per unit of Zipf).
+        public var typoWordGap: UInt8 = 64
 
         public init() {}
     }
@@ -638,6 +648,13 @@ public struct Classifier: Sendable {
     /// language, but can in the other's: "ghb" is no English start, "при" is a
     /// Russian one. Cheap enough for every key stroke; needs 3 or 4 letters.
     public func impossiblePrefix(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap) -> Bool {
+        impossiblePrefix(strokes, typed: typed, other: other, guardingSlips: true)
+    }
+
+    /// `impossiblePrefix`; with `guardingSlips` false it ignores the slip
+    /// guard (`isSlipOfCommonWord`): what the answer would be without it.
+    func impossiblePrefix(_ strokes: some Collection<KeyStroke>, typed: LayoutMap, other: LayoutMap,
+                          guardingSlips: Bool) -> Bool {
         let count = Self.wordLength(strokes)
         guard count >= 3, let typedCode = typed.language, let otherCode = other.language, typedCode != otherCode,
               let typedLanguage = model.language(typedCode), let otherLanguage = model.language(otherCode)
@@ -657,7 +674,11 @@ public struct Classifier: Sendable {
                 let length = min(4, typedReading.letters)
                 let typedPrefix = UnsafeBufferPointer(rebasing: symbols[0..<length])
                 let otherPrefix = UnsafeBufferPointer(rebasing: symbols[half..<half + length])
-                return !typedLanguage.isPossiblePrefix(typedPrefix) && otherLanguage.isPossiblePrefix(otherPrefix)
+                guard !typedLanguage.isPossiblePrefix(typedPrefix), otherLanguage.isPossiblePrefix(otherPrefix) else {
+                    return false
+                }
+                // A slip of a common word of its own language: let the end of the word decide.
+                return !guardingSlips || !isSlipOfCommonWord(strokes, in: typed)
             }
         }
     }
@@ -1126,6 +1147,7 @@ extension Classifier.Options: Codable {
         case threshold, readingMargin, unknownWordExtra, noiseCost, unknownNoiseCost, openerBonus, dictionaryBonus,
              rankBonus, knownRank, mixedCaseRank, contextBonus, contextDecay, priorLimit, priorScale, shortWordRank,
              personalRank, personalNoiseCost, wordContextLimit, shortWordSentenceStart, shortWordsCarried
+             personalRank, personalNoiseCost, wordContextLimit, typoWordRank, typoWordGap
     }
 
     /// The keys the file format knows, one per stored property (a test holds
@@ -1158,6 +1180,8 @@ extension Classifier.Options: Codable {
         try read(.wordContextLimit, &wordContextLimit)
         try read(.shortWordSentenceStart, &shortWordSentenceStart)
         try read(.shortWordsCarried, &shortWordsCarried)
+        try read(.typoWordRank, &typoWordRank)
+        try read(.typoWordGap, &typoWordGap)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -1187,5 +1211,10 @@ extension Classifier.Options: Codable {
         // one from before the rules (`ClassifierSpec` reads it as off).
         try container.encode(shortWordSentenceStart, forKey: .shortWordSentenceStart)
         try container.encode(shortWordsCarried, forKey: .shortWordsCarried)
+        // Likewise: written only when on.
+        if typoWordRank != 0 {
+            try container.encode(typoWordRank, forKey: .typoWordRank)
+            try container.encode(typoWordGap, forKey: .typoWordGap)
+        }
     }
 }

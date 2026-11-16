@@ -36,6 +36,8 @@ public struct MachineSnapshot: Hashable, Sendable, Codable {
     public var appMode: AppMode
     public var secureInput: Bool
     public var voiceSession: Bool
+    /// Perekey's own menu is open; nil reads as closed, for a file from before it.
+    public var ownMenu: Bool?
     public var dictationTyping: Bool
     public var languageContext: LanguageContext
     /// The languages of the last judged words, the latest first (`RecentLanguages`).

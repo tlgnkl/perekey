@@ -778,9 +778,12 @@ do {
                 + (decision.punctuationKeys > 0 ? ", last \(decision.punctuationKeys) key(s) kept as marks" : ""))
             // A switch inside the word (`WordJudge.insideWord`) comes before the word's end.
             if let early = [3, 4].first(where: {
-                strokes.count > $0 && classifier.impossiblePrefix(strokes.prefix($0), typed: typed, other: alternative)
+                strokes.count >= $0 && classifier.impossiblePrefix(strokes.prefix($0), typed: typed, other: alternative)
             }) {
                 print("  switches inside the word after \(early) keys")
+            }
+            if classifier.isSlipOfCommonWord(strokes.prefix(4), in: typed) {
+                print("  a slip of a common word of \(typed.language ?? "-"): no switch inside the word")
             }
             for (map, code) in [(typed, typed.language!), (alternative, alternative.language!)] {
                 let word = strokes.map { map.text(for: $0) ?? "?" }.joined()

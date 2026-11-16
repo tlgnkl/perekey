@@ -41,6 +41,8 @@ public struct InputMachine: Sendable {
     private var languageChoice: (seq: UInt32, language: String?)?
     private var shortcuts: Shortcuts
     private var secureInput = false
+    /// Perekey's own menu is open: its panel takes the keys (`InputEvent.ownMenuChanged`).
+    private var ownMenu = false
     private var focus: Focus?
     /// A dictation session is on: Esc cancels it.
     private var voiceSession = false
@@ -77,6 +79,7 @@ public struct InputMachine: Sendable {
         focus = snapshot.focus
         judge.appMode = snapshot.appMode
         secureInput = snapshot.secureInput
+        ownMenu = snapshot.ownMenu ?? false
         voiceSession = snapshot.voiceSession
         dictationTyping = snapshot.dictationTyping
         judge.restore(languageContext: snapshot.languageContext, recent: RecentLanguages(snapshot.recentLanguages),
@@ -93,7 +96,7 @@ public struct InputMachine: Sendable {
             usedLayouts: layouts.used, confirmedLayout: fence.confirmedLayout,
             pendingSelections: fence.pendingSelections, nextSeq: fence.nextSeq, focus: focus,
             appMode: judge.appMode, secureInput: secureInput, voiceSession: voiceSession,
-            dictationTyping: dictationTyping, languageContext: judge.languageContext,
+            ownMenu: ownMenu ? true : nil, dictationTyping: dictationTyping, languageContext: judge.languageContext,
             recentLanguages: (0..<recent.count).map { recent[$0] }, sentenceStart: judge.sentenceStart,
             tally: judge.tallyCounts, tallied: judge.tallied,
             personalLexicon: judge.personal.isOn ? judge.personal : nil,
@@ -169,7 +172,7 @@ public struct InputMachine: Sendable {
             // Modifier changes arrive under Secure Input too: a voice hold
             // still ends when its modifier comes up.
             if let signal = shortcuts.holdModifiersChanged(flags: flags) { effects.append(.voice(signal)) }
-            guard !secureInput else { return .pass }
+            guard !secureInput, !ownMenu else { return .pass }
             switch shortcuts.modifiersChanged(keyCode: keyCode, flags: flags, location: location, at: time) {
             case let .hotkey(action):
                 perform(action, at: time, effects: &effects)
@@ -226,6 +229,14 @@ public struct InputMachine: Sendable {
             // changes do: every capital letter of a password would look like a
             // Shift tap. Keep the detector off until Secure Input ends.
             secureInput = isOn
+            shortcuts.reset()
+            settleUndo(.unknown, effects: &effects)
+            forgetText()
+
+        case let .ownMenuChanged(isOpen):
+            // The keys of the menu are no typing of the user's: drop the word
+            // and the shortcut state, as Secure Input does.
+            ownMenu = isOpen
             shortcuts.reset()
             settleUndo(.unknown, effects: &effects)
             forgetText()
@@ -331,7 +342,7 @@ public struct InputMachine: Sendable {
             if let signal = hold.signal { effects.append(.voice(signal)) }
             if hold.swallow { return .drop }
         }
-        guard !secureInput else { return .pass }
+        guard !secureInput, !ownMenu else { return .pass }
 
         if key.phase == .up { return shortcuts.keyUp(key.keyCode) ? .drop : .pass }
 

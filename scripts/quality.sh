@@ -24,6 +24,8 @@
 #                        not checked. A ref that is not a commit is an error (exit 2)
 #                        in a pull request (GITHUB_EVENT_NAME=pull_request), a note on
 #                        a push (the `before` of a first push is all zeros)
+#   QUALITY_HEAD_OPTIONS classifier options as JSON, for the head only (`perekey-eval play --options`):
+#                        what a rule that is off by default would do on. The base plays with its defaults
 #   PEREKEY_DATA_CACHE   the data cache (default: .build/data-cache)
 #
 # Needs the held-out sources: scripts/fetch-data.sh lexicon wikifreq pairs heldout.
@@ -43,7 +45,7 @@ unset PEREKEY_VOICE
 # lang.rus-se and lang.russian-se take its place. Every suite costs the time of
 # reading its source (about 6 s each); the budget of the step is 5 minutes (RE9).
 CI_SUITES=(prose.tatoeba chat.tatoeba lang.rus-se lang.russian-se mixed.uk-se prose.uk
-           typos.none typos.real.en typos.synth.equal typos.synth.neighbor typos.synth.swap hyphen yo doublecap
+           typos.none typos.real.en typos.cold.en typos.cold.ru typos.cold.swap.en typos.cold.swap.ru typos.synth.equal typos.synth.neighbor typos.synth.swap hyphen yo doublecap
            class.frequent class.short class.short.same class.collision class.names class.cli class.code
            protect.url protect.captcha protect.numbers protect.password)
 # Suites that read the ru.stackoverflow corpus (`fetch-data.sh heavy`, a gigabyte): built when the
@@ -328,7 +330,10 @@ if [[ "$TIER" != ci ]]; then
 fi
 (
     t=$SECONDS
-    "$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" --out "$OUT/run-head" >"$OUT/play-head.txt"
+    head_options=()
+    [[ -z "${QUALITY_HEAD_OPTIONS:-}" ]] || head_options=(--options "$QUALITY_HEAD_OPTIONS")
+    "$bin" play --cases eval/cases "$CASES" --model "$MODEL" --cache "$CACHE" ${head_options[@]+"${head_options[@]}"} \
+        --out "$OUT/run-head" >"$OUT/play-head.txt"
     lap "head: play" "$t"
 ) &
 head_pid=$!

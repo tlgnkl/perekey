@@ -31,6 +31,8 @@ public enum ClassifierOptions {
         "wordContextLimit": { $0.wordContextLimit = $1 },
         "shortWordSentenceStart": { $0.shortWordSentenceStart = $1 != 0 },
         "shortWordsCarried": { $0.shortWordsCarried = try count($1, "shortWordsCarried") },
+        "typoWordRank": { $0.typoWordRank = try rank($1, "typoWordRank") },
+        "typoWordGap": { $0.typoWordGap = try rank($1, "typoWordGap") },
     ]
 
     /// The names the table knows.

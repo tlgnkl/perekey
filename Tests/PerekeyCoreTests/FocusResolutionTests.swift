@@ -88,3 +88,18 @@ private let orca = "com.stablyai.orca"
         #expect(desk.text == "ghbdtn ")
     }
 }
+
+/// The second focus event of the same program right after the switch
+/// (`FocusTracker` calls it the same place and publishes nothing): the word
+/// typed across it comes out whole.
+@Suite struct SecondFocusEventTests {
+    @Test func keysAcrossTheSecondEventMakeOneWord() {
+        var desk = Desk(focus: .unknown(bundleID: orca))
+        desk.send(.focusChanged(Focus(bundleID: orca), .resolved))
+        desk.type("ghb")
+        // 60 ms later the app names a second element; `FocusTracker` calls it
+        // the same place and publishes nothing, so the machine sees no event.
+        desk.type("dtn ")
+        #expect(desk.text == "привет ")
+    }
+}

@@ -194,7 +194,8 @@ public struct CorrectionBuilder {
         switch candidate.slip {
         case .made:
             switch CorrectionEdits.apply(correction.kind, scenario: scenario, tokens: parsed.tokens, language: language,
-                                         weights: correction.weights, random: &random)
+                                         weights: correction.weights, minLetters: correction.minLetters, maxLetters: correction.maxLetters,
+                                         firstWord: correction.firstWord ?? false, random: &random)
             {
             case let .failure(drop): return .failure(drop)
             case let .success(value): edited = value

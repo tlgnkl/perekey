@@ -1,0 +1,54 @@
+{
+ "about": "Tatoeba ru sentences, one swap of two neighbouring letters (the made-up slip that the slip guard acts on) in the FIRST word (three or four letters): the word has nothing before it, as a word typed alone",
+ "correction": {
+  "firstWord": true,
+  "kind": "typo.synth",
+  "maxLetters": 4,
+  "minLetters": 3,
+  "weights": {
+   "double": 0,
+   "drop": 0,
+   "neighbor": 0,
+   "stray": 0,
+   "swap": 100
+  }
+ },
+ "end": "space",
+ "epoch": 1,
+ "filter": {
+  "maxTokens": 12,
+  "minTokens": 1
+ },
+ "layoutSets": [
+  [
+   "ABC",
+   "Russian"
+  ]
+ ],
+ "license": "CC BY 2.0 FR, CC0 (Tatoeba)",
+ "normalize": "keyboard",
+ "reader": "tatoeba",
+ "sampling": "token",
+ "scenarios": [
+  "fix"
+ ],
+ "seed": 1,
+ "settings": "all",
+ "source": "tatoeba/rus_sentences.tsv.bz2",
+ "split": {
+  "by": "unit",
+  "dev": 20
+ },
+ "suite": "typos.cold.swap.ru",
+ "tags": [
+  "typo",
+  "synthetic",
+  "cold",
+  "swap"
+ ],
+ "tiers": {
+  "ci": 3000,
+  "full": 100000
+ },
+ "version": 1
+}

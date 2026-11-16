@@ -60,6 +60,9 @@ final class InputController {
     /// The delayed checks after an access notification, and the periodic one.
     @ObservationIgnored private var accessRechecks: Task<Void, Never>?
     @ObservationIgnored private var accessPoll: Task<Void, Never>?
+    /// The second focus read after Secure Input ended. One at a time, and
+    /// dropped on an app switch: a new one replaces the old.
+    @ObservationIgnored private var focusRecheck: Task<Void, Never>?
     @ObservationIgnored private let log = Logger(subsystem: "app.perekey", category: "input")
     @ObservationIgnored private let hint = HintController()
     /// The correction the hint shows, so a late undo of an older one leaves it.
@@ -168,8 +171,20 @@ final class InputController {
             engine.send(.focusChanged(focus, change))
             Task { @MainActor in pause.setPasswordField(focus.isKnown && focus.isSecureField) }
         }
-        secureInput.onChange = { [secureInput] isOn in
+        secureInput.onChange = { [secureInput, weak self] isOn in
             pause.setSecureInput(isOn, owner: secureInput.ownerName)
+            // Secure Input ends when the caret leaves a password field. If the
+            // app's focus notification was lost, this read finds the new field
+            // (a second one covers an app that updates AX a moment later).
+            guard !isOn else { return }
+            guard let self else { return }
+            focus.refresh()
+            focusRecheck?.cancel()
+            focusRecheck = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                self?.focus.refresh()
+            }
         }
         pause.setSecureInput(secureInput.isOn, owner: secureInput.ownerName)
 
@@ -304,6 +319,12 @@ final class InputController {
         }
         let site = SiteObserver.browserBundleIDs.contains(app) ? appModes.frontHost : nil
         return languages.context(app: app, site: site)
+    }
+
+    /// Perekey's menu opened or closed. Its panel takes the keys even while
+    /// another app is in front; the machine must not judge them as typing.
+    func ownMenuChanged(_ isOpen: Bool) {
+        engine.send(.ownMenuChanged(isOpen))
     }
 
     #if PEREKEY_VOICE
@@ -675,6 +696,7 @@ final class InputController {
             self?.accessMayHaveChanged()
         }
         on(workspace, NSWorkspace.didActivateApplicationNotification) { [weak self] in
+            self?.focusRecheck?.cancel()
             self?.accessMayHaveChanged()
         }
         accessPoll = Task { @MainActor [weak self] in

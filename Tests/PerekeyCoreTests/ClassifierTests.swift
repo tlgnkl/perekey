@@ -203,6 +203,34 @@ import Testing
         #expect(!classifier.impossiblePrefix(abc.strokes("GHB"), typed: abc, other: russian))
     }
 
+    /// "hte" is no English start and "реу" is a Russian one, but "hte" is "the" with two letters
+    /// swapped and "реу" is no word: the end of the word decides, not the third key.
+    @Test(arguments: ["hte", "taht", "Hte"])
+    func aSlipOfACommonWordIsNotSwitchedInsideTheWord(slip: String) {
+        // The tiny fixture model has too few Russian starts to call "hte" impossible: ask the guard itself.
+        #expect(!classifier.isSlipOfCommonWord(abc.strokes(slip), in: abc), "off by default: no slip is looked for")
+        var on = Classifier.Options()
+        on.typoWordRank = 160
+        let guarded = Classifier(model: ModelFixture.model, options: on)
+        #expect(guarded.isSlipOfCommonWord(abc.strokes(slip), in: abc))
+        #expect(!guarded.impossiblePrefix(abc.strokes(slip), typed: abc, other: russian))
+        #expect(guarded.classify(abc.strokes(slip), typed: abc, other: russian).verdict == .keep)
+    }
+
+    /// The guard moves nothing that is not a slip of a common word: Russian typed on ABC still switches early.
+    @Test(arguments: ["ghb", "ghbd", "ytn", "vbh"])
+    func theSlipGuardLeavesTheRussianWordsAlone(typed: String) {
+        let unguarded = classifier
+        var on = Classifier.Options()
+        on.typoWordRank = 160
+        let guarded = Classifier(model: ModelFixture.model, options: on)
+        #expect(!guarded.isSlipOfCommonWord(abc.strokes(typed), in: abc))
+        #expect(guarded.impossiblePrefix(abc.strokes(typed), typed: abc, other: russian)
+            == unguarded.impossiblePrefix(abc.strokes(typed), typed: abc, other: russian))
+        #expect(guarded.classify(abc.strokes(typed), typed: abc, other: russian).verdict
+            == unguarded.classify(abc.strokes(typed), typed: abc, other: russian).verdict)
+    }
+
     @Test func decisionsAreFastAndStable() {
         // Hundreds of classifications of a long word in well under a millisecond each.
         let strokes = abc.strokes("ghbdtn") + abc.strokes("vbh") + abc.strokes("[jhjij") + abc.strokes("ds,jh")

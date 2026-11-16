@@ -37,10 +37,15 @@ struct Desk {
         case replacesWord(String)
         /// The first `count` Backspaces are eaten (a correction panel takes the key).
         case eatsBackspaces(count: Int)
+        /// The app is busy: it handles one Backspace every this many seconds.
+        case slowBackspaces(every: Double)
     }
     var interference: Interference?
     /// How each retype's Backspaces ended, in order.
     var erasures: [Erasure.Outcome] = []
+    /// For each check after the Backspaces: when it ended, the fence's
+    /// deadline it was given, and whether the fence still held then.
+    var erasureEnds: [(ended: Double, fenceDeadline: Double, holding: Bool)] = []
     /// The check after the Backspaces. Off, the retype types blindly, as it did
     /// before that check existed; the tests of it show what that leaves.
     var confirmsErasure = true
@@ -213,57 +218,46 @@ struct Desk {
     }
 
     /// The Backspaces of `retype`, what the app does meanwhile, and the check
-    /// after them (`InputEngine.erased`). False: nothing may be typed.
+    /// after them (`InputEngine.erased`), until the fence's deadline as the
+    /// engine gives it. False: nothing may be typed.
     private mutating func erase(_ retype: Retype, word: String) -> Bool {
-        let wordUnits = word.utf16.count
-        let start = text.utf16.count - wordUnits
-        let snapshot = Erasure.Snapshot(start: start, lead: Self.slice(text, max(0, start - Erasure.Snapshot.leadLength)..<start),
-                                        word: word)
-        var backspaces = retype.deleteCount
-        var eaten = 0
+        let field = AppField(text, clock: time)
+        let snapshot = field.snapshot(word: word)
+        var eaten: Set<Int> = []
         switch interference {
         case .raisesLetter:
             let index = text.index(text.startIndex, offsetBy: text.count - word.count)
-            text.replaceSubrange(index...index, with: String(text[index]).uppercased())
+            field.text.replaceSubrange(index...index, with: String(text[index]).uppercased())
         case let .replacesWord(other):
-            text.removeLast(word.count)
-            text += other
+            field.text = String(text.dropLast(word.count)) + other
         case let .eatsBackspaces(count):
-            eaten = min(count, backspaces)
-            backspaces -= eaten
+            eaten = Set(0..<min(count, retype.deleteCount))
+        case let .slowBackspaces(every):
+            field.step = every
         case nil:
             break
         }
         guard confirmsErasure else {
-            text.removeLast(min(backspaces, text.count))
+            field.postBackspaces(retype.deleteCount, eaten: eaten)
+            field.drain()
+            text = field.text
             return true
         }
-        // One Backspace works per pause: the app is a few milliseconds behind.
-        var queue = backspaces
-        var clock = time
-        let outcome = Erasure.confirm(
-            snapshot, now: { clock },
-            pause: {
-                clock += 0.002
-                if queue > 0, !text.isEmpty { text.removeLast(); queue -= 1 }
-            },
-            read: {
-                let location = text.utf16.count
-                let gap = location - start
-                return Erasure.Reading(
-                    location: location, lead: Self.slice(text, max(0, start - Erasure.Snapshot.leadLength)..<start),
-                    remaining: gap > 0 && gap <= wordUnits ? Self.slice(text, start..<location) : "")
-            },
-            restore: { text += $0 })
-        time = clock
+        let deadline = machine.fenceDeadline ?? time
+        var outcome = Erasure.Outcome.stopped(.late)
+        // With too little time left no Backspace is posted (`TextProbe.eraseAndConfirm`).
+        if Erasure.hasTime(at: field.clock, deadline: deadline) {
+            field.postBackspaces(retype.deleteCount, eaten: eaten)
+            outcome = field.confirm(snapshot, deadline: deadline)
+        }
+        erasureEnds.append((field.clock, deadline, machine.pendingRetypeSeq == retype.seq && field.clock < deadline))
+        time = field.clock
+        text = field.text
         erasures.append(outcome)
+        // Keys still on their way reach the field once the fence lets go: after the outcome.
+        field.drain()
+        text = field.text
         return outcome == .erased
-    }
-
-    private static func slice(_ text: String, _ range: Range<Int>) -> String {
-        guard range.lowerBound < range.upperBound else { return "" }
-        let units = Array(text.utf16)
-        return String(decoding: units[range.lowerBound..<min(range.upperBound, units.count)], as: UTF16.self)
     }
 
     /// Presses and releases a key the way a person does.

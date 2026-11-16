@@ -580,9 +580,12 @@ public final class InputEngine: @unchecked Sendable {
         }
         if let verified, let textProbe {
             // The Backspaces now, the keys once the field shows the word gone.
+            // The check ends before the fence lets the user's keys go, with
+            // time left for its answer to reach this thread.
             let final = retype
-            textProbe.eraseAndConfirm(final, snapshot: verified) { [self] outcome in
-                perform { $0.erased(final, outcome: outcome) }
+            let deadline = (machine.fenceDeadline ?? Self.now) - Self.answerTime
+            textProbe.eraseAndConfirm(final, snapshot: verified, deadline: deadline) { [self] outcome, backspaces in
+                perform { $0.erased(final, outcome: outcome, backspaces: backspaces) }
             }
             return
         }
@@ -591,8 +594,12 @@ public final class InputEngine: @unchecked Sendable {
         toMainRetyped(retype)
     }
 
-    /// The Backspaces of `retype` were posted and the field read again.
-    private func erased(_ retype: Retype, outcome: Erasure.Outcome) {
+    /// Seconds kept between the end of `Erasure.confirm` and the fence's
+    /// deadline, for the answer to reach the tap thread and the new text to be posted.
+    static let answerTime = 0.05
+
+    /// The Backspaces of `retype` were posted (`backspaces` of them) and the field read again.
+    private func erased(_ retype: Retype, outcome: Erasure.Outcome, backspaces: Int) {
         guard machine.pendingRetypeSeq == retype.seq else {
             // The fence let input go while the field was read: the keys would land among the user's.
             log.error("Retype \(retype.seq, privacy: .public): its fence ended after the Backspaces; new text not typed")
@@ -605,10 +612,10 @@ public final class InputEngine: @unchecked Sendable {
             handle(.retypePosted(seq: retype.seq, time: Self.now))
             toMainRetyped(retype)
         case .restored:
-            log.error("Retype \(retype.seq, privacy: .public) cancelled: a Backspace did not work; the word was put back")
+            log.error("Retype \(retype.seq, privacy: .public) cancelled: the Backspaces erased more than the word; it was typed back and the field reads as before")
             handle(.retypeCancelled(seq: retype.seq))
         case let .stopped(failure):
-            log.error("Retype \(retype.seq, privacy: .public) cancelled after its Backspaces: \(failure.rawValue, privacy: .public); new text not typed")
+            log.error("Retype \(retype.seq, privacy: .public) cancelled after \(backspaces, privacy: .public) Backspaces: \(failure.rawValue, privacy: .public); new text not typed")
             handle(.retypeCancelled(seq: retype.seq))
         }
     }

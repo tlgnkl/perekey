@@ -77,7 +77,12 @@ differently, what was fixed.
   (it capitalized a letter, finished an autocorrection, swallowed a Backspace),
   the new word was typed over the leftovers («Hellhello»). Now Perekey reads the
   field again after the Backspaces and types only when exactly the word is
-  gone; if a Backspace did not work, it puts the erased end back. In a field
+  gone. If the Backspaces took more than the word, Perekey types the lost text
+  back only when the rest of the field is as it was and the text is plain (no
+  line break, no tab), and calls it restored only when the field reads as
+  before. A half-erased word is left as it is: a late Backspace would land
+  before anything typed back. The whole check ends before held keys are let
+  go, so they never mix with it. In a field
   where the accessibility API normally answers but did not this time, the
   retype is refused instead of done blind. Fields with no accessibility text
   (terminals) work as before.

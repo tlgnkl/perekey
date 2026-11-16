@@ -60,23 +60,32 @@ public final class TextProbe: Sendable {
     }
 
     /// Posts the Backspaces of `retype`, waits until the field shows exactly
-    /// the word gone (`Erasure.confirm`), and answers. Posts no keys of the
-    /// new text: the caller types them on `.erased`, and only then.
+    /// the word gone (`Erasure.confirm`), and answers with the outcome and the
+    /// number of Backspaces posted. Posts no keys of the new text: the caller
+    /// types them on `.erased`, and only then. Answers before `deadline` (the
+    /// fence's, on the `now` clock): with too little time left it posts nothing.
     public func eraseAndConfirm(
-        _ retype: Retype, snapshot: Erasure.Snapshot, _ completion: @escaping @Sendable (Erasure.Outcome) -> Void
+        _ retype: Retype, snapshot: Erasure.Snapshot, deadline: Double,
+        _ completion: @escaping @Sendable (Erasure.Outcome, _ backspaces: Int) -> Void
     ) {
         thread.perform {
             // Read before anything is posted: with no field to read, nothing is erased.
-            guard let element = Self.focusedElement() else { return completion(.stopped(.unreadable)) }
+            guard let element = Self.focusedElement() else { return completion(.stopped(.unreadable), 0) }
+            guard Erasure.hasTime(at: Self.now, deadline: deadline) else { return completion(.stopped(.late), 0) }
             TextSink.post(retype, part: .erase)
             completion(Erasure.confirm(
-                snapshot,
-                now: { ProcessInfo.processInfo.systemUptime },
+                snapshot, deadline: deadline,
+                now: { Self.now },
                 pause: { usleep(2000) },
                 read: { Self.reading(of: element, snapshot: snapshot) },
                 restore: { TextSink.type($0, seq: retype.seq) }
-            ))
+            ), retype.deleteCount)
         }
+    }
+
+    /// The clock of `InputEngine` and the fence's deadline.
+    public static var now: Double {
+        Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
     }
 
     /// Replaces the selection of the focused element with `text`. Breaks ⌘Z and
@@ -109,10 +118,12 @@ public final class TextProbe: Sendable {
     /// The field for `Erasure.judge`; nil when AX does not answer.
     static func reading(of element: AXUIElement, snapshot: Erasure.Snapshot) -> Erasure.Reading? {
         guard let selection = selectedRange(of: element) else { return nil }
+        // The text before the word, up to the caret if it went back past the start.
         var lead = ""
-        let leadLength = snapshot.lead.utf16.count
-        if leadLength > 0 {
-            guard let text = string(of: element, in: CFRange(location: snapshot.start - leadLength, length: leadLength))
+        let leadStart = snapshot.start - snapshot.lead.utf16.count
+        let leadEnd = min(snapshot.start, selection.location)
+        if leadEnd > leadStart {
+            guard let text = string(of: element, in: CFRange(location: leadStart, length: leadEnd - leadStart))
             else { return nil }
             lead = text
         }
@@ -151,7 +162,10 @@ public final class TextProbe: Sendable {
 
     private static func checkBeforeCaret(expected: String) -> (CaretCheck.Verdict, Erasure.Snapshot?) {
         guard let element = focusedElement() else { return (.unavailable, nil) }
-        let unreadable: (CaretCheck.Verdict, Erasure.Snapshot?) = (answersText(element) ? .unreadable : .unavailable, nil)
+        // Asked only when a read failed: `answersText` copies the whole text value.
+        func unreadable() -> (CaretCheck.Verdict, Erasure.Snapshot?) {
+            (answersText(element) ? .unreadable : .unavailable, nil)
+        }
         // Chromium and Electron update their AX text after the keystroke has
         // already been typed, so a correct word can read as a mismatch there;
         // Telegram Desktop always reads as one. A false cancel breaks the
@@ -160,7 +174,7 @@ public final class TextProbe: Sendable {
         if AXUIElementGetPid(element, &pid) == .success, LaggingAXApps.contains(pid: pid) {
             return (.unavailable, nil)
         }
-        guard let selection = selectedRange(of: element) else { return unreadable }
+        guard let selection = selectedRange(of: element) else { return unreadable() }
 
         let length = expected.utf16.count
         // A selection would go with the first Backspace; the caret too close
@@ -171,7 +185,7 @@ public final class TextProbe: Sendable {
         let start = selection.location - length
         let around = string(of: element, in: CFRange(location: start, length: length + 1))
             ?? string(of: element, in: CFRange(location: start, length: length))
-        guard let around else { return unreadable }
+        guard let around else { return unreadable() }
         let (verdict, actual) = CaretCheck.inspect(expected: expected, around: around)
         guard verdict == .match || verdict == .matchRaised, let actual else { return (verdict, nil) }
         // What is before the word, to see after the Backspaces that it is untouched.
@@ -179,7 +193,7 @@ public final class TextProbe: Sendable {
         var lead = ""
         if start > leadStart {
             guard let text = string(of: element, in: CFRange(location: leadStart, length: start - leadStart))
-            else { return unreadable }
+            else { return unreadable() }
             lead = text
         }
         return (verdict, Erasure.Snapshot(start: start, lead: lead, word: actual))

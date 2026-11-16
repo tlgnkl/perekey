@@ -65,6 +65,13 @@ differently, what was fixed.
 
 ### Fixed
 
+- **Retyping a first word works again in TextEdit and Notes.** Right after
+  Perekey typed a word at the start of a sentence, macOS capitalized it
+  («привет» became «Привет»). Perekey then found the word changed, did
+  nothing, and Backspace after a fix erased only the space. Now the word is
+  recognized, and goes back with its capital letter («Ghbdtn»), as you saw it.
+  If the text before the caret really differs, Perekey still leaves it alone.
+
 - **Keys held during a fix are no longer delayed when another program marks
   its keys.** If a program that types or remaps keys (a keyboard tool, a
   remote desktop) put its own mark on them, the keys Perekey held back and

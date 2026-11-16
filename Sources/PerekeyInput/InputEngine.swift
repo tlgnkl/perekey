@@ -543,7 +543,8 @@ public final class InputEngine: @unchecked Sendable {
         }
     }
 
-    private func postIfPending(_ retype: Retype) {
+    private func postIfPending(_ original: Retype) {
+        var retype = original
         guard machine.pendingRetypeSeq == retype.seq else {
             log.error("Retype \(retype.seq, privacy: .public) arrived after its fence; not posted")
             // The buffer believes the word was retyped; it was not. No event
@@ -562,10 +563,13 @@ public final class InputEngine: @unchecked Sendable {
                 handle(.retypeCancelled(seq: retype.seq))
                 return
             }
+            // The app raised the first letter of the word: bring it back raised.
+            if verdict == .matchRaised { retype = retype.raisingFirstLetter() }
         }
         if retype.viaAccessibility, let textProbe {
-            textProbe.replaceSelection(with: retype.text) { [self] done in
-                perform { $0.replacedViaAccessibility(retype, done: done) }
+            let final = retype
+            textProbe.replaceSelection(with: final.text) { [self] done in
+                perform { $0.replacedViaAccessibility(final, done: done) }
             }
             return
         }

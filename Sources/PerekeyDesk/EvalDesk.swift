@@ -27,6 +27,11 @@ public struct EvalDesk: Sendable {
         public var catchUpGap = 0.05
         /// Slack of time comparisons: times are sums of decimal steps.
         public var epsilon = 1e-9
+        /// The app raises the first letter of a sentence as soon as a retype
+        /// has typed the word, as TextEdit and Notes do with their default
+        /// settings (macOS autocapitalization). Off: the field keeps the text
+        /// as typed. A retype asked for after that finds "Привет", not "привет".
+        public var autocapitalizes = false
 
         public init() {}
     }
@@ -134,6 +139,8 @@ public struct EvalDesk: Sendable {
         var retype: Retype
         /// The caret check failed when the retype was asked for.
         var mismatch: Bool
+        /// The check found the word with its first letter raised.
+        var raised = false
     }
 
     public let options: Options
@@ -481,9 +488,11 @@ public struct EvalDesk: Sendable {
     /// nothing and has nothing to compare; a blind field cannot be read.
     private mutating func checked(_ retype: Retype) -> CheckedRetype {
         requests[retype.seq] = event
-        let mismatch = fieldKind == .plain && retype.deleteCount > 0 && !retype.expected.isEmpty
-            && !field.textBeforeCaret(endsWith: retype.expected)
-        return CheckedRetype(retype: retype, mismatch: mismatch)
+        guard fieldKind == .plain, retype.deleteCount > 0, !retype.expected.isEmpty else {
+            return CheckedRetype(retype: retype, mismatch: false)
+        }
+        let match = field.match(before: retype.expected)
+        return CheckedRetype(retype: retype, mismatch: match == nil, raised: match == .firstLetterRaised)
     }
 
     /// `InputEngine.postIfPending`: a retype whose fence is gone is not
@@ -491,7 +500,7 @@ public struct EvalDesk: Sendable {
     /// retyped); a failed caret check cancels it; else Backspaces, the
     /// text, `retypePosted` and the synthetic keys back through the tap.
     private mutating func post(_ item: CheckedRetype) {
-        let retype = item.retype
+        var retype = item.retype
         guard machine.pendingRetypeSeq == retype.seq else {
             send(.inputLost)
             return
@@ -504,8 +513,11 @@ public struct EvalDesk: Sendable {
             send(.retypeCancelled(seq: retype.seq))
             return
         }
+        if item.raised { retype = retype.raisingFirstLetter() }
         field.deleteLeft(retype.deleteCount)
+        let start = field.caret
         field.insert(retype.text)
+        if options.autocapitalizes, startsSentence(at: start) { field.raiseLetter(at: start) }
         posted.append(Posted(event: cause, retype: retype))
         time += options.retypeStep
         send(.retypePosted(seq: retype.seq, time: time))
@@ -514,6 +526,14 @@ public struct EvalDesk: Sendable {
             time += options.ownKeyStep
             key(KeyEvent(.down, keyCode: 0, origin: .own(seq: retype.seq, last: index == count - 1)))
         }
+    }
+
+    /// Whether a sentence starts at `index`: the field's start, or after a
+    /// full stop, "!" or "?" and spaces.
+    private func startsSentence(at index: Int) -> Bool {
+        let before = field.characters[..<index].reversed().drop { $0 == " " }
+        guard let last = before.first else { return true }
+        return ".!?\n".contains(last)
     }
 
     /// The main thread and the app catch up, in order: a selection is read;

@@ -142,6 +142,10 @@ public final class TextProbe: Sendable {
 public enum CaretCheck {
     public enum Verdict: Hashable, Sendable {
         case match
+        /// The word is there, but the app raised its first letter (macOS
+        /// autocapitalization). The retype goes ahead and brings the word back
+        /// raised too (`Retype.raisingFirstLetter`).
+        case matchRaised
         case mismatch
         /// AX cannot tell: no permission, no answer within the timeout, or the
         /// app exposes no text. The retype goes ahead, as it would without the
@@ -162,7 +166,7 @@ public enum CaretCheck {
         let length = expected.utf16.count
         guard units.count >= length else { return .mismatch }
         let before = String(decoding: units[..<length], as: UTF16.self)
-        guard normalized(before) == normalized(expected) else { return .mismatch }
+        guard let match = CaretText.match(expected: expected, actual: before) else { return .mismatch }
         // The word ends in an opening bracket the app closed: one Backspace
         // erases the pair in some editors, only the opening one in others.
         if units.count > length, let last = expected.last, let closer = closing[last],
@@ -170,12 +174,7 @@ public enum CaretCheck {
         {
             return .mismatch
         }
-        return .match
-    }
-
-    /// Browsers turn a trailing space of contenteditable text into a no-break space.
-    private static func normalized(_ text: String) -> String {
-        text.replacingOccurrences(of: "\u{00A0}", with: " ")
+        return match == .exact ? .match : .matchRaised
     }
 }
 

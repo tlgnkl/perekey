@@ -122,6 +122,8 @@ import Testing
 
     @Test func autocorrectIsMismatch() {
         #expect(CaretCheck.verdict(expected: "teh ", around: "the ") == .mismatch)
+        #expect(CaretCheck.verdict(expected: "привет ", around: "Привет ") == .matchRaised, "macOS raised the first letter")
+        #expect(CaretCheck.verdict(expected: "привет ", around: "ПРивет ") == .mismatch)
         #expect(CaretCheck.verdict(expected: "ghbdtn", around: "ghb") == .mismatch, "shorter")
     }
 

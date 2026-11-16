@@ -24,6 +24,9 @@ struct Desk {
     var log: [Effect] = []
     /// Answer the next retypes with `.retypeCancelled`, as a failed caret check.
     var cancelRetypes = false
+    /// The app raises the first letter of the word a retype typed at the start
+    /// of a sentence, as TextEdit and Notes do with macOS autocapitalization.
+    var autocapitalizes = false
     /// Every event the machine handled and what it answered, while not nil:
     /// a session as the recorder writes it (`SessionStep`).
     var tape: [SessionStep]?
@@ -157,15 +160,22 @@ struct Desk {
     mutating func settle() {
         while selected != nil || !retypes.isEmpty {
             if !retypes.isEmpty {
-                let retype = retypes.removeFirst()
+                var retype = retypes.removeFirst()
                 // The engine drops a retype whose fence is gone.
                 guard machine.pendingRetypeSeq == retype.seq else { continue }
-                if cancelRetypes || !text.hasSuffix(retype.expected) {
+                let before = String(text.suffix(retype.expected.count))
+                guard !cancelRetypes, let match = CaretText.match(expected: retype.expected, actual: before) else {
                     send(.retypeCancelled(seq: retype.seq))
                     continue
                 }
+                if match == .firstLetterRaised { retype = retype.raisingFirstLetter() }
                 text.removeLast(retype.deleteCount)
+                let start = text.count
                 text += retype.text
+                if autocapitalizes, startsSentence(at: start), let first = text.dropFirst(start).first {
+                    text.replaceSubrange(text.index(text.startIndex, offsetBy: start)...text.index(text.startIndex, offsetBy: start),
+                                         with: String(first).uppercased())
+                }
                 time += 0.001
                 send(.retypePosted(seq: retype.seq, time: time))
                 let count = retype.deleteCount + retype.keys.count
@@ -180,6 +190,12 @@ struct Desk {
                 send(.layoutChanged(id))
             }
         }
+    }
+
+    private func startsSentence(at index: Int) -> Bool {
+        let last = text.prefix(index).reversed().first { $0 != " " }
+        guard let last else { return true }
+        return ".!?\n".contains(last)
     }
 
     /// Presses and releases a key the way a person does.

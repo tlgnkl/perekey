@@ -84,8 +84,8 @@ public final class TextProbe: Sendable {
 
     /// Whether `checkBeforeCaret` can tell a match from a mismatch in this
     /// element: its app is not one whose AX text lags, and it reports a
-    /// caret. Asked at focus, so the machine knows before a retype is planned
-    /// (`Focus.caretReadable`); an answer that changes later is the check's.
+    /// caret and gives its text. Asked at focus, so the machine knows before a
+    /// retype is planned (`Focus.caretReadable`); an answer that changes later is the check's.
     static func canReadCaretText(of element: AXUIElement) -> Bool {
         var pid: pid_t = 0
         if AXUIElementGetPid(element, &pid) == .success, LaggingAXApps.contains(pid: pid) { return false }
@@ -93,6 +93,14 @@ public final class TextProbe: Sendable {
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue)
             == .success, let rangeValue, CFGetTypeID(rangeValue) == AXValueGetTypeID()
         else { return false }
+        // A caret with no text behind it (a custom view, a canvas) leaves the
+        // check `.unavailable` at the retype, and the retype goes ahead blind.
+        // The check reads the text by range, or whole from `kAXValue`: an
+        // element with neither reads as blind.
+        var textValue: CFTypeRef?
+        let hasValue = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &textValue) == .success
+            && textValue is String
+        guard hasValue || string(of: element, in: CFRange(location: 0, length: 0)) != nil else { return false }
         return true
     }
 

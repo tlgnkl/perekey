@@ -1252,9 +1252,10 @@ struct WordJudge: Sendable {
                                  layouts: LayoutState, settings: Settings, focus: Focus?)
     {
         let limit = min(kept, auto.classifier.options.shortWordsCarried)
-        // Where the caret check cannot read the text, the retype would erase
-        // the words before blind: only the word itself is retyped.
-        guard limit > 0, focus?.caretReadable != false else { return }
+        // Where the caret check cannot read the text, or the focus is not
+        // known at all, the retype would erase the words before blind: only
+        // the word itself is retyped.
+        guard limit > 0, let known = focus, known.caretReadable else { return }
         var carried = 0
         for back in 1...limit {
             guard let word = buffer.word(back: back), word.count >= 2, let gap = word.last, gap.isSpace,

@@ -50,6 +50,21 @@ import Testing
         #expect(decide(on, "z", after: "en", startsSentence: true) == .switch(to: russian.id))
     }
 
+    @Test func theKeepRankIsTheBoundaryOfTheGuard() {
+        // "d" one rank below the bar goes to "в" after an English sentence, one at it stays: the fixtures of 60 and
+        // 100 are far from the bar, these two are next to it.
+        func model(rank: Int) -> LanguageModel {
+            ModelFixture.model(withEnglishWords: [("d", UInt8(rank))], russianPairs: [])
+        }
+        var options = Classifier.Options()
+        options.shortWordSentenceStart = true
+        let bar = Classifier.sentenceStartKeepRank
+        let below = Classifier(model: model(rank: bar - 1), options: options)
+        let at = Classifier(model: model(rank: bar), options: options)
+        #expect(decide(below, "d", after: "en", startsSentence: true) == .switch(to: russian.id))
+        #expect(decide(at, "d", after: "en", startsSentence: true) == .keep)
+    }
+
     @Test func atASentenceStartTheOtherLanguageNoLongerLowersTheBar() {
         // After a Russian word "yt" goes to "не" by the rank alone; at a sentence start it needs a unit of Zipf.
         #expect(decide(classifier(sentenceStart: true), "yt", after: "ru", startsSentence: false)
@@ -100,6 +115,13 @@ import Testing
         options.shortWordSentenceStart = sentenceStart
         options.shortWordsCarried = carried
         return Desk(settings, classifier: Classifier(model: Self.model, options: options))
+    }
+
+    /// The same machine with no focus event: the focus is unknown.
+    static func deskWithoutFocus() -> Desk {
+        var options = Classifier.Options()
+        options.personalNoiseCost = .infinity
+        return Desk(Settings(), classifier: Classifier(model: Self.model, options: options), focus: nil)
     }
 
     static func typed(_ text: String, sentenceStart: Bool = true, carried: Int = 2) -> String {
@@ -271,6 +293,22 @@ import Testing
         inside.type("hello d ghbdtn ")
         #expect(inside.text == "hello d привет ")
         #expect(inside.corrections.allSatisfy { $0.carried == 0 })
+    }
+
+    @Test func anUnknownFocusCarriesNothingAndAKnownOneKeepsTheCarry() throws {
+        // No focus at all: the machine does not switch on its own, and so carries nothing (the guard in
+        // `carryShortWords` is the second wall, should a caller get past the first).
+        var none = ShortWordMachineTests.deskWithoutFocus()
+        none.type("hello d vbh ")
+        #expect(none.text == "hello d vbh " && none.history.isEmpty)
+        // Where the focus is known and readable (TextEdit, Safari) the product carries as before.
+        for bundle in ["com.apple.TextEdit", "com.apple.Safari"] {
+            var desk = ShortWordMachineTests.desk()
+            desk.send(.focusChanged(Focus(bundleID: bundle)))
+            desk.type("hello d vbh ")
+            #expect(desk.text == "hello в мир ", "\(bundle)")
+            #expect(try #require(desk.history.last).expected == "d vbh", "\(bundle)")
+        }
     }
 
     @Test func theFocusOfASessionWithoutTheFlagReadsAsReadable() throws {

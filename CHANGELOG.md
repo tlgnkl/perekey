@@ -76,7 +76,7 @@ differently, what was fixed.
   After a sentence in the same language a frequent short word that is right as
   typed («to», «a», «I», «vs») is never taken for a slip. In apps where Perekey
   cannot read the text before the caret (Chromium and Electron apps, Telegram,
-  terminals) only the last word is retyped, as before.
+  views with a caret but no text) only the last word is retyped, as before.
   Session files now always name these two classifier options; a file recorded
   before them replays with both off.
 

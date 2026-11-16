@@ -165,6 +165,8 @@ extension Console {
                 + String(format: "%7d cases %8d tokens  dev %6d  test %6d", stats.cases, stats.tokens, stats.dev, stats.test)
                 + (stats.errors.map { "  slips \($0)" } ?? "")
                 + (stats.shortfall > 0 ? "  short \(stats.shortfall)" : "")
+                // A unit with no warm-up sentence of its own script (`clean.same`) is dropped: a poor pool shows here.
+                + ((stats.drops["noWarmup"] ?? 0) > 0 ? "  no warm-up \(stats.drops["noWarmup"] ?? 0)" : "")
         }
         return line
     }

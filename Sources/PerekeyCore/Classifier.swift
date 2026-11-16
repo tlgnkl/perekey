@@ -668,9 +668,10 @@ public struct Classifier: Sendable {
     static let shortWordLetters = 2
     /// The rank from which the typed reading of a short word at a sentence
     /// start, after a sentence in its own language, stays whatever the other
-    /// reading is (Zipf 3, the lowest of `class.short`). Chosen on
-    /// `class.short.same` against 32 and 64 more of margin and against a
-    /// guard of any known word (docs/classifier.md, «Короткие слова»).
+    /// reading is (Zipf 3, the lowest of `class.short`). Checked on sets the
+    /// bar never saw (words of Zipf 2,5–3, other sentences) against 64 to 128:
+    /// lower keeps more wrong-layout words as typed, for a harm that weighs
+    /// next to nothing (docs/classifier.md, «Короткие слова»).
     static let sentenceStartKeepRank = 96
 
     /// Strokes up to the last one that is not a space.

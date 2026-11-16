@@ -153,7 +153,9 @@ public struct RecordingBuffer {
     /// What the recording is doing now.
     public var status: TypingRecordingStatus {
         switch state {
-        case .open: .recording
+        // An open segment that records a gap (password field, Secure Input,
+        // unknown focus) writes no typing: the badge must not say it does.
+        case .open: blocked == nil ? .recording : .waiting
         case .starting: .waiting
         case let .closed(reason): reason == .writeFailed ? .failed : .waiting
         }

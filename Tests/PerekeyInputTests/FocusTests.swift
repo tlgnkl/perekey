@@ -226,6 +226,84 @@ struct FocusTrackerTests {
         #expect(tracker.read(9, focus: known, at: 2).publication == .init(focus: known, change: .moved))
     }
 
+    @Test func secondElementRightAfterTheSwitchIsTheSamePlace() {
+        // TextEdit: a container is named first, the text view 50-125 ms later.
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        // Same kind of field: nothing new to publish, the word stays.
+        let second = tracker.notified(8, focus: known, at: 0.03 + 0.125)
+        #expect(second.publication == nil)
+        // Only the first one: the next element is a new place again.
+        #expect(tracker.notified(9, focus: known, at: 0.2).publication == .init(focus: known, change: .moved))
+    }
+
+    @Test func secondElementAfterTheWindowIsAMove() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        let second = tracker.notified(8, focus: known, at: 0.03 + Tracker.settleWindow + 0.01)
+        #expect(second.publication == .init(focus: known, change: .moved))
+    }
+
+    @Test func passwordFieldRightAfterTheSwitchIsAMove() {
+        let secure = Focus(bundleID: app, isSecureField: true)
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        #expect(tracker.notified(8, focus: secure, at: 0.08).publication == .init(focus: secure, change: .moved))
+    }
+
+    @Test func plainFieldRightAfterAPasswordFieldIsAMove() {
+        let secure = Focus(bundleID: app, isSecureField: true)
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: secure, at: 0.03)
+        #expect(tracker.notified(8, focus: known, at: 0.08).publication == .init(focus: known, change: .moved))
+    }
+
+    @Test func rereadOfTheSameAppClosesTheWindow() {
+        // `refresh()` after Secure Input ended: the next other element is a new place.
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        // A reread from scratch (no observer): the known focus is dropped and
+        // named again; the window of the switch is gone with it.
+        #expect(tracker.activated(unknown, switched: false, at: 0.05) == .init(focus: unknown, change: .moved))
+        #expect(tracker.read(8, focus: known, at: 0.06).publication == .init(focus: known, change: .resolved))
+        #expect(tracker.notified(9, focus: known, at: 0.08).publication == .init(focus: known, change: .moved))
+        var viaObserver = Tracker()
+        _ = viaObserver.activated(unknown, switched: true, at: 0)
+        _ = viaObserver.read(7, focus: known, at: 0.03)
+        viaObserver.refreshed()
+        #expect(viaObserver.notified(8, focus: known, at: 0.06).publication == .init(focus: known, change: .moved))
+    }
+
+    @Test func tabOrClickAfterTheWindowIsANewPlace() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        let later = 0.03 + Tracker.settleWindow + 0.01
+        #expect(tracker.notified(8, focus: known, at: later).publication == .init(focus: known, change: .moved))
+    }
+
+    @Test func movingBeforeTheWindowEndsClosesIt() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        _ = tracker.notified(8, focus: known, at: 0.1)
+        #expect(tracker.notified(9, focus: known, at: 0.12).publication?.change == .moved)
+    }
+
+    @Test func windowDoesNotCarryOverASwitch() {
+        var tracker = Tracker()
+        _ = tracker.activated(unknown, switched: true, at: 0)
+        _ = tracker.read(7, focus: known, at: 0.03)
+        _ = tracker.activated(unknown, switched: true, at: 1)
+        _ = tracker.read(1, focus: known, at: 1.5)
+        #expect(tracker.notified(2, focus: known, at: 1.5 + Tracker.settleWindow + 0.1).publication?.change == .moved)
+    }
+
     @Test func unreadableKindKeepsRetrying() {
         var tracker = Tracker()
         _ = tracker.activated(unknown, switched: true, at: 0)
